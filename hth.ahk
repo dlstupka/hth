@@ -5,10 +5,10 @@
 ; SETTINGS
 ; ============================================================
 
-LEFT_CROP   := 0.28   ; keep a generous black border on the left
-RIGHT_CROP  := 0.06   ; keep a small black border on the right
-TOP_CROP    := 0.02   ; keep a small top border
-BOTTOM_CROP := 0.18   ; keep the lower border for page movement tolerance
+LEFT_CROP   := 0.435   ; keep a generous black border on the left
+RIGHT_CROP  := 0.125   ; keep a small black border on the right
+TOP_CROP    := 0.035   ; keep a small top border
+BOTTOM_CROP := 0.335   ; keep the lower border for page movement tolerance
 
 PAGE_LOAD_DELAY := 4000   ; FamilySearch page-load delay in milliseconds
 
