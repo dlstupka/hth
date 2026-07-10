@@ -1,14 +1,14 @@
-﻿#Requires AutoHotkey v2.0
+#Requires AutoHotkey v2.0
 #SingleInstance Force
 
 ; ============================================================
 ; SETTINGS
 ; ============================================================
 
-LEFT_CROP   := 0.20   ; remove 20% from left
-RIGHT_CROP  := 0.20   ; remove 20% from right
-TOP_CROP    := 0.05   ; remove 5% from top
-BOTTOM_CROP := 0.01   ; remove 1% from bottom
+LEFT_CROP   := 0.20   ; remove 20% from the FamilySearch window's left side
+RIGHT_CROP  := 0.20   ; remove 20% from the FamilySearch window's right side
+TOP_CROP    := 0.05   ; remove 5% from the top
+BOTTOM_CROP := 0.01   ; remove 1% from the bottom
 
 PAGE_LOAD_DELAY := 4000   ; FamilySearch page-load delay in milliseconds
 
@@ -21,8 +21,74 @@ familySearchHwnd := 0
 wordHwnd := 0
 
 ; ============================================================
-; F8 — SET CAPTURE COUNT
-; Press F8 while FamilySearch is the active window.
+; F6 — REGISTER MICROSOFT WORD
+; Activate Word first, then press F6.
+; ============================================================
+
+F6:: {
+    global wordHwnd
+
+    hwnd := WinExist("A")
+
+    if (!hwnd) {
+        MsgBox("Could not identify the active window.")
+        return
+    }
+
+    processName := WinGetProcessName("ahk_id " hwnd)
+
+    if (StrLower(processName) != "winword.exe") {
+        MsgBox(
+            "The active window is not Microsoft Word."
+            . "`nActive program: " processName
+        )
+        return
+    }
+
+    wordHwnd := hwnd
+
+    ShowStatus(
+        "Word registered"
+        . "`n" WinGetTitle("ahk_id " wordHwnd)
+    )
+}
+
+; ============================================================
+; F7 — REGISTER FAMILYSEARCH
+; Activate the FamilySearch browser window first, then press F7.
+; ============================================================
+
+F7:: {
+    global familySearchHwnd
+
+    hwnd := WinExist("A")
+
+    if (!hwnd) {
+        MsgBox("Could not identify the active window.")
+        return
+    }
+
+    processName := StrLower(WinGetProcessName("ahk_id " hwnd))
+
+    ; Prevent Word from accidentally being registered as FamilySearch.
+    if (processName = "winword.exe") {
+        MsgBox(
+            "Microsoft Word is active."
+            . "`nActivate the FamilySearch browser window, then press F7."
+        )
+        return
+    }
+
+    familySearchHwnd := hwnd
+
+    ShowStatus(
+        "FamilySearch registered"
+        . "`n" WinGetTitle("ahk_id " familySearchHwnd)
+    )
+}
+
+; ============================================================
+; F8 — SET NUMBER OF CAPTURES
 ; ============================================================
 
 F8:: {
@@ -35,19 +101,19 @@ F8:: {
         return
     }
 
-    ; Remember the active FamilySearch browser window.
-    familySearchHwnd := WinExist("A")
-
-    if (!familySearchHwnd) {
-        MsgBox("Could not identify the active FamilySearch window.")
+    if (!wordHwnd || !WinExist("ahk_id " wordHwnd)) {
+        MsgBox(
+            "Word has not been registered."
+            . "`nActivate Word and press F6."
+        )
         return
     }
 
-    ; Find Microsoft Word.
-    wordHwnd := WinExist("ahk_exe WINWORD.EXE")
-
-    if (!wordHwnd) {
-        MsgBox("Microsoft Word is not open.")
+    if (!familySearchHwnd || !WinExist("ahk_id " familySearchHwnd)) {
+        MsgBox(
+            "FamilySearch has not been registered."
+            . "`nActivate FamilySearch and press F7."
+        )
         return
     }
 
@@ -55,7 +121,7 @@ F8:: {
         "Enter the number of FamilySearch images to capture:",
         "Set Capture Count",
         "w370 h145",
-        "10"
+        "3"
     )
 
     if (result.Result != "OK")
@@ -72,11 +138,11 @@ F8:: {
     completedIterations := 0
     running := false
 
-    ; Return focus to FamilySearch after the dialog closes.
+    ; Return to FamilySearch after the InputBox closes.
     WinActivate("ahk_id " familySearchHwnd)
 
     if !WinWaitActive("ahk_id " familySearchHwnd, , 3) {
-        MsgBox("Could not reactivate the FamilySearch window.")
+        MsgBox("Could not activate FamilySearch.")
         return
     }
 
@@ -94,7 +160,7 @@ F10:: {
     global running, batchActive, targetIterations
 
     if (targetIterations < 1) {
-        MsgBox("Press F8 first and enter the capture count.")
+        MsgBox("Press F8 and enter the capture count first.")
         return
     }
 
@@ -153,29 +219,41 @@ RunBatch() {
 
         current := completedIterations + 1
 
+        ; Verify that both registered windows still exist.
+        if (!WinExist("ahk_id " familySearchHwnd)) {
+            StopWithError("The registered FamilySearch window no longer exists.")
+            return
+        }
+
+        if (!WinExist("ahk_id " wordHwnd)) {
+            StopWithError("The registered Word window no longer exists.")
+            return
+        }
+
         ShowStatus(
             "Capturing " current " of " targetIterations
             . "`nRemaining: "
             . (targetIterations - completedIterations)
         )
 
-        ; Activate FamilySearch explicitly.
+        ; Bring FamilySearch forward before capturing.
         WinActivate("ahk_id " familySearchHwnd)
 
         if !WinWaitActive("ahk_id " familySearchHwnd, , 3) {
-            StopWithError("Could not activate the FamilySearch window.")
+            StopWithError("Could not activate FamilySearch.")
             return
         }
 
-        Sleep(300)
+        Sleep(500)
 
-        ; Capture the configured screen rectangle to the clipboard.
-        if !CaptureFamilySearchArea() {
-            StopWithError("Screen capture failed at capture " current ".")
+        ; Capture a percentage-based rectangle within the actual
+        ; FamilySearch window, even if it is on another monitor.
+        if !CaptureFamilySearchWindowArea() {
+            StopWithError("Capture failed at iteration " current ".")
             return
         }
 
-        ; Activate Word explicitly.
+        ; Bring Word forward.
         WinActivate("ahk_id " wordHwnd)
 
         if !WinWaitActive("ahk_id " wordHwnd, , 3) {
@@ -183,15 +261,14 @@ RunBatch() {
             return
         }
 
-        ; Paste the screenshot.
+        ; Paste the bitmap and start a fresh Word page.
         Send("^v")
         Sleep(1200)
 
-        ; Put the next screenshot on a fresh Word page.
         Send("^{Enter}")
         Sleep(500)
 
-        ; Return to FamilySearch explicitly.
+        ; Return to FamilySearch and advance one image.
         WinActivate("ahk_id " familySearchHwnd)
 
         if !WinWaitActive("ahk_id " familySearchHwnd, , 3) {
@@ -199,14 +276,12 @@ RunBatch() {
             return
         }
 
-        Sleep(300)
-
-        ; Advance to the next FamilySearch image.
+        Sleep(400)
         Send("{Right}")
 
         completedIterations += 1
 
-        ; Wait for the next FamilySearch image to render.
+        ; Wait for the next image to render.
         Sleep(PAGE_LOAD_DELAY)
     }
 
@@ -224,22 +299,39 @@ RunBatch() {
 }
 
 ; ============================================================
-; CALCULATE THE SCREEN CAPTURE RECTANGLE
+; CALCULATE CROP FROM THE FAMILYSEARCH WINDOW
 ; ============================================================
 
-CaptureFamilySearchArea() {
+CaptureFamilySearchWindowArea() {
+    global familySearchHwnd
     global LEFT_CROP, RIGHT_CROP
     global TOP_CROP, BOTTOM_CROP
 
-    x := Round(A_ScreenWidth * LEFT_CROP)
-    y := Round(A_ScreenHeight * TOP_CROP)
+    try {
+        WinGetPos(
+            &windowX,
+            &windowY,
+            &windowWidth,
+            &windowHeight,
+            "ahk_id " familySearchHwnd
+        )
+    }
+    catch {
+        return false
+    }
+
+    if (windowWidth <= 0 || windowHeight <= 0)
+        return false
+
+    x := windowX + Round(windowWidth * LEFT_CROP)
+    y := windowY + Round(windowHeight * TOP_CROP)
 
     width := Round(
-        A_ScreenWidth * (1 - LEFT_CROP - RIGHT_CROP)
+        windowWidth * (1 - LEFT_CROP - RIGHT_CROP)
     )
 
     height := Round(
-        A_ScreenHeight * (1 - TOP_CROP - BOTTOM_CROP)
+        windowHeight * (1 - TOP_CROP - BOTTOM_CROP)
     )
 
     return CaptureRectangleToClipboard(x, y, width, height)
@@ -265,7 +357,7 @@ CaptureRectangleToClipboard(x, y, width, height) {
     clipboardOwnsBitmap := false
 
     try {
-        ; Get the desktop screen device context.
+        ; Get the desktop device context.
         hdcScreen := DllCall(
             "User32\GetDC",
             "Ptr", 0,
@@ -275,7 +367,7 @@ CaptureRectangleToClipboard(x, y, width, height) {
         if (!hdcScreen)
             throw Error("GetDC failed.")
 
-        ; Create a memory device context.
+        ; Create a compatible in-memory device context.
         hdcMemory := DllCall(
             "Gdi32\CreateCompatibleDC",
             "Ptr", hdcScreen,
@@ -285,7 +377,7 @@ CaptureRectangleToClipboard(x, y, width, height) {
         if (!hdcMemory)
             throw Error("CreateCompatibleDC failed.")
 
-        ; Create a bitmap for the selected rectangle.
+        ; Create the destination bitmap.
         hBitmap := DllCall(
             "Gdi32\CreateCompatibleBitmap",
             "Ptr", hdcScreen,
@@ -308,7 +400,7 @@ CaptureRectangleToClipboard(x, y, width, height) {
         if (!hOldBitmap)
             throw Error("SelectObject failed.")
 
-        ; Copy the selected screen area into the bitmap.
+        ; Copy the selected screen rectangle into the bitmap.
         success := DllCall(
             "Gdi32\BitBlt",
             "Ptr", hdcMemory,
@@ -333,10 +425,10 @@ CaptureRectangleToClipboard(x, y, width, height) {
             "Ptr", hOldBitmap,
             "Ptr"
         )
-
         hOldBitmap := 0
 
-        ; Retry opening the clipboard.
+        ; Retry opening the clipboard because Word or the browser
+        ; can briefly have it locked.
         Loop 10 {
             clipboardOpened := DllCall(
                 "User32\OpenClipboard",
@@ -356,17 +448,17 @@ CaptureRectangleToClipboard(x, y, width, height) {
         if !DllCall("User32\EmptyClipboard", "Int")
             throw Error("EmptyClipboard failed.")
 
-        clipboardResult := DllCall(
+        result := DllCall(
             "User32\SetClipboardData",
             "UInt", CF_BITMAP,
             "Ptr", hBitmap,
             "Ptr"
         )
 
-        if (!clipboardResult)
+        if (!result)
             throw Error("SetClipboardData failed.")
 
-        ; Windows owns the bitmap after SetClipboardData succeeds.
+        ; Windows owns hBitmap after SetClipboardData succeeds.
         clipboardOwnsBitmap := true
         hBitmap := 0
 
