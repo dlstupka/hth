@@ -1,14 +1,14 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #SingleInstance Force
 
 ; ============================================================
 ; SETTINGS
 ; ============================================================
 
-LEFT_CROP   := 0.32   ; remove 20% from the FamilySearch window's left side
-RIGHT_CROP  := 0.04   ; remove 20% from the FamilySearch window's right side
-TOP_CROP    := 0.03   ; remove 5% from the top
-BOTTOM_CROP := 0.30   ; remove 1% from the bottom
+LEFT_CROP   := 0.28   ; keep a generous black border on the left
+RIGHT_CROP  := 0.06   ; keep a small black border on the right
+TOP_CROP    := 0.02   ; keep a small top border
+BOTTOM_CROP := 0.18   ; keep the lower border for page movement tolerance
 
 PAGE_LOAD_DELAY := 4000   ; FamilySearch page-load delay in milliseconds
 
