@@ -5,10 +5,10 @@
 ; SETTINGS
 ; ============================================================
 
-LEFT_CROP   := 0.20   ; remove 20% from the FamilySearch window's left side
-RIGHT_CROP  := 0.20   ; remove 20% from the FamilySearch window's right side
-TOP_CROP    := 0.05   ; remove 5% from the top
-BOTTOM_CROP := 0.01   ; remove 1% from the bottom
+LEFT_CROP   := 0.32   ; remove 20% from the FamilySearch window's left side
+RIGHT_CROP  := 0.04   ; remove 20% from the FamilySearch window's right side
+TOP_CROP    := 0.03   ; remove 5% from the top
+BOTTOM_CROP := 0.30   ; remove 1% from the bottom
 
 PAGE_LOAD_DELAY := 4000   ; FamilySearch page-load delay in milliseconds
 
