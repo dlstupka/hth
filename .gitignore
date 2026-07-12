@@ -1,5 +1,24 @@
+# Python
 .venv/
-*.exe
 __pycache__/
 *.py[cod]
+
+# Build products
 build/
+cache/
+working/
+
+# Local binaries
+*.exe
+*.dll
+
+# Local Office documents
+*.docx
+*.doc
+*.pdf
+
+# Temporary files
+*.tmp
+*.bak
+Thumbs.db
+.DS_Store
