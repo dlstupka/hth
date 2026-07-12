@@ -27,10 +27,32 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - name: Run preprocessor
         run: |
-          python hth/preprocess.py             --input data/source             --output build/preprocessed             --config config/preprocess.json             --derive             --contact-sheets             --overwrite
-      - uses: actions/upload-artifact@v4
+          python hth/preprocess.py \
+            --input data/source \
+            --output build/preprocessed \
+            --config config/preprocess.json \
+            --derive \
+            --contact-sheets \
+            --overwrite
+
+      - name: Write no-source summary
+        if: ${{ hashFiles('build/preprocessed/**') == '' }}
+        shell: bash
+        run: |
+          {
+            echo "## HTH preprocessing completed — no source documents"
+            echo
+            echo "No DOCX files were found beneath \`data/source/\`."
+            echo
+            echo "No preprocessing artifact was generated."
+            echo
+            echo "[Read the repository layout and usage instructions](https://github.com/dlstupka/hth#readme)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload preprocessing result
+        if: ${{ hashFiles('build/preprocessed/**') != '' }}
+        uses: actions/upload-artifact@v4
         with:
           name: hth-preprocessed-${{ github.sha }}
           path: build/preprocessed
-          if-no-files-found: error
           retention-days: 30
