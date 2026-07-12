@@ -229,14 +229,30 @@ def main():
         next_global = int(cfg["global_start"])
         for doc in docs:
             override = cfg["source_overrides"].get(doc.name, {})
-            images = list(ordered_images(doc))
+            
+            embedded_images = list(ordered_images(doc))
+
             skip_first = int(override.get("skip_first", 0))
             skip_last = int(override.get("skip_last", 0))
+
             if "global_start" in override:
                 next_global = int(override["global_start"])
-            end = len(images)-skip_last if skip_last else len(images)
-            chosen = images[skip_first:end]
-            logging.info("%s: %d embedded, %d selected", doc.name, len(images), len(chosen))
+
+            end = (
+                len(embedded_images) - skip_last
+                if skip_last
+                else len(embedded_images)
+            )
+
+            chosen = embedded_images[skip_first:end]
+
+            logging.info(
+                "%s: %d embedded, %d selected",
+                doc.name,
+                len(embedded_images),
+                len(chosen),
+            )
+
             for n, (rid, media, data) in enumerate(chosen, start=skip_first+1):
                 fmt, w, h, mode = image_info(data)
                 raw_rel = Path("raw") / f"fs_{next_global:04d}{extension(fmt)}"
@@ -309,28 +325,6 @@ def main():
             "contact_sheets": args.contact_sheets,
         }, indent=2), encoding="utf-8")
 
-        embedded_images = list(ordered_images(doc))
-
-        skip_first = int(override.get("skip_first", 0))
-        skip_last = int(override.get("skip_last", 0))
-
-        if "global_start" in override:
-            next_global = int(override["global_start"])
-
-        end = (
-            len(embedded_images) - skip_last
-            if skip_last
-            else len(embedded_images)
-        )
-
-        chosen = embedded_images[skip_first:end]
-
-        logging.info(
-            "%s: %d embedded, %d selected",
-            doc.name,
-            len(embedded_images),
-            len(chosen),
-        )
         return 0
 
     finally:
