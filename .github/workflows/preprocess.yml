@@ -1,0 +1,36 @@
+name: HTH preprocess DOCX masters
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "tools/preprocess.py"
+      - "config/preprocess.json"
+      - "data/source/**/*.docx"
+      - "requirements.txt"
+      - ".github/workflows/preprocess.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  preprocess:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Run preprocessor
+        run: |
+          python tools/preprocess.py             --input data/source             --output build/preprocessed             --config config/preprocess.json             --derive             --contact-sheets             --overwrite
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hth-preprocessed-${{ github.sha }}
+          path: build/preprocessed
+          if-no-files-found: error
+          retention-days: 30

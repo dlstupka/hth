@@ -1,0 +1,33 @@
+{
+  "collection_id": "HTH-0001",
+  "collection_title": "Baptisms: San Antonio. Baptism Records 1788\u20131824, 1858\u20131898",
+  "global_start": 1,
+  "derive": {
+    "grayscale": true,
+    "autocontrast_cutoff": 0.5,
+    "sharpen_factor": 1.0
+  },
+  "thumbnails": {
+    "max_width": 420,
+    "max_height": 320,
+    "jpeg_quality": 88
+  },
+  "contact_sheets": {
+    "columns": 4,
+    "rows": 5,
+    "cell_width": 480,
+    "cell_height": 380,
+    "margin": 20
+  },
+  "source_overrides": {
+    "EXAMPLE_p1-6_v2.docx": {
+      "global_start": 1,
+      "label": "Preferred replacement capture for FS 1-6"
+    },
+    "EXAMPLE_p1-64.docx": {
+      "skip_first": 6,
+      "global_start": 7,
+      "label": "Use FS 7-64; FS 1-6 replaced"
+    }
+  }
+}
