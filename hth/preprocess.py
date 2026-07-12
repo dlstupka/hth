@@ -169,6 +169,15 @@ def write_csv(records, path: Path):
         for r in records:
             w.writerow(asdict(r))
 
+def preprocess_summary():
+    print("\n========== SUMMARY ==========")
+    print(f"DOCX found      : {docs_found}")
+    print(f"Converted       : {converted}")
+    print(f"Images extracted: {images}")
+    print(f"OCR performed   : {ocr_count}")
+    print(f"Errors          : {errors}")
+    print("=============================")
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--input", type=Path, default=Path("data/source"))
@@ -280,6 +289,7 @@ def main():
         "contact_sheets": args.contact_sheets,
     }, indent=2), encoding="utf-8")
 
+    preprocess_summary()
     logging.info("Done: %d images -> %s", len(records), args.output)
 
 if __name__ == "__main__":
