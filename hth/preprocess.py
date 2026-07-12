@@ -168,13 +168,13 @@ def write_csv(records, path: Path):
         w.writeheader()
         for r in records:
             w.writerow(asdict(r))
-
+            
 def preprocess_summary(
-    docs_found: int,
-    converted: int,
-    images: int,
-    ocr_count: int,
-    errors: int,
+    docs_found: int,   # DOCX files discovered
+    converted: int,    # DOCX files successfully processed
+    images: int,       # images extracted
+    ocr_count: int,    # currently zero because OCR is not implemented here
+    errors: int,       # currently zero unless you explicitly increment it
 ) -> None:
     print("\n========== SUMMARY ==========")
     print(f"DOCX found      : {docs_found}")
@@ -266,8 +266,11 @@ def main():
                     thumbnail_file=thumb_rel.as_posix(),
                     research_notes=override.get("label", ""),
                 ))
-                next_global += 1
+               images += 1
+               next_global += 1
 
+            converted += 1
+    
         groups = defaultdict(list)
         for r in records:
             groups[r.sha256].append(r)
@@ -306,12 +309,27 @@ def main():
             "contact_sheets": args.contact_sheets,
         }, indent=2), encoding="utf-8")
 
+        embedded_images = list(ordered_images(doc))
+
+        skip_first = int(override.get("skip_first", 0))
+        skip_last = int(override.get("skip_last", 0))
+
+        if "global_start" in override:
+            next_global = int(override["global_start"])
+
+        end = (
+            len(embedded_images) - skip_last
+            if skip_last
+            else len(embedded_images)
+        )
+
+        chosen = embedded_images[skip_first:end]
+
         logging.info(
-            "Processed %d DOCX, %d images, %d OCR, %d errors",
-            docs_found,
-            images,
-            ocr_count,
-            errors,
+            "%s: %d embedded, %d selected",
+            doc.name,
+            len(embedded_images),
+            len(chosen),
         )
         return 0
 
