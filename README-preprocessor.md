@@ -40,7 +40,7 @@ py -3.12 -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 
-python tools\preprocess.py `
+python hth\preprocess.py `
   --input data\source `
   --output build\preprocessed `
   --config config\preprocess.json `
