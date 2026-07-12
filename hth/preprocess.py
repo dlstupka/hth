@@ -266,9 +266,9 @@ def main():
                     thumbnail_file=thumb_rel.as_posix(),
                     research_notes=override.get("label", ""),
                 ))
-               images += 1
-               next_global += 1
-
+                images += 1
+                next_global += 1
+                
             converted += 1
     
         groups = defaultdict(list)
