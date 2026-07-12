@@ -169,7 +169,13 @@ def write_csv(records, path: Path):
         for r in records:
             w.writerow(asdict(r))
 
-def preprocess_summary():
+def preprocess_summary(
+    docs_found: int,
+    converted: int,
+    images: int,
+    ocr_count: int,
+    errors: int,
+) -> None:
     print("\n========== SUMMARY ==========")
     print(f"DOCX found      : {docs_found}")
     print(f"Converted       : {converted}")
@@ -177,7 +183,7 @@ def preprocess_summary():
     print(f"OCR performed   : {ocr_count}")
     print(f"Errors          : {errors}")
     print("=============================")
-
+    
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--input", type=Path, default=Path("data/source"))
@@ -187,17 +193,33 @@ def main():
     p.add_argument("--contact-sheets", action="store_true")
     p.add_argument("--overwrite", action="store_true")
     args = p.parse_args()
+    docs_found = 0
+    converted = 0
+    images = 0
+    ocr_count = 0
+    errors = 0
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     cfg = load_config(args.config)
     docs = discover_docx(args.input)
 
+    docs_found = len(docs)
+
     if not docs:
-        print(f"No DOCX files found beneath {args.input}")
+        print("No DOCX files found beneath", args.input)
         print("This repository currently contains no source collection.")
         print("See the repository README for layout and usage instructions.")
-        return 0
 
+        preprocess_summary(
+            docs_found=docs_found,
+            converted=converted,
+            images=images,
+            ocr_count=ocr_count,
+            errors=errors,
+        )
+        logging.info("Done: %d images -> %s", len(records), args.output)
+        return 0
+    
     # normal preprocessing continues here
     if args.output.exists():
         if not args.overwrite:
