@@ -79,8 +79,6 @@ def discover_docx(path: Path) -> list[Path]:
     if path.is_file():
         return [path]
     files = sorted(path.rglob("*.docx"), key=lambda p: natural_key(p.name))
-    if not files:
-        raise FileNotFoundError(f"No DOCX files found beneath {path}")
     return files
 
 def rel_map(z: zipfile.ZipFile) -> dict[str, str]:
@@ -185,6 +183,13 @@ def main():
     cfg = load_config(args.config)
     docs = discover_docx(args.input)
 
+    if not docs:
+        print(f"No DOCX files found beneath {args.input}")
+        print("This repository currently contains no source collection.")
+        print("See the repository README for layout and usage instructions.")
+        return 0
+
+    # normal preprocessing continues here
     if args.output.exists():
         if not args.overwrite:
             raise FileExistsError(f"{args.output} exists; use --overwrite")
