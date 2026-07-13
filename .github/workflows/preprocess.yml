@@ -1,45 +1,100 @@
-name: HTH preprocess DOCX masters
+name: HTH preprocess collection
 
 on:
-  push:
-    branches: [main]
-
   workflow_dispatch:
     inputs:
-      mode:
-        description: "Processing mode"
+      source_repository:
+        description: "Source repository"
         required: true
-        type: choice
-        options:
-          - test
-          - full
-        default: test
-
-      test_file:
-        description: "DOCX filename used in test mode"
-        required: false
         type: string
-        default: "Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx"
+        default: "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898"
+
+      results_repository:
+        description: "Results repository"
+        required: true
+        type: string
+        default: "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results"
+
+      publish_results:
+        description: "Commit lightweight results to the results repository"
+        required: true
+        type: boolean
+        default: true
+
+      upload_full_artifact:
+        description: "Upload all generated files, including extracted images"
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
+concurrency:
+  group: preprocess-${{ inputs.source_repository }}
+  cancel-in-progress: false
+
 jobs:
   preprocess:
+    name: Preprocess complete collection
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    env:
+      OUTPUT_DIRECTORY: hth-pipeline/build/preprocessed
+      PUBLISH_DIRECTORY: publish
 
     steps:
       - name: Checkout HTH pipeline
         uses: actions/checkout@v6
         with:
           path: hth-pipeline
+          fetch-depth: 1
+          persist-credentials: false
 
-      - name: Checkout baptism source repository
+      - name: Checkout source repository
         uses: actions/checkout@v6
         with:
-          repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898
+          repository: ${{ inputs.source_repository }}
           path: source-repo
+          fetch-depth: 1
           lfs: true
+          persist-credentials: false
+
+      - name: Checkout results repository
+        if: ${{ inputs.publish_results }}
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.results_repository }}
+          path: results-repo
+          ref: main
+          token: ${{ secrets.HTH_RESULTS_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Capture build identity
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PIPELINE_COMMIT="$(git -C hth-pipeline rev-parse HEAD)"
+          SOURCE_COMMIT="$(git -C source-repo rev-parse HEAD)"
+          PROCESSED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+          echo "pipeline_commit=$PIPELINE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "processed_at=$PROCESSED_AT" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## HTH collection preprocessing"
+            echo
+            echo "- Source: \`${{ inputs.source_repository }}\`"
+            echo "- Source commit: \`$SOURCE_COMMIT\`"
+            echo "- Pipeline commit: \`$PIPELINE_COMMIT\`"
+            echo "- Results: \`${{ inputs.results_repository }}\`"
+            echo "- Started: \`$PROCESSED_AT\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -49,46 +104,236 @@ jobs:
           cache-dependency-path: hth-pipeline/requirements.txt
 
       - name: Install dependencies
-        run: python -m pip install -r hth-pipeline/requirements.txt
-
-      - name: Select preprocessing input
-        id: source
         shell: bash
         run: |
-          if [[ "${{ inputs.mode }}" == "full" ]]; then
-            INPUT_PATH="source-repo/images"
-          else
-            INPUT_PATH="source-repo/images/${{ inputs.test_file }}"
-          fi
+          python -m pip install --upgrade pip
+          python -m pip install -r hth-pipeline/requirements.txt
 
-          if [[ ! -e "$INPUT_PATH" ]]; then
-            echo "::error::Input does not exist: $INPUT_PATH"
+      - name: Inventory source DOCX masters
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Source DOCX files:"
+          find source-repo/images -maxdepth 1 -type f -name '*.docx' \
+            -printf '%f\n' | sort -V
+
+          DOCX_COUNT="$(
+            find source-repo/images -maxdepth 1 -type f -name '*.docx' |
+            wc -l
+          )"
+
+          echo
+          echo "DOCX count: $DOCX_COUNT"
+          echo "Source repository size:"
+          du -sh source-repo
+
+          if [[ "$DOCX_COUNT" -eq 0 ]]; then
+            echo "::error::No DOCX files found beneath source-repo/images"
             exit 1
           fi
 
-          echo "input_path=$INPUT_PATH" >> "$GITHUB_OUTPUT"
-
-          {
-            echo "## HTH preprocessing selection"
-            echo
-            echo "- Mode: \`${{ inputs.mode }}\`"
-            echo "- Input: \`$INPUT_PATH\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Run preprocessor
+      - name: Run full preprocessor
+        shell: bash
         run: |
+          set -euo pipefail
+
           python hth-pipeline/hth/preprocess.py \
-            --input "${{ steps.source.outputs.input_path }}" \
-            --output hth-pipeline/build/preprocessed \
+            --input source-repo/images \
+            --output "$OUTPUT_DIRECTORY" \
             --config hth-pipeline/config/preprocess.json \
             --derive \
             --contact-sheets \
             --overwrite
 
-      - name: Upload preprocessing result
-        if: ${{ hashFiles('hth-pipeline/build/preprocessed/**') != '' }}
+      - name: Verify full build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f "$OUTPUT_DIRECTORY/summary.json"
+          test -f "$OUTPUT_DIRECTORY/metadata/image_manifest.json"
+          test -f "$OUTPUT_DIRECTORY/metadata/image_manifest.csv"
+          test -f "$OUTPUT_DIRECTORY/metadata/exact_duplicates.json"
+
+          python - "$OUTPUT_DIRECTORY/summary.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          summary = json.loads(path.read_text(encoding="utf-8"))
+
+          docx_count = summary.get("source_docx_count", 0)
+          image_count = summary.get("image_count", 0)
+
+          if docx_count < 1:
+              raise SystemExit("No DOCX masters were processed")
+
+          if image_count < 1:
+              raise SystemExit("No images were extracted")
+
+          print(f"Verified {docx_count} DOCX masters and {image_count} images")
+          PY
+
+      - name: Prepare lightweight published results
+        if: ${{ inputs.publish_results }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf "$PUBLISH_DIRECTORY"
+          mkdir -p \
+            "$PUBLISH_DIRECTORY/metadata" \
+            "$PUBLISH_DIRECTORY/reports" \
+            "$PUBLISH_DIRECTORY/ocr" \
+            "$PUBLISH_DIRECTORY/transcriptions" \
+            "$PUBLISH_DIRECTORY/translations" \
+            "$PUBLISH_DIRECTORY/indexes" \
+            "$PUBLISH_DIRECTORY/citations" \
+            "$PUBLISH_DIRECTORY/research-notes"
+
+          cp -a \
+            "$OUTPUT_DIRECTORY/metadata/." \
+            "$PUBLISH_DIRECTORY/metadata/"
+
+          cp \
+            "$OUTPUT_DIRECTORY/summary.json" \
+            "$PUBLISH_DIRECTORY/reports/preprocess-summary.json"
+
+          cat > "$PUBLISH_DIRECTORY/BUILD-INFO.yaml" <<EOF
+          schema_version: 1
+
+          collection:
+            id: HTH-0001
+            source_repository: ${{ inputs.source_repository }}
+            source_commit: ${{ steps.build.outputs.source_commit }}
+
+          pipeline:
+            repository: ${{ github.repository }}
+            commit: ${{ steps.build.outputs.pipeline_commit }}
+            workflow: ${{ github.workflow }}
+            workflow_run_id: ${{ github.run_id }}
+            workflow_run_number: ${{ github.run_number }}
+
+          build:
+            status: complete
+            processed_at_utc: ${{ steps.build.outputs.processed_at }}
+            python_version: "3.12"
+            derived_images_created: true
+            contact_sheets_created: true
+            published_full_resolution_images: false
+          EOF
+
+          cat > "$PUBLISH_DIRECTORY/README.md" <<'EOF'
+          # San Antonio Baptism Records — Processed Results
+
+          This repository contains searchable and derived results produced from
+          the corresponding HTH source repository.
+
+          The full-resolution DOCX masters and captured source images are not
+          duplicated here. See `BUILD-INFO.yaml` for the exact source repository
+          and commit used to produce these results.
+
+          ## Contents
+
+          - `metadata/` — manifests, checksums, page mapping, and duplicate data
+          - `reports/` — processing summaries and quality-control reports
+          - `ocr/` — machine-readable OCR output
+          - `transcriptions/` — reviewed source-language transcriptions
+          - `translations/` — reviewed translations
+          - `indexes/` — names, dates, places, records, and search indexes
+          - `citations/` — source citations and citation templates
+          - `research-notes/` — collection-level research observations
+
+          Generated by the Hidden Texas History Research Framework.
+          EOF
+
+          touch \
+            "$PUBLISH_DIRECTORY/ocr/.gitkeep" \
+            "$PUBLISH_DIRECTORY/transcriptions/.gitkeep" \
+            "$PUBLISH_DIRECTORY/translations/.gitkeep" \
+            "$PUBLISH_DIRECTORY/indexes/.gitkeep" \
+            "$PUBLISH_DIRECTORY/citations/.gitkeep" \
+            "$PUBLISH_DIRECTORY/research-notes/.gitkeep"
+
+      - name: Publish results repository
+        if: ${{ inputs.publish_results }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Remove previously generated content while preserving .git.
+          find results-repo -mindepth 1 -maxdepth 1 \
+            ! -name '.git' \
+            -exec rm -rf {} +
+
+          cp -a "$PUBLISH_DIRECTORY/." results-repo/
+
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config \
+            user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git -C results-repo add --all
+
+          if git -C results-repo diff --cached --quiet; then
+            echo "Results are unchanged; nothing to commit."
+
+            {
+              echo
+              echo "### Publication"
+              echo
+              echo "The results repository was already current."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            git -C results-repo commit \
+              -m "Publish HTH results from source ${{ steps.build.outputs.source_commit }}"
+
+            git -C results-repo push origin main
+
+            RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
+
+            {
+              echo
+              echo "### Publication"
+              echo
+              echo "- Results committed successfully"
+              echo "- Results commit: \`$RESULTS_COMMIT\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Add processing summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo
+            echo "### Processing result"
+            echo
+            if [[ -f "$OUTPUT_DIRECTORY/summary.json" ]]; then
+              echo '```json'
+              cat "$OUTPUT_DIRECTORY/summary.json"
+              echo
+              echo '```'
+            else
+              echo "No preprocessing summary was generated."
+            fi
+
+            if [[ -d "$OUTPUT_DIRECTORY" ]]; then
+              echo
+              echo "Generated build size:"
+              echo '```text'
+              du -sh "$OUTPUT_DIRECTORY"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload complete preprocessing artifact
+        if: ${{ success() && inputs.upload_full_artifact }}
         uses: actions/upload-artifact@v4
         with:
-          name: hth-preprocessed-${{ inputs.mode }}-${{ github.sha }}
-          path: hth-pipeline/build/preprocessed
-          retention-days: 30
+          name: hth-preprocessed-${{ github.run_number }}-${{ steps.build.outputs.source_commit }}
+          path: ${{ env.OUTPUT_DIRECTORY }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
