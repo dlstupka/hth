@@ -330,7 +330,7 @@ jobs:
 
       - name: Upload complete preprocessing artifact
         if: ${{ success() && inputs.upload_full_artifact }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: hth-preprocessed-${{ github.run_number }}-${{ steps.build.outputs.source_commit }}
           path: ${{ env.OUTPUT_DIRECTORY }}
