@@ -2,13 +2,21 @@ name: HTH preprocess DOCX masters
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "hth/preprocess.py"
-      - "config/preprocess.json"
-      - "data/source/**/*.docx"
-      - "requirements.txt"
-      - ".github/workflows/preprocess.yml"
+    inputs:
+      mode:
+        description: "Processing mode"
+        required: true
+        type: choice
+        options:
+          - test
+          - full
+        default: test
+
+      test_file:
+        description: "DOCX filename used in test mode"
+        required: false
+        type: string
+        default: "Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx"
 
 permissions:
   contents: read
@@ -16,43 +24,68 @@ permissions:
 jobs:
   preprocess:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
         with:
+          path: hth-pipeline
+
+      - name: Checkout baptism source repository
+        uses: actions/checkout@v6
+        with:
+          repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898
+          path: source-repo
           lfs: true
-      - uses: actions/setup-python@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
-      - run: python -m pip install -r requirements.txt
+          cache-dependency-path: hth-pipeline/requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r hth-pipeline/requirements.txt
+
+      - name: Select preprocessing input
+        id: source
+        shell: bash
+        run: |
+          if [[ "${{ inputs.mode }}" == "full" ]]; then
+            INPUT_PATH="source-repo/images"
+          else
+            INPUT_PATH="source-repo/images/${{ inputs.test_file }}"
+          fi
+
+          if [[ ! -e "$INPUT_PATH" ]]; then
+            echo "::error::Input does not exist: $INPUT_PATH"
+            exit 1
+          fi
+
+          echo "input_path=$INPUT_PATH" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## HTH preprocessing selection"
+            echo
+            echo "- Mode: \`${{ inputs.mode }}\`"
+            echo "- Input: \`$INPUT_PATH\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Run preprocessor
         run: |
-          python hth/preprocess.py \
-            --input data/source \
-            --output build/preprocessed \
-            --config config/preprocess.json \
+          python hth-pipeline/hth/preprocess.py \
+            --input "${{ steps.source.outputs.input_path }}" \
+            --output hth-pipeline/build/preprocessed \
+            --config hth-pipeline/config/preprocess.json \
             --derive \
             --contact-sheets \
             --overwrite
 
-      - name: Write no-source summary
-        if: ${{ hashFiles('build/preprocessed/**') == '' }}
-        shell: bash
-        run: |
-          {
-            echo "## HTH preprocessing completed — no source documents"
-            echo
-            echo "No DOCX files were found beneath \`data/source/\`."
-            echo
-            echo "No preprocessing artifact was generated."
-            echo
-            echo "[Read the repository layout and usage instructions](https://github.com/dlstupka/hth#readme)"
-          } >> "$GITHUB_STEP_SUMMARY"
-
       - name: Upload preprocessing result
-        if: ${{ hashFiles('build/preprocessed/**') != '' }}
+        if: ${{ hashFiles('hth-pipeline/build/preprocessed/**') != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: hth-preprocessed-${{ github.sha }}
-          path: build/preprocessed
+          name: hth-preprocessed-${{ inputs.mode }}-${{ github.sha }}
+          path: hth-pipeline/build/preprocessed
           retention-days: 30
