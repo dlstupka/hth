@@ -39,6 +39,12 @@ class ImageRecord:
     duplicate_group: str
     analysis_file: str
     thumbnail_file: str
+
+    source_repository: str
+    source_commit: str
+    pipeline_repository: str
+    pipeline_commit: str
+
     manuscript_left_page: str = ""
     manuscript_right_page: str = ""
     date_begin: str = ""
@@ -199,6 +205,10 @@ def main():
         p.add_argument("--input", type=Path, default=Path("data/source"))
         p.add_argument("--output", type=Path, default=Path("build/preprocessed"))
         p.add_argument("--config", type=Path, default=Path("config/preprocess.json"))
+        p.add_argument("--source-repository", default="")
+        p.add_argument("--source-commit", default="")
+        p.add_argument("--pipeline-repository", default="")
+        p.add_argument("--pipeline-commit", default="")
         p.add_argument("--derive", action="store_true")
         p.add_argument("--contact-sheets", action="store_true")
         p.add_argument("--overwrite", action="store_true")
@@ -280,6 +290,12 @@ def main():
                     duplicate_group="",
                     analysis_file=analysis_rel,
                     thumbnail_file=thumb_rel.as_posix(),
+                    
+                    source_repository=args.source_repository,
+                    source_commit=args.source_commit,
+                    pipeline_repository=args.pipeline_repository,
+                    pipeline_commit=args.pipeline_commit,
+
                     research_notes=override.get("label", ""),
                 ))
                 images += 1

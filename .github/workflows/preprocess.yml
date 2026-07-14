@@ -176,10 +176,14 @@ jobs:
             --input source-repo/images \
             --output "$OUTPUT_DIRECTORY" \
             --config hth-pipeline/config/preprocess.json \
+            --source-repository "${{ inputs.source_repository }}" \
+            --source-commit "${{ steps.build.outputs.source_commit }}" \
+            --pipeline-repository "${{ github.repository }}" \
+            --pipeline-commit "${{ steps.build.outputs.pipeline_commit }}" \
             --derive \
             --contact-sheets \
             --overwrite
-
+      
       # ------------------------------------------------------------
       # Build validation
       # ------------------------------------------------------------

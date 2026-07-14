@@ -141,6 +141,10 @@ jobs:
             --input "${{ steps.source.outputs.input_path }}" \
             --output "$OUTPUT_DIRECTORY" \
             --config hth-pipeline/config/preprocess.json \
+            --source-repository "$SOURCE_REPOSITORY" \
+            --source-commit "${{ steps.build.outputs.source_commit }}" \
+            --pipeline-repository "${{ github.repository }}" \
+            --pipeline-commit "${{ steps.build.outputs.pipeline_commit }}" \
             --derive \
             --contact-sheets \
             --overwrite
