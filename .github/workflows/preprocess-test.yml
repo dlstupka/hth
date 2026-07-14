@@ -114,24 +114,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
+      
           PIPELINE_COMMIT="$(git -C hth-pipeline rev-parse HEAD)"
           SOURCE_COMMIT="$(git -C source-repo rev-parse HEAD)"
           PROCESSED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-
+      
           echo "pipeline_commit=$PIPELINE_COMMIT" >> "$GITHUB_OUTPUT"
           echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
           echo "processed_at=$PROCESSED_AT" >> "$GITHUB_OUTPUT"
-
+      
           {
             echo "## HTH preprocessing test"
             echo
+            echo "### Build provenance"
+            echo
             echo "- Source repository: \`$SOURCE_REPOSITORY\`"
-            echo "- Test file: \`${{ steps.source.outputs.test_file }}\`"
             echo "- Source commit: \`$SOURCE_COMMIT\`"
+            echo "- Test file: \`${{ steps.source.outputs.test_file }}\`"
+            echo "- Pipeline repository: \`${GITHUB_REPOSITORY}\`"
             echo "- Pipeline commit: \`$PIPELINE_COMMIT\`"
+            echo "- Workflow run: \`${GITHUB_RUN_ID}\`"
+            echo "- Processed at: \`$PROCESSED_AT\`"
           } >> "$GITHUB_STEP_SUMMARY"
-
+    
       - name: Run test preprocessor
         shell: bash
         run: |
