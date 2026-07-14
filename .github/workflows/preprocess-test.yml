@@ -8,7 +8,7 @@ on:
       - "hth/**"
       - "config/**"
       - "requirements.txt"
-      - ".github/workflows/preprocess-test.yml"
+      - ".github/workflows/**"
 
   pull_request:
     branches:
@@ -17,7 +17,7 @@ on:
       - "hth/**"
       - "config/**"
       - "requirements.txt"
-      - ".github/workflows/preprocess-test.yml"
+      - ".github/workflows/**"
 
   workflow_dispatch:
     inputs:
