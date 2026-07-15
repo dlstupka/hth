@@ -221,6 +221,61 @@ def content_bbox(mask: Image.Image, cfg: AnalysisConfig) -> BoundingBox | None:
     return BoundingBox(max(0, left - px), max(0, top - py), min(mask.width, right + px), min(mask.height, bottom + py))
 
 
+def detect_page_bbox(
+    gray: Image.Image,
+    cfg: AnalysisConfig,
+) -> BoundingBox | None:
+    """
+    Detect the bright physical manuscript page against a darker surround.
+
+    This detects the paper boundary—not handwriting or text layout.
+    """
+    width, height = gray.size
+
+    histogram = gray.histogram()
+    p25 = percentile(histogram, 0.25)
+    p75 = percentile(histogram, 0.75)
+
+    page_threshold = max(
+        85,
+        min(210, round((p25 + p75) / 2)),
+    )
+
+    # White pixels represent probable paper.
+    mask = gray.point(
+        lambda value: 255 if value >= page_threshold else 0,
+        mode="1",
+    ).convert("L")
+
+    # Join the paper region across handwriting, stains, and the center gutter.
+    mask = mask.filter(ImageFilter.MaxFilter(9))
+    mask = mask.filter(ImageFilter.MinFilter(9))
+
+    bbox = mask.getbbox()
+    if bbox is None:
+        return None
+
+    left, top, right, bottom = bbox
+
+    detected_fraction = (
+        (right - left) * (bottom - top)
+        / max(1, width * height)
+    )
+
+    if detected_fraction < 0.25:
+        return None
+
+    padding_x = round(width * cfg.bbox_padding_fraction)
+    padding_y = round(height * cfg.bbox_padding_fraction)
+
+    return BoundingBox(
+        left=max(0, left - padding_x),
+        top=max(0, top - padding_y),
+        right=min(width, right + padding_x),
+        bottom=min(height, bottom + padding_y),
+    )
+    
+
 def scale_bbox(box: BoundingBox, inverse_scale: float, width: int, height: int) -> BoundingBox:
     return BoundingBox(
         max(0, min(width, round(box.left * inverse_scale))),
@@ -339,9 +394,13 @@ def analyze_record(record: dict[str, Any], image_root: Path, cfg: AnalysisConfig
         dark_fraction = sum(hist[:80]) / total
         light_fraction = sum(hist[245:]) / total
         sharpness = float(ImageStat.Stat(gray.filter(ImageFilter.FIND_EDGES)).var[0])
-        mask = gray.point(lambda v: 255 if v < cfg.background_threshold else 0, mode="1").convert("L")
-        small_box = content_bbox(mask, cfg)
-        full_box = BoundingBox(0, 0, 0, 0) if small_box is None else scale_bbox(small_box, 1.0 / scale, width, height)
+        small_box = detect_page_bbox(gray, cfg)
+
+        full_box = (
+            BoundingBox(0, 0, 0, 0)
+            if small_box is None
+            else scale_box(small_box, 1.0 / scale, width, height)
+        )
         content_fraction = full_box.width * full_box.height / max(1, width * height)
         tolerance = max(3, round(min(width, height) * 0.005))
         border_contact = full_box.width > 0 and (
