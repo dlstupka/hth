@@ -1,0 +1,19 @@
+{
+  "max_analysis_dimension": 1800,
+
+  "background_threshold": 205,
+  "minimum_component_area_fraction": 0.00005,
+  "bbox_padding_fraction": 0.006,
+
+  "skew_search_degrees": 2.0,
+  "skew_step_degrees": 0.25,
+
+  "blank_dark_fraction_max": 0.004,
+  "low_contrast_stddev": 22.0,
+  "blurry_sharpness_threshold": 500.0,
+  "overexposed_brightness": 244.0,
+  "underexposed_brightness": 65.0,
+
+  "review_quality_threshold": 0.62,
+  "fail_quality_threshold": 0.35
+}
