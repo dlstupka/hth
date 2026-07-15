@@ -163,7 +163,7 @@ jobs:
             --manifest "$OUTPUT_DIRECTORY/metadata/image_manifest.json" \
             --image-root "$OUTPUT_DIRECTORY" \
             --output "$OUTPUT_DIRECTORY/page-analysis" \
-            --config hth-pipeline/config/analyze-pages.json \
+            --config hth-pipeline/config/analyze_pages.json \
             --source-repository "${{ inputs.source_repository }}" \
             --source-commit "${{ steps.build.outputs.source_commit }}" \
             --pipeline-repository "${{ github.repository }}" \
