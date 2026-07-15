@@ -154,16 +154,6 @@ jobs:
             --contact-sheets \
             --overwrite
             
-      - name: Validate Stage 2 golden set
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          python hth-pipeline/hth/validate_golden_set.py \
-            --golden hth-pipeline/config/golden_set.json \
-            --analysis "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json" \
-            --output "$OUTPUT_DIRECTORY/page-analysis/golden-set-report.json"
-            
       - name: Run physical page analysis
         shell: bash
         run: |
@@ -181,6 +171,16 @@ jobs:
             --annotated-previews \
             --overwrite
 
+      - name: Validate Stage 2 golden set
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python hth-pipeline/hth/validate_golden_set.py \
+            --golden hth-pipeline/config/golden_set.json \
+            --analysis "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json" \
+            --output "$OUTPUT_DIRECTORY/page-analysis/golden-set-report.json"
+            
       - name: Verify test outputs
         shell: bash
         run: |
@@ -195,6 +195,7 @@ jobs:
           test -f "$OUTPUT_DIRECTORY/page-analysis/page-analysis.csv"
           test -f "$OUTPUT_DIRECTORY/page-analysis/review-queue.csv"
           test -f "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json"
+          test -f "$OUTPUT_DIRECTORY/page-analysis/golden-set-report.json"
           
           test -d "$OUTPUT_DIRECTORY/page-analysis/annotated-previews"
 
