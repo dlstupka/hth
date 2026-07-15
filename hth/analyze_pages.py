@@ -261,10 +261,22 @@ def estimate_border_background(
     strip_y = max(2, round(height * border_fraction))
 
     samples: list[tuple[int, int, int]] = []
-    samples.extend(rgb.crop((0, 0, width, strip_y)).getdata())
-    samples.extend(rgb.crop((0, height - strip_y, width, height)).getdata())
-    samples.extend(rgb.crop((0, strip_y, strip_x, height - strip_y)).getdata())
-    samples.extend(rgb.crop((width - strip_x, strip_y, width, height - strip_y)).getdata())
+    samples.extend(
+        rgb.crop((0, 0, width, strip_y)).get_flattened_data()
+    )
+    samples.extend(
+        rgb.crop((0, height - strip_y, width, height)).get_flattened_data()
+    )
+    samples.extend(
+        rgb.crop(
+            (0, strip_y, strip_x, height - strip_y)
+        ).get_flattened_data()
+    )
+    samples.extend(
+        rgb.crop(
+            (width - strip_x, strip_y, width, height - strip_y)
+        ).get_flattened_data()
+    )
 
     # Bound cost on large analysis images while keeping deterministic sampling.
     if len(samples) > 250_000:
@@ -303,7 +315,7 @@ def page_difference_mask(
     border_distances: list[int] = []
     br, bg, bb = background
     for region in border_regions:
-        for red, green, blue in region.getdata():
+        for red, green, blue in region.get_flattened_data():
             border_distances.append(max(abs(red - br), abs(green - bg), abs(blue - bb)))
 
     if border_distances:
@@ -316,7 +328,7 @@ def page_difference_mask(
 
     mask_values = [
         255 if max(abs(red - br), abs(green - bg), abs(blue - bb)) >= threshold else 0
-        for red, green, blue in rgb.getdata()
+        for red, green, blue in rgb.get_flattened_data()
     ]
     mask = Image.new("L", rgb.size, 0)
     mask.putdata(mask_values)
