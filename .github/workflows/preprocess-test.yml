@@ -167,7 +167,9 @@ jobs:
             --source-repository "${{ inputs.source_repository }}" \
             --source-commit "${{ steps.build.outputs.source_commit }}" \
             --pipeline-repository "${{ github.repository }}" \
-            --pipeline-commit "${{ steps.build.outputs.pipeline_commit }}"
+            --pipeline-commit "${{ steps.build.outputs.pipeline_commit }}" \
+            --annotated-previews \
+            --overwrite
 
       - name: Verify test outputs
         shell: bash
@@ -183,6 +185,23 @@ jobs:
           test -f "$OUTPUT_DIRECTORY/page-analysis/page-analysis.csv"
           test -f "$OUTPUT_DIRECTORY/page-analysis/review-queue.csv"
           test -f "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json"
+          
+          test -d "$OUTPUT_DIRECTORY/page-analysis/annotated-previews"
+
+          PREVIEW_COUNT="$(
+            find "$OUTPUT_DIRECTORY/page-analysis/annotated-previews" \
+              -maxdepth 1 \
+              -type f \
+              -name '*_page-analysis.jpg' |
+            wc -l
+          )"
+
+          PREVIEW_COUNT="$(echo "$PREVIEW_COUNT" | tr -d '[:space:]')"
+
+          if [[ "$PREVIEW_COUNT" -ne 10 ]]; then
+            echo "::error::Expected 10 annotated previews; found $PREVIEW_COUNT"
+            exit 1
+          fi
           
           python - "$OUTPUT_DIRECTORY/summary.json" <<'PY'
           import json
