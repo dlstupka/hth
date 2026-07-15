@@ -1,27 +1,65 @@
-# HTH Reference Collection Editor v4
+# HTH Reference Collection Editor v5
 
-This version includes the complete review-workbench improvements discussed after the latest pushed editor.
+This release adds the requested review-workbench refinements.
 
-## Added
+## New in v5
 
-- Red Stage 2 prediction and green approved reference remain visible together.
-- Prediction fill is very light, so handwriting remains readable.
-- Approved rectangles have draggable corners, edges, and whole-box movement.
-- **Approve** can automatically advance to the next unresolved review page.
-- Thumbnail filters for Review, Approved, and Other.
-- Confidence is expressed as both a percentage and a word:
-  - Excellent
-  - Strong
-  - Questionable
-  - Weak
-  - Poor
-- Optional metadata overlay on the image.
-- Compare mode:
-  - prediction on the left
-  - approved reference on the right
-- Mouse-wheel zoom and fit-to-workspace.
-- Exact coordinates remain available but collapsed by default.
-- The app still opens the entire checked-out results-repository root.
+### Page information ribbon
+
+The ribbon above the image shows:
+
+- FamilySearch/global image number
+- layout type
+- Stage 2 status
+- confidence
+- review status
+- approval status
+
+### Mute prediction
+
+The setting is named **Mute prediction after approval**.
+
+Once a page has an approved reference rectangle, the Stage 2 prediction remains available but is rendered as a much fainter dashed outline. It is not called a ghost prediction.
+
+### Difference diagnostics
+
+When both prediction and approval exist, the editor reports the pixel differences for:
+
+- left edge
+- top edge
+- right edge
+- bottom edge
+- width
+- height
+
+This helps identify systematic detector errors.
+
+### Draggable editing
+
+- Draw a new green rectangle on empty image space.
+- Drag inside it to move it.
+- Drag corners or edges to resize it.
+
+### Undo
+
+- **Ctrl+Z** or the Undo button restores the previous box.
+- Up to 50 box states are retained per page.
+
+### Keyboard workflow
+
+- `Space` — approve
+- `A` — use Stage 2 prediction
+- `N` / `P` — next / previous
+- `F` — fit image
+- `1` — 100%
+- `C` — compare
+- `Ctrl+Z` — undo
+- `Esc` — cancel active drag
+- `Ctrl+S` — approve
+
+### Auto-advance and filters
+
+Approval can automatically advance to the next unresolved review page. Thumbnail filters show or hide Review, Approved, and Other pages.
 
 ## Install
 
@@ -34,36 +72,4 @@ README-reference-collection-editor.md
 
 with these files.
 
-## Review workflow
-
-1. Pull the results repository.
-2. Open the editor.
-3. Click **Open results workspace** and select the results-repository root.
-4. Inspect the red Stage 2 prediction.
-5. Click **Use Stage 2 prediction**, or draw/resize the green approved rectangle.
-6. Select the correct layout type.
-7. Click **Approve**.
-8. Export JSON.
-9. Replace `hth/config/golden_set.json` with the exported file.
-
-## Rectangle editing
-
-- Drag empty image space to draw a new box.
-- Drag inside the green box to move it.
-- Drag a green edge or corner handle to resize it.
-- Red dashed: automatic Stage 2 prediction.
-- Green solid: approved reference.
-
-## Compare mode
-
-Click **Compare** to see:
-
-```text
-Stage 2 prediction | Approved reference
-```
-
-Drawing is disabled while comparing. Click **Exit compare** to resume editing.
-
-## Pipeline previews
-
-The application generates overlays dynamically from raw images and `page-analysis.json`, so permanent Stage 2 preview images are not required for normal review. Actions artifacts may still retain annotated previews as historical diagnostic material.
+No workflow change is required. A push that changes only the editor should not run the preprocessing workflow unless its path filter intentionally includes `tools/**`.

@@ -24,8 +24,8 @@ button:hover,.filebtn:hover{border-color:var(--accent)}
 button:disabled{opacity:.45;cursor:not-allowed}
 input[type=file]{display:none}
 main{display:grid;grid-template-columns:minmax(0,1fr) 360px;height:calc(100vh - 66px)}
-.workspace{min-width:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto}
-.status{padding:7px 12px;border-bottom:1px solid var(--line);color:var(--muted);font-size:12px;background:#151920;display:flex;justify-content:space-between;gap:12px}
+.workspace{min-width:0;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto}
+.status{padding:7px 12px;border-bottom:1px solid var(--line);color:var(--muted);font-size:12px;background:#151920;display:flex;justify-content:space-between;gap:12px}.ribbon{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:7px 10px;background:#10141a;border-bottom:1px solid var(--line);font-size:12px}.ribbon .pill{border:1px solid var(--line);border-radius:999px;padding:3px 8px;color:#dce4ee;background:#161b22}.ribbon .pill.ok{border-color:#2e8054;color:var(--ok)}.ribbon .pill.warn{border-color:#7c6728;color:var(--warn)}.ribbon .pill.bad{border-color:#8c3e3e;color:var(--danger)}
 .canvaswrap{position:relative;overflow:auto;padding:12px;background:#12151b;display:flex;align-items:center;justify-content:center}.canvaswrap.compare{align-items:flex-start}
 .empty{min-height:60vh;display:grid;place-items:center;text-align:center;color:var(--muted)}
 canvas{display:block;background:#000;box-shadow:0 10px 30px #0008;cursor:crosshair;max-width:none;max-height:none}.canvas-hint{position:absolute;left:20px;top:20px;z-index:5;background:#0b0e13d9;border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:11px;line-height:1.45;color:#dfe7f1;pointer-events:none;max-width:260px}
@@ -55,7 +55,7 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
 .meter span{display:block;height:100%;background:var(--accent)}
 .legend{display:flex;gap:10px;font-size:11px;color:var(--muted);margin-top:7px;flex-wrap:wrap}
 .swatch{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:4px}
-.swatch.pred{background:var(--pred)}.swatch.approved{background:var(--approved)}
+.swatch.pred{background:var(--pred)}.swatch.approved{background:var(--approved)}.delta-list{font-size:12px;color:var(--muted);line-height:1.5}.delta-list strong{color:var(--text)}.shortcut-grid{display:grid;grid-template-columns:auto 1fr;gap:5px 9px;font-size:12px;color:var(--muted)}.shortcut-grid code{color:var(--text);background:#0f1319;border:1px solid var(--line);border-radius:4px;padding:1px 5px}
 .coorddetails summary{cursor:pointer;color:var(--muted);font-size:12px;margin-bottom:8px}.confidence-word{font-size:15px;font-weight:700;margin-top:5px}.filter-row{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
 @media(max-width:980px){body{overflow:auto;height:auto}main{grid-template-columns:1fr;height:auto}.workspace{min-height:70vh}aside{border-left:0;border-top:1px solid var(--line)}}
 </style>
@@ -73,7 +73,7 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
 
 <main>
 <section class="workspace">
-  <div class="status"><span id="status">Open a results workspace, or load the reference JSON and raw image folder separately.</span><span id="zoomLabel">Fit</span></div>
+  <div class="status"><span id="status">Open a results workspace, or load the reference JSON and raw image folder separately.</span><span id="zoomLabel">Fit</span></div><div id="ribbon" class="ribbon"><span class="pill">No page loaded</span></div>
   <div id="canvasWrap" class="canvaswrap">
     <div id="empty" class="empty"><div><h2>No page loaded</h2><p>Open the results repository folder (recommended), or load <code>reference_collection.json</code> and <code>raw/</code> separately.</p></div></div>
     <div id="canvasHint" class="canvas-hint" hidden></div><canvas id="canvas" hidden></canvas>
@@ -109,7 +109,7 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
     <div id="confidenceWord" class="confidence-word">No analysis</div>
     <div style="height:9px"></div>
     <button id="usePrediction" style="width:100%" disabled>Use Stage 2 prediction</button>
-    <div class="legend"><span><i class="swatch pred"></i>prediction</span><span><i class="swatch approved"></i>approved</span></div>
+    <div class="legend"><span><i class="swatch pred"></i>prediction</span><span><i class="swatch approved"></i>approved</span></div><div style="height:8px"></div><div id="deltaInfo" class="delta-list">No approved comparison yet.</div>
   </div></div>
 
   <div class="box"><h2>Approved physical-document box</h2><div class="body">
@@ -134,12 +134,13 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
   </div></div>
 
   <div class="box"><h2>Display</h2><div class="body">
-    <div class="grid3"><button id="fit" disabled>Fit image</button><button id="actual" disabled>100%</button><button id="compare" disabled>Compare</button></div>
+    <div class="grid3"><button id="fit" disabled>Fit image</button><button id="actual" disabled>100%</button><button id="compare" disabled>Compare</button></div><div style="height:8px"></div><button id="undo" style="width:100%" disabled>Undo last box change</button>
     <div style="height:8px"></div>
     <label><input id="showPrediction" type="checkbox" checked disabled> Show Stage 2 prediction</label>
+    <label><input id="mutePrediction" type="checkbox" checked disabled> Mute prediction after approval</label>
     <label><input id="showBox" type="checkbox" checked disabled> Show approved box</label>
     <label><input id="showMetadata" type="checkbox" checked disabled> Show metadata overlay</label>
-    <p class="help">Mouse wheel zooms. Arrow keys navigate. Ctrl+S approves the current page.</p>
+    <div class="shortcut-grid"><code>Space</code><span>Approve</span><code>A</code><span>Use Stage 2 prediction</span><code>N / P</code><span>Next / previous page</span><code>F</code><span>Fit image</span><code>1</code><span>100%</span><code>C</code><span>Compare</span><code>Ctrl+Z</code><span>Undo box change</span><code>Esc</code><span>Cancel active drag</span></div>
   </div></div>
 
   <div class="box"><h2>Collection status</h2><div class="body"><div id="meta" class="meta">No collection loaded.</div><div style="height:8px"></div><div id="badges"></div><div style="height:8px"></div><div class="filter-row"><label><input id="filterReview" type="checkbox" checked disabled> Review</label><label><input id="filterApproved" type="checkbox" checked disabled> Approved</label><label><input id="filterOther" type="checkbox" checked disabled> Other</label></div></div></div>
@@ -152,9 +153,9 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
 const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d'),wrap=$('canvasWrap');
 const s={
   collection:null,pages:[],index:-1,images:new Map(),image:null,zoom:1,fitZoom:1,start:null,
-  box:null,dirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false
+  box:null,dirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false,undoStack:[],approvedSnapshot:null
 };
-const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther'];
+const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther','mutePrediction','undo'];
 function enable(v){ids.forEach(id=>$(id).disabled=!v)}
 function ordinalFromName(n){for(const r of [/fs[_-]?0*(\d+)/i,/(?:^|[_-])p(?:age)?[_-]?0*(\d+)/i,/(?:^|[_-])0*(\d+)(?:\.[^.]+)?$/i]){const m=n.match(r);if(m)return Number(m[1])}return null}
 function esc(v){return String(v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
@@ -188,6 +189,53 @@ async function loadWorkspace(files){
 }
 
 
+
+function cloneBox(box){return Array.isArray(box)?box.map(Number):null}
+function pushUndo(){
+  s.undoStack.push(cloneBox(s.box));
+  if(s.undoStack.length>50)s.undoStack.shift();
+  $('undo').disabled=s.undoStack.length===0
+}
+function undoBox(){
+  if(!s.undoStack.length)return;
+  s.box=s.undoStack.pop();
+  syncBox();dirty();render();updateDeltaInfo();
+  $('undo').disabled=s.undoStack.length===0
+}
+function predictionMuted(){
+  if(!$('mutePrediction').checked)return false;
+  if(s.index<0)return false;
+  return Array.isArray(s.pages[s.index].physical_document_bbox)
+}
+function updateRibbon(){
+  const ribbon=$('ribbon');
+  if(s.index<0){ribbon.innerHTML='<span class="pill">No page loaded</span>';return}
+  const p=s.pages[s.index],r=predictionForCurrent();
+  const approved=Array.isArray(p.physical_document_bbox);
+  const review=s.review.has(Number(p.global_ordinal));
+  const score=r?Number(r.quality_score??r.confidence??NaN):NaN;
+  const pct=Number.isFinite(score)?Math.round(score*100):'—';
+  const status=r?.quality_status||'unknown';
+  const statusClass=status==='pass'?'ok':status==='review'?'warn':status==='fail'||status==='error'?'bad':'';
+  ribbon.innerHTML=
+    `<span class="pill">FS${String(p.global_ordinal).padStart(4,'0')}</span>`+
+    `<span class="pill">${esc(p.layout_type||'unknown')}</span>`+
+    `<span class="pill ${statusClass}">${esc(status.toUpperCase())}</span>`+
+    `<span class="pill">Confidence: ${esc(pct)}%</span>`+
+    `<span class="pill ${review?'warn':'ok'}">Review: ${review?'Yes':'No'}</span>`+
+    `<span class="pill ${approved?'ok':'warn'}">Approved: ${approved?'Yes':'No'}</span>`
+}
+function updateDeltaInfo(){
+  const pred=analysisBBox(predictionForCurrent());
+  if(!pred||!s.box){$('deltaInfo').textContent='No approved comparison yet.';return}
+  const names=['Left','Top','Right','Bottom'];
+  const deltas=s.box.map((v,i)=>Math.round(v-pred[i]));
+  const parts=deltas.map((d,i)=>`<strong>${names[i]}</strong>: ${d>0?'+':''}${d}px`);
+  const predW=pred[2]-pred[0],predH=pred[3]-pred[1],boxW=s.box[2]-s.box[0],boxH=s.box[3]-s.box[1];
+  parts.push(`<strong>Width</strong>: ${boxW-predW>0?'+':''}${boxW-predW}px`);
+  parts.push(`<strong>Height</strong>: ${boxH-predH>0?'+':''}${boxH-predH}px`);
+  $('deltaInfo').innerHTML=parts.join('<br>')
+}
 function pageStatus(page){
   const approved=Array.isArray(page.physical_document_bbox);
   const ordinal=Number(page.global_ordinal);
@@ -304,7 +352,7 @@ function predictionForCurrent(){if(s.index<0)return null;return s.analysis.get(N
 function updatePrediction(){
   const r=predictionForCurrent(),box=analysisBBox(r);
   $('usePrediction').disabled=!box;
-  if(!r){$('predictionMeta').textContent='No analysis loaded.';$('confidenceText').textContent='—';$('confidenceBar').style.width='0%';$('confidenceWord').textContent='No analysis';updateCanvasHint();return}
+  if(!r){$('predictionMeta').textContent='No analysis loaded.';$('confidenceText').textContent='—';$('confidenceBar').style.width='0%';$('confidenceWord').textContent='No analysis';updateCanvasHint();updateRibbon();updateDeltaInfo();return}
   const score=Number(r.quality_score??r.confidence??0),pct=Math.max(0,Math.min(100,Math.round(score*100)));
   $('confidenceText').textContent=`${pct}%`;
   $('confidenceBar').style.width=`${pct}%`;
@@ -348,7 +396,7 @@ function render(){
     ctx.drawImage(s.image,s.image.naturalWidth*s.zoom+gap,0,s.image.naturalWidth*s.zoom,s.image.naturalHeight*s.zoom);
     ctx.save();
     if(pred){
-      ctx.translate(0,0);drawBox(pred,'#ff3b30','rgba(255,59,48,.025)',[9,6])
+      ctx.translate(0,0);drawBox(pred,'#ff3b30','rgba(255,59,48,.018)',[9,6])
     }
     if(s.box){
       ctx.translate(s.image.naturalWidth*s.zoom+gap,0);drawBox(s.box,'#35d07f','rgba(53,208,127,.035)',[])
@@ -358,7 +406,7 @@ function render(){
   }
   canvas.width=Math.max(1,Math.round(s.image.naturalWidth*s.zoom));canvas.height=Math.max(1,Math.round(s.image.naturalHeight*s.zoom));
   ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(s.image,0,0,canvas.width,canvas.height);
-  if($('showPrediction').checked)drawBox(pred,'#ff3b30','rgba(255,59,48,.025)',[9,6]);
+  if($('showPrediction').checked){const muted=predictionMuted();drawBox(pred,muted?'rgba(255,59,48,.38)':'#ff3b30',muted?'rgba(255,59,48,.008)':'rgba(255,59,48,.025)',muted?[4,7]:[9,6])};
   if($('showBox').checked&&s.box){
     drawBox(s.box,'#35d07f','rgba(53,208,127,.035)',[]);
     const size=handleSize();
@@ -371,9 +419,9 @@ function render(){
 }
 function load(i){
   if(!s.pages.length)return;if(s.dirty&&!confirm('Discard unsaved changes?'))return;
-  s.index=Math.max(0,Math.min(i,s.pages.length-1));s.dirty=false;s.compareMode=false;wrap.classList.remove('compare');$('compare').textContent='Compare';
+  s.index=Math.max(0,Math.min(i,s.pages.length-1));s.dirty=false;s.compareMode=false;s.undoStack=[];$('undo').disabled=true;wrap.classList.remove('compare');$('compare').textContent='Compare';
   const p=s.pages[s.index];$('pageSelect').value=s.index;$('ordinal').value=p.global_ordinal;$('label').value=p.label;$('layout').value=p.layout_type;$('notes').value=p.notes;
-  s.box=Array.isArray(p.physical_document_bbox)?[...p.physical_document_bbox]:null;syncBox();updatePrediction();updateCanvasHint();
+  s.box=Array.isArray(p.physical_document_bbox)?[...p.physical_document_bbox]:null;s.approvedSnapshot=cloneBox(s.box);syncBox();updatePrediction();updateCanvasHint();updateRibbon();updateDeltaInfo();
   const f=s.images.get(Number(p.global_ordinal));
   if(s.objectUrl)URL.revokeObjectURL(s.objectUrl);
   if(f){const im=new Image();im.onload=()=>{s.image=im;$('empty').hidden=true;canvas.hidden=false;fitImage();status()};s.objectUrl=URL.createObjectURL(f);im.src=s.objectUrl}
@@ -386,7 +434,7 @@ function save(){
   if(s.index<0)return;const p=s.pages[s.index];
   p.global_ordinal=Number($('ordinal').value);p.label=$('label').value.trim();p.layout_type=$('layout').value;p.notes=$('notes').value;p.physical_document_bbox=s.box?[...s.box]:null;
   p.reviewed_at_utc=new Date().toISOString();p.review_status='approved';
-  s.dirty=false;rebuild();collectionStatus();status();if($('autoAdvance').checked){const n=nextReviewIndex(s.index);if(n>=0&&n!==s.index)load(n)}
+  s.dirty=false;s.approvedSnapshot=cloneBox(s.box);rebuild();collectionStatus();status();updateRibbon();updateDeltaInfo();render();if($('autoAdvance').checked){const n=nextReviewIndex(s.index);if(n>=0&&n!==s.index)load(n)}
 }
 function exportJson(){if(s.dirty)save();const blob=new Blob([JSON.stringify(s.collection,null,2)+'\n'],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='reference_collection.json';a.click();URL.revokeObjectURL(a.href)}
 
@@ -395,18 +443,18 @@ $('jsonFile').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;s.co
 $('imageFolder').onchange=e=>{s.images.clear();[...e.target.files].filter(f=>f.type.startsWith('image/')).forEach(f=>{const o=ordinalFromName(f.name);if(o!==null&&!s.images.has(o))s.images.set(o,f)});if(s.index>=0)load(s.index)};
 $('export').onclick=exportJson;$('prev').onclick=()=>load(s.index-1);$('next').onclick=()=>load(s.index+1);$('pageSelect').onchange=e=>load(Number(e.target.value));$('save').onclick=save;
 ['ordinal','label','layout','notes'].forEach(id=>$(id).oninput=dirty);
-['left','top','right','bottom'].forEach(id=>$(id).oninput=()=>{s.box=readInputs();dirty();render()});
-$('full').onclick=()=>{if(!s.image)return;s.box=[0,0,s.image.naturalWidth,s.image.naturalHeight];syncBox();dirty();render()};
-$('clear').onclick=()=>{s.box=null;syncBox();dirty();render()};
-$('usePrediction').onclick=()=>{const b=analysisBBox(predictionForCurrent());if(!b)return;s.box=[...b];syncBox();dirty();render()};
+['left','top','right','bottom'].forEach(id=>{$(id).onfocus=()=>{if(!$(id).dataset.undoArmed){pushUndo();$(id).dataset.undoArmed='1'}};$(id).onblur=()=>{delete $(id).dataset.undoArmed};$(id).oninput=()=>{s.box=readInputs();dirty();render();updateDeltaInfo()}});
+$('full').onclick=()=>{if(!s.image)return;pushUndo();s.box=[0,0,s.image.naturalWidth,s.image.naturalHeight];syncBox();dirty();render()};
+$('clear').onclick=()=>{pushUndo();s.box=null;syncBox();dirty();render()};
+$('usePrediction').onclick=()=>{const b=analysisBBox(predictionForCurrent());if(!b)return;pushUndo();s.box=[...b];syncBox();dirty();render()};
 $('fit').onclick=fitImage;$('actual').onclick=()=>{s.zoom=1;render();status()};$('compare').onclick=()=>{s.compareMode=!s.compareMode;wrap.classList.toggle('compare',s.compareMode);$('compare').textContent=s.compareMode?'Exit compare':'Compare';fitImage()};
-$('showBox').onchange=render;$('showPrediction').onchange=render;$('showMetadata').onchange=updateCanvasHint;['filterReview','filterApproved','filterOther'].forEach(id=>$(id).onchange=rebuild);
+$('showBox').onchange=render;$('showPrediction').onchange=render;$('mutePrediction').onchange=render;$('showMetadata').onchange=updateCanvasHint;$('undo').onclick=undoBox;['filterReview','filterApproved','filterOther','mutePrediction','undo'].forEach(id=>$(id).onchange=rebuild);
 
 canvas.onmousedown=e=>{
   if(!s.image||s.compareMode)return;
   const r=canvas.getBoundingClientRect(),x=(e.clientX-r.left)/s.zoom,y=(e.clientY-r.top)/s.zoom;
   const hit=hitTestBox(x,y);
-  s.dragMode=hit||'draw';s.dragOrigin={x,y};s.dragStartBox=s.box?[...s.box]:null;
+  pushUndo();s.dragMode=hit||'draw';s.dragOrigin={x,y};s.dragStartBox=s.box?[...s.box]:null;
   if(s.dragMode==='draw'){s.start={x,y};s.box=[Math.round(x),Math.round(y),Math.round(x),Math.round(y)]}
 };
 canvas.onmousemove=e=>{
@@ -417,12 +465,29 @@ canvas.onmousemove=e=>{
     s.box=[Math.max(0,Math.round(Math.min(s.start.x,x))),Math.max(0,Math.round(Math.min(s.start.y,y))),
       Math.min(s.image.naturalWidth,Math.round(Math.max(s.start.x,x))),Math.min(s.image.naturalHeight,Math.round(Math.max(s.start.y,y)))]
   }else resizeBox(s.dragMode,x,y);
-  syncBox();render()
+  syncBox();render();updateDeltaInfo()
 };
-window.onmouseup=()=>{if(s.dragMode){s.start=null;s.dragMode=null;s.dragOrigin=null;s.dragStartBox=null;dirty()}};
+window.onmouseup=()=>{if(s.dragMode){s.start=null;s.dragMode=null;s.dragOrigin=null;s.dragStartBox=null;dirty();updateDeltaInfo()}};
 wrap.addEventListener('wheel',e=>{if(!s.image)return;e.preventDefault();const factor=e.deltaY<0?1.1:.9;s.zoom=Math.max(.05,Math.min(4,s.zoom*factor));render();status()},{passive:false});
 window.onresize=()=>{if(s.image&&Math.abs(s.zoom-s.fitZoom)<.03)fitImage()};
-window.onkeydown=e=>{if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName))return;if(e.key==='ArrowLeft'&&s.index>0)load(s.index-1);if(e.key==='ArrowRight'&&s.index<s.pages.length-1)load(s.index+1);if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();save()}};
+window.onkeydown=e=>{
+  const tag=document.activeElement.tagName;
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();undoBox();return}
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();save();return}
+  if(e.key==='Escape'){
+    if(s.dragMode){s.box=cloneBox(s.dragStartBox);syncBox();s.dragMode=null;s.start=null;s.dragOrigin=null;s.dragStartBox=null;render();updateDeltaInfo()}
+    return
+  }
+  if(['INPUT','TEXTAREA','SELECT'].includes(tag))return;
+  const key=e.key.toLowerCase();
+  if(e.key==='ArrowLeft'||key==='p'){if(s.index>0)load(s.index-1);return}
+  if(e.key==='ArrowRight'||key==='n'){if(s.index<s.pages.length-1)load(s.index+1);return}
+  if(e.code==='Space'){e.preventDefault();save();return}
+  if(key==='a'){$('usePrediction').click();return}
+  if(key==='f'){fitImage();return}
+  if(key==='1'){s.zoom=1;render();status();return}
+  if(key==='c'){$('compare').click();return}
+};
 window.onbeforeunload=e=>{if(s.dirty){e.preventDefault();e.returnValue=''}};
 
 })();
