@@ -1,9 +1,14 @@
 {
   "max_analysis_dimension": 1800,
-
   "background_threshold": 205,
   "minimum_component_area_fraction": 0.00005,
-  "bbox_padding_fraction": 0.006,
+  "bbox_padding_fraction": 0.004,
+
+  "page_border_sample_fraction": 0.035,
+  "page_color_distance_threshold": 28,
+  "page_axis_occupancy_threshold": 0.18,
+  "page_axis_smoothing_fraction": 0.008,
+  "page_minimum_area_fraction": 0.25,
 
   "skew_search_degrees": 2.0,
   "skew_step_degrees": 0.25,

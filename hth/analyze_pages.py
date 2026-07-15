@@ -3,6 +3,11 @@
 
 Analyzes extracted page images produced by hth/preprocess.py and emits compact,
 reproducible JSON/CSV reports plus optional annotated previews.
+
+The physical-page detector estimates the surrounding color from image borders
+and uses sustained row/column occupancy. It therefore does not assume black
+backgrounds, white pages, or dark text, and isolated pixels cannot extend the
+detected page boundary.
 """
 from __future__ import annotations
 
@@ -18,15 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from PIL import (
-    Image,
-    ImageChops,
-    ImageDraw,
-    ImageFilter,
-    ImageOps,
-    ImageStat,
-    UnidentifiedImageError,
-)
+from PIL import Image, ImageDraw, ImageFilter, ImageOps, ImageStat, UnidentifiedImageError
 
 SCHEMA_VERSION = "0.1"
 
@@ -103,6 +100,15 @@ class AnalysisConfig:
     background_threshold: int = 238
     minimum_component_area_fraction: float = 0.00002
     bbox_padding_fraction: float = 0.008
+
+    # Physical-page detector. The background color is estimated from the image
+    # border, so this does not assume black surroundings or white paper.
+    page_border_sample_fraction: float = 0.035
+    page_color_distance_threshold: int = 28
+    page_axis_occupancy_threshold: float = 0.18
+    page_axis_smoothing_fraction: float = 0.008
+    page_minimum_area_fraction: float = 0.25
+
     skew_search_degrees: float = 3.0
     skew_step_degrees: float = 0.25
     blank_dark_fraction_max: float = 0.004
@@ -221,60 +227,213 @@ def content_bbox(mask: Image.Image, cfg: AnalysisConfig) -> BoundingBox | None:
     return BoundingBox(max(0, left - px), max(0, top - py), min(mask.width, right + px), min(mask.height, bottom + py))
 
 
+
+def _median_channel(values: list[int]) -> int:
+    if not values:
+        return 0
+    values = sorted(values)
+    middle = len(values) // 2
+    if len(values) % 2:
+        return values[middle]
+    return round((values[middle - 1] + values[middle]) / 2)
+
+
+def estimate_border_background(
+    image: Image.Image,
+    border_fraction: float,
+) -> tuple[int, int, int]:
+    """
+    Estimate the surrounding/background color from narrow strips at all four
+    image edges. Median channels make the estimate resistant to isolated text,
+    dust, and compression noise.
+    """
+    rgb = image.convert("RGB")
+    width, height = rgb.size
+    strip_x = max(2, round(width * border_fraction))
+    strip_y = max(2, round(height * border_fraction))
+
+    samples: list[tuple[int, int, int]] = []
+    samples.extend(rgb.crop((0, 0, width, strip_y)).getdata())
+    samples.extend(rgb.crop((0, height - strip_y, width, height)).getdata())
+    samples.extend(rgb.crop((0, strip_y, strip_x, height - strip_y)).getdata())
+    samples.extend(rgb.crop((width - strip_x, strip_y, width, height - strip_y)).getdata())
+
+    # Bound cost on large analysis images while keeping deterministic sampling.
+    if len(samples) > 250_000:
+        stride = max(1, len(samples) // 250_000)
+        samples = samples[::stride]
+
+    return (
+        _median_channel([pixel[0] for pixel in samples]),
+        _median_channel([pixel[1] for pixel in samples]),
+        _median_channel([pixel[2] for pixel in samples]),
+    )
+
+
+def page_difference_mask(
+    image: Image.Image,
+    background: tuple[int, int, int],
+    minimum_threshold: int,
+) -> Image.Image:
+    """
+    Create a foreground mask based on color distance from the estimated border
+    background. The adaptive threshold is raised above normal border noise.
+    """
+    rgb = image.convert("RGB")
+    width, height = rgb.size
+
+    # Estimate normal border variation around the median background.
+    border_fraction = 0.035
+    strip_x = max(2, round(width * border_fraction))
+    strip_y = max(2, round(height * border_fraction))
+    border_regions = (
+        rgb.crop((0, 0, width, strip_y)),
+        rgb.crop((0, height - strip_y, width, height)),
+        rgb.crop((0, strip_y, strip_x, height - strip_y)),
+        rgb.crop((width - strip_x, strip_y, width, height - strip_y)),
+    )
+    border_distances: list[int] = []
+    br, bg, bb = background
+    for region in border_regions:
+        for red, green, blue in region.getdata():
+            border_distances.append(max(abs(red - br), abs(green - bg), abs(blue - bb)))
+
+    if border_distances:
+        border_distances.sort()
+        p99 = border_distances[min(len(border_distances) - 1, round(len(border_distances) * 0.99))]
+    else:
+        p99 = 0
+
+    threshold = max(minimum_threshold, p99 + 8)
+
+    mask_values = [
+        255 if max(abs(red - br), abs(green - bg), abs(blue - bb)) >= threshold else 0
+        for red, green, blue in rgb.getdata()
+    ]
+    mask = Image.new("L", rgb.size, 0)
+    mask.putdata(mask_values)
+    return mask
+
+
+def _smoothed(values: list[float], radius: int) -> list[float]:
+    if radius <= 0 or not values:
+        return values[:]
+    prefix = [0.0]
+    for value in values:
+        prefix.append(prefix[-1] + value)
+    result: list[float] = []
+    for index in range(len(values)):
+        left = max(0, index - radius)
+        right = min(len(values), index + radius + 1)
+        result.append((prefix[right] - prefix[left]) / (right - left))
+    return result
+
+
+def _longest_axis_run(
+    occupancy: list[float],
+    threshold: float,
+) -> tuple[int, int] | None:
+    """
+    Find the longest sustained interval above threshold. Small one-pixel holes
+    are tolerated; isolated pixels cannot extend the interval.
+    """
+    best: tuple[int, int] | None = None
+    start: int | None = None
+    gap = 0
+    maximum_gap = max(1, round(len(occupancy) * 0.004))
+
+    for index, value in enumerate(occupancy):
+        if value >= threshold:
+            if start is None:
+                start = index
+            gap = 0
+        elif start is not None:
+            gap += 1
+            if gap > maximum_gap:
+                end = index - gap + 1
+                if best is None or end - start > best[1] - best[0]:
+                    best = (start, end)
+                start = None
+                gap = 0
+
+    if start is not None:
+        end = len(occupancy)
+        if best is None or end - start > best[1] - best[0]:
+            best = (start, end)
+
+    return best
+
+
 def detect_page_bbox(
-    gray: Image.Image,
+    image: Image.Image,
     cfg: AnalysisConfig,
 ) -> BoundingBox | None:
     """
-    Detect the bright physical manuscript page against a darker surround.
+    Detect the physical document/page region without assuming specific colors.
 
-    This detects the paper boundary—not handwriting or text layout.
+    1. Estimate the surrounding color from image-edge strips.
+    2. Mark pixels whose color differs materially from that surround.
+    3. Use sustained row/column occupancy, rather than getbbox(), so isolated
+       non-background pixels cannot pull an edge outward.
+    4. Return no crop when confidence is insufficient.
     """
-    width, height = gray.size
-
-    histogram = gray.histogram()
-    p25 = percentile(histogram, 0.25)
-    p75 = percentile(histogram, 0.75)
-
-    page_threshold = max(
-        85,
-        min(210, round((p25 + p75) / 2)),
+    rgb = image.convert("RGB")
+    width, height = rgb.size
+    background = estimate_border_background(
+        rgb,
+        cfg.page_border_sample_fraction,
+    )
+    mask = page_difference_mask(
+        rgb,
+        background,
+        cfg.page_color_distance_threshold,
     )
 
-    # White pixels represent probable paper.
-    mask = gray.point(
-        lambda value: 255 if value >= page_threshold else 0,
-        mode="1",
-    ).convert("L")
+    pixels = mask.load()
+    row_occupancy = [
+        sum(1 for x in range(width) if pixels[x, y] > 0) / max(1, width)
+        for y in range(height)
+    ]
+    column_occupancy = [
+        sum(1 for y in range(height) if pixels[x, y] > 0) / max(1, height)
+        for x in range(width)
+    ]
 
-    # Join the paper region across handwriting, stains, and the center gutter.
-    mask = mask.filter(ImageFilter.MaxFilter(9))
-    mask = mask.filter(ImageFilter.MinFilter(9))
+    row_radius = max(1, round(height * cfg.page_axis_smoothing_fraction))
+    column_radius = max(1, round(width * cfg.page_axis_smoothing_fraction))
+    row_occupancy = _smoothed(row_occupancy, row_radius)
+    column_occupancy = _smoothed(column_occupancy, column_radius)
 
-    bbox = mask.getbbox()
-    if bbox is None:
+    row_run = _longest_axis_run(
+        row_occupancy,
+        cfg.page_axis_occupancy_threshold,
+    )
+    column_run = _longest_axis_run(
+        column_occupancy,
+        cfg.page_axis_occupancy_threshold,
+    )
+    if row_run is None or column_run is None:
         return None
 
-    left, top, right, bottom = bbox
+    top, bottom = row_run
+    left, right = column_run
 
     detected_fraction = (
         (right - left) * (bottom - top)
         / max(1, width * height)
     )
-
-    if detected_fraction < 0.25:
+    if detected_fraction < cfg.page_minimum_area_fraction:
         return None
 
     padding_x = round(width * cfg.bbox_padding_fraction)
     padding_y = round(height * cfg.bbox_padding_fraction)
-
     return BoundingBox(
         left=max(0, left - padding_x),
         top=max(0, top - padding_y),
         right=min(width, right + padding_x),
         bottom=min(height, bottom + padding_y),
     )
-    
+
 
 def scale_bbox(box: BoundingBox, inverse_scale: float, width: int, height: int) -> BoundingBox:
     return BoundingBox(
@@ -299,27 +458,15 @@ def background_uniformity(gray: Image.Image) -> float:
 
 
 def bleed_proxy(gray: Image.Image) -> float:
-    """
-    Relative faint-background texture proxy.
-
-    This is a triage metric, not a definitive bleed-through diagnosis.
-    """
     small = gray.copy()
-
     if max(small.size) > 800:
         small.thumbnail((800, 800), Image.Resampling.LANCZOS)
-
     background = small.filter(ImageFilter.GaussianBlur(radius=10))
-    residual = ImageChops.difference(small, background)
+    residual = ImageOps.autocontrast(ImageOps.difference(small, background))
+    hist = residual.histogram()
+    total = sum(hist) or 1
+    return max(0.0, min(1.0, (sum(hist[20:85]) / total) * 2.5))
 
-    histogram = residual.histogram()
-    total = sum(histogram) or 1
-
-    # Measure modest residual texture without autocontrast amplification.
-    faint_texture = sum(histogram[8:45]) / total
-
-    return round(max(0.0, min(1.0, faint_texture)), 3)
-    
 
 def assess_quality(brightness: float, contrast: float, sharpness: float, dark_fraction: float,
                    light_fraction: float, content_fraction: float, border_contact: bool,
@@ -394,15 +541,35 @@ def analyze_record(record: dict[str, Any], image_root: Path, cfg: AnalysisConfig
         dark_fraction = sum(hist[:80]) / total
         light_fraction = sum(hist[245:]) / total
         sharpness = float(ImageStat.Stat(gray.filter(ImageFilter.FIND_EDGES)).var[0])
-        small_box = detect_page_bbox(gray, cfg)
-
-        full_box = BoundingBox(0, 0, 0, 0) if small_box is None else scale_bbox(
-            small_box,
-            1.0 / scale,
-            width,
-            height,
+        small_box = detect_page_bbox(working, cfg)
+        full_box = (
+            BoundingBox(0, 0, 0, 0)
+            if small_box is None
+            else scale_bbox(small_box, 1.0 / scale, width, height)
         )
         content_fraction = full_box.width * full_box.height / max(1, width * height)
+
+        # Recompute page-quality metrics on the physical page rather than on
+        # the viewer/background surround.
+        if small_box is not None and small_box.width > 0 and small_box.height > 0:
+            page_gray = gray.crop(
+                (small_box.left, small_box.top, small_box.right, small_box.bottom)
+            )
+            hist = page_gray.histogram()
+            stat = ImageStat.Stat(page_gray)
+            brightness = float(stat.mean[0])
+            contrast = float(stat.stddev[0])
+            p05, p95 = percentile(hist, 0.05), percentile(hist, 0.95)
+            total = max(1, page_gray.width * page_gray.height)
+            dark_fraction = sum(hist[:80]) / total
+            light_fraction = sum(hist[245:]) / total
+            sharpness = float(
+                ImageStat.Stat(page_gray.filter(ImageFilter.FIND_EDGES)).var[0]
+            )
+            gray_for_metrics = page_gray
+        else:
+            gray_for_metrics = gray
+
         tolerance = max(3, round(min(width, height) * 0.005))
         border_contact = full_box.width > 0 and (
             full_box.left <= tolerance or full_box.top <= tolerance
@@ -427,8 +594,8 @@ def analyze_record(record: dict[str, Any], image_root: Path, cfg: AnalysisConfig
             dynamic_range_p05_p95=float(p95 - p05), sharpness_score=round(sharpness, 3),
             entropy_bits=round(entropy(hist), 4), dark_pixel_fraction=round(dark_fraction, 6),
             light_pixel_fraction=round(light_fraction, 6),
-            background_uniformity_score=round(background_uniformity(gray), 3),
-            bleed_through_proxy=round(bleed_proxy(gray), 3),
+            background_uniformity_score=round(background_uniformity(gray_for_metrics), 3),
+            bleed_through_proxy=round(bleed_proxy(gray_for_metrics), 3),
             content_fraction=round(content_fraction, 6), border_contact=border_contact,
             likely_blank=flags["likely_blank"], likely_low_contrast=flags["likely_low_contrast"],
             likely_blurry=flags["likely_blurry"], likely_overexposed=flags["likely_overexposed"],
