@@ -186,6 +186,24 @@ jobs:
             --derive \
             --contact-sheets \
             --overwrite
+            
+      # ------------------------------------------------------------
+      # Page analysis
+      # ------------------------------------------------------------
+
+      - name: Run physical page analysis
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python hth-pipeline/hth/analyze_pages.py \
+            --manifest "$OUTPUT_DIRECTORY/metadata/image_manifest.json" \
+            --image-root "$OUTPUT_DIRECTORY" \
+            --output "$OUTPUT_DIRECTORY/page-analysis" \
+            --source-repository "${{ inputs.source_repository }}" \
+            --source-commit "${{ steps.build.outputs.source_commit }}" \
+            --pipeline-repository "${{ github.repository }}" \
+            --pipeline-commit "${{ steps.build.outputs.pipeline_commit }}"
       
       # ------------------------------------------------------------
       # Build validation
@@ -326,6 +344,11 @@ jobs:
             "$OUTPUT_DIRECTORY/summary.json" \
             results-repo/reports/preprocess-summary.json
 
+          mkdir -p results-repo/analysis        
+          cp -a \
+            "$OUTPUT_DIRECTORY/page-analysis/." \
+            results-repo/analysis/
+  
           # These directories hold future machine and human work.
           # Existing contents are never deleted by this workflow.
           mkdir -p \

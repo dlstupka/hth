@@ -154,6 +154,20 @@ jobs:
             --contact-sheets \
             --overwrite
 
+      - name: Run physical page analysis
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python hth-pipeline/hth/analyze_pages.py \
+            --manifest "$OUTPUT_DIRECTORY/metadata/image_manifest.json" \
+            --image-root "$OUTPUT_DIRECTORY" \
+            --output "$OUTPUT_DIRECTORY/page-analysis" \
+            --source-repository "${{ inputs.source_repository }}" \
+            --source-commit "${{ steps.build.outputs.source_commit }}" \
+            --pipeline-repository "${{ github.repository }}" \
+            --pipeline-commit "${{ steps.build.outputs.pipeline_commit }}"
+
       - name: Verify test outputs
         shell: bash
         run: |
@@ -163,7 +177,12 @@ jobs:
           test -f "$OUTPUT_DIRECTORY/metadata/image_manifest.json"
           test -f "$OUTPUT_DIRECTORY/metadata/image_manifest.csv"
           test -f "$OUTPUT_DIRECTORY/metadata/exact_duplicates.json"
-
+          
+          test -f "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json"
+          test -f "$OUTPUT_DIRECTORY/page-analysis/page-analysis.csv"
+          test -f "$OUTPUT_DIRECTORY/page-analysis/review-queue.csv"
+          test -f "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json"
+          
           python - "$OUTPUT_DIRECTORY/summary.json" <<'PY'
           import json
           import sys
@@ -197,14 +216,29 @@ jobs:
           HISTORY="results-repo/test/history/run-${GITHUB_RUN_NUMBER}"
 
           rm -rf "$LATEST"
-          mkdir -p "$LATEST/metadata" "$HISTORY"
-
+          mkdir -p \
+            "$LATEST/metadata" \
+            "$LATEST/analysis" \
+            "$HISTORY"
+          
           cp "$OUTPUT_DIRECTORY/summary.json" \
              "$LATEST/summary.json"
 
           cp -a "$OUTPUT_DIRECTORY/metadata/." \
              "$LATEST/metadata/"
 
+          cp "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json" \
+             "$LATEST/analysis/"
+
+          cp "$OUTPUT_DIRECTORY/page-analysis/page-analysis.csv" \
+             "$LATEST/analysis/"
+
+          cp "$OUTPUT_DIRECTORY/page-analysis/review-queue.csv" \
+             "$LATEST/analysis/"
+
+          cp "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json" \
+             "$LATEST/analysis/"
+             
           cat > "$LATEST/BUILD-INFO.yaml" <<EOF
           schema_version: 1
           build_type: test
@@ -233,6 +267,9 @@ jobs:
           cp "$LATEST/summary.json" \
              "$HISTORY/summary.json"
 
+          cp "$LATEST/analysis/analysis-summary.json" \
+             "$HISTORY/analysis-summary.json"
+             
       - name: Commit test results
         if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         shell: bash
