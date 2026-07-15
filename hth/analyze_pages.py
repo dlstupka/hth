@@ -23,7 +23,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from PIL import Image, ImageDraw, ImageFilter, ImageOps, ImageStat, UnidentifiedImageError
+from PIL import (
+    Image,
+    ImageChops,
+    ImageDraw,
+    ImageFilter,
+    ImageOps,
+    ImageStat,
+    UnidentifiedImageError,
+)
 
 SCHEMA_VERSION = "0.1"
 
@@ -458,15 +466,35 @@ def background_uniformity(gray: Image.Image) -> float:
 
 
 def bleed_proxy(gray: Image.Image) -> float:
+    """
+    Measure faint residual background texture.
+
+    This is a review heuristic, not a definitive bleed-through diagnosis.
+    """
     small = gray.copy()
+
     if max(small.size) > 800:
         small.thumbnail((800, 800), Image.Resampling.LANCZOS)
-    background = small.filter(ImageFilter.GaussianBlur(radius=10))
-    residual = ImageOps.autocontrast(ImageOps.difference(small, background))
-    hist = residual.histogram()
-    total = sum(hist) or 1
-    return max(0.0, min(1.0, (sum(hist[20:85]) / total) * 2.5))
 
+    background = small.filter(
+        ImageFilter.GaussianBlur(radius=10)
+    )
+
+    residual = ImageChops.difference(
+        small,
+        background,
+    )
+
+    histogram = residual.histogram()
+    total = sum(histogram) or 1
+
+    faint_texture = sum(histogram[8:45]) / total
+
+    return max(
+        0.0,
+        min(1.0, faint_texture),
+    )
+    
 
 def assess_quality(brightness: float, contrast: float, sharpness: float, dark_fraction: float,
                    light_fraction: float, content_fraction: float, border_contact: bool,
