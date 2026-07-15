@@ -1,77 +1,50 @@
-# HTH Reference Collection Editor v2
+# HTH Reference Collection Editor
 
-This version can open the **entire checked-out results repository** or a downloaded test workspace in one step.
+This version starts from the latest repository editor and adds the review-workbench improvements:
 
-## Recommended repository layout
+- opens the complete results repository
+- loads `test/latest/reference_collection.json`
+- loads `test/latest/raw/`
+- loads `test/latest/analysis/page-analysis.json`
+- loads `test/latest/analysis/review-queue.csv`
+- fits the current image to the available workspace
+- mouse-wheel zoom
+- red Stage 2 prediction rectangle
+- green approved reference rectangle
+- **Use Stage 2 prediction** button
+- visible Stage 2 quality/review information
+- thumbnail strip with approved/review/failure status
+- exact coordinates collapsed by default
+- approval timestamp and status written to exported JSON
+
+## Install
+
+Replace:
 
 ```text
-hth-baptisms-...-results/
-├── config/
-│   └── golden_set.json                 # optional repository copy
-└── test/
-    └── latest/
-        ├── raw/
-        │   ├── fs_0001.png
-        │   └── ...
-        ├── analysis/
-        │   ├── page-analysis.json
-        │   └── review-queue.csv
-        ├── metadata/
-        ├── BUILD-INFO.yaml
-        └── reference_collection.json   # preferred editor input
+tools/reference-collection-editor.html
 ```
 
-The editor searches the selected folder recursively and automatically discovers:
-
-- `reference_collection.json`, preferred when present
-- otherwise `golden_set.json`
-- images beneath any `raw/` directory
-- `page-analysis.json`
-- `review-queue.csv`
+with the downloaded file.
 
 ## Use
 
-1. Clone or pull the results repository.
-2. Open `reference-collection-editor-v2.html` in Chrome or Edge.
+1. Pull the results repository.
+2. Open the editor in Chrome or Edge.
 3. Click **Open results workspace**.
-4. Select the results-repository folder.
-5. Review and edit pages.
-6. Click **Export JSON**.
-7. Copy the exported JSON back to the HTH pipeline repository as:
+4. Select the results repository root.
+5. Review the red Stage 2 prediction.
+6. Click **Use Stage 2 prediction** when it is a useful starting point, or drag a new rectangle.
+7. Click **Approve**.
+8. Export JSON.
+9. Replace `hth/config/golden_set.json` with the exported file.
 
-```text
-config/golden_set.json
-```
+## Display
 
-The browser cannot overwrite the Git repository directly, so export remains explicit.
+- Red dashed box: automatic Stage 2 prediction.
+- Green solid box: manually approved reference.
+- Green thumbnail border: approved.
+- Yellow thumbnail border: included in the Stage 2 review queue.
+- Red thumbnail border: Stage 2 failure.
 
-## Pipeline publication change
-
-The automatic test workflow must publish the ten raw test images and a copy of the reference collection into `test/latest/`.
-
-In `Prepare test publication`, create:
-
-```bash
-mkdir -p \
-  "$LATEST/raw" \
-  "$LATEST/metadata" \
-  "$LATEST/analysis" \
-  "$HISTORY"
-```
-
-Then copy:
-
-```bash
-cp -a "$OUTPUT_DIRECTORY/raw/." "$LATEST/raw/"
-
-cp hth-pipeline/config/golden_set.json \
-   "$LATEST/reference_collection.json"
-```
-
-Only the small ten-page test raw set should be committed. Do not publish all 928 production images into the lightweight results repository unless that policy is reconsidered deliberately.
-
-## Why both repositories are still involved
-
-- The results repository is the convenient review workspace.
-- The pipeline repository owns the approved reference collection used by CI.
-- The editor exports an updated file that is committed back into `hth/config/golden_set.json`.
+The editor still stores boxes in original-image coordinates regardless of display zoom.
