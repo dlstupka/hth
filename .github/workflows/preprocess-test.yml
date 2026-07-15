@@ -248,10 +248,19 @@ jobs:
 
           rm -rf "$LATEST"
           mkdir -p \
+            "$LATEST/raw" \
             "$LATEST/metadata" \
             "$LATEST/analysis" \
             "$HISTORY"
           
+          cp -a \
+            "$OUTPUT_DIRECTORY/raw/." \
+            "$LATEST/raw/"
+
+          cp \
+            hth-pipeline/config/golden_set.json \
+            "$LATEST/reference_collection.json"
+
           cp "$OUTPUT_DIRECTORY/summary.json" \
              "$LATEST/summary.json"
 

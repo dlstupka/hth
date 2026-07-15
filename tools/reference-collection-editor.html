@@ -16,10 +16,11 @@ aside{border-left:1px solid var(--line);background:var(--panel);padding:14px;ove
 </head>
 <body>
 <header><div><h1>HTH Reference Collection Editor</h1><div class="sub">Approve physical-document geometry and layout examples for Stage 2.</div></div><div class="tools">
+<label class="filebtn">Open results workspace<input id="workspaceFolder" type="file" webkitdirectory multiple></label>
 <label class="filebtn">Load reference JSON<input id="jsonFile" type="file" accept=".json,application/json"></label>
 <label class="filebtn">Load image folder<input id="imageFolder" type="file" webkitdirectory multiple accept="image/*"></label>
 <button id="export" class="primary" disabled>Export JSON</button></div></header>
-<main><section class="workspace"><div class="status"><span id="status">Load a reference collection and image folder.</span><span id="zoomLabel">Zoom 100%</span></div><div class="canvaswrap"><div id="empty" class="empty"><div><h2>No page loaded</h2><p>Load <code>golden_set.json</code> and the extracted-image folder.</p></div></div><canvas id="canvas" hidden></canvas></div></section>
+<main><section class="workspace"><div class="status"><span id="status">Open a results workspace, or load the reference JSON and raw image folder separately.</span><span id="zoomLabel">Zoom 100%</span></div><div class="canvaswrap"><div id="empty" class="empty"><div><h2>No page loaded</h2><p>Open the results repository folder (recommended), or load <code>golden_set.json</code> and <code>raw/</code> separately.</p></div></div><canvas id="canvas" hidden></canvas></div></section>
 <aside>
 <div class="box"><h2>Navigation</h2><div class="body"><div class="grid2"><button id="prev" disabled>← Previous</button><button id="next" disabled>Next →</button></div><div style="height:8px"></div><select id="pageSelect" disabled></select></div></div>
 <div class="box"><h2>Reference page</h2><div class="body">
@@ -36,15 +37,74 @@ aside{border-left:1px solid var(--line);background:var(--panel);padding:14px;ove
 <script>
 (()=>{'use strict';
 const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d');
-const s={collection:null,pages:[],index:-1,images:new Map(),image:null,zoom:1,start:null,box:null,dirty:false};
+const s={collection:null,pages:[],index:-1,images:new Map(),image:null,zoom:1,start:null,box:null,dirty:false,workspaceRoot:'',analysisFound:false,reviewQueueFound:false};
 const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','zoom','showBox'];
 function enable(v){ids.forEach(id=>$(id).disabled=!v)}
 function ordinalFromName(n){for(const r of [/fs[_-]?0*(\d+)/i,/(?:^|[_-])p(?:age)?[_-]?0*(\d+)/i,/(?:^|[_-])0*(\d+)(?:\.[^.]+)?$/i]){const m=n.match(r);if(m)return Number(m[1])}return null}
 function esc(v){return String(v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
+
+function pathOf(f){return (f.webkitRelativePath||f.name).replaceAll('\\','/')}
+function basename(p){const a=p.split('/');return a[a.length-1]}
+function pathScore(path,name){
+  const p=path.toLowerCase(),n=name.toLowerCase();
+  let score=0;
+  if(n==='reference_collection.json')score+=100;
+  if(n==='golden_set.json')score+=90;
+  if(p.includes('/config/'))score+=15;
+  if(p.includes('/test/latest/'))score+=12;
+  if(p.includes('/analysis/'))score+=4;
+  return score
+}
+async function loadWorkspace(files){
+  const all=[...files];
+  if(!all.length)return;
+
+  s.images.clear();
+  s.analysisFound=false;
+  s.reviewQueueFound=false;
+
+  const jsonCandidates=[];
+  for(const f of all){
+    const path=pathOf(f),name=basename(path);
+    if(f.type.startsWith('image/') && (path.includes('/raw/') || path.startsWith('raw/'))){
+      const o=ordinalFromName(name);
+      if(o!==null&&!s.images.has(o))s.images.set(o,f);
+    }
+    if(name==='reference_collection.json'||name==='golden_set.json'){
+      jsonCandidates.push({file:f,path,score:pathScore(path,name)});
+    }
+    if(name==='page-analysis.json')s.analysisFound=true;
+    if(name==='review-queue.csv')s.reviewQueueFound=true;
+  }
+
+  if(!s.images.size){
+    for(const f of all){
+      if(f.type.startsWith('image/')){
+        const o=ordinalFromName(f.name);
+        if(o!==null&&!s.images.has(o))s.images.set(o,f);
+      }
+    }
+  }
+
+  if(jsonCandidates.length){
+    jsonCandidates.sort((a,b)=>b.score-a.score);
+    s.collection=normalize(JSON.parse(await jsonCandidates[0].file.text()));
+    s.pages=s.collection.pages;
+  }else if(!s.collection){
+    throw Error('No reference_collection.json or golden_set.json was found in the selected workspace.');
+  }
+
+  const firstPath=pathOf(all[0]);
+  s.workspaceRoot=firstPath.includes('/')?firstPath.split('/')[0]:'selected folder';
+  enable(true);
+  rebuild();
+  collectionStatus();
+  load(0);
+}
 function normalize(d){if(!d||!Array.isArray(d.pages))throw Error('JSON must contain a pages array');d.pages.forEach(p=>{if(!('physical_document_bbox'in p))p.physical_document_bbox=null;if(!p.layout_type)p.layout_type='other';if(!p.label)p.label=`page_${p.global_ordinal}`;if(!p.notes)p.notes='';if(!Array.isArray(p.expected_regions))p.expected_regions=[]});return d}
 function rebuild(){const sel=$('pageSelect');sel.innerHTML='';s.pages.forEach((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=`${p.global_ordinal}: ${p.label}${Array.isArray(p.physical_document_bbox)?' ✓':''}`;sel.appendChild(o)})}
-function status(){if(s.index<0){$('status').textContent='Load a reference collection and image folder.';return}const p=s.pages[s.index],f=s.images.get(Number(p.global_ordinal));$('status').textContent=`Page ${s.index+1}/${s.pages.length} · ordinal ${p.global_ordinal} · ${f?f.name:'image missing'}${s.dirty?' · unsaved':''}`;$('zoomLabel').textContent=`Zoom ${Math.round(s.zoom*100)}%`}
-function collectionStatus(){if(!s.collection)return;const done=s.pages.filter(p=>Array.isArray(p.physical_document_bbox)).length;$('meta').innerHTML=`<strong>${esc(s.collection.collection_id||'Unnamed')}</strong><br>${esc(s.collection.description||'')}<br>${s.pages.length} reference pages`;$('badges').innerHTML=`<span class="badge ok">${done} approved</span><span class="badge warn">${s.pages.length-done} pending</span>`}
+function status(){if(s.index<0){$('status').textContent='Open a results workspace, or load the reference JSON and raw image folder separately.';return}const p=s.pages[s.index],f=s.images.get(Number(p.global_ordinal));$('status').textContent=`Page ${s.index+1}/${s.pages.length} · ordinal ${p.global_ordinal} · ${f?f.name:'image missing'}${s.dirty?' · unsaved':''}`;$('zoomLabel').textContent=`Zoom ${Math.round(s.zoom*100)}%`}
+function collectionStatus(){if(!s.collection)return;const done=s.pages.filter(p=>Array.isArray(p.physical_document_bbox)).length;const workspace=s.workspaceRoot?`<br>Workspace: ${esc(s.workspaceRoot)}`:'';$('meta').innerHTML=`<strong>${esc(s.collection.collection_id||'Unnamed')}</strong><br>${esc(s.collection.description||'')}<br>${s.pages.length} reference pages${workspace}`;$('badges').innerHTML=`<span class="badge ok">${done} approved</span><span class="badge warn">${s.pages.length-done} pending</span><span class="badge">${s.images.size} raw images</span>${s.analysisFound?'<span class="badge ok">analysis found</span>':''}${s.reviewQueueFound?'<span class="badge ok">review queue found</span>':''}`}
 function syncBox(){const v=s.box||['','','',''];['left','top','right','bottom'].forEach((id,i)=>$(id).value=v[i])}
 function render(){if(!s.image)return;canvas.width=Math.round(s.image.naturalWidth*s.zoom);canvas.height=Math.round(s.image.naturalHeight*s.zoom);ctx.drawImage(s.image,0,0,canvas.width,canvas.height);if($('showBox').checked&&s.box){const[l,t,r,b]=s.box;ctx.save();ctx.strokeStyle='#ff3b30';ctx.lineWidth=Math.max(2,3*s.zoom);ctx.setLineDash([10*s.zoom,6*s.zoom]);ctx.strokeRect(l*s.zoom,t*s.zoom,(r-l)*s.zoom,(b-t)*s.zoom);ctx.fillStyle='rgba(255,59,48,.12)';ctx.fillRect(l*s.zoom,t*s.zoom,(r-l)*s.zoom,(b-t)*s.zoom);ctx.restore()}}
 function load(i){if(!s.pages.length)return;if(s.dirty&&!confirm('Discard unsaved changes?'))return;s.index=Math.max(0,Math.min(i,s.pages.length-1));s.dirty=false;const p=s.pages[s.index];$('pageSelect').value=s.index;$('ordinal').value=p.global_ordinal;$('label').value=p.label;$('layout').value=p.layout_type;$('notes').value=p.notes;s.box=Array.isArray(p.physical_document_bbox)?[...p.physical_document_bbox]:null;syncBox();const f=s.images.get(Number(p.global_ordinal));if(f){const im=new Image();im.onload=()=>{s.image=im;$('empty').hidden=true;canvas.hidden=false;render();status()};im.src=URL.createObjectURL(f)}else{s.image=null;canvas.hidden=true;$('empty').hidden=false;$('empty').innerHTML=`<div><h2>No matching image</h2><p>Expected filename containing ordinal ${p.global_ordinal}, such as fs_${String(p.global_ordinal).padStart(4,'0')}.png.</p></div>`;status()}$('prev').disabled=s.index===0;$('next').disabled=s.index===s.pages.length-1;rebuild()}
@@ -52,6 +112,7 @@ function dirty(){s.dirty=true;status()}
 function readInputs(){const v=['left','top','right','bottom'].map(id=>Number($(id).value));if(v.some(x=>!Number.isFinite(x)))return null;let[l,t,r,b]=v;if(r<l)[l,r]=[r,l];if(b<t)[t,b]=[b,t];return[l,t,r,b].map(Math.round)}
 function save(){if(s.index<0)return;const p=s.pages[s.index];p.global_ordinal=Number($('ordinal').value);p.label=$('label').value.trim();p.layout_type=$('layout').value;p.notes=$('notes').value;p.physical_document_bbox=s.box?[...s.box]:null;s.dirty=false;rebuild();collectionStatus();status()}
 function exportJson(){if(s.dirty)save();const blob=new Blob([JSON.stringify(s.collection,null,2)+'\n'],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='reference_collection.json';a.click();URL.revokeObjectURL(a.href)}
+$('workspaceFolder').onchange=async e=>{try{await loadWorkspace(e.target.files)}catch(err){alert(`Could not open workspace: ${err.message}`)}};
 $('jsonFile').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;s.collection=normalize(JSON.parse(await f.text()));s.pages=s.collection.pages;enable(true);rebuild();collectionStatus();load(0)}catch(err){alert(err.message)}};
 $('imageFolder').onchange=e=>{s.images.clear();[...e.target.files].filter(f=>f.type.startsWith('image/')).forEach(f=>{const o=ordinalFromName(f.name);if(o!==null&&!s.images.has(o))s.images.set(o,f)});if(s.index>=0)load(s.index)};
 $('export').onclick=exportJson;$('prev').onclick=()=>load(s.index-1);$('next').onclick=()=>load(s.index+1);$('pageSelect').onchange=e=>load(Number(e.target.value));$('save').onclick=save;

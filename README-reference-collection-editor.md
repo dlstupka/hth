@@ -1,49 +1,77 @@
-# HTH Reference Collection Editor
+# HTH Reference Collection Editor v2
 
-A self-contained browser application for curating approved Stage 2 reference pages.
+This version can open the **entire checked-out results repository** or a downloaded test workspace in one step.
 
-## Install
-
-Place the files at:
+## Recommended repository layout
 
 ```text
-tools/reference-collection-editor.html
-README-reference-collection-editor.md
+hth-baptisms-...-results/
+├── config/
+│   └── golden_set.json                 # optional repository copy
+└── test/
+    └── latest/
+        ├── raw/
+        │   ├── fs_0001.png
+        │   └── ...
+        ├── analysis/
+        │   ├── page-analysis.json
+        │   └── review-queue.csv
+        ├── metadata/
+        ├── BUILD-INFO.yaml
+        └── reference_collection.json   # preferred editor input
 ```
 
-No installation, server, or external JavaScript library is required. Open the HTML file in Chrome or Edge.
+The editor searches the selected folder recursively and automatically discovers:
 
-## Workflow
+- `reference_collection.json`, preferred when present
+- otherwise `golden_set.json`
+- images beneath any `raw/` directory
+- `page-analysis.json`
+- `review-queue.csv`
 
-1. Click **Load reference JSON** and select `config/golden_set.json`.
-2. Click **Load image folder** and select the extracted-image folder.
-3. Images are matched by ordinals in filenames such as `fs_0001.png`, `fs-0001.jpg`, or `page_0001.png`.
-4. Select the layout type.
-5. Drag a rectangle around the complete physical document, sheet, cover, or open-book spread.
-6. Add notes for unusual pages.
-7. Click **Save page changes**.
-8. Continue through the reference pages.
-9. Click **Export JSON**.
-10. Replace `config/golden_set.json` with the downloaded `reference_collection.json`.
+## Use
 
-Bounding boxes use original-image coordinates:
+1. Clone or pull the results repository.
+2. Open `reference-collection-editor-v2.html` in Chrome or Edge.
+3. Click **Open results workspace**.
+4. Select the results-repository folder.
+5. Review and edit pages.
+6. Click **Export JSON**.
+7. Copy the exported JSON back to the HTH pipeline repository as:
 
 ```text
-[left, top, right, bottom]
+config/golden_set.json
 ```
 
-The app runs entirely in the browser and does not upload the images or JSON.
+The browser cannot overwrite the Git repository directly, so export remains explicit.
 
-## Current scope
+## Pipeline publication change
 
-The first version edits:
+The automatic test workflow must publish the ten raw test images and a copy of the reference collection into `test/latest/`.
 
-- global ordinal
-- label
-- layout type
-- physical-document bounding box
-- notes
+In `Prepare test publication`, create:
 
-It does not yet edit gutters, logical left/right page boxes, or visual regions. Those can be added after the physical-document reference collection is stable.
+```bash
+mkdir -p \
+  "$LATEST/raw" \
+  "$LATEST/metadata" \
+  "$LATEST/analysis" \
+  "$HISTORY"
+```
 
-The repository filename can remain `golden_set.json` temporarily for validator compatibility, while the user-facing concept is the **reference collection**.
+Then copy:
+
+```bash
+cp -a "$OUTPUT_DIRECTORY/raw/." "$LATEST/raw/"
+
+cp hth-pipeline/config/golden_set.json \
+   "$LATEST/reference_collection.json"
+```
+
+Only the small ten-page test raw set should be committed. Do not publish all 928 production images into the lightweight results repository unless that policy is reconsidered deliberately.
+
+## Why both repositories are still involved
+
+- The results repository is the convenient review workspace.
+- The pipeline repository owns the approved reference collection used by CI.
+- The editor exports an updated file that is committed back into `hth/config/golden_set.json`.
