@@ -396,10 +396,11 @@ def analyze_record(record: dict[str, Any], image_root: Path, cfg: AnalysisConfig
         sharpness = float(ImageStat.Stat(gray.filter(ImageFilter.FIND_EDGES)).var[0])
         small_box = detect_page_bbox(gray, cfg)
 
-        full_box = (
-            BoundingBox(0, 0, 0, 0)
-            if small_box is None
-            else scale_box(small_box, 1.0 / scale, width, height)
+        full_box = BoundingBox(0, 0, 0, 0) if small_box is None else scale_bbox(
+            small_box,
+            1.0 / scale,
+            width,
+            height,
         )
         content_fraction = full_box.width * full_box.height / max(1, width * height)
         tolerance = max(3, round(min(width, height) * 0.005))
