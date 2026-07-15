@@ -18,7 +18,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from PIL import Image, ImageDraw, ImageFilter, ImageOps, ImageStat, UnidentifiedImageError
+from PIL import (
+    Image,
+    ImageChops,
+    ImageDraw,
+    ImageFilter,
+    ImageOps,
+    ImageStat,
+    UnidentifiedImageError,
+)
 
 SCHEMA_VERSION = "0.1"
 
@@ -240,7 +248,7 @@ def bleed_proxy(gray: Image.Image) -> float:
     if max(small.size) > 800:
         small.thumbnail((800, 800), Image.Resampling.LANCZOS)
     background = small.filter(ImageFilter.GaussianBlur(radius=10))
-    residual = ImageOps.autocontrast(ImageOps.difference(small, background))
+    residual = ImageOps.autocontrast(ImageChops.difference(small, background))
     hist = residual.histogram()
     total = sum(hist) or 1
     return max(0.0, min(1.0, (sum(hist[20:85]) / total) * 2.5))
