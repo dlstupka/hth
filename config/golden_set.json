@@ -1,0 +1,56 @@
+{
+  "schema_version": "0.1",
+  "collection_id": "HTH-0001",
+  "description": "Manually approved representative pages for Stage 2 regression testing.",
+  "acceptance": {
+    "minimum_iou": 0.95,
+    "maximum_edge_error_px": 20,
+    "require_layout_match": true
+  },
+  "pages": [
+    {
+      "global_ordinal": 1,
+      "label": "ordinary_two_page_spread",
+      "layout_type": "two_page_spread",
+      "physical_document_bbox": null,
+      "gutter_x": null,
+      "left_page_bbox": null,
+      "right_page_bbox": null,
+      "expected_regions": [],
+      "notes": "Populate after visual review."
+    },
+    {
+      "global_ordinal": 6,
+      "label": "title_or_index_sheet",
+      "layout_type": "single_page",
+      "physical_document_bbox": null,
+      "gutter_x": null,
+      "left_page_bbox": null,
+      "right_page_bbox": null,
+      "expected_regions": [],
+      "notes": "Current title/index example."
+    },
+    {
+      "global_ordinal": 9,
+      "label": "clean_two_page_spread",
+      "layout_type": "two_page_spread",
+      "physical_document_bbox": null,
+      "gutter_x": null,
+      "left_page_bbox": null,
+      "right_page_bbox": null,
+      "expected_regions": [],
+      "notes": "Current clean example."
+    },
+    {
+      "global_ordinal": 10,
+      "label": "clean_two_page_spread_2",
+      "layout_type": "two_page_spread",
+      "physical_document_bbox": null,
+      "gutter_x": null,
+      "left_page_bbox": null,
+      "right_page_bbox": null,
+      "expected_regions": [],
+      "notes": "Current clean example."
+    }
+  ]
+}
