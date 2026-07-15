@@ -26,16 +26,16 @@ input[type=file]{display:none}
 main{display:grid;grid-template-columns:minmax(0,1fr) 360px;height:calc(100vh - 66px)}
 .workspace{min-width:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto}
 .status{padding:7px 12px;border-bottom:1px solid var(--line);color:var(--muted);font-size:12px;background:#151920;display:flex;justify-content:space-between;gap:12px}
-.canvaswrap{position:relative;overflow:auto;padding:12px;background:#12151b;display:flex;align-items:center;justify-content:center}
+.canvaswrap{position:relative;overflow:auto;padding:12px;background:#12151b;display:flex;align-items:center;justify-content:center}.canvaswrap.compare{align-items:flex-start}
 .empty{min-height:60vh;display:grid;place-items:center;text-align:center;color:var(--muted)}
-canvas{display:block;background:#000;box-shadow:0 10px 30px #0008;cursor:crosshair;max-width:none;max-height:none}
+canvas{display:block;background:#000;box-shadow:0 10px 30px #0008;cursor:crosshair;max-width:none;max-height:none}.canvas-hint{position:absolute;left:20px;top:20px;z-index:5;background:#0b0e13d9;border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:11px;line-height:1.45;color:#dfe7f1;pointer-events:none;max-width:260px}
 .thumbnailbar{border-top:1px solid var(--line);background:#0f1319;padding:8px;display:flex;gap:8px;overflow-x:auto;min-height:84px}
 .thumb{position:relative;flex:0 0 92px;border:2px solid var(--line);border-radius:7px;background:#151a21;padding:4px;cursor:pointer}
 .thumb:hover{border-color:var(--accent)}
 .thumb.active{outline:2px solid var(--accent);outline-offset:1px}
 .thumb.approved{border-color:var(--approved)}
 .thumb.review{border-color:var(--warn)}
-.thumb.fail{border-color:var(--danger)}
+.thumb.fail{border-color:var(--danger)}.thumb.hidden-by-filter{display:none}
 .thumb img{display:block;width:80px;height:55px;object-fit:cover;background:#000}
 .thumb .caption{font-size:11px;text-align:center;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .thumb .dot{position:absolute;right:4px;top:4px;width:9px;height:9px;border-radius:50%;background:var(--muted);box-shadow:0 0 0 1px #000}
@@ -53,10 +53,10 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
 .metric{display:grid;grid-template-columns:1fr auto;gap:8px;font-size:12px;margin-bottom:6px}
 .meter{height:8px;background:#0d1117;border-radius:999px;overflow:hidden;border:1px solid var(--line)}
 .meter span{display:block;height:100%;background:var(--accent)}
-.legend{display:flex;gap:10px;font-size:11px;color:var(--muted);margin-top:7px}
+.legend{display:flex;gap:10px;font-size:11px;color:var(--muted);margin-top:7px;flex-wrap:wrap}
 .swatch{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:4px}
 .swatch.pred{background:var(--pred)}.swatch.approved{background:var(--approved)}
-.coorddetails summary{cursor:pointer;color:var(--muted);font-size:12px;margin-bottom:8px}
+.coorddetails summary{cursor:pointer;color:var(--muted);font-size:12px;margin-bottom:8px}.confidence-word{font-size:15px;font-weight:700;margin-top:5px}.filter-row{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
 @media(max-width:980px){body{overflow:auto;height:auto}main{grid-template-columns:1fr;height:auto}.workspace{min-height:70vh}aside{border-left:0;border-top:1px solid var(--line)}}
 </style>
 </head>
@@ -76,7 +76,7 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
   <div class="status"><span id="status">Open a results workspace, or load the reference JSON and raw image folder separately.</span><span id="zoomLabel">Fit</span></div>
   <div id="canvasWrap" class="canvaswrap">
     <div id="empty" class="empty"><div><h2>No page loaded</h2><p>Open the results repository folder (recommended), or load <code>reference_collection.json</code> and <code>raw/</code> separately.</p></div></div>
-    <canvas id="canvas" hidden></canvas>
+    <div id="canvasHint" class="canvas-hint" hidden></div><canvas id="canvas" hidden></canvas>
   </div>
   <div id="thumbnailBar" class="thumbnailbar"></div>
 </section>
@@ -106,6 +106,7 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
     <div style="height:8px"></div>
     <div class="metric"><span>Confidence / quality</span><strong id="confidenceText">—</strong></div>
     <div class="meter"><span id="confidenceBar" style="width:0%"></span></div>
+    <div id="confidenceWord" class="confidence-word">No analysis</div>
     <div style="height:9px"></div>
     <button id="usePrediction" style="width:100%" disabled>Use Stage 2 prediction</button>
     <div class="legend"><span><i class="swatch pred"></i>prediction</span><span><i class="swatch approved"></i>approved</span></div>
@@ -119,6 +120,8 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
       <button id="save" class="good" disabled>Approve</button>
     </div>
     <div style="height:8px"></div>
+    <label><input id="autoAdvance" type="checkbox" checked disabled> Auto-advance to next page needing review</label>
+    <div style="height:8px"></div>
     <details class="coorddetails">
       <summary>Exact coordinates</summary>
       <div class="grid2">
@@ -131,14 +134,15 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
   </div></div>
 
   <div class="box"><h2>Display</h2><div class="body">
-    <div class="grid2"><button id="fit" disabled>Fit image</button><button id="actual" disabled>100%</button></div>
+    <div class="grid3"><button id="fit" disabled>Fit image</button><button id="actual" disabled>100%</button><button id="compare" disabled>Compare</button></div>
     <div style="height:8px"></div>
     <label><input id="showPrediction" type="checkbox" checked disabled> Show Stage 2 prediction</label>
     <label><input id="showBox" type="checkbox" checked disabled> Show approved box</label>
+    <label><input id="showMetadata" type="checkbox" checked disabled> Show metadata overlay</label>
     <p class="help">Mouse wheel zooms. Arrow keys navigate. Ctrl+S approves the current page.</p>
   </div></div>
 
-  <div class="box"><h2>Collection status</h2><div class="body"><div id="meta" class="meta">No collection loaded.</div><div style="height:8px"></div><div id="badges"></div></div></div>
+  <div class="box"><h2>Collection status</h2><div class="body"><div id="meta" class="meta">No collection loaded.</div><div style="height:8px"></div><div id="badges"></div><div style="height:8px"></div><div class="filter-row"><label><input id="filterReview" type="checkbox" checked disabled> Review</label><label><input id="filterApproved" type="checkbox" checked disabled> Approved</label><label><input id="filterOther" type="checkbox" checked disabled> Other</label></div></div></div>
 </aside>
 </main>
 
@@ -148,9 +152,9 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
 const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d'),wrap=$('canvasWrap');
 const s={
   collection:null,pages:[],index:-1,images:new Map(),image:null,zoom:1,fitZoom:1,start:null,
-  box:null,dirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null
+  box:null,dirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false
 };
-const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','showPrediction','showBox'];
+const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther'];
 function enable(v){ids.forEach(id=>$(id).disabled=!v)}
 function ordinalFromName(n){for(const r of [/fs[_-]?0*(\d+)/i,/(?:^|[_-])p(?:age)?[_-]?0*(\d+)/i,/(?:^|[_-])0*(\d+)(?:\.[^.]+)?$/i]){const m=n.match(r);if(m)return Number(m[1])}return null}
 function esc(v){return String(v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
@@ -183,15 +187,99 @@ async function loadWorkspace(files){
   enable(true);rebuild();collectionStatus();load(0)
 }
 
+
+function pageStatus(page){
+  const approved=Array.isArray(page.physical_document_bbox);
+  const ordinal=Number(page.global_ordinal);
+  const analysis=s.analysis.get(ordinal);
+  if(approved)return 'approved';
+  if(s.review.has(ordinal))return 'review';
+  if(analysis&&analysis.quality_status==='fail')return 'fail';
+  return 'other'
+}
+function filterVisible(status){
+  if(status==='approved')return $('filterApproved').checked;
+  if(status==='review'||status==='fail')return $('filterReview').checked;
+  return $('filterOther').checked
+}
+function confidenceDescription(score,status){
+  if(status==='error'||status==='fail')return 'Failed';
+  if(!Number.isFinite(score))return 'No score';
+  if(score>=.90)return 'Excellent';
+  if(score>=.80)return 'Strong';
+  if(score>=.70)return 'Questionable';
+  if(score>=.55)return 'Weak';
+  return 'Poor'
+}
+function nextReviewIndex(fromIndex){
+  if(!s.pages.length)return -1;
+  for(let offset=1;offset<=s.pages.length;offset++){
+    const i=(fromIndex+offset)%s.pages.length;
+    const p=s.pages[i];
+    if(!Array.isArray(p.physical_document_bbox)&&(s.review.has(Number(p.global_ordinal))||pageStatus(p)==='fail'))return i;
+  }
+  for(let offset=1;offset<=s.pages.length;offset++){
+    const i=(fromIndex+offset)%s.pages.length;
+    if(!Array.isArray(s.pages[i].physical_document_bbox))return i;
+  }
+  return -1
+}
+function handleSize(){return Math.max(7,10/s.zoom)}
+function boxHandles(box){
+  if(!box)return[];
+  const[l,t,r,b]=box,mx=(l+r)/2,my=(t+b)/2;
+  return[
+    ['nw',l,t],['n',mx,t],['ne',r,t],['e',r,my],
+    ['se',r,b],['s',mx,b],['sw',l,b],['w',l,my]
+  ]
+}
+function hitTestBox(x,y){
+  if(!s.box)return null;
+  const radius=handleSize()*1.6;
+  for(const[name,hx,hy]of boxHandles(s.box)){
+    if(Math.hypot(x-hx,y-hy)<=radius)return name
+  }
+  const[l,t,r,b]=s.box;
+  if(x>=l&&x<=r&&y>=t&&y<=b)return 'move';
+  return null
+}
+function resizeBox(mode,x,y){
+  if(!s.dragStartBox)return;
+  let[l,t,r,b]=s.dragStartBox;
+  const dx=x-s.dragOrigin.x,dy=y-s.dragOrigin.y;
+  if(mode==='move'){l+=dx;r+=dx;t+=dy;b+=dy}
+  else{
+    if(mode.includes('w'))l=x;
+    if(mode.includes('e'))r=x;
+    if(mode.includes('n'))t=y;
+    if(mode.includes('s'))b=y;
+  }
+  if(r<l)[l,r]=[r,l];if(b<t)[t,b]=[b,t];
+  const w=s.image.naturalWidth,h=s.image.naturalHeight;
+  const width=r-l,height=b-t;
+  if(mode==='move'){
+    if(l<0){r-=l;l=0}if(t<0){b-=t;t=0}
+    if(r>w){l-=r-w;r=w}if(b>h){t-=b-h;b=h}
+  }else{
+    l=Math.max(0,Math.min(w,l));r=Math.max(0,Math.min(w,r));
+    t=Math.max(0,Math.min(h,t));b=Math.max(0,Math.min(h,b))
+  }
+  s.box=[Math.round(l),Math.round(t),Math.round(r),Math.round(b)]
+}
+function updateCursor(x,y){
+  const hit=hitTestBox(x,y);
+  const map={nw:'nwse-resize',se:'nwse-resize',ne:'nesw-resize',sw:'nesw-resize',n:'ns-resize',s:'ns-resize',e:'ew-resize',w:'ew-resize',move:'move'};
+  canvas.style.cursor=map[hit]||'crosshair'
+}
 function rebuild(){
   const sel=$('pageSelect');sel.innerHTML='';
   const bar=$('thumbnailBar');bar.innerHTML='';
   s.pages.forEach((p,i)=>{
-    const approved=Array.isArray(p.physical_document_bbox),review=s.review.has(Number(p.global_ordinal));
-    const a=s.analysis.get(Number(p.global_ordinal));
-    const status=approved?'approved':review?'review':a&&a.quality_status==='fail'?'fail':'';
+    const statusName=pageStatus(p),visible=filterVisible(statusName);
+    const approved=statusName==='approved',review=statusName==='review';
     const o=document.createElement('option');o.value=i;o.textContent=`${p.global_ordinal}: ${p.label}${approved?' ✓':review?' ⚠':''}`;sel.appendChild(o);
-    const t=document.createElement('button');t.type='button';t.className=`thumb ${status}${i===s.index?' active':''}`;
+    const t=document.createElement('button');t.type='button';
+    t.className=`thumb ${statusName==='other'?'':statusName}${i===s.index?' active':''}${visible?'':' hidden-by-filter'}`;
     const f=s.images.get(Number(p.global_ordinal));
     t.innerHTML=`${f?'<img alt="">':'<div style="height:55px;display:grid;place-items:center;color:#778">no image</div>'}<span class="dot"></span><div class="caption">${p.global_ordinal}</div>`;
     if(f){const im=t.querySelector('img');im.src=URL.createObjectURL(f)}
@@ -216,16 +304,33 @@ function predictionForCurrent(){if(s.index<0)return null;return s.analysis.get(N
 function updatePrediction(){
   const r=predictionForCurrent(),box=analysisBBox(r);
   $('usePrediction').disabled=!box;
-  if(!r){$('predictionMeta').textContent='No analysis loaded.';$('confidenceText').textContent='—';$('confidenceBar').style.width='0%';return}
+  if(!r){$('predictionMeta').textContent='No analysis loaded.';$('confidenceText').textContent='—';$('confidenceBar').style.width='0%';$('confidenceWord').textContent='No analysis';updateCanvasHint();return}
   const score=Number(r.quality_score??r.confidence??0),pct=Math.max(0,Math.min(100,Math.round(score*100)));
   $('confidenceText').textContent=`${pct}%`;
   $('confidenceBar').style.width=`${pct}%`;
-  $('predictionMeta').innerHTML=`Status: <strong>${esc(r.quality_status||'unknown')}</strong><br>Reasons: ${esc(r.review_reasons||'none')}<br>Skew: ${esc(r.estimated_skew_degrees??'—')}°`
+  $('confidenceWord').textContent=confidenceDescription(score,r.quality_status);
+  $('predictionMeta').innerHTML=`Status: <strong>${esc(r.quality_status||'unknown')}</strong><br>Reasons: ${esc(r.review_reasons||'none')}<br>Skew: ${esc(r.estimated_skew_degrees??'—')}°`;updateCanvasHint()
+}
+
+function updateCanvasHint(){
+  const hint=$('canvasHint');
+  if(!$('showMetadata').checked||s.index<0){hint.hidden=true;return}
+  const p=s.pages[s.index],r=predictionForCurrent();
+  const score=r?Number(r.quality_score??r.confidence??NaN):NaN;
+  const pct=Number.isFinite(score)?Math.round(score*100):'—';
+  hint.innerHTML=`<strong>${esc(p.layout_type||'unknown')}</strong><br>`+
+    `Ordinal: ${esc(p.global_ordinal)}<br>`+
+    `Quality: ${esc(pct)}% (${esc(confidenceDescription(score,r?.quality_status))})<br>`+
+    `Skew: ${esc(r?.estimated_skew_degrees??'—')}°<br>`+
+    `Brightness: ${esc(r?.brightness_mean??'—')}<br>`+
+    `Contrast: ${esc(r?.contrast_stddev??'—')}<br>`+
+    `Bleed proxy: ${esc(r?.bleed_through_proxy??'—')}`;
+  hint.hidden=false
 }
 function fitImage(){
   if(!s.image)return;
   const availableW=Math.max(100,wrap.clientWidth-24),availableH=Math.max(100,wrap.clientHeight-24);
-  s.fitZoom=Math.min(availableW/s.image.naturalWidth,availableH/s.image.naturalHeight);
+  const logicalWidth=s.compareMode?s.image.naturalWidth*2+24:s.image.naturalWidth;s.fitZoom=Math.min(availableW/logicalWidth,availableH/s.image.naturalHeight);
   s.zoom=Math.max(.05,Math.min(4,s.fitZoom));render();status()
 }
 function drawBox(box,color,fill,dash){
@@ -233,16 +338,42 @@ function drawBox(box,color,fill,dash){
 }
 function render(){
   if(!s.image)return;
+  const pred=analysisBBox(predictionForCurrent());
+  if(s.compareMode){
+    const gap=24;
+    canvas.width=Math.max(1,Math.round(s.image.naturalWidth*s.zoom*2+gap));
+    canvas.height=Math.max(1,Math.round(s.image.naturalHeight*s.zoom));
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(s.image,0,0,s.image.naturalWidth*s.zoom,s.image.naturalHeight*s.zoom);
+    ctx.drawImage(s.image,s.image.naturalWidth*s.zoom+gap,0,s.image.naturalWidth*s.zoom,s.image.naturalHeight*s.zoom);
+    ctx.save();
+    if(pred){
+      ctx.translate(0,0);drawBox(pred,'#ff3b30','rgba(255,59,48,.025)',[9,6])
+    }
+    if(s.box){
+      ctx.translate(s.image.naturalWidth*s.zoom+gap,0);drawBox(s.box,'#35d07f','rgba(53,208,127,.035)',[])
+    }
+    ctx.restore();
+    return
+  }
   canvas.width=Math.max(1,Math.round(s.image.naturalWidth*s.zoom));canvas.height=Math.max(1,Math.round(s.image.naturalHeight*s.zoom));
   ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(s.image,0,0,canvas.width,canvas.height);
-  if($('showPrediction').checked)drawBox(analysisBBox(predictionForCurrent()),'#ff3b30','rgba(255,59,48,.06)',[12,7]);
-  if($('showBox').checked&&s.box)drawBox(s.box,'#35d07f','rgba(53,208,127,.08)',[])
+  if($('showPrediction').checked)drawBox(pred,'#ff3b30','rgba(255,59,48,.025)',[9,6]);
+  if($('showBox').checked&&s.box){
+    drawBox(s.box,'#35d07f','rgba(53,208,127,.035)',[]);
+    const size=handleSize();
+    ctx.save();ctx.fillStyle='#35d07f';ctx.strokeStyle='#07150e';ctx.lineWidth=1.5;
+    for(const[,x,y]of boxHandles(s.box)){
+      ctx.beginPath();ctx.rect((x-size/2)*s.zoom,(y-size/2)*s.zoom,size*s.zoom,size*s.zoom);ctx.fill();ctx.stroke()
+    }
+    ctx.restore()
+  }
 }
 function load(i){
   if(!s.pages.length)return;if(s.dirty&&!confirm('Discard unsaved changes?'))return;
-  s.index=Math.max(0,Math.min(i,s.pages.length-1));s.dirty=false;
+  s.index=Math.max(0,Math.min(i,s.pages.length-1));s.dirty=false;s.compareMode=false;wrap.classList.remove('compare');$('compare').textContent='Compare';
   const p=s.pages[s.index];$('pageSelect').value=s.index;$('ordinal').value=p.global_ordinal;$('label').value=p.label;$('layout').value=p.layout_type;$('notes').value=p.notes;
-  s.box=Array.isArray(p.physical_document_bbox)?[...p.physical_document_bbox]:null;syncBox();updatePrediction();
+  s.box=Array.isArray(p.physical_document_bbox)?[...p.physical_document_bbox]:null;syncBox();updatePrediction();updateCanvasHint();
   const f=s.images.get(Number(p.global_ordinal));
   if(s.objectUrl)URL.revokeObjectURL(s.objectUrl);
   if(f){const im=new Image();im.onload=()=>{s.image=im;$('empty').hidden=true;canvas.hidden=false;fitImage();status()};s.objectUrl=URL.createObjectURL(f);im.src=s.objectUrl}
@@ -255,7 +386,7 @@ function save(){
   if(s.index<0)return;const p=s.pages[s.index];
   p.global_ordinal=Number($('ordinal').value);p.label=$('label').value.trim();p.layout_type=$('layout').value;p.notes=$('notes').value;p.physical_document_bbox=s.box?[...s.box]:null;
   p.reviewed_at_utc=new Date().toISOString();p.review_status='approved';
-  s.dirty=false;rebuild();collectionStatus();status()
+  s.dirty=false;rebuild();collectionStatus();status();if($('autoAdvance').checked){const n=nextReviewIndex(s.index);if(n>=0&&n!==s.index)load(n)}
 }
 function exportJson(){if(s.dirty)save();const blob=new Blob([JSON.stringify(s.collection,null,2)+'\n'],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='reference_collection.json';a.click();URL.revokeObjectURL(a.href)}
 
@@ -268,12 +399,27 @@ $('export').onclick=exportJson;$('prev').onclick=()=>load(s.index-1);$('next').o
 $('full').onclick=()=>{if(!s.image)return;s.box=[0,0,s.image.naturalWidth,s.image.naturalHeight];syncBox();dirty();render()};
 $('clear').onclick=()=>{s.box=null;syncBox();dirty();render()};
 $('usePrediction').onclick=()=>{const b=analysisBBox(predictionForCurrent());if(!b)return;s.box=[...b];syncBox();dirty();render()};
-$('fit').onclick=fitImage;$('actual').onclick=()=>{s.zoom=1;render();status()};
-$('showBox').onchange=render;$('showPrediction').onchange=render;
+$('fit').onclick=fitImage;$('actual').onclick=()=>{s.zoom=1;render();status()};$('compare').onclick=()=>{s.compareMode=!s.compareMode;wrap.classList.toggle('compare',s.compareMode);$('compare').textContent=s.compareMode?'Exit compare':'Compare';fitImage()};
+$('showBox').onchange=render;$('showPrediction').onchange=render;$('showMetadata').onchange=updateCanvasHint;['filterReview','filterApproved','filterOther'].forEach(id=>$(id).onchange=rebuild);
 
-canvas.onmousedown=e=>{if(!s.image)return;const r=canvas.getBoundingClientRect();s.start={x:(e.clientX-r.left)/s.zoom,y:(e.clientY-r.top)/s.zoom}};
-canvas.onmousemove=e=>{if(!s.start||!s.image)return;const r=canvas.getBoundingClientRect(),x=(e.clientX-r.left)/s.zoom,y=(e.clientY-r.top)/s.zoom;s.box=[Math.max(0,Math.round(Math.min(s.start.x,x))),Math.max(0,Math.round(Math.min(s.start.y,y))),Math.min(s.image.naturalWidth,Math.round(Math.max(s.start.x,x))),Math.min(s.image.naturalHeight,Math.round(Math.max(s.start.y,y)))];syncBox();render()};
-window.onmouseup=()=>{if(s.start){s.start=null;dirty()}};
+canvas.onmousedown=e=>{
+  if(!s.image||s.compareMode)return;
+  const r=canvas.getBoundingClientRect(),x=(e.clientX-r.left)/s.zoom,y=(e.clientY-r.top)/s.zoom;
+  const hit=hitTestBox(x,y);
+  s.dragMode=hit||'draw';s.dragOrigin={x,y};s.dragStartBox=s.box?[...s.box]:null;
+  if(s.dragMode==='draw'){s.start={x,y};s.box=[Math.round(x),Math.round(y),Math.round(x),Math.round(y)]}
+};
+canvas.onmousemove=e=>{
+  if(!s.image||s.compareMode)return;
+  const r=canvas.getBoundingClientRect(),x=(e.clientX-r.left)/s.zoom,y=(e.clientY-r.top)/s.zoom;
+  if(!s.dragMode){updateCursor(x,y);return}
+  if(s.dragMode==='draw'){
+    s.box=[Math.max(0,Math.round(Math.min(s.start.x,x))),Math.max(0,Math.round(Math.min(s.start.y,y))),
+      Math.min(s.image.naturalWidth,Math.round(Math.max(s.start.x,x))),Math.min(s.image.naturalHeight,Math.round(Math.max(s.start.y,y)))]
+  }else resizeBox(s.dragMode,x,y);
+  syncBox();render()
+};
+window.onmouseup=()=>{if(s.dragMode){s.start=null;s.dragMode=null;s.dragOrigin=null;s.dragStartBox=null;dirty()}};
 wrap.addEventListener('wheel',e=>{if(!s.image)return;e.preventDefault();const factor=e.deltaY<0?1.1:.9;s.zoom=Math.max(.05,Math.min(4,s.zoom*factor));render();status()},{passive:false});
 window.onresize=()=>{if(s.image&&Math.abs(s.zoom-s.fitZoom)<.03)fitImage()};
 window.onkeydown=e=>{if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName))return;if(e.key==='ArrowLeft'&&s.index>0)load(s.index-1);if(e.key==='ArrowRight'&&s.index<s.pages.length-1)load(s.index+1);if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();save()}};
