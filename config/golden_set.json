@@ -12,45 +12,446 @@
       "global_ordinal": 1,
       "label": "ordinary_two_page_spread",
       "layout_type": "two_page_spread",
-      "physical_document_bbox": null,
+      "physical_document_bbox": [
+        125,
+        56,
+        1289,
+        967
+      ],
       "gutter_x": null,
       "left_page_bbox": null,
       "right_page_bbox": null,
       "expected_regions": [],
-      "notes": "Populate after visual review."
+      "notes": "Populate after visual review.",
+      "reviewed_at_utc": "2026-07-16T18:14:12.012Z",
+      "review_status": "approved",
+      "stage2_prediction": {
+        "physical_document_bbox": [
+          737,
+          65,
+          1284,
+          945
+        ],
+        "quality_status": "pass",
+        "quality_score": 0.895,
+        "review_reasons": "",
+        "estimated_skew_degrees": -0.25,
+        "brightness_mean": 165.776,
+        "contrast_stddev": 44.576,
+        "sharpness_score": 5418.382,
+        "bleed_through_proxy": 0.7,
+        "source_repository": "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
+        "source_commit": "9f03a2632820a26b9724dac7a7a62e87776b1b04",
+        "pipeline_repository": "dlstupka/hth",
+        "pipeline_commit": "f5cc585c27ed52e04a38cb52f21f54d239e87414"
+      },
+      "correction": {
+        "accepted_prediction_unchanged": false,
+        "modified_prediction": true,
+        "edge_deltas_px": {
+          "left": -612,
+          "top": -9,
+          "right": 5,
+          "bottom": 22
+        },
+        "width_delta_px": 617,
+        "height_delta_px": 31,
+        "area_delta_px": 579044,
+        "intersection_over_union": 0.45394
+      },
+      "review_provenance": {
+        "editor_version": "0.6",
+        "reference_source": "hth-baptisms-san-antonio-1788-1824--1858-1898-results/test/latest/reference_collection.json",
+        "analysis_source": "hth-baptisms-san-antonio-1788-1824--1858-1898-results/test/latest/analysis/page-analysis.json",
+        "build": {
+          "schema_version": "1\nbuild_type: test\nstatus: successful\n\nsource:\n  repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898\n  commit: 9f03a2632820a26b9724dac7a7a62e87776b1b04\n  file: Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx\n\npipeline:\n  repository: dlstupka/hth\n  commit: f5cc585c27ed52e04a38cb52f21f54d239e87414\n  workflow: HTH preprocess test\n  workflow_run_id: 29453379575\n  workflow_run_number: 18\n\nbuild:\n  processed_at_utc: 2026-07-15T21:51:57Z\n  output_location: test/latest"
+        }
+      }
     },
     {
       "global_ordinal": 6,
       "label": "title_or_index_sheet",
       "layout_type": "single_page",
-      "physical_document_bbox": null,
+      "physical_document_bbox": [
+        15,
+        28,
+        1074,
+        970
+      ],
       "gutter_x": null,
       "left_page_bbox": null,
       "right_page_bbox": null,
       "expected_regions": [],
-      "notes": "Current title/index example."
+      "notes": "Current title/index example.",
+      "reviewed_at_utc": "2026-07-16T18:17:48.508Z",
+      "review_status": "approved",
+      "stage2_prediction": {
+        "physical_document_bbox": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "quality_status": "review",
+        "quality_score": 0.769,
+        "review_reasons": "very_small_content_region",
+        "estimated_skew_degrees": -0.25,
+        "brightness_mean": 150.038,
+        "contrast_stddev": 67.25,
+        "sharpness_score": 1431.337,
+        "bleed_through_proxy": 0.342,
+        "source_repository": "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
+        "source_commit": "9f03a2632820a26b9724dac7a7a62e87776b1b04",
+        "pipeline_repository": "dlstupka/hth",
+        "pipeline_commit": "f5cc585c27ed52e04a38cb52f21f54d239e87414"
+      },
+      "correction": {
+        "accepted_prediction_unchanged": false,
+        "modified_prediction": true,
+        "edge_deltas_px": {
+          "left": 15,
+          "top": 28,
+          "right": 1074,
+          "bottom": 970
+        },
+        "width_delta_px": 1059,
+        "height_delta_px": 942,
+        "area_delta_px": 997578,
+        "intersection_over_union": 0
+      },
+      "review_provenance": {
+        "editor_version": "0.6",
+        "reference_source": "hth-baptisms-san-antonio-1788-1824--1858-1898-results/test/latest/reference_collection.json",
+        "analysis_source": "hth-baptisms-san-antonio-1788-1824--1858-1898-results/test/latest/analysis/page-analysis.json",
+        "build": {
+          "schema_version": "1\nbuild_type: test\nstatus: successful\n\nsource:\n  repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898\n  commit: 9f03a2632820a26b9724dac7a7a62e87776b1b04\n  file: Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx\n\npipeline:\n  repository: dlstupka/hth\n  commit: f5cc585c27ed52e04a38cb52f21f54d239e87414\n  workflow: HTH preprocess test\n  workflow_run_id: 29453379575\n  workflow_run_number: 18\n\nbuild:\n  processed_at_utc: 2026-07-15T21:51:57Z\n  output_location: test/latest"
+        }
+      }
     },
     {
       "global_ordinal": 9,
       "label": "clean_two_page_spread",
       "layout_type": "two_page_spread",
-      "physical_document_bbox": null,
+      "physical_document_bbox": [
+        84,
+        51,
+        1101,
+        941
+      ],
       "gutter_x": null,
       "left_page_bbox": null,
       "right_page_bbox": null,
       "expected_regions": [],
-      "notes": "Current clean example."
+      "notes": "Current clean example.",
+      "reviewed_at_utc": "2026-07-16T18:22:52.804Z",
+      "review_status": "approved",
+      "stage2_prediction": {
+        "physical_document_bbox": [
+          66,
+          46,
+          1137,
+          946
+        ],
+        "quality_status": "pass",
+        "quality_score": 0.917,
+        "review_reasons": "",
+        "estimated_skew_degrees": 0.25,
+        "brightness_mean": 164.204,
+        "contrast_stddev": 49.529,
+        "sharpness_score": 5924.089,
+        "bleed_through_proxy": 0.688,
+        "source_repository": "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
+        "source_commit": "9f03a2632820a26b9724dac7a7a62e87776b1b04",
+        "pipeline_repository": "dlstupka/hth",
+        "pipeline_commit": "f5cc585c27ed52e04a38cb52f21f54d239e87414"
+      },
+      "correction": {
+        "accepted_prediction_unchanged": false,
+        "modified_prediction": true,
+        "edge_deltas_px": {
+          "left": 18,
+          "top": 5,
+          "right": -36,
+          "bottom": -5
+        },
+        "width_delta_px": -54,
+        "height_delta_px": -10,
+        "area_delta_px": -58770,
+        "intersection_over_union": 0.939029
+      },
+      "review_provenance": {
+        "editor_version": "0.6",
+        "reference_source": "hth-baptisms-san-antonio-1788-1824--1858-1898-results/test/latest/reference_collection.json",
+        "analysis_source": "hth-baptisms-san-antonio-1788-1824--1858-1898-results/test/latest/analysis/page-analysis.json",
+        "build": {
+          "schema_version": "1\nbuild_type: test\nstatus: successful\n\nsource:\n  repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898\n  commit: 9f03a2632820a26b9724dac7a7a62e87776b1b04\n  file: Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx\n\npipeline:\n  repository: dlstupka/hth\n  commit: f5cc585c27ed52e04a38cb52f21f54d239e87414\n  workflow: HTH preprocess test\n  workflow_run_id: 29453379575\n  workflow_run_number: 18\n\nbuild:\n  processed_at_utc: 2026-07-15T21:51:57Z\n  output_location: test/latest"
+        }
+      }
     },
     {
       "global_ordinal": 10,
       "label": "clean_two_page_spread_2",
       "layout_type": "two_page_spread",
-      "physical_document_bbox": null,
+      "physical_document_bbox": [
+        88,
+        33,
+        1154,
+        968
+      ],
       "gutter_x": null,
       "left_page_bbox": null,
       "right_page_bbox": null,
       "expected_regions": [],
-      "notes": "Current clean example."
+      "notes": "Current clean example.",
+      "reviewed_at_utc": "2026-07-16T18:26:06.284Z",
+      "review_status": "approved",
+      "stage2_prediction": {
+        "physical_document_bbox": [
+          145,
+          30,
+          1159,
+          960
+        ],
+        "quality_status": "pass",
+        "quality_score": 0.871,
+        "review_reasons": "",
+        "estimated_skew_degrees": -0.25,
+        "brightness_mean": 163.919,
+        "contrast_stddev": 40.452,
+        "sharpness_score": 6195,
+        "bleed_through_proxy": 0.687,
+        "source_repository": "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
+        "source_commit": "9f03a2632820a26b9724dac7a7a62e87776b1b04",
+        "pipeline_repository": "dlstupka/hth",
+        "pipeline_commit": "f5cc585c27ed52e04a38cb52f21f54d239e87414"
+      },
+      "correction": {
+        "accepted_prediction_unchanged": false,
+        "modified_prediction": true,
+        "edge_deltas_px": {
+          "left": -57,
+          "top": 3,
+          "right": -5,
+          "bottom": 8
+        },
+        "width_delta_px": 52,
+        "height_delta_px": 5,
+        "area_delta_px": 53690,
+        "intersection_over_union": 0.931258
+      },
+      "review_provenance": {
+        "editor_version": "0.6",
+        "reference_source": "hth-baptisms-san-antonio-1788-1824--1858-1898-results/test/latest/reference_collection.json",
+        "analysis_source": "hth-baptisms-san-antonio-1788-1824--1858-1898-results/test/latest/analysis/page-analysis.json",
+        "build": {
+          "schema_version": "1\nbuild_type: test\nstatus: successful\n\nsource:\n  repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898\n  commit: 9f03a2632820a26b9724dac7a7a62e87776b1b04\n  file: Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx\n\npipeline:\n  repository: dlstupka/hth\n  commit: f5cc585c27ed52e04a38cb52f21f54d239e87414\n  workflow: HTH preprocess test\n  workflow_run_id: 29453379575\n  workflow_run_number: 18\n\nbuild:\n  processed_at_utc: 2026-07-15T21:51:57Z\n  output_location: test/latest"
+        }
+      }
     }
-  ]
-}
+  ],
+  "reference_metrics": {
+    "schema_version": "0.1",
+    "collection_id": "HTH-0001",
+    "generated_at_utc": "2026-07-16T18:31:16.380Z",
+    "reference_pages": 4,
+    "approved_pages": 4,
+    "comparable_predictions": 4,
+    "prediction_accepted_unchanged": 0,
+    "prediction_modified": 4,
+    "acceptance_rate": 0,
+    "mean_iou": 0.581057,
+    "median_iou": 0.692599,
+    "mean_edge_delta_px": {
+      "left": -159,
+      "top": 6.75,
+      "right": 259.5,
+      "bottom": 248.75
+    },
+    "build": {
+      "schema_version": "1\nbuild_type: test\nstatus: successful\n\nsource:\n  repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898\n  commit: 9f03a2632820a26b9724dac7a7a62e87776b1b04\n  file: Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx\n\npipeline:\n  repository: dlstupka/hth\n  commit: f5cc585c27ed52e04a38cb52f21f54d239e87414\n  workflow: HTH preprocess test\n  workflow_run_id: 29453379575\n  workflow_run_number: 18\n\nbuild:\n  processed_at_utc: 2026-07-15T21:51:57Z\n  output_location: test/latest"
+    },
+    "pages": [
+      {
+        "global_ordinal": 1,
+        "layout_type": "two_page_spread",
+        "prediction": {
+          "physical_document_bbox": [
+            737,
+            65,
+            1284,
+            945
+          ],
+          "quality_status": "pass",
+          "quality_score": 0.895,
+          "review_reasons": "",
+          "estimated_skew_degrees": -0.25,
+          "brightness_mean": 165.776,
+          "contrast_stddev": 44.576,
+          "sharpness_score": 5418.382,
+          "bleed_through_proxy": 0.7,
+          "source_repository": "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
+          "source_commit": "9f03a2632820a26b9724dac7a7a62e87776b1b04",
+          "pipeline_repository": "dlstupka/hth",
+          "pipeline_commit": "f5cc585c27ed52e04a38cb52f21f54d239e87414"
+        },
+        "approved_bbox": [
+          125,
+          56,
+          1289,
+          967
+        ],
+        "correction": {
+          "accepted_prediction_unchanged": false,
+          "modified_prediction": true,
+          "edge_deltas_px": {
+            "left": -612,
+            "top": -9,
+            "right": 5,
+            "bottom": 22
+          },
+          "width_delta_px": 617,
+          "height_delta_px": 31,
+          "area_delta_px": 579044,
+          "intersection_over_union": 0.45394
+        },
+        "reviewed_at_utc": "2026-07-16T18:14:12.012Z"
+      },
+      {
+        "global_ordinal": 6,
+        "layout_type": "single_page",
+        "prediction": {
+          "physical_document_bbox": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "quality_status": "review",
+          "quality_score": 0.769,
+          "review_reasons": "very_small_content_region",
+          "estimated_skew_degrees": -0.25,
+          "brightness_mean": 150.038,
+          "contrast_stddev": 67.25,
+          "sharpness_score": 1431.337,
+          "bleed_through_proxy": 0.342,
+          "source_repository": "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
+          "source_commit": "9f03a2632820a26b9724dac7a7a62e87776b1b04",
+          "pipeline_repository": "dlstupka/hth",
+          "pipeline_commit": "f5cc585c27ed52e04a38cb52f21f54d239e87414"
+        },
+        "approved_bbox": [
+          15,
+          28,
+          1074,
+          970
+        ],
+        "correction": {
+          "accepted_prediction_unchanged": false,
+          "modified_prediction": true,
+          "edge_deltas_px": {
+            "left": 15,
+            "top": 28,
+            "right": 1074,
+            "bottom": 970
+          },
+          "width_delta_px": 1059,
+          "height_delta_px": 942,
+          "area_delta_px": 997578,
+          "intersection_over_union": 0
+        },
+        "reviewed_at_utc": "2026-07-16T18:17:48.508Z"
+      },
+      {
+        "global_ordinal": 9,
+        "layout_type": "two_page_spread",
+        "prediction": {
+          "physical_document_bbox": [
+            66,
+            46,
+            1137,
+            946
+          ],
+          "quality_status": "pass",
+          "quality_score": 0.917,
+          "review_reasons": "",
+          "estimated_skew_degrees": 0.25,
+          "brightness_mean": 164.204,
+          "contrast_stddev": 49.529,
+          "sharpness_score": 5924.089,
+          "bleed_through_proxy": 0.688,
+          "source_repository": "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
+          "source_commit": "9f03a2632820a26b9724dac7a7a62e87776b1b04",
+          "pipeline_repository": "dlstupka/hth",
+          "pipeline_commit": "f5cc585c27ed52e04a38cb52f21f54d239e87414"
+        },
+        "approved_bbox": [
+          84,
+          51,
+          1101,
+          941
+        ],
+        "correction": {
+          "accepted_prediction_unchanged": false,
+          "modified_prediction": true,
+          "edge_deltas_px": {
+            "left": 18,
+            "top": 5,
+            "right": -36,
+            "bottom": -5
+          },
+          "width_delta_px": -54,
+          "height_delta_px": -10,
+          "area_delta_px": -58770,
+          "intersection_over_union": 0.939029
+        },
+        "reviewed_at_utc": "2026-07-16T18:22:52.804Z"
+      },
+      {
+        "global_ordinal": 10,
+        "layout_type": "two_page_spread",
+        "prediction": {
+          "physical_document_bbox": [
+            145,
+            30,
+            1159,
+            960
+          ],
+          "quality_status": "pass",
+          "quality_score": 0.871,
+          "review_reasons": "",
+          "estimated_skew_degrees": -0.25,
+          "brightness_mean": 163.919,
+          "contrast_stddev": 40.452,
+          "sharpness_score": 6195,
+          "bleed_through_proxy": 0.687,
+          "source_repository": "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
+          "source_commit": "9f03a2632820a26b9724dac7a7a62e87776b1b04",
+          "pipeline_repository": "dlstupka/hth",
+          "pipeline_commit": "f5cc585c27ed52e04a38cb52f21f54d239e87414"
+        },
+        "approved_bbox": [
+          88,
+          33,
+          1154,
+          968
+        ],
+        "correction": {
+          "accepted_prediction_unchanged": false,
+          "modified_prediction": true,
+          "edge_deltas_px": {
+            "left": -57,
+            "top": 3,
+            "right": -5,
+            "bottom": 8
+          },
+          "width_delta_px": 52,
+          "height_delta_px": 5,
+          "area_delta_px": 53690,
+          "intersection_over_union": 0.931258
+        },
+        "reviewed_at_utc": "2026-07-16T18:26:06.284Z"
+      }
+    ]
+  },
+  "reference_collection_version": "0.6"
+}\n
