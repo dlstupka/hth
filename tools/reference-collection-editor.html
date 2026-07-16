@@ -67,7 +67,7 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
     <label class="filebtn">Open results workspace<input id="workspaceFolder" type="file" webkitdirectory multiple></label>
     <label class="filebtn">Load reference JSON<input id="jsonFile" type="file" accept=".json,application/json"></label>
     <label class="filebtn">Load image folder<input id="imageFolder" type="file" webkitdirectory multiple accept="image/*"></label>
-    <button id="export" class="primary" disabled>Export JSON</button>
+    <button id="export" class="primary" disabled>Export reference JSON</button><button id="exportMetrics" disabled>Export metrics</button>
   </div>
 </header>
 
@@ -143,7 +143,7 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
     <div class="shortcut-grid"><code>Space</code><span>Approve</span><code>A</code><span>Use Stage 2 prediction</span><code>N / P</code><span>Next / previous page</span><code>F</code><span>Fit image</span><code>1</code><span>100%</span><code>C</code><span>Compare</span><code>Ctrl+Z</code><span>Undo box change</span><code>Esc</code><span>Cancel active drag</span></div>
   </div></div>
 
-  <div class="box"><h2>Collection status</h2><div class="body"><div id="meta" class="meta">No collection loaded.</div><div style="height:8px"></div><div id="badges"></div><div style="height:8px"></div><div class="filter-row"><label><input id="filterReview" type="checkbox" checked disabled> Review</label><label><input id="filterApproved" type="checkbox" checked disabled> Approved</label><label><input id="filterOther" type="checkbox" checked disabled> Other</label></div></div></div>
+  <div class="box"><h2>Reference metrics</h2><div class="body"><div id="metricsSummary" class="meta">Approve reference pages to calculate metrics.</div></div></div><div class="box"><h2>Collection status</h2><div class="body"><div id="meta" class="meta">No collection loaded.</div><div style="height:8px"></div><div id="badges"></div><div style="height:8px"></div><div class="filter-row"><label><input id="filterReview" type="checkbox" checked disabled> Review</label><label><input id="filterApproved" type="checkbox" checked disabled> Approved</label><label><input id="filterOther" type="checkbox" checked disabled> Other</label></div></div></div>
 </aside>
 </main>
 
@@ -153,9 +153,9 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
 const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d'),wrap=$('canvasWrap');
 const s={
   collection:null,pages:[],index:-1,images:new Map(),image:null,zoom:1,fitZoom:1,start:null,
-  box:null,dirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false,undoStack:[],approvedSnapshot:null
+  box:null,dirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false,undoStack:[],approvedSnapshot:null,buildInfo:null,analysisFileName:'',referenceSourcePath:''
 };
-const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther','mutePrediction','undo'];
+const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther','mutePrediction','undo','exportMetrics'];
 function enable(v){ids.forEach(id=>$(id).disabled=!v)}
 function ordinalFromName(n){for(const r of [/fs[_-]?0*(\d+)/i,/(?:^|[_-])p(?:age)?[_-]?0*(\d+)/i,/(?:^|[_-])0*(\d+)(?:\.[^.]+)?$/i]){const m=n.match(r);if(m)return Number(m[1])}return null}
 function esc(v){return String(v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
@@ -169,23 +169,23 @@ function parseCsv(text){const lines=text.trim().split(/\r?\n/);if(lines.length<2
 async function loadWorkspace(files){
   const all=[...files];if(!all.length)return;
   s.images.clear();s.analysis.clear();s.review.clear();
-  const refs=[];let analysisFile=null,reviewFile=null;
+  const refs=[];let analysisFile=null,reviewFile=null,buildInfoFile=null;
   for(const f of all){
     const path=pathOf(f),name=basename(path);
     if(f.type.startsWith('image/')&&(path.includes('/raw/')||path.startsWith('raw/'))){const o=ordinalFromName(name);if(o!==null&&!s.images.has(o))s.images.set(o,f)}
     if(name==='reference_collection.json'||name==='golden_set.json')refs.push({file:f,path,score:pathScore(path,name)});
     if(name==='page-analysis.json'&&path.includes('/test/latest/'))analysisFile=f;
     else if(name==='page-analysis.json'&&!analysisFile)analysisFile=f;
-    if(name==='review-queue.csv'&&path.includes('/test/latest/'))reviewFile=f;
+    if(name==='BUILD-INFO.yaml'&&path.includes('/test/latest/'))buildInfoFile=f;else if(name==='BUILD-INFO.yaml'&&!buildInfoFile)buildInfoFile=f;if(name==='review-queue.csv'&&path.includes('/test/latest/'))reviewFile=f;
     else if(name==='review-queue.csv'&&!reviewFile)reviewFile=f;
   }
   if(!s.images.size){for(const f of all){if(f.type.startsWith('image/')){const o=ordinalFromName(f.name);if(o!==null&&!s.images.has(o))s.images.set(o,f)}}}
-  if(refs.length){refs.sort((a,b)=>b.score-a.score);s.collection=normalize(JSON.parse(await refs[0].file.text()));s.pages=s.collection.pages}
+  if(refs.length){refs.sort((a,b)=>b.score-a.score);s.referenceSourcePath=refs[0].path;s.collection=normalize(JSON.parse(await refs[0].file.text()));s.pages=s.collection.pages}
   else if(!s.collection)throw Error('No reference_collection.json or golden_set.json was found.');
-  if(analysisFile){const data=JSON.parse(await analysisFile.text());for(const r of data.records||[])s.analysis.set(Number(r.global_ordinal),r)}
+  if(buildInfoFile)s.buildInfo=parseBuildInfo(await buildInfoFile.text());if(analysisFile){s.analysisFileName=pathOf(analysisFile);const data=JSON.parse(await analysisFile.text());for(const r of data.records||[])s.analysis.set(Number(r.global_ordinal),r)}
   if(reviewFile){for(const r of parseCsv(await reviewFile.text())){const o=Number(r.global_ordinal);if(Number.isFinite(o))s.review.add(o)}}
   const firstPath=pathOf(all[0]);s.workspaceRoot=firstPath.includes('/')?firstPath.split('/')[0]:'selected folder';
-  enable(true);rebuild();collectionStatus();load(0)
+  enable(true);rebuild();collectionStatus();updateMetricsSummary();load(0)
 }
 
 
@@ -236,6 +236,14 @@ function updateDeltaInfo(){
   parts.push(`<strong>Height</strong>: ${boxH-predH>0?'+':''}${boxH-predH}px`);
   $('deltaInfo').innerHTML=parts.join('<br>')
 }
+function bboxArea(box){if(!Array.isArray(box)||box.length!==4)return 0;return Math.max(0,box[2]-box[0])*Math.max(0,box[3]-box[1])}
+function bboxIou(a,b){if(!Array.isArray(a)||!Array.isArray(b))return null;const ix1=Math.max(a[0],b[0]),iy1=Math.max(a[1],b[1]),ix2=Math.min(a[2],b[2]),iy2=Math.min(a[3],b[3]);const inter=Math.max(0,ix2-ix1)*Math.max(0,iy2-iy1),union=bboxArea(a)+bboxArea(b)-inter;return union>0?inter/union:0}
+function predictionSnapshot(r){if(!r)return null;const box=analysisBBox(r);return{physical_document_bbox:box,quality_status:r.quality_status??null,quality_score:Number.isFinite(Number(r.quality_score))?Number(r.quality_score):null,review_reasons:r.review_reasons??null,estimated_skew_degrees:Number.isFinite(Number(r.estimated_skew_degrees))?Number(r.estimated_skew_degrees):null,brightness_mean:Number.isFinite(Number(r.brightness_mean))?Number(r.brightness_mean):null,contrast_stddev:Number.isFinite(Number(r.contrast_stddev))?Number(r.contrast_stddev):null,sharpness_score:Number.isFinite(Number(r.sharpness_score))?Number(r.sharpness_score):null,bleed_through_proxy:Number.isFinite(Number(r.bleed_through_proxy))?Number(r.bleed_through_proxy):null,source_repository:r.source_repository??null,source_commit:r.source_commit??null,pipeline_repository:r.pipeline_repository??null,pipeline_commit:r.pipeline_commit??null}}
+function correctionRecord(pred,approved){if(!pred||!Array.isArray(pred.physical_document_bbox)||!Array.isArray(approved))return null;const p=pred.physical_document_bbox,d=approved.map((v,i)=>Math.round(v-p[i])),same=d.every(v=>v===0),iou=bboxIou(p,approved);return{accepted_prediction_unchanged:same,modified_prediction:!same,edge_deltas_px:{left:d[0],top:d[1],right:d[2],bottom:d[3]},width_delta_px:(approved[2]-approved[0])-(p[2]-p[0]),height_delta_px:(approved[3]-approved[1])-(p[3]-p[1]),area_delta_px:bboxArea(approved)-bboxArea(p),intersection_over_union:iou===null?null:Number(iou.toFixed(6))}}
+function computeMetrics(){const comparable=s.pages.filter(p=>Array.isArray(p.physical_document_bbox)&&Array.isArray(p.stage2_prediction?.physical_document_bbox));const unchanged=comparable.filter(p=>p.correction?.accepted_prediction_unchanged).length,modified=comparable.filter(p=>p.correction?.modified_prediction).length,ious=comparable.map(p=>Number(p.correction?.intersection_over_union)).filter(Number.isFinite),sorted=[...ious].sort((a,b)=>a-b),mean=ious.length?ious.reduce((a,b)=>a+b,0)/ious.length:null,median=sorted.length?(sorted.length%2?sorted[(sorted.length-1)/2]:(sorted[sorted.length/2-1]+sorted[sorted.length/2])/2):null;const md=n=>{const v=comparable.map(p=>Number(p.correction?.edge_deltas_px?.[n])).filter(Number.isFinite);return v.length?Number((v.reduce((a,b)=>a+b,0)/v.length).toFixed(3)):null};return{schema_version:'0.1',collection_id:s.collection?.collection_id??'',generated_at_utc:new Date().toISOString(),reference_pages:s.pages.length,approved_pages:s.pages.filter(p=>Array.isArray(p.physical_document_bbox)).length,comparable_predictions:comparable.length,prediction_accepted_unchanged:unchanged,prediction_modified:modified,acceptance_rate:comparable.length?Number((unchanged/comparable.length).toFixed(6)):null,mean_iou:mean===null?null:Number(mean.toFixed(6)),median_iou:median===null?null:Number(median.toFixed(6)),mean_edge_delta_px:{left:md('left'),top:md('top'),right:md('right'),bottom:md('bottom')},build:s.buildInfo,pages:comparable.map(p=>({global_ordinal:p.global_ordinal,layout_type:p.layout_type,prediction:p.stage2_prediction,approved_bbox:p.physical_document_bbox,correction:p.correction,reviewed_at_utc:p.reviewed_at_utc??null}))}}
+function updateMetricsSummary(){const m=computeMetrics(),f=v=>v===null?'—':typeof v==='number'?v.toFixed(3):v;$('metricsSummary').innerHTML=`Approved: <strong>${m.approved_pages}/${m.reference_pages}</strong><br>Comparable: <strong>${m.comparable_predictions}</strong><br>Accepted unchanged: <strong>${m.prediction_accepted_unchanged}</strong><br>Modified: <strong>${m.prediction_modified}</strong><br>Mean IoU: <strong>${f(m.mean_iou)}</strong><br>Median IoU: <strong>${f(m.median_iou)}</strong>`}
+function downloadJson(name,data){const blob=new Blob([JSON.stringify(data,null,2)+'\\n'],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();URL.revokeObjectURL(a.href)}
+function parseBuildInfo(text){const result={};for(const raw of text.split(/\\r?\\n/)){const line=raw.trim();if(!line||line.startsWith('#')||!line.includes(':'))continue;const i=line.indexOf(':'),k=line.slice(0,i).trim(),v=line.slice(i+1).trim();if(k&&v)result[k]=v}return result}
 function pageStatus(page){
   const approved=Array.isArray(page.physical_document_bbox);
   const ordinal=Number(page.global_ordinal);
@@ -433,22 +441,22 @@ function readInputs(){const v=['left','top','right','bottom'].map(id=>Number($(i
 function save(){
   if(s.index<0)return;const p=s.pages[s.index];
   p.global_ordinal=Number($('ordinal').value);p.label=$('label').value.trim();p.layout_type=$('layout').value;p.notes=$('notes').value;p.physical_document_bbox=s.box?[...s.box]:null;
-  p.reviewed_at_utc=new Date().toISOString();p.review_status='approved';
-  s.dirty=false;s.approvedSnapshot=cloneBox(s.box);rebuild();collectionStatus();status();updateRibbon();updateDeltaInfo();render();if($('autoAdvance').checked){const n=nextReviewIndex(s.index);if(n>=0&&n!==s.index)load(n)}
+  p.reviewed_at_utc=new Date().toISOString();p.review_status='approved';p.stage2_prediction=predictionSnapshot(predictionForCurrent());p.correction=correctionRecord(p.stage2_prediction,p.physical_document_bbox);p.review_provenance={editor_version:'0.6',reference_source:s.referenceSourcePath||null,analysis_source:s.analysisFileName||null,build:s.buildInfo};
+  s.dirty=false;s.approvedSnapshot=cloneBox(s.box);rebuild();collectionStatus();updateMetricsSummary();status();updateRibbon();updateDeltaInfo();render();if($('autoAdvance').checked){const n=nextReviewIndex(s.index);if(n>=0&&n!==s.index)load(n)}
 }
-function exportJson(){if(s.dirty)save();const blob=new Blob([JSON.stringify(s.collection,null,2)+'\n'],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='reference_collection.json';a.click();URL.revokeObjectURL(a.href)}
+function exportJson(){if(s.dirty)save();s.collection.reference_metrics=computeMetrics();s.collection.reference_collection_version='0.6';downloadJson('reference_collection.json',s.collection)}
 
 $('workspaceFolder').onchange=async e=>{try{await loadWorkspace(e.target.files)}catch(err){alert(`Could not open workspace: ${err.message}`)}};
-$('jsonFile').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;s.collection=normalize(JSON.parse(await f.text()));s.pages=s.collection.pages;enable(true);rebuild();collectionStatus();load(0)}catch(err){alert(err.message)}};
+$('jsonFile').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;s.collection=normalize(JSON.parse(await f.text()));s.pages=s.collection.pages;enable(true);rebuild();collectionStatus();updateMetricsSummary();load(0)}catch(err){alert(err.message)}};
 $('imageFolder').onchange=e=>{s.images.clear();[...e.target.files].filter(f=>f.type.startsWith('image/')).forEach(f=>{const o=ordinalFromName(f.name);if(o!==null&&!s.images.has(o))s.images.set(o,f)});if(s.index>=0)load(s.index)};
-$('export').onclick=exportJson;$('prev').onclick=()=>load(s.index-1);$('next').onclick=()=>load(s.index+1);$('pageSelect').onchange=e=>load(Number(e.target.value));$('save').onclick=save;
+$('export').onclick=exportJson;$('exportMetrics').onclick=()=>downloadJson('reference-metrics.json',computeMetrics());$('prev').onclick=()=>load(s.index-1);$('next').onclick=()=>load(s.index+1);$('pageSelect').onchange=e=>load(Number(e.target.value));$('save').onclick=save;
 ['ordinal','label','layout','notes'].forEach(id=>$(id).oninput=dirty);
 ['left','top','right','bottom'].forEach(id=>{$(id).onfocus=()=>{if(!$(id).dataset.undoArmed){pushUndo();$(id).dataset.undoArmed='1'}};$(id).onblur=()=>{delete $(id).dataset.undoArmed};$(id).oninput=()=>{s.box=readInputs();dirty();render();updateDeltaInfo()}});
 $('full').onclick=()=>{if(!s.image)return;pushUndo();s.box=[0,0,s.image.naturalWidth,s.image.naturalHeight];syncBox();dirty();render()};
 $('clear').onclick=()=>{pushUndo();s.box=null;syncBox();dirty();render()};
 $('usePrediction').onclick=()=>{const b=analysisBBox(predictionForCurrent());if(!b)return;pushUndo();s.box=[...b];syncBox();dirty();render()};
 $('fit').onclick=fitImage;$('actual').onclick=()=>{s.zoom=1;render();status()};$('compare').onclick=()=>{s.compareMode=!s.compareMode;wrap.classList.toggle('compare',s.compareMode);$('compare').textContent=s.compareMode?'Exit compare':'Compare';fitImage()};
-$('showBox').onchange=render;$('showPrediction').onchange=render;$('mutePrediction').onchange=render;$('showMetadata').onchange=updateCanvasHint;$('undo').onclick=undoBox;['filterReview','filterApproved','filterOther','mutePrediction','undo'].forEach(id=>$(id).onchange=rebuild);
+$('showBox').onchange=render;$('showPrediction').onchange=render;$('mutePrediction').onchange=render;$('showMetadata').onchange=updateCanvasHint;$('undo').onclick=undoBox;['filterReview','filterApproved','filterOther','mutePrediction','undo','exportMetrics'].forEach(id=>$(id).onchange=rebuild);
 
 canvas.onmousedown=e=>{
   if(!s.image||s.compareMode)return;
