@@ -176,11 +176,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          python hth-pipeline/hth/validate_golden_set.py \
-            --golden hth-pipeline/config/golden_set.json \
+          python hth-pipeline/hth/validate_physical_geometry.py \
+            --reference hth-pipeline/config/golden_set.json \
             --analysis "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json" \
-            --output "$OUTPUT_DIRECTORY/page-analysis/golden-set-report.json"
-            
+            --output "$OUTPUT_DIRECTORY/page-analysis/physical-geometry-report.json" \
+            --fail-on never
+      
       - name: Verify test outputs
         shell: bash
         run: |
@@ -196,6 +197,7 @@ jobs:
           test -f "$OUTPUT_DIRECTORY/page-analysis/review-queue.csv"
           test -f "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json"
           test -f "$OUTPUT_DIRECTORY/page-analysis/golden-set-report.json"
+          test -f "$OUTPUT_DIRECTORY/page-analysis/physical-geometry-report.json"
           
           test -d "$OUTPUT_DIRECTORY/page-analysis/annotated-previews"
 

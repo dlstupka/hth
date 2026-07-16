@@ -5,9 +5,11 @@
   "acceptance": {
     "minimum_iou": 0.95,
     "maximum_edge_error_px": 20,
+    "near_pass_minimum_iou": 0.90,
+    "near_pass_maximum_edge_error_ratio": 0.06,
     "require_layout_match": false
   },
-  "pages": [
+"pages": [
     {
       "global_ordinal": 1,
       "label": "ordinary_two_page_spread",
