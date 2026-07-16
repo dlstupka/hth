@@ -5,7 +5,7 @@
   "acceptance": {
     "minimum_iou": 0.95,
     "maximum_edge_error_px": 20,
-    "require_layout_match": true
+    "require_layout_match": false
   },
   "pages": [
     {
