@@ -171,6 +171,22 @@ jobs:
             --annotated-previews \
             --overwrite
 
+      - name: Generate geometry candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python hth-pipeline/hth/detect_geometry_candidates.py \
+            --manifest "$OUTPUT_DIRECTORY/metadata/image_manifest.json" \
+            --analysis "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json" \
+            --image-root "$OUTPUT_DIRECTORY" \
+            --output "$OUTPUT_DIRECTORY/page-analysis/page-analysis-with-candidates.json" \
+            --overwrite
+
+          mv \
+            "$OUTPUT_DIRECTORY/page-analysis/page-analysis-with-candidates.json" \
+            "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json"
+
       - name: Validate Stage 2 physical geometry
         shell: bash
         run: |

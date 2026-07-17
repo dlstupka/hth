@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HTH Reference Collection Editor</title>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#111318;--panel:#1a1e26;--panel2:#222936;--text:#eef2f7;
+  --muted:#aeb8c6;--accent:#59a8ff;--line:#374150;--ok:#5bd68a;
+  --warn:#f0c44f;--danger:#ff6b6b;--pred:#ff3b30;--approved:#35d07f
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden}
+header{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#0d1015}
+h1{font-size:19px;margin:0}.sub{font-size:12px;color:var(--muted);margin-top:3px}.tools{display:flex;gap:8px;flex-wrap:wrap}
+button,.filebtn,select,input,textarea{font:inherit}
+button,.filebtn{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:8px 11px;cursor:pointer}
+button:hover,.filebtn:hover{border-color:var(--accent)}
+.primary{background:#164f83;border-color:#2b79b9}
+.good{background:#174d35;border-color:#2f8e61}
+button:disabled{opacity:.45;cursor:not-allowed}
+input[type=file]{display:none}
+main{display:grid;grid-template-columns:minmax(0,1fr) 360px;height:calc(100vh - 66px)}
+.workspace{min-width:0;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto}
+.status{padding:7px 12px;border-bottom:1px solid var(--line);color:var(--muted);font-size:12px;background:#151920;display:flex;justify-content:space-between;gap:12px}.ribbon{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:7px 10px;background:#10141a;border-bottom:1px solid var(--line);font-size:12px}.ribbon .pill{border:1px solid var(--line);border-radius:999px;padding:3px 8px;color:#dce4ee;background:#161b22}.ribbon .pill.ok{border-color:#2e8054;color:var(--ok)}.ribbon .pill.warn{border-color:#7c6728;color:var(--warn)}.ribbon .pill.bad{border-color:#8c3e3e;color:var(--danger)}
+.canvaswrap{position:relative;overflow:auto;padding:12px;background:#12151b;display:flex;align-items:center;justify-content:center}.canvaswrap.compare{align-items:flex-start}
+.empty{min-height:60vh;display:grid;place-items:center;text-align:center;color:var(--muted)}
+canvas{display:block;background:#000;box-shadow:0 10px 30px #0008;cursor:crosshair;max-width:none;max-height:none}.canvas-hint{position:absolute;left:20px;top:20px;z-index:5;background:#0b0e13d9;border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:11px;line-height:1.45;color:#dfe7f1;pointer-events:none;max-width:260px}
+.thumbnailbar{border-top:1px solid var(--line);background:#0f1319;padding:8px;display:flex;gap:8px;overflow-x:auto;min-height:84px}
+.thumb{position:relative;flex:0 0 92px;border:2px solid var(--line);border-radius:7px;background:#151a21;padding:4px;cursor:pointer}
+.thumb:hover{border-color:var(--accent)}
+.thumb.active{outline:2px solid var(--accent);outline-offset:1px}
+.thumb.approved{border-color:var(--approved)}
+.thumb.review{border-color:var(--warn)}
+.thumb.fail{border-color:var(--danger)}.thumb.hidden-by-filter{display:none}
+.thumb img{display:block;width:80px;height:55px;object-fit:cover;background:#000}
+.thumb .caption{font-size:11px;text-align:center;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thumb .dot{position:absolute;right:4px;top:4px;width:9px;height:9px;border-radius:50%;background:var(--muted);box-shadow:0 0 0 1px #000}
+.thumb.approved .dot{background:var(--approved)}.thumb.review .dot{background:var(--warn)}.thumb.fail .dot{background:var(--danger)}
+aside{border-left:1px solid var(--line);background:var(--panel);padding:12px;overflow:auto}
+.box{border:1px solid var(--line);border-radius:8px;margin-bottom:11px;overflow:hidden;background:#171b22}
+.box h2{font-size:14px;margin:0;padding:9px 10px;background:var(--panel2);border-bottom:1px solid var(--line)}
+.body{padding:10px}.field{margin-bottom:9px}label{display:block;color:var(--muted);font-size:12px;margin-bottom:4px}
+input[type=text],input[type=number],select,textarea{width:100%;background:#0f1319;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:7px 8px}
+textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.help,.meta{font-size:12px;color:var(--muted);line-height:1.45}
+.badge{display:inline-block;padding:3px 7px;border-radius:999px;border:1px solid var(--line);font-size:11px;margin:0 5px 5px 0}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--danger)}
+.metric{display:grid;grid-template-columns:1fr auto;gap:8px;font-size:12px;margin-bottom:6px}
+.meter{height:8px;background:#0d1117;border-radius:999px;overflow:hidden;border:1px solid var(--line)}
+.meter span{display:block;height:100%;background:var(--accent)}
+.legend{display:flex;gap:10px;font-size:11px;color:var(--muted);margin-top:7px;flex-wrap:wrap}.detector-row{display:grid;grid-template-columns:16px 1fr 92px;gap:8px;align-items:center;margin-bottom:7px}.detector-row:last-child{margin-bottom:0}.color-chip{width:14px;height:14px;border-radius:3px;border:1px solid #ffffff55}.detector-name{font-size:12px}.detector-row select{padding:5px 6px;font-size:12px}
+.swatch{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:4px}
+.swatch.pred{background:var(--pred)}.swatch.approved{background:var(--approved)}.delta-list{font-size:12px;color:var(--muted);line-height:1.5}.delta-list strong{color:var(--text)}.shortcut-grid{display:grid;grid-template-columns:auto 1fr;gap:5px 9px;font-size:12px;color:var(--muted)}.shortcut-grid code{color:var(--text);background:#0f1319;border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+.coorddetails summary{cursor:pointer;color:var(--muted);font-size:12px;margin-bottom:8px}.confidence-word{font-size:15px;font-weight:700;margin-top:5px}.filter-row{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+@media(max-width:980px){body{overflow:auto;height:auto}main{grid-template-columns:1fr;height:auto}.workspace{min-height:70vh}aside{border-left:0;border-top:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>HTH Reference Collection Editor</h1><div class="sub">Approve physical-document geometry and layout examples for Stage 2.</div></div>
+  <div class="tools">
+    <label class="filebtn">Open results workspace<input id="workspaceFolder" type="file" webkitdirectory multiple></label>
+    <label class="filebtn">Load reference JSON<input id="jsonFile" type="file" accept=".json,application/json"></label>
+    <label class="filebtn">Load image folder<input id="imageFolder" type="file" webkitdirectory multiple accept="image/*"></label>
+    <button id="export" class="primary" disabled>Export JSON</button>
+  </div>
+</header>
+
+<main>
+<section class="workspace">
+  <div class="status"><span id="status">Open a results workspace, or load the reference JSON and raw image folder separately.</span><span id="zoomLabel">Fit</span></div><div id="ribbon" class="ribbon"><span class="pill">No page loaded</span></div>
+  <div id="canvasWrap" class="canvaswrap">
+    <div id="empty" class="empty"><div><h2>No page loaded</h2><p>Open the results repository folder (recommended), or load <code>reference_collection.json</code> and <code>raw/</code> separately.</p></div></div>
+    <div id="canvasHint" class="canvas-hint" hidden></div><canvas id="canvas" hidden></canvas>
+  </div>
+  <div id="thumbnailBar" class="thumbnailbar"></div>
+</section>
+
+<aside>
+  <div class="box"><h2>Navigation</h2><div class="body">
+    <div class="grid2"><button id="prev" disabled>← Previous</button><button id="next" disabled>Next →</button></div>
+    <div style="height:8px"></div><select id="pageSelect" disabled></select>
+  </div></div>
+
+  <div class="box"><h2>Reference page</h2><div class="body">
+    <div class="grid2">
+      <div class="field"><label>Global ordinal</label><input id="ordinal" type="number" min="1" disabled></div>
+      <div class="field"><label>Layout type</label><select id="layout" disabled>
+        <option value="two_page_spread">Two-page spread</option><option value="single_page">Single page</option>
+        <option value="title_page">Title page</option><option value="index_page">Index page</option>
+        <option value="cover">Cover</option><option value="blank">Blank</option>
+        <option value="insert">Insert / overlay</option><option value="damaged">Damaged</option><option value="other">Other</option>
+      </select></div>
+    </div>
+    <div class="field"><label>Label</label><input id="label" type="text" disabled></div>
+    <div class="field"><label>Notes</label><textarea id="notes" disabled></textarea></div>
+  </div></div>
+
+
+  <div class="box"><h2>Geometry detectors</h2><div class="body">
+    <div class="detector-row"><span class="color-chip" style="background:#ff3b30"></span><span class="detector-name">Current HTH detector</span><select id="opacityCurrent" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
+    <div class="detector-row"><span class="color-chip" style="background:#22d3ee"></span><span class="detector-name">Contour quadrilateral</span><select id="opacityContour" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
+    <div class="detector-row"><span class="color-chip" style="background:#d946ef"></span><span class="detector-name">RANSAC four-edge</span><select id="opacityRansac" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
+    <div class="detector-row"><span class="color-chip" style="background:#f59e0b"></span><span class="detector-name">Hough-line quadrilateral</span><select id="opacityHough" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
+    <div class="detector-row"><span class="color-chip" style="background:#35d07f"></span><span class="detector-name">Approved / manual</span><select id="opacityApproved" disabled><option selected>100%</option><option>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
+    <div class="grid2" style="margin-top:9px"><button id="muteAll" disabled>Mute all detectors</button><button id="restoreAll" disabled>Restore overlays</button></div>
+    <p class="help">Each detector can be shown at 100%, 75%, 50%, 25%, or 0%. The approved box remains independent.</p>
+  </div></div>
+
+  <div class="box"><h2>Selected detector</h2><div class="body">
+    <div class="field"><label>Selected detector</label><select id="selectedDetector" disabled><option value="current">Current HTH detector</option><option value="contour">Contour quadrilateral</option><option value="ransac">RANSAC four-edge</option><option value="hough">Hough-line quadrilateral</option></select></div><div id="predictionMeta" class="meta">No analysis loaded.</div>
+    <div style="height:8px"></div>
+    <div class="metric"><span>Confidence / quality</span><strong id="confidenceText">—</strong></div>
+    <div class="meter"><span id="confidenceBar" style="width:0%"></span></div>
+    <div id="confidenceWord" class="confidence-word">No analysis</div>
+    <div style="height:9px"></div>
+    <button id="usePrediction" style="width:100%" disabled>Use selected detector</button>
+    <div class="legend"><span><i class="swatch pred"></i>prediction</span><span><i class="swatch approved"></i>approved</span></div><div style="height:8px"></div><div id="deltaInfo" class="delta-list">No approved comparison yet.</div>
+  </div></div>
+
+  <div class="box"><h2>Approved physical-document box</h2><div class="body">
+    <p class="help">Drag a rectangle on the image. Green is the approved reference; red is the Stage 2 prediction.</p>
+    <div class="grid3">
+      <button id="full" disabled>Full frame</button>
+      <button id="clear" disabled>Clear</button>
+      <button id="save" class="good" disabled>Approve</button>
+    </div>
+    <div style="height:8px"></div>
+    <label><input id="autoAdvance" type="checkbox" checked disabled> Auto-advance to next page needing review</label>
+    <div style="height:8px"></div>
+    <details class="coorddetails">
+      <summary>Exact coordinates</summary>
+      <div class="grid2">
+        <div class="field"><label>Left</label><input id="left" type="number" min="0" disabled></div>
+        <div class="field"><label>Top</label><input id="top" type="number" min="0" disabled></div>
+        <div class="field"><label>Right</label><input id="right" type="number" min="0" disabled></div>
+        <div class="field"><label>Bottom</label><input id="bottom" type="number" min="0" disabled></div>
+      </div>
+    </details>
+  </div></div>
+
+  <div class="box"><h2>Display</h2><div class="body">
+    <div class="grid3"><button id="fit" disabled>Fit image</button><button id="actual" disabled>100%</button><button id="compare" disabled>Compare</button></div><div style="height:8px"></div><button id="undo" style="width:100%" disabled>Undo last box change</button>
+    <div style="height:8px"></div>
+    <label><input id="showPrediction" type="checkbox" checked disabled> Show Stage 2 prediction</label>
+    <label><input id="mutePrediction" type="checkbox" checked disabled> Mute prediction after approval</label>
+    <label><input id="showBox" type="checkbox" checked disabled> Show approved box</label>
+    <label><input id="showMetadata" type="checkbox" checked disabled> Show metadata overlay</label>
+    <div class="shortcut-grid"><code>Space</code><span>Approve</span><code>A</code><span>Use selected detector</span><code>N / P</code><span>Next / previous page</span><code>F</code><span>Fit image</span><code>1</code><span>100%</span><code>C</code><span>Compare</span><code>Ctrl+Z</code><span>Undo box change</span><code>Esc</code><span>Cancel active drag</span></div>
+  </div></div>
+
+  <div class="box"><h2>Collection status</h2><div class="body"><div id="meta" class="meta">No collection loaded.</div><div style="height:8px"></div><div id="badges"></div><div style="height:8px"></div><div class="filter-row"><label><input id="filterReview" type="checkbox" checked disabled> Review</label><label><input id="filterApproved" type="checkbox" checked disabled> Approved</label><label><input id="filterOther" type="checkbox" checked disabled> Other</label></div></div></div>
+</aside>
+</main>
+
+<script>
+(()=>{'use strict';
+
+const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d'),wrap=$('canvasWrap');
+const s={
+  collection:null,pages:[],index:-1,images:new Map(),image:null,zoom:1,fitZoom:1,start:null,
+  box:null,dirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false,undoStack:[],approvedSnapshot:null,detectorDefaults:{current:75,contour:75,ransac:75,hough:75,approved:100}
+};
+const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther','mutePrediction','undo','opacityCurrent','opacityContour','opacityRansac','opacityHough','opacityApproved','muteAll','restoreAll','selectedDetector'];
+function enable(v){ids.forEach(id=>$(id).disabled=!v)}
+function ordinalFromName(n){for(const r of [/fs[_-]?0*(\d+)/i,/(?:^|[_-])p(?:age)?[_-]?0*(\d+)/i,/(?:^|[_-])0*(\d+)(?:\.[^.]+)?$/i]){const m=n.match(r);if(m)return Number(m[1])}return null}
+function esc(v){return String(v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
+function pathOf(f){return (f.webkitRelativePath||f.name).replaceAll('\\','/')}
+function basename(p){const a=p.split('/');return a[a.length-1]}
+function pathScore(path,name){const p=path.toLowerCase(),n=name.toLowerCase();let score=0;if(n==='reference_collection.json')score+=100;if(n==='golden_set.json')score+=90;if(p.includes('/test/latest/'))score+=20;if(p.includes('/config/'))score+=15;return score}
+function normalize(d){if(!d||!Array.isArray(d.pages))throw Error('JSON must contain a pages array');d.pages.forEach(p=>{if(!('physical_document_bbox'in p))p.physical_document_bbox=null;if(!p.layout_type)p.layout_type='other';if(!p.label)p.label=`page_${p.global_ordinal}`;if(!p.notes)p.notes='';if(!Array.isArray(p.expected_regions))p.expected_regions=[]});return d}
+function analysisBBox(r){if(!r)return null;for(const keys of [['page_left_px','page_top_px','page_right_px','page_bottom_px'],['content_left_px','content_top_px','content_right_px','content_bottom_px']]){if(keys.every(k=>Number.isFinite(Number(r[k]))))return keys.map(k=>Number(r[k]))}if(Array.isArray(r.physical_document_bbox)&&r.physical_document_bbox.length===4)return r.physical_document_bbox.map(Number);return null}
+function parseCsv(text){const lines=text.trim().split(/\r?\n/);if(lines.length<2)return[];const head=lines[0].split(',');return lines.slice(1).map(line=>{const vals=line.split(',');const o={};head.forEach((h,i)=>o[h]=vals[i]??'');return o})}
+
+async function loadWorkspace(files){
+  const all=[...files];if(!all.length)return;
+  s.images.clear();s.analysis.clear();s.review.clear();
+  const refs=[];let analysisFile=null,reviewFile=null;
+  for(const f of all){
+    const path=pathOf(f),name=basename(path);
+    if(f.type.startsWith('image/')&&(path.includes('/raw/')||path.startsWith('raw/'))){const o=ordinalFromName(name);if(o!==null&&!s.images.has(o))s.images.set(o,f)}
+    if(name==='reference_collection.json'||name==='golden_set.json')refs.push({file:f,path,score:pathScore(path,name)});
+    if(name==='page-analysis.json'&&path.includes('/test/latest/'))analysisFile=f;
+    else if(name==='page-analysis.json'&&!analysisFile)analysisFile=f;
+    if(name==='review-queue.csv'&&path.includes('/test/latest/'))reviewFile=f;
+    else if(name==='review-queue.csv'&&!reviewFile)reviewFile=f;
+  }
+  if(!s.images.size){for(const f of all){if(f.type.startsWith('image/')){const o=ordinalFromName(f.name);if(o!==null&&!s.images.has(o))s.images.set(o,f)}}}
+  if(refs.length){refs.sort((a,b)=>b.score-a.score);s.collection=normalize(JSON.parse(await refs[0].file.text()));s.pages=s.collection.pages}
+  else if(!s.collection)throw Error('No reference_collection.json or golden_set.json was found.');
+  if(analysisFile){const data=JSON.parse(await analysisFile.text());for(const r of data.records||[])s.analysis.set(Number(r.global_ordinal),r)}
+  if(reviewFile){for(const r of parseCsv(await reviewFile.text())){const o=Number(r.global_ordinal);if(Number.isFinite(o))s.review.add(o)}}
+  const firstPath=pathOf(all[0]);s.workspaceRoot=firstPath.includes('/')?firstPath.split('/')[0]:'selected folder';
+  enable(true);rebuild();collectionStatus();load(0)
+}
+
+
+
+
+const detectorStyles={
+  current:{label:'Current HTH detector',color:'#ff3b30',dash:[9,6]},
+  contour:{label:'Contour quadrilateral',color:'#22d3ee',dash:[5,4]},
+  ransac:{label:'RANSAC four-edge',color:'#d946ef',dash:[12,4,3,4]},
+  hough:{label:'Hough-line quadrilateral',color:'#f59e0b',dash:[2,5]}
+};
+function opacityValue(id){
+  const value=parseInt($(id).value,10);
+  return Number.isFinite(value)?value/100:0
+}
+function hexToRgba(hex,alpha){
+  const value=hex.replace('#','');
+  const r=parseInt(value.slice(0,2),16),g=parseInt(value.slice(2,4),16),b=parseInt(value.slice(4,6),16);
+  return `rgba(${r},${g},${b},${alpha})`
+}
+function candidateMap(record){
+  const map=new Map();
+  if(!record)return map;
+  const legacy=analysisBBox(record);
+  if(legacy)map.set('current',{method:'current',bbox:legacy,confidence:Number(record.quality_score??record.confidence??0),diagnostics:{quality_status:record.quality_status,review_reasons:record.review_reasons}});
+  for(const raw of record.geometry_candidates||[]){
+    const method=String(raw.method||'').toLowerCase();
+    const aliases={
+      current:'current',legacy:'current',hth_current:'current',
+      contour:'contour',contour_quadrilateral:'contour',
+      ransac:'ransac',ransac_edges:'ransac',ransac_four_edge:'ransac',
+      hough:'hough',hough_lines:'hough',hough_quadrilateral:'hough'
+    };
+    const key=aliases[method];
+    const box=raw.bbox||raw.physical_document_bbox;
+    if(key&&Array.isArray(box)&&box.length===4&&box[2]>box[0]&&box[3]>box[1]){
+      map.set(key,{...raw,method:key,bbox:box.map(Number)})
+    }
+  }
+  return map
+}
+function selectedCandidate(){
+  const record=predictionForCurrent();
+  return candidateMap(record).get($('selectedDetector').value)||null
+}
+function detectorOpacity(method){
+  const ids={current:'opacityCurrent',contour:'opacityContour',ransac:'opacityRansac',hough:'opacityHough'};
+  return opacityValue(ids[method])
+}
+function updateDetectorAvailability(){
+  const map=candidateMap(predictionForCurrent());
+  for(const method of ['current','contour','ransac','hough']){
+    const option=[...$('selectedDetector').options].find(o=>o.value===method);
+    if(option)option.disabled=!map.has(method)
+  }
+  if(!map.has($('selectedDetector').value)){
+    const first=['current','contour','ransac','hough'].find(x=>map.has(x));
+    if(first)$('selectedDetector').value=first
+  }
+}
+function cloneBox(box){return Array.isArray(box)?box.map(Number):null}
+function pushUndo(){
+  s.undoStack.push(cloneBox(s.box));
+  if(s.undoStack.length>50)s.undoStack.shift();
+  $('undo').disabled=s.undoStack.length===0
+}
+function undoBox(){
+  if(!s.undoStack.length)return;
+  s.box=s.undoStack.pop();
+  syncBox();dirty();render();updateDeltaInfo();
+  $('undo').disabled=s.undoStack.length===0
+}
+function predictionMuted(){
+  if(!$('mutePrediction').checked)return false;
+  if(s.index<0)return false;
+  return Array.isArray(s.pages[s.index].physical_document_bbox)
+}
+function updateRibbon(){
+  const ribbon=$('ribbon');
+  if(s.index<0){ribbon.innerHTML='<span class="pill">No page loaded</span>';return}
+  const p=s.pages[s.index],r=predictionForCurrent();
+  const approved=Array.isArray(p.physical_document_bbox);
+  const review=s.review.has(Number(p.global_ordinal));
+  const score=r?Number(r.quality_score??r.confidence??NaN):NaN;
+  const pct=Number.isFinite(score)?Math.round(score*100):'—';
+  const status=r?.quality_status||'unknown';
+  const statusClass=status==='pass'?'ok':status==='review'?'warn':status==='fail'||status==='error'?'bad':'';
+  ribbon.innerHTML=
+    `<span class="pill">FS${String(p.global_ordinal).padStart(4,'0')}</span>`+
+    `<span class="pill">${esc(p.layout_type||'unknown')}</span>`+
+    `<span class="pill ${statusClass}">${esc(status.toUpperCase())}</span>`+
+    `<span class="pill">Confidence: ${esc(pct)}%</span>`+
+    `<span class="pill ${review?'warn':'ok'}">Review: ${review?'Yes':'No'}</span>`+
+    `<span class="pill ${approved?'ok':'warn'}">Approved: ${approved?'Yes':'No'}</span>`
+}
+function updateDeltaInfo(){
+  const pred=analysisBBox(predictionForCurrent());
+  if(!pred||!s.box){$('deltaInfo').textContent='No approved comparison yet.';return}
+  const names=['Left','Top','Right','Bottom'];
+  const deltas=s.box.map((v,i)=>Math.round(v-pred[i]));
+  const parts=deltas.map((d,i)=>`<strong>${names[i]}</strong>: ${d>0?'+':''}${d}px`);
+  const predW=pred[2]-pred[0],predH=pred[3]-pred[1],boxW=s.box[2]-s.box[0],boxH=s.box[3]-s.box[1];
+  parts.push(`<strong>Width</strong>: ${boxW-predW>0?'+':''}${boxW-predW}px`);
+  parts.push(`<strong>Height</strong>: ${boxH-predH>0?'+':''}${boxH-predH}px`);
+  $('deltaInfo').innerHTML=parts.join('<br>')
+}
+function pageStatus(page){
+  const approved=Array.isArray(page.physical_document_bbox);
+  const ordinal=Number(page.global_ordinal);
+  const analysis=s.analysis.get(ordinal);
+  if(approved)return 'approved';
+  if(s.review.has(ordinal))return 'review';
+  if(analysis&&analysis.quality_status==='fail')return 'fail';
+  return 'other'
+}
+function filterVisible(status){
+  if(status==='approved')return $('filterApproved').checked;
+  if(status==='review'||status==='fail')return $('filterReview').checked;
+  return $('filterOther').checked
+}
+function confidenceDescription(score,status){
+  if(status==='error'||status==='fail')return 'Failed';
+  if(!Number.isFinite(score))return 'No score';
+  if(score>=.90)return 'Excellent';
+  if(score>=.80)return 'Strong';
+  if(score>=.70)return 'Questionable';
+  if(score>=.55)return 'Weak';
+  return 'Poor'
+}
+function nextReviewIndex(fromIndex){
+  if(!s.pages.length)return -1;
+  for(let offset=1;offset<=s.pages.length;offset++){
+    const i=(fromIndex+offset)%s.pages.length;
+    const p=s.pages[i];
+    if(!Array.isArray(p.physical_document_bbox)&&(s.review.has(Number(p.global_ordinal))||pageStatus(p)==='fail'))return i;
+  }
+  for(let offset=1;offset<=s.pages.length;offset++){
+    const i=(fromIndex+offset)%s.pages.length;
+    if(!Array.isArray(s.pages[i].physical_document_bbox))return i;
+  }
+  return -1
+}
+function handleSize(){return Math.max(7,10/s.zoom)}
+function boxHandles(box){
+  if(!box)return[];
+  const[l,t,r,b]=box,mx=(l+r)/2,my=(t+b)/2;
+  return[
+    ['nw',l,t],['n',mx,t],['ne',r,t],['e',r,my],
+    ['se',r,b],['s',mx,b],['sw',l,b],['w',l,my]
+  ]
+}
+function hitTestBox(x,y){
+  if(!s.box)return null;
+  const radius=handleSize()*1.6;
+  for(const[name,hx,hy]of boxHandles(s.box)){
+    if(Math.hypot(x-hx,y-hy)<=radius)return name
+  }
+  const[l,t,r,b]=s.box;
+  if(x>=l&&x<=r&&y>=t&&y<=b)return 'move';
+  return null
+}
+function resizeBox(mode,x,y){
+  if(!s.dragStartBox)return;
+  let[l,t,r,b]=s.dragStartBox;
+  const dx=x-s.dragOrigin.x,dy=y-s.dragOrigin.y;
+  if(mode==='move'){l+=dx;r+=dx;t+=dy;b+=dy}
+  else{
+    if(mode.includes('w'))l=x;
+    if(mode.includes('e'))r=x;
+    if(mode.includes('n'))t=y;
+    if(mode.includes('s'))b=y;
+  }
+  if(r<l)[l,r]=[r,l];if(b<t)[t,b]=[b,t];
+  const w=s.image.naturalWidth,h=s.image.naturalHeight;
+  const width=r-l,height=b-t;
+  if(mode==='move'){
+    if(l<0){r-=l;l=0}if(t<0){b-=t;t=0}
+    if(r>w){l-=r-w;r=w}if(b>h){t-=b-h;b=h}
+  }else{
+    l=Math.max(0,Math.min(w,l));r=Math.max(0,Math.min(w,r));
+    t=Math.max(0,Math.min(h,t));b=Math.max(0,Math.min(h,b))
+  }
+  s.box=[Math.round(l),Math.round(t),Math.round(r),Math.round(b)]
+}
+function updateCursor(x,y){
+  const hit=hitTestBox(x,y);
+  const map={nw:'nwse-resize',se:'nwse-resize',ne:'nesw-resize',sw:'nesw-resize',n:'ns-resize',s:'ns-resize',e:'ew-resize',w:'ew-resize',move:'move'};
+  canvas.style.cursor=map[hit]||'crosshair'
+}
+function rebuild(){
+  const sel=$('pageSelect');sel.innerHTML='';
+  const bar=$('thumbnailBar');bar.innerHTML='';
+  s.pages.forEach((p,i)=>{
+    const statusName=pageStatus(p),visible=filterVisible(statusName);
+    const approved=statusName==='approved',review=statusName==='review';
+    const o=document.createElement('option');o.value=i;o.textContent=`${p.global_ordinal}: ${p.label}${approved?' ✓':review?' ⚠':''}`;sel.appendChild(o);
+    const t=document.createElement('button');t.type='button';
+    t.className=`thumb ${statusName==='other'?'':statusName}${i===s.index?' active':''}${visible?'':' hidden-by-filter'}`;
+    const f=s.images.get(Number(p.global_ordinal));
+    t.innerHTML=`${f?'<img alt="">':'<div style="height:55px;display:grid;place-items:center;color:#778">no image</div>'}<span class="dot"></span><div class="caption">${p.global_ordinal}</div>`;
+    if(f){const im=t.querySelector('img');im.src=URL.createObjectURL(f)}
+    t.onclick=()=>load(i);bar.appendChild(t)
+  })
+}
+function status(){
+  if(s.index<0){$('status').textContent='Open a results workspace, or load the reference JSON and raw image folder separately.';return}
+  const p=s.pages[s.index],f=s.images.get(Number(p.global_ordinal));
+  $('status').textContent=`Page ${s.index+1}/${s.pages.length} · ordinal ${p.global_ordinal} · ${f?f.name:'image missing'}${s.dirty?' · unsaved':''}`;
+  $('zoomLabel').textContent=Math.abs(s.zoom-s.fitZoom)<.001?'Fit':`Zoom ${Math.round(s.zoom*100)}%`
+}
+function collectionStatus(){
+  if(!s.collection)return;
+  const done=s.pages.filter(p=>Array.isArray(p.physical_document_bbox)).length;
+  const workspace=s.workspaceRoot?`<br>Workspace: ${esc(s.workspaceRoot)}`:'';
+  $('meta').innerHTML=`<strong>${esc(s.collection.collection_id||'Unnamed')}</strong><br>${esc(s.collection.description||'')}<br>${s.pages.length} reference pages${workspace}`;
+  $('badges').innerHTML=`<span class="badge ok">${done} approved</span><span class="badge warn">${s.pages.length-done} pending</span><span class="badge">${s.images.size} raw images</span><span class="badge">${s.analysis.size} analyzed</span><span class="badge warn">${s.review.size} review</span>`
+}
+function syncBox(){const v=s.box||['','','',''];['left','top','right','bottom'].forEach((id,i)=>$(id).value=v[i])}
+function predictionForCurrent(){if(s.index<0)return null;return s.analysis.get(Number(s.pages[s.index].global_ordinal))||null}
+function updatePrediction(){
+  updateDetectorAvailability();
+  const r=predictionForCurrent(),candidate=selectedCandidate();
+  $('usePrediction').disabled=!candidate;
+  if(!r||!candidate){
+    $('predictionMeta').textContent='Selected detector has no candidate for this page.';
+    $('confidenceText').textContent='—';$('confidenceBar').style.width='0%';
+    $('confidenceWord').textContent='No candidate';updateCanvasHint();return
+  }
+  const score=Number(candidate.confidence??r.quality_score??r.confidence??0);
+  const pct=Math.max(0,Math.min(100,Math.round(score*100)));
+  $('confidenceText').textContent=`${pct}%`;
+  $('confidenceBar').style.width=`${pct}%`;
+  $('confidenceWord').textContent=confidenceDescription(score,r.quality_status);
+  const d=candidate.diagnostics||{};
+  $('predictionMeta').innerHTML=
+    `Method: <strong>${esc(detectorStyles[candidate.method]?.label||candidate.method)}</strong><br>`+
+    `Status: <strong>${esc(d.quality_status||r.quality_status||'candidate')}</strong><br>`+
+    `Score: ${esc(candidate.score??candidate.confidence??r.quality_score??'—')}<br>`+
+    `Notes: ${esc(d.reason||d.review_reasons||r.review_reasons||'none')}`;
+  updateCanvasHint()
+}
+function updateCanvasHint(){
+  const hint=$('canvasHint');
+  if(!$('showMetadata').checked||s.index<0){hint.hidden=true;return}
+  const p=s.pages[s.index],r=predictionForCurrent();
+  const score=r?Number(r.quality_score??r.confidence??NaN):NaN;
+  const pct=Number.isFinite(score)?Math.round(score*100):'—';
+  hint.innerHTML=`<strong>${esc(p.layout_type||'unknown')}</strong><br>`+
+    `Ordinal: ${esc(p.global_ordinal)}<br>`+
+    `Detector: ${esc(detectorStyles[$('selectedDetector').value]?.label||$('selectedDetector').value)}<br>`+`Quality: ${esc(pct)}% (${esc(confidenceDescription(score,r?.quality_status))})<br>`+
+    `Skew: ${esc(r?.estimated_skew_degrees??'—')}°<br>`+
+    `Brightness: ${esc(r?.brightness_mean??'—')}<br>`+
+    `Contrast: ${esc(r?.contrast_stddev??'—')}<br>`+
+    `Bleed proxy: ${esc(r?.bleed_through_proxy??'—')}`;
+  hint.hidden=false
+}
+function fitImage(){
+  if(!s.image)return;
+  const availableW=Math.max(100,wrap.clientWidth-24),availableH=Math.max(100,wrap.clientHeight-24);
+  const logicalWidth=s.compareMode?s.image.naturalWidth*2+24:s.image.naturalWidth;s.fitZoom=Math.min(availableW/logicalWidth,availableH/s.image.naturalHeight);
+  s.zoom=Math.max(.05,Math.min(4,s.fitZoom));render();status()
+}
+function drawBox(box,color,fill,dash){
+  if(!box)return;const[l,t,r,b]=box;ctx.save();ctx.strokeStyle=color;ctx.lineWidth=Math.max(2,3*s.zoom);ctx.setLineDash(dash.map(v=>v*s.zoom));ctx.strokeRect(l*s.zoom,t*s.zoom,(r-l)*s.zoom,(b-t)*s.zoom);if(fill){ctx.fillStyle=fill;ctx.fillRect(l*s.zoom,t*s.zoom,(r-l)*s.zoom,(b-t)*s.zoom)}ctx.restore()
+}
+function render(){
+  if(!s.image)return;
+  const candidates=candidateMap(predictionForCurrent());
+  if(s.compareMode){
+    const gap=24;
+    canvas.width=Math.max(1,Math.round(s.image.naturalWidth*s.zoom*2+gap));
+    canvas.height=Math.max(1,Math.round(s.image.naturalHeight*s.zoom));
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(s.image,0,0,s.image.naturalWidth*s.zoom,s.image.naturalHeight*s.zoom);
+    ctx.drawImage(s.image,s.image.naturalWidth*s.zoom+gap,0,s.image.naturalWidth*s.zoom,s.image.naturalHeight*s.zoom);
+    const selected=selectedCandidate();
+    if(selected){
+      const style=detectorStyles[selected.method],alpha=Math.max(.15,detectorOpacity(selected.method));
+      drawBox(selected.bbox,hexToRgba(style.color,alpha),hexToRgba(style.color,.025*alpha),style.dash)
+    }
+    if(s.box){
+      ctx.save();ctx.translate(s.image.naturalWidth*s.zoom+gap,0);
+      const alpha=opacityValue('opacityApproved');
+      drawBox(s.box,hexToRgba('#35d07f',alpha),hexToRgba('#35d07f',.035*alpha),[]);
+      ctx.restore()
+    }
+    return
+  }
+  canvas.width=Math.max(1,Math.round(s.image.naturalWidth*s.zoom));
+  canvas.height=Math.max(1,Math.round(s.image.naturalHeight*s.zoom));
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(s.image,0,0,canvas.width,canvas.height);
+
+  if($('showPrediction').checked){
+    for(const method of ['current','contour','ransac','hough']){
+      const candidate=candidates.get(method),alpha=detectorOpacity(method);
+      if(!candidate||alpha<=0)continue;
+      const style=detectorStyles[method];
+      const selected=$('selectedDetector').value===method;
+      const effective=selected?alpha:alpha*.72;
+      drawBox(candidate.bbox,hexToRgba(style.color,effective),hexToRgba(style.color,.018*effective),style.dash)
+    }
+  }
+  const approvedAlpha=opacityValue('opacityApproved');
+  if($('showBox').checked&&s.box&&approvedAlpha>0){
+    drawBox(s.box,hexToRgba('#35d07f',approvedAlpha),hexToRgba('#35d07f',.03*approvedAlpha),[]);
+    const size=handleSize();
+    ctx.save();ctx.fillStyle=hexToRgba('#35d07f',approvedAlpha);ctx.strokeStyle='#07150e';ctx.lineWidth=1.5;
+    for(const[,x,y]of boxHandles(s.box)){
+      ctx.beginPath();ctx.rect((x-size/2)*s.zoom,(y-size/2)*s.zoom,size*s.zoom,size*s.zoom);ctx.fill();ctx.stroke()
+    }
+    ctx.restore()
+  }
+}
+function load(i){
+  if(!s.pages.length)return;if(s.dirty&&!confirm('Discard unsaved changes?'))return;
+  s.index=Math.max(0,Math.min(i,s.pages.length-1));s.dirty=false;s.compareMode=false;s.undoStack=[];$('undo').disabled=true;wrap.classList.remove('compare');$('compare').textContent='Compare';
+  const p=s.pages[s.index];$('pageSelect').value=s.index;$('ordinal').value=p.global_ordinal;$('label').value=p.label;$('layout').value=p.layout_type;$('notes').value=p.notes;
+  s.box=Array.isArray(p.physical_document_bbox)?[...p.physical_document_bbox]:null;s.approvedSnapshot=cloneBox(s.box);syncBox();updatePrediction();updateCanvasHint();updateRibbon();updateDeltaInfo();
+  const f=s.images.get(Number(p.global_ordinal));
+  if(s.objectUrl)URL.revokeObjectURL(s.objectUrl);
+  if(f){const im=new Image();im.onload=()=>{s.image=im;$('empty').hidden=true;canvas.hidden=false;fitImage();status()};s.objectUrl=URL.createObjectURL(f);im.src=s.objectUrl}
+  else{s.image=null;canvas.hidden=true;$('empty').hidden=false;$('empty').innerHTML=`<div><h2>No matching image</h2><p>Expected ordinal ${p.global_ordinal}.</p></div>`;status()}
+  $('prev').disabled=s.index===0;$('next').disabled=s.index===s.pages.length-1;rebuild()
+}
+function dirty(){s.dirty=true;status()}
+function readInputs(){const v=['left','top','right','bottom'].map(id=>Number($(id).value));if(v.some(x=>!Number.isFinite(x)))return null;let[l,t,r,b]=v;if(r<l)[l,r]=[r,l];if(b<t)[t,b]=[b,t];return[l,t,r,b].map(Math.round)}
+function save(){
+  if(s.index<0)return;const p=s.pages[s.index];
+  p.global_ordinal=Number($('ordinal').value);p.label=$('label').value.trim();p.layout_type=$('layout').value;p.notes=$('notes').value;p.physical_document_bbox=s.box?[...s.box]:null;
+  p.reviewed_at_utc=new Date().toISOString();p.review_status='approved';
+  s.dirty=false;s.approvedSnapshot=cloneBox(s.box);rebuild();collectionStatus();status();updateRibbon();updateDeltaInfo();render();if($('autoAdvance').checked){const n=nextReviewIndex(s.index);if(n>=0&&n!==s.index)load(n)}
+}
+function exportJson(){if(s.dirty)save();const blob=new Blob([JSON.stringify(s.collection,null,2)+'\n'],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='reference_collection.json';a.click();URL.revokeObjectURL(a.href)}
+
+$('workspaceFolder').onchange=async e=>{try{await loadWorkspace(e.target.files)}catch(err){alert(`Could not open workspace: ${err.message}`)}};
+$('jsonFile').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;s.collection=normalize(JSON.parse(await f.text()));s.pages=s.collection.pages;enable(true);rebuild();collectionStatus();load(0)}catch(err){alert(err.message)}};
+$('imageFolder').onchange=e=>{s.images.clear();[...e.target.files].filter(f=>f.type.startsWith('image/')).forEach(f=>{const o=ordinalFromName(f.name);if(o!==null&&!s.images.has(o))s.images.set(o,f)});if(s.index>=0)load(s.index)};
+$('export').onclick=exportJson;$('prev').onclick=()=>load(s.index-1);$('next').onclick=()=>load(s.index+1);$('pageSelect').onchange=e=>load(Number(e.target.value));$('save').onclick=save;
+['ordinal','label','layout','notes'].forEach(id=>$(id).oninput=dirty);
+['left','top','right','bottom'].forEach(id=>{$(id).onfocus=()=>{if(!$(id).dataset.undoArmed){pushUndo();$(id).dataset.undoArmed='1'}};$(id).onblur=()=>{delete $(id).dataset.undoArmed};$(id).oninput=()=>{s.box=readInputs();dirty();render();updateDeltaInfo()}});
+$('full').onclick=()=>{if(!s.image)return;pushUndo();s.box=[0,0,s.image.naturalWidth,s.image.naturalHeight];syncBox();dirty();render()};
+$('clear').onclick=()=>{pushUndo();s.box=null;syncBox();dirty();render()};
+$('usePrediction').onclick=()=>{const c=selectedCandidate();if(!c)return;pushUndo();s.box=[...c.bbox];syncBox();dirty();render()};
+$('fit').onclick=fitImage;$('actual').onclick=()=>{s.zoom=1;render();status()};$('compare').onclick=()=>{s.compareMode=!s.compareMode;wrap.classList.toggle('compare',s.compareMode);$('compare').textContent=s.compareMode?'Exit compare':'Compare';fitImage()};
+$('showBox').onchange=render;$('showPrediction').onchange=render;$('mutePrediction').onchange=render;$('showMetadata').onchange=updateCanvasHint;$('undo').onclick=undoBox;$('selectedDetector').onchange=()=>{updatePrediction();render()};['opacityCurrent','opacityContour','opacityRansac','opacityHough','opacityApproved'].forEach(id=>$(id).onchange=render);$('muteAll').onclick=()=>{['opacityCurrent','opacityContour','opacityRansac','opacityHough'].forEach(id=>$(id).value='0%');render()};$('restoreAll').onclick=()=>{$('opacityCurrent').value='75%';$('opacityContour').value='75%';$('opacityRansac').value='75%';$('opacityHough').value='75%';$('opacityApproved').value='100%';render()};['filterReview','filterApproved','filterOther','mutePrediction','undo','opacityCurrent','opacityContour','opacityRansac','opacityHough','opacityApproved','muteAll','restoreAll','selectedDetector'].forEach(id=>$(id).onchange=rebuild);
+
+canvas.onmousedown=e=>{
+  if(!s.image||s.compareMode)return;
+  const r=canvas.getBoundingClientRect(),x=(e.clientX-r.left)/s.zoom,y=(e.clientY-r.top)/s.zoom;
+  const hit=hitTestBox(x,y);
+  pushUndo();s.dragMode=hit||'draw';s.dragOrigin={x,y};s.dragStartBox=s.box?[...s.box]:null;
+  if(s.dragMode==='draw'){s.start={x,y};s.box=[Math.round(x),Math.round(y),Math.round(x),Math.round(y)]}
+};
+canvas.onmousemove=e=>{
+  if(!s.image||s.compareMode)return;
+  const r=canvas.getBoundingClientRect(),x=(e.clientX-r.left)/s.zoom,y=(e.clientY-r.top)/s.zoom;
+  if(!s.dragMode){updateCursor(x,y);return}
+  if(s.dragMode==='draw'){
+    s.box=[Math.max(0,Math.round(Math.min(s.start.x,x))),Math.max(0,Math.round(Math.min(s.start.y,y))),
+      Math.min(s.image.naturalWidth,Math.round(Math.max(s.start.x,x))),Math.min(s.image.naturalHeight,Math.round(Math.max(s.start.y,y)))]
+  }else resizeBox(s.dragMode,x,y);
+  syncBox();render();updateDeltaInfo()
+};
+window.onmouseup=()=>{if(s.dragMode){s.start=null;s.dragMode=null;s.dragOrigin=null;s.dragStartBox=null;dirty();updateDeltaInfo()}};
+wrap.addEventListener('wheel',e=>{if(!s.image)return;e.preventDefault();const factor=e.deltaY<0?1.1:.9;s.zoom=Math.max(.05,Math.min(4,s.zoom*factor));render();status()},{passive:false});
+window.onresize=()=>{if(s.image&&Math.abs(s.zoom-s.fitZoom)<.03)fitImage()};
+window.onkeydown=e=>{
+  const tag=document.activeElement.tagName;
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();undoBox();return}
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();save();return}
+  if(e.key==='Escape'){
+    if(s.dragMode){s.box=cloneBox(s.dragStartBox);syncBox();s.dragMode=null;s.start=null;s.dragOrigin=null;s.dragStartBox=null;render();updateDeltaInfo()}
+    return
+  }
+  if(['INPUT','TEXTAREA','SELECT'].includes(tag))return;
+  const key=e.key.toLowerCase();
+  if(e.key==='ArrowLeft'||key==='p'){if(s.index>0)load(s.index-1);return}
+  if(e.key==='ArrowRight'||key==='n'){if(s.index<s.pages.length-1)load(s.index+1);return}
+  if(e.code==='Space'){e.preventDefault();save();return}
+  if(key==='a'){$('usePrediction').click();return}
+  if(key==='f'){fitImage();return}
+  if(key==='1'){s.zoom=1;render();status();return}
+  if(key==='c'){$('compare').click();return}
+};
+window.onbeforeunload=e=>{if(s.dirty){e.preventDefault();e.returnValue=''}};
+
+})();
+</script>
+</body>
+</html>
