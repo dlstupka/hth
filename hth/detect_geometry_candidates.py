@@ -257,8 +257,12 @@ def fit_ransac_line(points: np.ndarray, threshold: float) -> tuple[LineModelND, 
 
 
 def line_intersection(a: LineModelND, b: LineModelND) -> np.ndarray | None:
-    origin_a, direction_a = a.params
-    origin_b, direction_b = b.params
+    origin_a = np.asarray(a.origin, dtype=float)
+    direction_a = np.asarray(a.direction, dtype=float)
+
+    origin_b = np.asarray(b.origin, dtype=float)
+    direction_b = np.asarray(b.direction, dtype=float)
+
     matrix = np.column_stack((direction_a, -direction_b))
     if abs(np.linalg.det(matrix)) < 1e-8:
         return None
@@ -339,8 +343,11 @@ def detect_hough(image_bgr: np.ndarray, mask: np.ndarray) -> Candidate:
     if lines is None:
         return Candidate("hough", None, None, 0.0, 0.0, {"reason": "no_hough_lines"})
 
+    lines = np.asarray(lines).reshape(-1, 4)
+
     vertical, horizontal = [], []
-    for item in lines[:, 0, :]:
+
+    for item in lines:
         x1, y1, x2, y2 = map(float, item)
         dx, dy = x2 - x1, y2 - y1
         length = math.hypot(dx, dy)
@@ -518,7 +525,7 @@ def main() -> int:
             analysis["geometry_candidate_summary"], indent=2, ensure_ascii=False
         )
     )
-    return 0
+    return 1 if errors else 0
 
 
 if __name__ == "__main__":
