@@ -1,12 +1,12 @@
-name: HTH Test
-on: {workflow_dispatch: {}, pull_request: {}}
+name: HTH Calibration
+on: {workflow_dispatch: {}}
 jobs:
   pipeline:
     uses: ./.github/workflows/_core-hth.yml
     with:
-      mode: test
-      process_limit: "1"
-      run_preprocess: true
+      mode: calibration
+      process_limit: calibration
+      run_preprocess: false
       run_detect: true
       run_validate: true
       run_publish: true

@@ -154,6 +154,39 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
     <div class="shortcut-grid"><code>Space</code><span>Approve</span><code>A</code><span>Use selected detector</span><code>N / P</code><span>Next / previous page</span><code>F</code><span>Fit image</span><code>1</code><span>100%</span><code>C</code><span>Compare</span><code>Ctrl+Z</code><span>Undo box change</span><code>Esc</code><span>Cancel active drag</span></div>
   </div></div>
 
+
+  <div class="box"><h2>Image selection</h2><div class="body">
+    <div class="field">
+      <label>Show images</label>
+      <select id="imageSelectionMode" disabled>
+        <option value="all" selected>All images</option>
+        <option value="calibration">Calibration set only</option>
+        <option value="not-calibration">Not in calibration set</option>
+        <option value="range">Ordinal range</option>
+        <option value="list">Explicit ordinals</option>
+        <option value="review">Needs review</option>
+        <option value="approved">Approved</option>
+      </select>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>From ordinal</label><input id="selectionFrom" type="number" min="1" placeholder="1" disabled></div>
+      <div class="field"><label>Through ordinal</label><input id="selectionTo" type="number" min="1" placeholder="20" disabled></div>
+    </div>
+    <div class="field"><label>Explicit ordinals</label><input id="selectionOrdinals" type="text" placeholder="1-20, 25, 31-35" disabled></div>
+    <div class="grid2">
+      <button id="applyImageSelection" disabled>Apply view</button>
+      <button id="showAllImages" disabled>Show all</button>
+    </div>
+    <div style="height:8px"></div>
+    <label><input id="calibrationSelected" type="checkbox" checked disabled> Include current image in calibration set</label>
+    <div class="grid2" style="margin-top:8px">
+      <button id="includeVisibleCalibration" disabled>Include visible</button>
+      <button id="excludeVisibleCalibration" disabled>Exclude visible</button>
+    </div>
+    <button id="exportCalibrationManifest" style="width:100%;margin-top:8px" disabled>Export calibration manifest</button>
+    <p class="help">The workbench shows all images by default. Calibration membership is saved in the reference JSON and is independent of the fast test/CI workflow.</p>
+  </div></div>
+
   <div class="box"><h2>Collection status</h2><div class="body"><div id="meta" class="meta">No collection loaded.</div><div style="height:8px"></div><div id="badges"></div><div style="height:8px"></div><div class="filter-row"><label><input id="filterReview" type="checkbox" checked disabled> Review</label><label><input id="filterApproved" type="checkbox" checked disabled> Approved</label><label><input id="filterOther" type="checkbox" checked disabled> Other</label></div></div></div>
 </aside>
 </main>
@@ -164,16 +197,16 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
 const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d'),wrap=$('canvasWrap');
 const s={
   collection:null,pages:[],index:-1,images:new Map(),image:null,zoom:1,fitZoom:1,start:null,
-  box:null,dirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false,undoStack:[],approvedSnapshot:null,detectorDefaults:{current:75,contour:75,ransac:75,hough:75,approved:100}
+  box:null,dirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false,undoStack:[],approvedSnapshot:null,visibleIndices:[],detectorDefaults:{current:75,contour:75,ransac:75,hough:75,approved:100}
 };
-const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther','mutePrediction','undo','opacityCurrent','opacityContour','opacityRansac','opacityHough','opacityApproved','muteAll','restoreAll','selectedDetector'];
+const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther','mutePrediction','undo','opacityCurrent','opacityContour','opacityRansac','opacityHough','opacityApproved','muteAll','restoreAll','selectedDetector','imageSelectionMode','selectionFrom','selectionTo','selectionOrdinals','applyImageSelection','showAllImages','calibrationSelected','includeVisibleCalibration','excludeVisibleCalibration','exportCalibrationManifest'];
 function enable(v){ids.forEach(id=>$(id).disabled=!v)}
 function ordinalFromName(n){for(const r of [/fs[_-]?0*(\d+)/i,/(?:^|[_-])p(?:age)?[_-]?0*(\d+)/i,/(?:^|[_-])0*(\d+)(?:\.[^.]+)?$/i]){const m=n.match(r);if(m)return Number(m[1])}return null}
 function esc(v){return String(v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
 function pathOf(f){return (f.webkitRelativePath||f.name).replaceAll('\\','/')}
 function basename(p){const a=p.split('/');return a[a.length-1]}
 function pathScore(path,name){const p=path.toLowerCase(),n=name.toLowerCase();let score=0;if(n==='reference_collection.json')score+=100;if(n==='golden_set.json')score+=90;if(p.includes('/test/latest/'))score+=20;if(p.includes('/config/'))score+=15;return score}
-function normalize(d){if(!d||!Array.isArray(d.pages))throw Error('JSON must contain a pages array');d.pages.forEach(p=>{if(!('physical_document_bbox'in p))p.physical_document_bbox=null;if(!p.layout_type)p.layout_type='other';if(!p.label)p.label=`page_${p.global_ordinal}`;if(!p.notes)p.notes='';if(!Array.isArray(p.expected_regions))p.expected_regions=[]});return d}
+function normalize(d){if(!d||!Array.isArray(d.pages))throw Error('JSON must contain a pages array');d.pages.forEach(p=>{if(!('physical_document_bbox'in p))p.physical_document_bbox=null;if(!p.layout_type)p.layout_type='other';if(!p.label)p.label=`page_${p.global_ordinal}`;if(!p.notes)p.notes='';if(!Array.isArray(p.expected_regions))p.expected_regions=[];if(typeof p.calibration_selected!=='boolean')p.calibration_selected=true});return d}
 function analysisBBox(r){if(!r)return null;for(const keys of [['page_left_px','page_top_px','page_right_px','page_bottom_px'],['content_left_px','content_top_px','content_right_px','content_bottom_px']]){if(keys.every(k=>Number.isFinite(Number(r[k]))))return keys.map(k=>Number(r[k]))}if(Array.isArray(r.physical_document_bbox)&&r.physical_document_bbox.length===4)return r.physical_document_bbox.map(Number);return null}
 function parseCsv(text){const lines=text.trim().split(/\r?\n/);if(lines.length<2)return[];const head=lines[0].split(',');return lines.slice(1).map(line=>{const vals=line.split(',');const o={};head.forEach((h,i)=>o[h]=vals[i]??'');return o})}
 
@@ -312,6 +345,71 @@ function pageStatus(page){
   if(analysis&&analysis.quality_status==='fail')return 'fail';
   return 'other'
 }
+
+function parseOrdinalExpression(text){
+  const values=new Set();
+  for(const part of String(text||'').split(',')){
+    const token=part.trim();
+    if(!token)continue;
+    const m=token.match(/^(\d+)\s*-\s*(\d+)$/);
+    if(m){
+      let a=Number(m[1]),b=Number(m[2]);
+      if(a>b)[a,b]=[b,a];
+      for(let n=a;n<=b;n++)values.add(n);
+    }else if(/^\d+$/.test(token))values.add(Number(token));
+  }
+  return values
+}
+function selectionVisible(page){
+  const mode=$('imageSelectionMode').value;
+  const ordinal=Number(page.global_ordinal);
+  if(mode==='all')return true;
+  if(mode==='calibration')return page.calibration_selected!==false;
+  if(mode==='not-calibration')return page.calibration_selected===false;
+  if(mode==='review')return ['review','fail'].includes(pageStatus(page));
+  if(mode==='approved')return pageStatus(page)==='approved';
+  if(mode==='range'){
+    const from=Number($('selectionFrom').value||Number.NEGATIVE_INFINITY);
+    const to=Number($('selectionTo').value||Number.POSITIVE_INFINITY);
+    return ordinal>=from&&ordinal<=to;
+  }
+  if(mode==='list')return parseOrdinalExpression($('selectionOrdinals').value).has(ordinal);
+  return true
+}
+function refreshVisibleIndices(){
+  s.visibleIndices=[];
+  s.pages.forEach((page,index)=>{
+    const statusName=pageStatus(page);
+    if(selectionVisible(page)&&filterVisible(statusName))s.visibleIndices.push(index)
+  });
+}
+function nearestVisibleIndex(current,direction){
+  refreshVisibleIndices();
+  if(!s.visibleIndices.length)return -1;
+  const pos=s.visibleIndices.indexOf(current);
+  if(pos<0)return direction>=0?s.visibleIndices[0]:s.visibleIndices[s.visibleIndices.length-1];
+  const next=pos+direction;
+  return next>=0&&next<s.visibleIndices.length?s.visibleIndices[next]:-1
+}
+function exportCalibrationManifest(){
+  const pages=s.pages.filter(p=>p.calibration_selected!==false).map(p=>({
+    global_ordinal:Number(p.global_ordinal),
+    label:p.label||'',
+    layout_type:p.layout_type||'other',
+    approved_bbox:Array.isArray(p.physical_document_bbox)?p.physical_document_bbox:null,
+    review_status:p.review_status||null
+  }));
+  const payload={
+    schema_version:'1.0',
+    generated_at_utc:new Date().toISOString(),
+    source_reference_collection:s.collection?.collection_id||s.collection?.id||null,
+    image_count:pages.length,
+    pages
+  };
+  const blob=new Blob([JSON.stringify(payload,null,2)+'\n'],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download='calibration_manifest.json';a.click();URL.revokeObjectURL(a.href)
+}
 function filterVisible(status){
   if(status==='approved')return $('filterApproved').checked;
   if(status==='review'||status==='fail')return $('filterReview').checked;
@@ -387,19 +485,28 @@ function updateCursor(x,y){
   canvas.style.cursor=map[hit]||'crosshair'
 }
 function rebuild(){
+  refreshVisibleIndices();
   const sel=$('pageSelect');sel.innerHTML='';
   const bar=$('thumbnailBar');bar.innerHTML='';
   s.pages.forEach((p,i)=>{
-    const statusName=pageStatus(p),visible=filterVisible(statusName);
+    const statusName=pageStatus(p);
+    const visible=s.visibleIndices.includes(i);
     const approved=statusName==='approved',review=statusName==='review';
-    const o=document.createElement('option');o.value=i;o.textContent=`${p.global_ordinal}: ${p.label}${approved?' ✓':review?' ⚠':''}`;sel.appendChild(o);
+    if(visible){
+      const o=document.createElement('option');o.value=i;
+      o.textContent=`${p.global_ordinal}: ${p.label}${p.calibration_selected===false?' [not calibration]':''}${approved?' ✓':review?' ⚠':''}`;
+      sel.appendChild(o)
+    }
     const t=document.createElement('button');t.type='button';
     t.className=`thumb ${statusName==='other'?'':statusName}${i===s.index?' active':''}${visible?'':' hidden-by-filter'}`;
     const f=s.images.get(Number(p.global_ordinal));
-    t.innerHTML=`${f?'<img alt="">':'<div style="height:55px;display:grid;place-items:center;color:#778">no image</div>'}<span class="dot"></span><div class="caption">${p.global_ordinal}</div>`;
+    t.innerHTML=`${f?'<img alt="">':'<div style="height:55px;display:grid;place-items:center;color:#778">no image</div>'}<span class="dot"></span><div class="caption">${p.global_ordinal}${p.calibration_selected===false?' ×':''}</div>`;
     if(f){const im=t.querySelector('img');im.src=URL.createObjectURL(f)}
     t.onclick=()=>load(i);bar.appendChild(t)
-  })
+  });
+  if(s.index>=0&&s.visibleIndices.includes(s.index))sel.value=String(s.index)
+  const visibleCount=s.visibleIndices.length;
+  $('applyImageSelection').textContent=`Apply view (${visibleCount})`
 }
 function status(){
   if(s.index<0){$('status').textContent='Open a results workspace, or load the reference JSON and raw image folder separately.';return}
@@ -409,7 +516,7 @@ function status(){
 }
 function collectionStatus(){
   if(!s.collection)return;
-  const done=s.pages.filter(p=>Array.isArray(p.physical_document_bbox)).length;
+  const done=s.pages.filter(p=>Array.isArray(p.physical_document_bbox)).length;const calibration=s.pages.filter(p=>p.calibration_selected!==false).length;
   const workspace=s.workspaceRoot?`<br>Workspace: ${esc(s.workspaceRoot)}`:'';
   $('meta').innerHTML=`<strong>${esc(s.collection.collection_id||'Unnamed')}</strong><br>${esc(s.collection.description||'')}<br>${s.pages.length} reference pages${workspace}`;
   $('badges').innerHTML=`<span class="badge ok">${done} approved</span><span class="badge warn">${s.pages.length-done} pending</span><span class="badge">${s.images.size} raw images</span><span class="badge">${s.analysis.size} analyzed</span><span class="badge warn">${s.review.size} review</span>`
@@ -514,19 +621,19 @@ function render(){
 function load(i){
   if(!s.pages.length)return;if(s.dirty&&!confirm('Discard unsaved changes?'))return;
   s.index=Math.max(0,Math.min(i,s.pages.length-1));s.dirty=false;s.compareMode=false;s.undoStack=[];$('undo').disabled=true;wrap.classList.remove('compare');$('compare').textContent='Compare';
-  const p=s.pages[s.index];$('pageSelect').value=s.index;$('ordinal').value=p.global_ordinal;$('label').value=p.label;$('layout').value=p.layout_type;$('notes').value=p.notes;
+  const p=s.pages[s.index];$('pageSelect').value=s.index;$('calibrationSelected').checked=p.calibration_selected!==false;$('ordinal').value=p.global_ordinal;$('label').value=p.label;$('layout').value=p.layout_type;$('notes').value=p.notes;
   s.box=Array.isArray(p.physical_document_bbox)?[...p.physical_document_bbox]:null;s.approvedSnapshot=cloneBox(s.box);syncBox();updatePrediction();updateCanvasHint();updateRibbon();updateDeltaInfo();
   const f=s.images.get(Number(p.global_ordinal));
   if(s.objectUrl)URL.revokeObjectURL(s.objectUrl);
   if(f){const im=new Image();im.onload=()=>{s.image=im;$('empty').hidden=true;canvas.hidden=false;fitImage();status()};s.objectUrl=URL.createObjectURL(f);im.src=s.objectUrl}
   else{s.image=null;canvas.hidden=true;$('empty').hidden=false;$('empty').innerHTML=`<div><h2>No matching image</h2><p>Expected ordinal ${p.global_ordinal}.</p></div>`;status()}
-  $('prev').disabled=s.index===0;$('next').disabled=s.index===s.pages.length-1;rebuild()
+  rebuild();$('prev').disabled=nearestVisibleIndex(s.index,-1)<0;$('next').disabled=nearestVisibleIndex(s.index,1)<0
 }
 function dirty(){s.dirty=true;status()}
 function readInputs(){const v=['left','top','right','bottom'].map(id=>Number($(id).value));if(v.some(x=>!Number.isFinite(x)))return null;let[l,t,r,b]=v;if(r<l)[l,r]=[r,l];if(b<t)[t,b]=[b,t];return[l,t,r,b].map(Math.round)}
 function save(){
   if(s.index<0)return;const p=s.pages[s.index];
-  p.global_ordinal=Number($('ordinal').value);p.label=$('label').value.trim();p.layout_type=$('layout').value;p.notes=$('notes').value;p.physical_document_bbox=s.box?[...s.box]:null;
+  p.global_ordinal=Number($('ordinal').value);p.calibration_selected=$('calibrationSelected').checked;p.label=$('label').value.trim();p.layout_type=$('layout').value;p.notes=$('notes').value;p.physical_document_bbox=s.box?[...s.box]:null;
   p.reviewed_at_utc=new Date().toISOString();p.review_status='approved';
   s.dirty=false;s.approvedSnapshot=cloneBox(s.box);rebuild();collectionStatus();status();updateRibbon();updateDeltaInfo();render();if($('autoAdvance').checked){const n=nextReviewIndex(s.index);if(n>=0&&n!==s.index)load(n)}
 }
@@ -535,14 +642,40 @@ function exportJson(){if(s.dirty)save();const blob=new Blob([JSON.stringify(s.co
 $('workspaceFolder').onchange=async e=>{try{await loadWorkspace(e.target.files)}catch(err){alert(`Could not open workspace: ${err.message}`)}};
 $('jsonFile').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;s.collection=normalize(JSON.parse(await f.text()));s.pages=s.collection.pages;enable(true);rebuild();collectionStatus();load(0)}catch(err){alert(err.message)}};
 $('imageFolder').onchange=e=>{s.images.clear();[...e.target.files].filter(f=>f.type.startsWith('image/')).forEach(f=>{const o=ordinalFromName(f.name);if(o!==null&&!s.images.has(o))s.images.set(o,f)});if(s.index>=0)load(s.index)};
-$('export').onclick=exportJson;$('prev').onclick=()=>load(s.index-1);$('next').onclick=()=>load(s.index+1);$('pageSelect').onchange=e=>load(Number(e.target.value));$('save').onclick=save;
+$('export').onclick=exportJson;$('prev').onclick=()=>{const i=nearestVisibleIndex(s.index,-1);if(i>=0)load(i)};$('next').onclick=()=>{const i=nearestVisibleIndex(s.index,1);if(i>=0)load(i)};$('pageSelect').onchange=e=>load(Number(e.target.value));$('save').onclick=save;
 ['ordinal','label','layout','notes'].forEach(id=>$(id).oninput=dirty);
 ['left','top','right','bottom'].forEach(id=>{$(id).onfocus=()=>{if(!$(id).dataset.undoArmed){pushUndo();$(id).dataset.undoArmed='1'}};$(id).onblur=()=>{delete $(id).dataset.undoArmed};$(id).oninput=()=>{s.box=readInputs();dirty();render();updateDeltaInfo()}});
 $('full').onclick=()=>{if(!s.image)return;pushUndo();s.box=[0,0,s.image.naturalWidth,s.image.naturalHeight];syncBox();dirty();render()};
 $('clear').onclick=()=>{pushUndo();s.box=null;syncBox();dirty();render()};
 $('usePrediction').onclick=()=>{const c=selectedCandidate();if(!c)return;pushUndo();s.box=[...c.bbox];syncBox();dirty();render()};
 $('fit').onclick=fitImage;$('actual').onclick=()=>{s.zoom=1;render();status()};$('compare').onclick=()=>{s.compareMode=!s.compareMode;wrap.classList.toggle('compare',s.compareMode);$('compare').textContent=s.compareMode?'Exit compare':'Compare';fitImage()};
-$('showBox').onchange=render;$('showPrediction').onchange=render;$('mutePrediction').onchange=render;$('showMetadata').onchange=updateCanvasHint;$('undo').onclick=undoBox;$('selectedDetector').onchange=()=>{updatePrediction();render()};['opacityCurrent','opacityContour','opacityRansac','opacityHough','opacityApproved'].forEach(id=>$(id).onchange=render);$('muteAll').onclick=()=>{['opacityCurrent','opacityContour','opacityRansac','opacityHough'].forEach(id=>$(id).value='0%');render()};$('restoreAll').onclick=()=>{$('opacityCurrent').value='75%';$('opacityContour').value='75%';$('opacityRansac').value='75%';$('opacityHough').value='75%';$('opacityApproved').value='100%';render()};['filterReview','filterApproved','filterOther','mutePrediction','undo','opacityCurrent','opacityContour','opacityRansac','opacityHough','opacityApproved','muteAll','restoreAll','selectedDetector'].forEach(id=>$(id).onchange=rebuild);
+
+$('imageSelectionMode').onchange=()=>{
+  const mode=$('imageSelectionMode').value;
+  $('selectionFrom').disabled=mode!=='range';
+  $('selectionTo').disabled=mode!=='range';
+  $('selectionOrdinals').disabled=mode!=='list';
+  rebuild()
+};
+$('selectionFrom').oninput=rebuild;$('selectionTo').oninput=rebuild;$('selectionOrdinals').oninput=rebuild;
+$('applyImageSelection').onclick=()=>{
+  rebuild();
+  if(!s.visibleIndices.length){alert('No images match the current selection.');return}
+  if(!s.visibleIndices.includes(s.index))load(s.visibleIndices[0])
+};
+$('showAllImages').onclick=()=>{
+  $('imageSelectionMode').value='all';$('selectionFrom').value='';$('selectionTo').value='';$('selectionOrdinals').value='';
+  $('selectionFrom').disabled=true;$('selectionTo').disabled=true;$('selectionOrdinals').disabled=true;
+  rebuild();if(s.visibleIndices.length&&!s.visibleIndices.includes(s.index))load(s.visibleIndices[0])
+};
+$('calibrationSelected').onchange=()=>{
+  if(s.index<0)return;s.pages[s.index].calibration_selected=$('calibrationSelected').checked;s.dirty=true;rebuild();status()
+};
+$('includeVisibleCalibration').onclick=()=>{refreshVisibleIndices();for(const i of s.visibleIndices)s.pages[i].calibration_selected=true;s.dirty=true;rebuild();if(s.index>=0)$('calibrationSelected').checked=s.pages[s.index].calibration_selected!==false;status()};
+$('excludeVisibleCalibration').onclick=()=>{refreshVisibleIndices();for(const i of s.visibleIndices)s.pages[i].calibration_selected=false;s.dirty=true;rebuild();if(s.index>=0)$('calibrationSelected').checked=s.pages[s.index].calibration_selected!==false;status()};
+$('exportCalibrationManifest').onclick=exportCalibrationManifest;
+
+$('showBox').onchange=render;$('showPrediction').onchange=render;$('mutePrediction').onchange=render;$('showMetadata').onchange=updateCanvasHint;$('undo').onclick=undoBox;$('selectedDetector').onchange=()=>{updatePrediction();render()};['opacityCurrent','opacityContour','opacityRansac','opacityHough','opacityApproved'].forEach(id=>$(id).onchange=render);$('muteAll').onclick=()=>{['opacityCurrent','opacityContour','opacityRansac','opacityHough'].forEach(id=>$(id).value='0%');render()};$('restoreAll').onclick=()=>{$('opacityCurrent').value='75%';$('opacityContour').value='75%';$('opacityRansac').value='75%';$('opacityHough').value='75%';$('opacityApproved').value='100%';render()};['filterReview','filterApproved','filterOther'].forEach(id=>$(id).onchange=rebuild);
 
 canvas.onmousedown=e=>{
   if(!s.image||s.compareMode)return;
