@@ -203,17 +203,25 @@ jobs:
         run: |
           set -euo pipefail
 
-          test -f "$OUTPUT_DIRECTORY/summary.json"
-          test -f "$OUTPUT_DIRECTORY/metadata/image_manifest.json"
-          test -f "$OUTPUT_DIRECTORY/metadata/image_manifest.csv"
-          test -f "$OUTPUT_DIRECTORY/metadata/exact_duplicates.json"
-          
-          test -f "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json"
-          test -f "$OUTPUT_DIRECTORY/page-analysis/page-analysis.csv"
-          test -f "$OUTPUT_DIRECTORY/page-analysis/review-queue.csv"
-          test -f "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json"
-          test -f "$OUTPUT_DIRECTORY/page-analysis/golden-set-report.json"
-          test -f "$OUTPUT_DIRECTORY/page-analysis/physical-geometry-report.json"
+          required_files=(
+            "$OUTPUT_DIRECTORY/summary.json"
+            "$OUTPUT_DIRECTORY/metadata/image_manifest.json"
+            "$OUTPUT_DIRECTORY/metadata/image_manifest.csv"
+            "$OUTPUT_DIRECTORY/metadata/exact_duplicates.json"
+            "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json"
+            "$OUTPUT_DIRECTORY/page-analysis/page-analysis.csv"
+            "$OUTPUT_DIRECTORY/page-analysis/review-queue.csv"
+            "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json"
+            "$OUTPUT_DIRECTORY/page-analysis/physical-geometry-report.json"
+          )
+
+          for file in "${required_files[@]}"; do
+            if [[ ! -f "$file" ]]; then
+              echo "::error::Missing required output: $file"
+              exit 1
+            fi
+            echo "Verified: $file"
+          done
           
           test -d "$OUTPUT_DIRECTORY/page-analysis/annotated-previews"
 
