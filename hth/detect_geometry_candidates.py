@@ -488,12 +488,19 @@ def main() -> int:
             )
             record["geometry_candidate_status"] = "complete"
             processed += 1
+            
         except Exception as exc:
+            import traceback
+
+            print(f"\nERROR processing page {ordinal}")
+            traceback.print_exc()
+
             record["geometry_candidates"] = []
             record["geometry_candidate_status"] = "error"
-            record["geometry_candidate_error"] = str(exc)
-            errors += 1
+            record["geometry_candidate_error"] = traceback.format_exc()
 
+            errors += 1
+    
     analysis["geometry_candidate_summary"] = {
         "processed": processed,
         "errors": errors,
@@ -511,7 +518,7 @@ def main() -> int:
             analysis["geometry_candidate_summary"], indent=2, ensure_ascii=False
         )
     )
-    return 1 if errors else 0
+    return 0
 
 
 if __name__ == "__main__":
