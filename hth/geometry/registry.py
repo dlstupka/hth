@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable
+from dataclasses import dataclass
 import time
 import traceback
 
+import cv2
 import numpy as np
 
 from . import detector_components, detector_contour, detector_hough, detector_ransac
@@ -12,59 +14,128 @@ from .model import Candidate
 
 Detector = Callable[..., Candidate]
 
+
+@dataclass(frozen=True)
+class DetectorSpec:
+    """Small plugin contract; framework services stay outside detectors."""
+
+    method: str
+    name: str
+    origin: str
+    entrypoint: Detector
+    version: str = ""
+    repository: str = ""
+
+    @property
+    def display_name(self) -> str:
+        return f"{self.name} ({self.origin})" if self.origin else self.name
+
+
 # Order is intentional and preserves the pre-registry JSON candidate order.
-_REGISTRY: tuple[tuple[str, Detector], ...] = (
-    (detector_contour.METHOD, detector_contour.detect),
-    (detector_components.METHOD, detector_components.detect),
-    (detector_ransac.METHOD, detector_ransac.detect),
-    (detector_hough.METHOD, detector_hough.detect),
+# Method IDs remain stable for downstream compatibility; names are presentation.
+_REGISTRY: tuple[DetectorSpec, ...] = (
+    DetectorSpec(
+        method=detector_contour.METHOD,
+        name="Contour",
+        origin="HTH / ChatGPT",
+        entrypoint=detector_contour.detect,
+    ),
+    DetectorSpec(
+        method=detector_components.METHOD,
+        name="Connected Components",
+        origin="OpenCV",
+        entrypoint=detector_components.detect,
+        version=cv2.__version__,
+        repository="https://github.com/opencv/opencv",
+    ),
+    DetectorSpec(
+        method=detector_ransac.METHOD,
+        name="RANSAC",
+        origin="HTH / ChatGPT",
+        entrypoint=detector_ransac.detect,
+    ),
+    DetectorSpec(
+        method=detector_hough.METHOD,
+        name="Hough Lines",
+        origin="OpenCV",
+        entrypoint=detector_hough.detect,
+        version=cv2.__version__,
+        repository="https://github.com/opencv/opencv",
+    ),
 )
 
 
+def detector_specs() -> list[DetectorSpec]:
+    return list(_REGISTRY)
+
+
 def detector_names() -> list[str]:
-    return [name for name, _ in _REGISTRY]
+    return [spec.method for spec in _REGISTRY]
+
+
+def detector_catalog() -> list[dict[str, str]]:
+    return [
+        {
+            "method": spec.method,
+            "name": spec.name,
+            "display_name": spec.display_name,
+            "origin": spec.origin,
+            "version": spec.version,
+            "repository": spec.repository,
+        }
+        for spec in _REGISTRY
+    ]
+
+
+def _apply_spec(candidate: Candidate, spec: DetectorSpec) -> Candidate:
+    candidate.detector_name = spec.name
+    candidate.origin = spec.origin
+    candidate.version = spec.version
+    candidate.repository = spec.repository
+    return candidate
 
 
 def _failed_candidate(
-    method: str,
+    spec: DetectorSpec,
     exc: BaseException,
     *,
     elapsed_ms: float,
 ) -> Candidate:
     """Represent a detector exception as data instead of aborting the page."""
-    return Candidate(
-        method=method,
-        bbox=None,
-        corners=None,
-        confidence=0.0,
-        score=0.0,
-        diagnostics={
-            "reason": "detector_exception",
-            "exception_type": type(exc).__name__,
-            "exception_message": str(exc),
-            # A short traceback is invaluable in Actions artifacts while still
-            # keeping page-analysis.json reasonably compact.
-            "traceback": traceback.format_exc(limit=8),
-            "elapsed_ms": round(elapsed_ms, 3),
-        },
-        status="error",
+    return _apply_spec(
+        Candidate(
+            method=spec.method,
+            bbox=None,
+            corners=None,
+            confidence=0.0,
+            score=0.0,
+            diagnostics={
+                "reason": "detector_exception",
+                "exception_type": type(exc).__name__,
+                "exception_message": str(exc),
+                "traceback": traceback.format_exc(limit=8),
+                "elapsed_ms": round(elapsed_ms, 3),
+            },
+            status="error",
+        ),
+        spec,
     )
 
 
 def _normalize_candidate(
-    registered_name: str,
+    spec: DetectorSpec,
     candidate: Candidate,
     *,
     elapsed_ms: float,
 ) -> Candidate:
     if not isinstance(candidate, Candidate):
         raise TypeError(
-            f"Detector {registered_name!r} returned {type(candidate).__name__}, "
+            f"Detector {spec.method!r} returned {type(candidate).__name__}, "
             "expected Candidate"
         )
-    if candidate.method != registered_name:
+    if candidate.method != spec.method:
         raise ValueError(
-            f"Detector registry mismatch: registered as {registered_name!r}, "
+            f"Detector registry mismatch: registered as {spec.method!r}, "
             f"returned {candidate.method!r}"
         )
 
@@ -73,11 +144,9 @@ def _normalize_candidate(
 
     if candidate.status not in {"ok", "no_candidate", "error"}:
         raise ValueError(
-            f"Detector {registered_name!r} returned invalid status {candidate.status!r}"
+            f"Detector {spec.method!r} returned invalid status {candidate.status!r}"
         )
 
-    # Existing detectors signal a normal miss with bbox=None. Preserve their
-    # implementations while making the result explicit to downstream tools.
     if candidate.status == "ok" and candidate.bbox is None:
         candidate.status = "no_candidate"
 
@@ -85,25 +154,21 @@ def _normalize_candidate(
         candidate.confidence = 0.0
         candidate.score = 0.0
 
-    return candidate
+    return _apply_spec(candidate, spec)
 
 
 def run_registered_detectors(*, image_bgr: np.ndarray, mask: np.ndarray) -> list[Candidate]:
-    """Run every registered detector independently.
-
-    One detector may fail without preventing the remaining detectors from
-    running or preventing the page-analysis output from being written.
-    """
+    """Run every registered detector independently with timing and isolation."""
     candidates: list[Candidate] = []
-    for name, detector in _REGISTRY:
+    for spec in _REGISTRY:
         started = time.perf_counter()
         try:
-            candidate = detector(image_bgr=image_bgr, mask=mask)
+            candidate = spec.entrypoint(image_bgr=image_bgr, mask=mask)
             elapsed_ms = (time.perf_counter() - started) * 1000.0
-            candidate = _normalize_candidate(name, candidate, elapsed_ms=elapsed_ms)
+            candidate = _normalize_candidate(spec, candidate, elapsed_ms=elapsed_ms)
         except Exception as exc:  # Detector plugins are an isolation boundary.
             elapsed_ms = (time.perf_counter() - started) * 1000.0
-            candidate = _failed_candidate(name, exc, elapsed_ms=elapsed_ms)
+            candidate = _failed_candidate(spec, exc, elapsed_ms=elapsed_ms)
         candidates.append(candidate)
     return candidates
 

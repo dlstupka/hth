@@ -16,3 +16,9 @@ class Candidate:
     # detector ran normally but found no plausible geometry, and "error"
     # means the detector raised or violated the detector contract.
     status: str = "ok"
+    # Human-readable/provenance metadata is supplied by the registry so a
+    # detector implementation only needs to return geometry and diagnostics.
+    detector_name: str = ""
+    origin: str = ""
+    version: str = ""
+    repository: str = ""

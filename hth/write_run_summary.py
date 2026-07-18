@@ -142,6 +142,44 @@ def _hydrate_from_generated_json(args: argparse.Namespace) -> None:
     )
 
 
+def _read_detector_performance(path: str) -> list[dict[str, Any]]:
+    payload = _read_json(path)
+    summary = payload.get("geometry_candidate_summary", {})
+    if not isinstance(summary, dict):
+        return []
+    catalog = summary.get("detectors", [])
+    performance = summary.get("detector_performance", {})
+    statuses = summary.get("method_status_counts", {})
+    if not isinstance(catalog, list) or not isinstance(performance, dict):
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for detector in catalog:
+        if not isinstance(detector, dict):
+            continue
+        method = str(detector.get("method", "")).strip()
+        if not method:
+            continue
+        perf = performance.get(method, {})
+        counts = statuses.get(method, {})
+        if not isinstance(perf, dict):
+            perf = {}
+        if not isinstance(counts, dict):
+            counts = {}
+        rows.append({
+            "display_name": detector.get("display_name") or detector.get("name") or method,
+            "version": detector.get("version", ""),
+            "runs": perf.get("runs"),
+            "average_ms": perf.get("elapsed_ms_average"),
+            "total_ms": perf.get("elapsed_ms_total"),
+            "average_confidence": perf.get("confidence_average"),
+            "ok": counts.get("ok", 0),
+            "no_candidate": counts.get("no_candidate", 0),
+            "error": counts.get("error", 0),
+        })
+    return rows
+
+
 def _existing_outputs(paths: Iterable[str]) -> list[str]:
     result: list[str] = []
     for raw in paths:
@@ -204,6 +242,30 @@ def build_summary(args: argparse.Namespace) -> str:
                 f"| {elapsed} |"
             )
 
+    detector_rows = _read_detector_performance(args.geometry_json)
+    if detector_rows:
+        lines.extend([
+            "",
+            "## Detector performance",
+            "",
+            "| Detector | Runs | Candidate | No candidate | Errors | Avg elapsed | Avg confidence |",
+            "|---|---:|---:|---:|---:|---:|---:|",
+        ])
+        for row in detector_rows:
+            average_ms = _as_float(row.get("average_ms"))
+            elapsed = f"{average_ms:.1f} ms" if average_ms is not None else "unknown"
+            confidence = _as_float(row.get("average_confidence"))
+            confidence_text = f"{confidence:.3f}" if confidence is not None else "—"
+            version = str(row.get("version", "")).strip()
+            detector = str(row.get("display_name", "unknown"))
+            if version:
+                detector += f" `v{version}`"
+            lines.append(
+                f"| {detector} | {row.get('runs', 'unknown')} "
+                f"| {row.get('ok', 0)} | {row.get('no_candidate', 0)} "
+                f"| {row.get('error', 0)} | {elapsed} | {confidence_text} |"
+            )
+
     if args.notes:
         lines.extend(["", "## Notes", "", args.notes.strip()])
 
@@ -239,6 +301,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--error-count", type=int)
     p.add_argument("--summary-json", default="")
     p.add_argument("--analysis-summary-json", default="")
+    p.add_argument("--geometry-json", default="")
     p.add_argument("--notes", default="")
     p.add_argument("--output", action="append", default=[])
     p.add_argument("--destination", default=_env("GITHUB_STEP_SUMMARY"))

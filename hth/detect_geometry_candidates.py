@@ -15,6 +15,7 @@ import cv2
 from geometry.common import document_mask, resize_for_analysis, scale_bbox
 from geometry.model import Candidate
 from geometry.registry import (
+    detector_catalog,
     detector_names,
     run_registered_detectors,
     summarize_candidates,
@@ -116,6 +117,12 @@ def main() -> int:
     method_counts: dict[str, Counter[str]] = {
         method: Counter() for method in detector_names()
     }
+    method_elapsed_ms: dict[str, list[float]] = {
+        method: [] for method in detector_names()
+    }
+    method_confidence: dict[str, list[float]] = {
+        method: [] for method in detector_names()
+    }
 
     for record in analysis.get("records", []):
         ordinal = int(record["global_ordinal"])
@@ -131,6 +138,11 @@ def main() -> int:
 
             for candidate in candidates:
                 method_counts[candidate.method][candidate.status] += 1
+                elapsed = candidate.diagnostics.get("elapsed_ms")
+                if isinstance(elapsed, (int, float)):
+                    method_elapsed_ms[candidate.method].append(float(elapsed))
+                if candidate.status == "ok":
+                    method_confidence[candidate.method].append(float(candidate.confidence))
         except Exception as exc:
             # A page input/preparation failure prevents every detector from
             # running, but it is still recorded and does not discard other pages.
@@ -158,6 +170,7 @@ def main() -> int:
             "error": page_counts["error"],
         },
         "detector_error_count": detector_error_count,
+        "detectors": detector_catalog(),
         "method_status_counts": {
             method: {
                 "ok": counts["ok"],
@@ -165,6 +178,19 @@ def main() -> int:
                 "error": counts["error"],
             }
             for method, counts in method_counts.items()
+        },
+        "detector_performance": {
+            method: {
+                "runs": len(method_elapsed_ms[method]),
+                "elapsed_ms_total": round(sum(method_elapsed_ms[method]), 3),
+                "elapsed_ms_average": round(
+                    sum(method_elapsed_ms[method]) / len(method_elapsed_ms[method]), 3
+                ) if method_elapsed_ms[method] else None,
+                "confidence_average": round(
+                    sum(method_confidence[method]) / len(method_confidence[method]), 6
+                ) if method_confidence[method] else None,
+            }
+            for method in detector_names()
         },
         "fail_on": args.fail_on,
     }

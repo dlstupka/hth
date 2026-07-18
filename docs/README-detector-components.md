@@ -1,69 +1,52 @@
-# Connected Components Geometry Detector
+# Connected Components detector
 
 The `components` detector is the first detector added after the HTH detector-registry refactor.
 
-## Purpose
+## Identity and provenance
 
-Connected Components provides an independent, deterministic estimate of the physical page envelope from the shared document mask. It complements contour, RANSAC, and Hough detection rather than replacing them.
+The stable machine identifier remains `components`. Human-facing output uses:
 
-## Method
+```text
+Connected Components (OpenCV)
+```
 
-1. Convert the shared document mask to a binary image.
-2. Label 8-connected foreground components.
+The registry records its name, origin, installed OpenCV version, and upstream repository. That metadata is attached automatically to every candidate; the detector itself remains concerned only with detection.
+
+## Algorithm
+
+1. Build the shared binary document mask.
+2. Label 8-connected foreground components with OpenCV `connectedComponentsWithStats`.
 3. Remove components below a scale-relative area threshold.
-4. Start with the largest meaningful component.
-5. Merge nearby meaningful fragments into one conservative envelope.
-6. Reject envelopes too small to plausibly represent a photographed page.
-7. Score the candidate using mask coverage, component fill, and envelope size.
+4. Seed the envelope with the largest meaningful component.
+5. Merge nearby, sufficiently large fragments.
+6. Reject implausibly small envelopes.
+7. Score the surviving envelope using mask coverage, fill ratio, and page-area coverage.
 
 ## Candidate output
 
-The detector publishes the standard HTH `Candidate` contract:
+A successful result includes both normalized plugin metadata and algorithm diagnostics:
 
 ```json
 {
   "method": "components",
-  "bbox": [35, 20, 265, 180],
-  "corners": [[35.0, 20.0], [265.0, 20.0], [265.0, 180.0], [35.0, 180.0]],
-  "confidence": 0.91,
-  "score": 0.91,
+  "detector_name": "Connected Components",
+  "origin": "OpenCV",
+  "version": "<installed OpenCV version>",
+  "repository": "https://github.com/opencv/opencv",
+  "status": "ok",
+  "confidence": 0.84,
   "diagnostics": {
-    "component_count": 4,
+    "elapsed_ms": 11.2,
     "significant_components": 2,
     "merged_components": 2,
-    "elapsed_ms": 3.4
-  },
-  "status": "ok"
+    "bbox_area_fraction": 0.61,
+    "fill_ratio": 0.73
+  }
 }
 ```
 
-A normal inability to identify a plausible page returns `bbox: null`; the registry normalizes that result to `status: no_candidate`. Exceptions remain isolated by the registry and become `status: error` candidates without stopping other detectors.
+A normal miss uses `status: no_candidate`; a plugin exception is isolated and represented as `status: error` so other detectors still run.
 
-## Registry order
+## Plugin design direction
 
-The candidate order is now:
-
-```text
-contour
-components
-ransac
-hough
-```
-
-The order is deterministic and does not imply that an earlier candidate is preferred.
-
-## Validation
-
-Run:
-
-```bash
-python -m unittest discover -s tests -v
-python -m compileall -q hth
-git diff --check
-```
-
-The synthetic tests verify:
-
-- detection of a large connected page region;
-- merging of nearby page fragments;
-- normal `no_candidate` behavior for insignificant noise.
+Detector implementations return a `Candidate`. The registry supplies provenance, timing, validation, exception isolation, and reporting. Production loading can therefore be strongly vetted while test/CI registries can substitute experimental `DetectorSpec` entries with very little ceremony.

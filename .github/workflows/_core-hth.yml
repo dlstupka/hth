@@ -795,6 +795,7 @@ jobs:
             --stage-timings-jsonl "$RUNNER_TEMP/hth-stage-timings.jsonl" \
             --summary-json "$OUTPUT_DIRECTORY/summary.json" \
             --analysis-summary-json "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json" \
+            --geometry-json "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json" \
             --output "results-repo/metadata" \
             --output "results-repo/reports/preprocess-summary.json" \
             --output "results-repo/analysis" \
@@ -949,6 +950,7 @@ jobs:
             --stage-timings-jsonl "$RUNNER_TEMP/hth-stage-timings.jsonl" \
             --summary-json "$OUTPUT_DIRECTORY/summary.json" \
             --analysis-summary-json "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json" \
+            --geometry-json "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json" \
             --output "results-repo/test/latest/raw" \
             --output "results-repo/test/latest/metadata" \
             --output "results-repo/test/latest/analysis" \

@@ -23,28 +23,43 @@ class RegistryIsolationTests(unittest.TestCase):
             calls.append("healthy")
             return Candidate("healthy", [1, 1, 9, 9], None, 0.8, 0.8, {})
 
+        specs = (
+            registry.DetectorSpec("broken", "Broken", "Test", broken),
+            registry.DetectorSpec("healthy", "Healthy", "Test", healthy),
+        )
         image = np.zeros((10, 10, 3), dtype=np.uint8)
         mask = np.zeros((10, 10), dtype=np.uint8)
-        with patch.object(registry, "_REGISTRY", (("broken", broken), ("healthy", healthy))):
+        with patch.object(registry, "_REGISTRY", specs):
             candidates = registry.run_registered_detectors(image_bgr=image, mask=mask)
 
         self.assertEqual(calls, ["broken", "healthy"])
         self.assertEqual(candidates[0].status, "error")
         self.assertEqual(candidates[0].diagnostics["reason"], "detector_exception")
+        self.assertEqual(candidates[0].detector_name, "Broken")
         self.assertEqual(candidates[1].status, "ok")
+        self.assertEqual(candidates[1].origin, "Test")
+        self.assertIn("elapsed_ms", candidates[1].diagnostics)
 
     def test_normal_empty_result_is_no_candidate_not_error(self) -> None:
         def empty(*, image_bgr: np.ndarray, mask: np.ndarray) -> Candidate:
             del image_bgr, mask
             return Candidate("empty", None, None, 0.0, 0.0, {"reason": "none_found"})
 
+        spec = registry.DetectorSpec("empty", "Empty", "Test", empty)
         image = np.zeros((10, 10, 3), dtype=np.uint8)
         mask = np.zeros((10, 10), dtype=np.uint8)
-        with patch.object(registry, "_REGISTRY", (("empty", empty),)):
+        with patch.object(registry, "_REGISTRY", (spec,)):
             candidates = registry.run_registered_detectors(image_bgr=image, mask=mask)
 
         self.assertEqual(candidates[0].status, "no_candidate")
         self.assertEqual(candidates[0].diagnostics["reason"], "none_found")
+
+    def test_catalog_exposes_connected_components_provenance(self) -> None:
+        item = next(x for x in registry.detector_catalog() if x["method"] == "components")
+        self.assertEqual(item["name"], "Connected Components")
+        self.assertEqual(item["origin"], "OpenCV")
+        self.assertTrue(item["version"])
+        self.assertIn("opencv", item["repository"])
 
 
 if __name__ == "__main__":

@@ -28,6 +28,7 @@ class RunSummaryTests(unittest.TestCase):
             error_count=None,
             summary_json="",
             analysis_summary_json="",
+            geometry_json="",
             notes="",
             output=[],
             run_url="",
@@ -97,6 +98,39 @@ class RunSummaryTests(unittest.TestCase):
         self.assertIn("HTH-0001", text)
         self.assertIn("| DOCX masters | 1 |", text)
         self.assertIn("| Pages discovered | 10 |", text)
+
+    def test_summary_includes_detector_performance_and_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            geometry = Path(tmp) / "page-analysis.json"
+            geometry.write_text(json.dumps({
+                "geometry_candidate_summary": {
+                    "detectors": [{
+                        "method": "components",
+                        "name": "Connected Components",
+                        "display_name": "Connected Components (OpenCV)",
+                        "origin": "OpenCV",
+                        "version": "4.10.0",
+                        "repository": "https://github.com/opencv/opencv",
+                    }],
+                    "method_status_counts": {
+                        "components": {"ok": 8, "no_candidate": 2, "error": 0}
+                    },
+                    "detector_performance": {
+                        "components": {
+                            "runs": 10,
+                            "elapsed_ms_total": 112.0,
+                            "elapsed_ms_average": 11.2,
+                            "confidence_average": 0.812345,
+                        }
+                    },
+                }
+            }), encoding="utf-8")
+            args = self.make_args(geometry_json=str(geometry))
+            text = build_summary(args)
+            self.assertIn("## Detector performance", text)
+            self.assertIn("Connected Components (OpenCV)", text)
+            self.assertIn("11.2 ms", text)
+            self.assertIn("0.812", text)
 
     def test_summary_includes_timestamps_and_stage_performance(self):
         with tempfile.TemporaryDirectory() as tmp:
