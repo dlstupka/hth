@@ -12,3 +12,7 @@ class Candidate:
     confidence: float
     score: float
     diagnostics: dict[str, Any]
+    # "ok" means a usable candidate was returned, "no_candidate" means the
+    # detector ran normally but found no plausible geometry, and "error"
+    # means the detector raised or violated the detector contract.
+    status: str = "ok"

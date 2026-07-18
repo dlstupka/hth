@@ -58,12 +58,8 @@ def _fit_line(points: np.ndarray, threshold: float) -> tuple[LineModelND, np.nda
 
 
 def _intersection(a: LineModelND, b: LineModelND) -> np.ndarray | None:
-    origin_a = a.origin
-    direction_a = a.direction
-
-    origin_b = b.origin
-    direction_b = b.direction
-
+    origin_a, direction_a = a.origin, a.direction
+    origin_b, direction_b = b.origin, b.direction
     matrix = np.column_stack((direction_a, -direction_b))
     if abs(np.linalg.det(matrix)) < 1e-8:
         return None
