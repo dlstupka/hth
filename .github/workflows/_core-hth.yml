@@ -476,7 +476,8 @@ jobs:
       # STAGE_PUBLISH_PRODUCTION
       ############################################################
 
-      - name: Prepare production results
+      - name: Prepare production publication
+        id: prepare_production_publication
         if: ${{ inputs.mode == 'production' && inputs.publish_results }}
         shell: bash
         env:
@@ -602,7 +603,7 @@ jobs:
       # Write the summary after processing and before the final commit/push step.
       # `if: always()` ensures partial and failed runs still leave a useful summary.
       - name: Write HTH run summary
-        if: always()
+        if: ${{ always() && steps.prepare_production_publication.outcome != 'skipped' }}
         shell: bash
         env:
           HTH_COLLECTION_ID: ${{ inputs.collection_id }}
@@ -614,7 +615,7 @@ jobs:
 
           # Replace these examples with outputs from the processing step.
           # The long-term design is for preprocess.py to publish these as GITHUB_OUTPUT.
-          python hth/write_run_summary.py \
+          python hth-pipeline/hth/write_run_summary.py \
             --pipeline-name "Preprocess Pipeline" \
             --status "${{ job.status }}" \
             --elapsed-seconds "$elapsed" \
@@ -628,7 +629,7 @@ jobs:
             --output "results-repo/build/contactsheets" \
             --output "results-repo/build/metadata"
       
-      - name: Publish production results
+      - name: Publish production publication
         if: ${{ inputs.mode == 'production' && inputs.publish_results }}
         id: publish
         shell: bash
@@ -676,6 +677,7 @@ jobs:
       ############################################################
 
       - name: Prepare test publication
+        id: prepare_test_publication
         if: ${{ inputs.mode == 'test' && inputs.publish_results }}
         shell: bash
         run: |
@@ -739,7 +741,7 @@ jobs:
       # Write the summary after processing and before the final commit/push step.
       # `if: always()` ensures partial and failed runs still leave a useful summary.
       - name: Write HTH test run summary
-        if: always()
+        if: ${{ always() && steps.prepare_test_publication.outcome != 'skipped' }}
         shell: bash
         env:
           HTH_COLLECTION_ID: ${{ inputs.collection_id }}
@@ -768,7 +770,7 @@ jobs:
           processed_count=${PROCESSED_COUNT:-0}
           error_count=${ERROR_COUNT:-0}
 
-          python hth/write_run_summary.py \
+          python hth-pipeline/hth/write_run_summary.py \
             --pipeline-name "Preprocess Pipeline — Test" \
             --status "${{ job.status }}" \
             --elapsed-seconds "$elapsed" \
