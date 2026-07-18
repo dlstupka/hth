@@ -77,6 +77,16 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      # Record the start time immediately before the actual HTH processing step.
+      - name: Record pipeline start
+        id: pipeline_start
+        shell: bash
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Configure Git defaults
+        shell: bash
+        run: git config --global init.defaultBranch main
+
       - name: Checkout source repository
         uses: actions/checkout@v6
         with:
@@ -589,6 +599,35 @@ jobs:
           EOF
           fi
 
+      # Write the summary after processing and before the final commit/push step.
+      # `if: always()` ensures partial and failed runs still leave a useful summary.
+      - name: Write HTH run summary
+        if: always()
+        shell: bash
+        env:
+          HTH_COLLECTION_ID: ${{ inputs.collection_id }}
+          HTH_SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          HTH_SOURCE_COMMIT: ${{ steps.source_commit.outputs.sha }}
+        run: |
+          end_epoch=$(date +%s)
+          elapsed=$((end_epoch - ${{ steps.pipeline_start.outputs.epoch }}))
+
+          # Replace these examples with outputs from the processing step.
+          # The long-term design is for preprocess.py to publish these as GITHUB_OUTPUT.
+          python hth/write_run_summary.py \
+            --pipeline-name "Preprocess Pipeline" \
+            --status "${{ job.status }}" \
+            --elapsed-seconds "$elapsed" \
+            --docx-count "${{ steps.preprocess.outputs.docx_count }}" \
+            --page-count "${{ steps.preprocess.outputs.page_count }}" \
+            --processed-count "${{ steps.preprocess.outputs.processed_count }}" \
+            --error-count "${{ steps.preprocess.outputs.error_count }}" \
+            --output "results-repo/build/preprocessed" \
+            --output "results-repo/build/derived" \
+            --output "results-repo/build/ocr" \
+            --output "results-repo/build/contactsheets" \
+            --output "results-repo/build/metadata"
+      
       - name: Publish production results
         if: ${{ inputs.mode == 'production' && inputs.publish_results }}
         id: publish
@@ -697,6 +736,52 @@ jobs:
           cp "$LATEST/analysis/physical-geometry-report.json" \
             "$HISTORY/physical-geometry-report.json"
 
+      # Write the summary after processing and before the final commit/push step.
+      # `if: always()` ensures partial and failed runs still leave a useful summary.
+      - name: Write HTH test run summary
+        if: always()
+        shell: bash
+        env:
+          HTH_COLLECTION_ID: ${{ inputs.collection_id }}
+          HTH_SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          HTH_SOURCE_COMMIT: ${{ steps.source_commit.outputs.sha }}
+
+          PIPELINE_START_EPOCH: ${{ steps.pipeline_start.outputs.epoch }}
+
+          DOCX_COUNT: ${{ steps.preprocess.outputs.docx_count }}
+          PAGE_COUNT: ${{ steps.preprocess.outputs.page_count }}
+          PROCESSED_COUNT: ${{ steps.preprocess.outputs.processed_count }}
+          ERROR_COUNT: ${{ steps.preprocess.outputs.error_count }}
+        run: |
+          set -u
+
+          end_epoch=$(date +%s)
+
+          if [[ "${PIPELINE_START_EPOCH:-}" =~ ^[0-9]+$ ]]; then
+            elapsed=$((end_epoch - PIPELINE_START_EPOCH))
+          else
+            elapsed=0
+          fi
+
+          docx_count=${DOCX_COUNT:-0}
+          page_count=${PAGE_COUNT:-0}
+          processed_count=${PROCESSED_COUNT:-0}
+          error_count=${ERROR_COUNT:-0}
+
+          python hth/write_run_summary.py \
+            --pipeline-name "Preprocess Pipeline — Test" \
+            --status "${{ job.status }}" \
+            --elapsed-seconds "$elapsed" \
+            --docx-count "$docx_count" \
+            --page-count "$page_count" \
+            --processed-count "$processed_count" \
+            --error-count "$error_count" \
+            --output "results-repo/test/build/preprocessed" \
+            --output "results-repo/test/build/derived" \
+            --output "results-repo/test/build/ocr" \
+            --output "results-repo/test/build/contactsheets" \
+            --output "results-repo/test/build/metadata"
+            
       - name: Commit test results
         if: ${{ inputs.mode == 'test' && inputs.publish_results }}
         shell: bash
