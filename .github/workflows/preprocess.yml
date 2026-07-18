@@ -1,12 +1,40 @@
-name: HTH Production
-on: {workflow_dispatch: {}, push: {branches: [main]}}
+name: HTH preprocess collection
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repository:
+        description: "Source repository"
+        required: true
+        type: string
+        default: "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898"
+      results_repository:
+        description: "Results repository"
+        required: true
+        type: string
+        default: "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results"
+      upload_full_artifact:
+        description: "Upload the complete generated build as a temporary artifact"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preprocess-${{ inputs.source_repository }}
+  cancel-in-progress: false
+
 jobs:
-  pipeline:
+  preprocess:
     uses: ./.github/workflows/_core-hth.yml
     with:
       mode: production
-      process_limit: all
-      run_preprocess: true
-      run_detect: true
-      run_validate: true
-      run_publish: true
+      source_repository: ${{ inputs.source_repository }}
+      results_repository: ${{ inputs.results_repository }}
+      output_directory: hth-pipeline/build/preprocessed
+      publish_results: true
+      upload_full_artifact: ${{ inputs.upload_full_artifact }}
+      artifact_retention_days: 14
+    secrets: inherit

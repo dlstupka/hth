@@ -1,12 +1,48 @@
-name: HTH Test
-on: {workflow_dispatch: {}, pull_request: {}}
+name: HTH preprocess test
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "hth/**"
+      - "config/**"
+      - "requirements.txt"
+      - ".github/workflows/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "hth/**"
+      - "config/**"
+      - "requirements.txt"
+      - ".github/workflows/**"
+  workflow_dispatch:
+    inputs:
+      test_file:
+        description: "DOCX filename to process"
+        required: true
+        type: string
+        default: "Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preprocess-test-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  pipeline:
+  preprocess-test:
     uses: ./.github/workflows/_core-hth.yml
     with:
       mode: test
-      process_limit: "1"
-      run_preprocess: true
-      run_detect: true
-      run_validate: true
-      run_publish: true
+      source_repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898
+      results_repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
+      test_file: ${{ inputs.test_file || 'Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx' }}
+      output_directory: hth-pipeline/build/preprocessed-test
+      publish_results: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+      upload_full_artifact: true
+      artifact_retention_days: 7
+      geometry_fail_on: never
+    secrets: inherit

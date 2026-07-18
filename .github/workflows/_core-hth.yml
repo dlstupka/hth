@@ -1,31 +1,774 @@
-name: HTH Core Pipeline
+name: _HTH reusable core (internal)
+
+# Internal reusable workflow. It has no push, pull_request, schedule, or
+# workflow_dispatch trigger and therefore cannot be run directly.
 on:
   workflow_call:
     inputs:
-      mode: {type: string, required: true}
-      process_limit: {type: string, default: "all"}
-      run_preprocess: {type: boolean, default: true}
-      run_detect: {type: boolean, default: true}
-      run_validate: {type: boolean, default: true}
-      run_publish: {type: boolean, default: true}
+      mode:
+        description: "Execution mode: production, test, or calibration"
+        required: true
+        type: string
+      source_repository:
+        description: "Source repository containing DOCX masters"
+        required: true
+        type: string
+      results_repository:
+        description: "Results repository"
+        required: true
+        type: string
+      test_file:
+        description: "DOCX filename used by test and calibration modes"
+        required: false
+        type: string
+        default: ""
+      output_directory:
+        description: "Pipeline output directory"
+        required: true
+        type: string
+      publish_results:
+        description: "Commit generated results to the results repository"
+        required: false
+        type: boolean
+        default: false
+      upload_full_artifact:
+        description: "Upload the complete generated build"
+        required: false
+        type: boolean
+        default: true
+      artifact_retention_days:
+        description: "Temporary artifact retention period"
+        required: false
+        type: number
+        default: 7
+      geometry_fail_on:
+        description: "Geometry validation failure policy"
+        required: false
+        type: string
+        default: "never"
+    secrets:
+      HTH_RESULTS_TOKEN:
+        required: false
+
+permissions:
+  contents: read
 
 jobs:
-  ############################################################
-  # Acquisition
-  ############################################################
+  run-hth:
+    name: ${{ inputs.mode == 'production' && 'Preprocess complete collection' || inputs.mode == 'calibration' && 'Calibrate physical geometry' || 'Test one DOCX master' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.mode == 'production' && 120 || 30 }}
 
-  ############################################################
-  # stage_preprocess
-  ############################################################
+    env:
+      HTH_MODE: ${{ inputs.mode }}
+      SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+      RESULTS_REPOSITORY: ${{ inputs.results_repository }}
+      OUTPUT_DIRECTORY: ${{ inputs.output_directory }}
 
-  ############################################################
-  # stage_detect
-  ############################################################
+    steps:
+      ############################################################
+      # CHECKOUTS
+      ############################################################
 
-  ############################################################
-  # stage_validate
-  ############################################################
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
+        with:
+          path: hth-pipeline
+          fetch-depth: 1
+          persist-credentials: false
 
-  ############################################################
-  # stage_publish
-  ############################################################
+      - name: Checkout source repository
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.source_repository }}
+          path: source-repo
+          fetch-depth: 1
+          lfs: true
+          persist-credentials: false
+
+      - name: Checkout results repository
+        if: ${{ inputs.publish_results }}
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.results_repository }}
+          path: results-repo
+          ref: main
+          token: ${{ secrets.HTH_RESULTS_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      ############################################################
+      # SOURCE SELECTION AND VALIDATION
+      ############################################################
+
+      - name: Inventory source DOCX masters
+        if: ${{ inputs.mode == 'production' }}
+        id: inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Source DOCX files:"
+          find source-repo/images \
+            -maxdepth 1 \
+            -type f \
+            -name '*.docx' \
+            -printf '%f\n' |
+            sort -V
+
+          DOCX_COUNT="$(
+            find source-repo/images \
+              -maxdepth 1 \
+              -type f \
+              -name '*.docx' |
+            wc -l
+          )"
+          DOCX_COUNT="$(echo "$DOCX_COUNT" | tr -d '[:space:]')"
+
+          echo
+          echo "DOCX count: $DOCX_COUNT"
+          echo "docx_count=$DOCX_COUNT" >> "$GITHUB_OUTPUT"
+
+          echo
+          echo "Source checkout size:"
+          du -sh source-repo
+
+          if [[ "$DOCX_COUNT" -eq 0 ]]; then
+            echo "::error::No DOCX files found beneath source-repo/images"
+            exit 1
+          fi
+
+      - name: Select test source
+        if: ${{ inputs.mode != 'production' }}
+        id: source
+        shell: bash
+        env:
+          REQUESTED_TEST_FILE: ${{ inputs.test_file }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$REQUESTED_TEST_FILE" ]]; then
+            echo "::error::test_file is required for $HTH_MODE mode"
+            exit 1
+          fi
+
+          INPUT_PATH="source-repo/images/$REQUESTED_TEST_FILE"
+
+          if [[ ! -f "$INPUT_PATH" ]]; then
+            echo "::error::DOCX does not exist: $INPUT_PATH"
+            echo "Available DOCX files:"
+            find source-repo/images -maxdepth 1 -type f -name '*.docx' \
+              -printf '%f\n' | sort -V
+            exit 1
+          fi
+
+          echo "input_path=$INPUT_PATH" >> "$GITHUB_OUTPUT"
+          echo "test_file=$REQUESTED_TEST_FILE" >> "$GITHUB_OUTPUT"
+
+      ############################################################
+      # BUILD IDENTITY
+      ############################################################
+
+      - name: Capture build identity
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PIPELINE_COMMIT="$(git -C hth-pipeline rev-parse HEAD)"
+          SOURCE_COMMIT="$(git -C source-repo rev-parse HEAD)"
+          PIPELINE_SHORT_COMMIT="${PIPELINE_COMMIT:0:8}"
+          SOURCE_SHORT_COMMIT="${SOURCE_COMMIT:0:8}"
+          PROCESSED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+          echo "pipeline_commit=$PIPELINE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "pipeline_short_commit=$PIPELINE_SHORT_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "source_short_commit=$SOURCE_SHORT_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "processed_at=$PROCESSED_AT" >> "$GITHUB_OUTPUT"
+
+          {
+            if [[ "$HTH_MODE" == "production" ]]; then
+              echo "## HTH collection preprocessing"
+            elif [[ "$HTH_MODE" == "calibration" ]]; then
+              echo "## HTH physical-geometry calibration"
+            else
+              echo "## HTH preprocessing test"
+            fi
+            echo
+            echo "### Build provenance"
+            echo
+            echo "- Mode: \`$HTH_MODE\`"
+            echo "- Source repository: \`$SOURCE_REPOSITORY\`"
+            echo "- Source commit: \`$SOURCE_COMMIT\`"
+            if [[ "$HTH_MODE" != "production" ]]; then
+              echo "- Source file: \`${{ steps.source.outputs.test_file }}\`"
+            fi
+            echo "- Pipeline repository: \`${GITHUB_REPOSITORY}\`"
+            echo "- Pipeline commit: \`$PIPELINE_COMMIT\`"
+            echo "- Results repository: \`$RESULTS_REPOSITORY\`"
+            echo "- Workflow run: \`${GITHUB_RUN_ID}\`"
+            echo "- Processed at: \`$PROCESSED_AT\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      ############################################################
+      # PYTHON ENVIRONMENT
+      ############################################################
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: hth-pipeline/requirements.txt
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install --requirement hth-pipeline/requirements.txt
+
+      ############################################################
+      # STAGE_PREPROCESS
+      ############################################################
+
+      - name: Run preprocessor
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$HTH_MODE" == "production" ]]; then
+            INPUT_PATH="source-repo/images"
+          else
+            INPUT_PATH="${{ steps.source.outputs.input_path }}"
+          fi
+
+          python hth-pipeline/hth/preprocess.py \
+            --input "$INPUT_PATH" \
+            --output "$OUTPUT_DIRECTORY" \
+            --config hth-pipeline/config/preprocess.json \
+            --source-repository "$SOURCE_REPOSITORY" \
+            --source-commit "${{ steps.build.outputs.source_commit }}" \
+            --pipeline-repository "${{ github.repository }}" \
+            --pipeline-commit "${{ steps.build.outputs.pipeline_commit }}" \
+            --derive \
+            --contact-sheets \
+            --overwrite
+
+      ############################################################
+      # STAGE_DETECT_CURRENT
+      ############################################################
+
+      - name: Run physical page analysis
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python hth-pipeline/hth/analyze_pages.py \
+            --manifest "$OUTPUT_DIRECTORY/metadata/image_manifest.json" \
+            --image-root "$OUTPUT_DIRECTORY" \
+            --config hth-pipeline/config/analyze_pages.json \
+            --output "$OUTPUT_DIRECTORY/page-analysis" \
+            --source-repository "$SOURCE_REPOSITORY" \
+            --source-commit "${{ steps.build.outputs.source_commit }}" \
+            --pipeline-repository "${{ github.repository }}" \
+            --pipeline-commit "${{ steps.build.outputs.pipeline_commit }}" \
+            --annotated-previews \
+            --overwrite
+
+      ############################################################
+      # STAGE_DETECT_CANDIDATES
+      ############################################################
+
+      - name: Generate geometry candidates
+        if: ${{ inputs.mode != 'production' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python hth-pipeline/hth/detect_geometry_candidates.py \
+            --manifest "$OUTPUT_DIRECTORY/metadata/image_manifest.json" \
+            --analysis "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json" \
+            --image-root "$OUTPUT_DIRECTORY" \
+            --output "$OUTPUT_DIRECTORY/page-analysis/page-analysis-with-candidates.json" \
+            --overwrite
+
+          mv \
+            "$OUTPUT_DIRECTORY/page-analysis/page-analysis-with-candidates.json" \
+            "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json"
+
+      ############################################################
+      # STAGE_VALIDATE_GEOMETRY
+      ############################################################
+
+      - name: Validate physical geometry
+        if: ${{ inputs.mode != 'production' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python hth-pipeline/hth/validate_physical_geometry.py \
+            --reference hth-pipeline/config/golden_set.json \
+            --analysis "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json" \
+            --output "$OUTPUT_DIRECTORY/page-analysis/physical-geometry-report.json" \
+            --fail-on "${{ inputs.geometry_fail_on }}"
+
+      ############################################################
+      # STAGE_VALIDATE_OUTPUTS
+      ############################################################
+
+      - name: Verify production build
+        if: ${{ inputs.mode == 'production' }}
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_files=(
+            "$OUTPUT_DIRECTORY/summary.json"
+            "$OUTPUT_DIRECTORY/metadata/image_manifest.json"
+            "$OUTPUT_DIRECTORY/metadata/image_manifest.csv"
+            "$OUTPUT_DIRECTORY/metadata/exact_duplicates.json"
+            "$OUTPUT_DIRECTORY/metadata/page_map_template.csv"
+            "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json"
+            "$OUTPUT_DIRECTORY/page-analysis/page-analysis.csv"
+            "$OUTPUT_DIRECTORY/page-analysis/review-queue.csv"
+            "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json"
+          )
+
+          for file in "${required_files[@]}"; do
+            test -f "$file"
+            echo "Verified: $file"
+          done
+
+          python - "$OUTPUT_DIRECTORY/summary.json" "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          summary_path = Path(sys.argv[1])
+          output_path = Path(sys.argv[2])
+          summary = json.loads(summary_path.read_text(encoding="utf-8"))
+
+          collection_id = str(summary.get("collection_id", "")).strip()
+          docx_count = int(summary.get("source_docx_count", 0))
+          image_count = int(summary.get("image_count", 0))
+          first_image = int(summary.get("first_image", 0))
+          last_image = int(summary.get("last_image", 0))
+
+          if not collection_id:
+              raise SystemExit("summary.json has no collection_id")
+          if docx_count < 1:
+              raise SystemExit("No DOCX masters were processed")
+          if image_count < 1:
+              raise SystemExit("No images were extracted")
+          if first_image != 1:
+              raise SystemExit(f"Expected first_image 1; found {first_image}")
+          if last_image != image_count:
+              raise SystemExit(
+                  "last_image does not match image_count: "
+                  f"{last_image} != {image_count}"
+              )
+
+          manifest_path = summary_path.parent / "metadata" / "image_manifest.json"
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          records = manifest.get("records", [])
+
+          if len(records) != image_count:
+              raise SystemExit(
+                  "Manifest record count does not match summary: "
+                  f"{len(records)} != {image_count}"
+              )
+
+          ordinals = [int(record["global_ordinal"]) for record in records]
+          expected = list(range(1, image_count + 1))
+          if ordinals != expected:
+              raise SystemExit("Manifest global ordinals are not continuous")
+
+          print(
+              f"Verified collection {collection_id}: "
+              f"{docx_count} DOCX masters, {image_count} images"
+          )
+
+          with output_path.open("a", encoding="utf-8") as output:
+              output.write(f"collection_id={collection_id}\n")
+              output.write(f"docx_count={docx_count}\n")
+              output.write(f"image_count={image_count}\n")
+              output.write(f"first_image={first_image}\n")
+              output.write(f"last_image={last_image}\n")
+          PY
+
+      - name: Verify test or calibration outputs
+        if: ${{ inputs.mode != 'production' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_files=(
+            "$OUTPUT_DIRECTORY/summary.json"
+            "$OUTPUT_DIRECTORY/metadata/image_manifest.json"
+            "$OUTPUT_DIRECTORY/metadata/image_manifest.csv"
+            "$OUTPUT_DIRECTORY/metadata/exact_duplicates.json"
+            "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json"
+            "$OUTPUT_DIRECTORY/page-analysis/page-analysis.csv"
+            "$OUTPUT_DIRECTORY/page-analysis/review-queue.csv"
+            "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json"
+            "$OUTPUT_DIRECTORY/page-analysis/physical-geometry-report.json"
+          )
+
+          for file in "${required_files[@]}"; do
+            if [[ ! -f "$file" ]]; then
+              echo "::error::Missing required output: $file"
+              exit 1
+            fi
+            echo "Verified: $file"
+          done
+
+          test -d "$OUTPUT_DIRECTORY/page-analysis/annotated-previews"
+
+          PREVIEW_COUNT="$(
+            find "$OUTPUT_DIRECTORY/page-analysis/annotated-previews" \
+              -maxdepth 1 \
+              -type f \
+              -name '*_page-analysis.jpg' |
+            wc -l
+          )"
+          PREVIEW_COUNT="$(echo "$PREVIEW_COUNT" | tr -d '[:space:]')"
+
+          python - "$OUTPUT_DIRECTORY/summary.json" "$PREVIEW_COUNT" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          summary = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          preview_count = int(sys.argv[2])
+          docx_count = summary.get("source_docx_count", 0)
+          image_count = summary.get("image_count", 0)
+
+          if docx_count != 1:
+              raise SystemExit(f"Expected 1 DOCX; found {docx_count}")
+          if image_count < 1:
+              raise SystemExit("Build produced no images")
+          if preview_count != image_count:
+              raise SystemExit(
+                  f"Expected {image_count} annotated previews; "
+                  f"found {preview_count}"
+              )
+
+          print(
+              f"Verified {docx_count} DOCX, {image_count} images, "
+              f"and {preview_count} previews"
+          )
+          PY
+
+      ############################################################
+      # STAGE_PUBLISH_PRODUCTION
+      ############################################################
+
+      - name: Prepare production results
+        if: ${{ inputs.mode == 'production' && inputs.publish_results }}
+        shell: bash
+        env:
+          SOURCE_COMMIT: ${{ steps.build.outputs.source_commit }}
+          PIPELINE_COMMIT: ${{ steps.build.outputs.pipeline_commit }}
+          PROCESSED_AT: ${{ steps.build.outputs.processed_at }}
+          COLLECTION_ID: ${{ steps.verify.outputs.collection_id }}
+          DOCX_COUNT: ${{ steps.verify.outputs.docx_count }}
+          IMAGE_COUNT: ${{ steps.verify.outputs.image_count }}
+          FIRST_IMAGE: ${{ steps.verify.outputs.first_image }}
+          LAST_IMAGE: ${{ steps.verify.outputs.last_image }}
+        run: |
+          set -euo pipefail
+
+          rm -rf results-repo/metadata
+          mkdir -p results-repo/metadata
+          cp -a "$OUTPUT_DIRECTORY/metadata/." results-repo/metadata/
+
+          mkdir -p results-repo/reports
+          cp "$OUTPUT_DIRECTORY/summary.json" \
+            results-repo/reports/preprocess-summary.json
+
+          mkdir -p results-repo/analysis
+          cp -a "$OUTPUT_DIRECTORY/page-analysis/." results-repo/analysis/
+
+          mkdir -p \
+            results-repo/ocr \
+            results-repo/transcriptions \
+            results-repo/translations \
+            results-repo/indexes \
+            results-repo/citations \
+            results-repo/research-notes
+
+          touch \
+            results-repo/ocr/.gitkeep \
+            results-repo/transcriptions/.gitkeep \
+            results-repo/translations/.gitkeep \
+            results-repo/indexes/.gitkeep \
+            results-repo/citations/.gitkeep \
+            results-repo/research-notes/.gitkeep
+
+          python <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          def quote(value: object) -> str:
+              return json.dumps(str(value), ensure_ascii=False)
+
+          build_info = f"""\
+          schema_version: 1
+          build_type: production
+          status: successful
+
+          collection:
+            id: {quote(os.environ["COLLECTION_ID"])}
+            source_repository: {quote(os.environ["SOURCE_REPOSITORY"])}
+            source_commit: {quote(os.environ["SOURCE_COMMIT"])}
+            source_path: "images/"
+
+          pipeline:
+            repository: {quote(os.environ["GITHUB_REPOSITORY"])}
+            commit: {quote(os.environ["PIPELINE_COMMIT"])}
+            workflow: {quote(os.environ["GITHUB_WORKFLOW"])}
+            workflow_file: ".github/workflows/preprocess.yml"
+            workflow_run_id: {quote(os.environ["GITHUB_RUN_ID"])}
+            workflow_run_number: {int(os.environ["GITHUB_RUN_NUMBER"])}
+
+          results:
+            repository: {quote(os.environ["RESULTS_REPOSITORY"])}
+            branch: "main"
+            full_resolution_images_published: false
+
+          build:
+            processed_at_utc: {quote(os.environ["PROCESSED_AT"])}
+            python_version: "3.12"
+            source_docx_count: {int(os.environ["DOCX_COUNT"])}
+            image_count: {int(os.environ["IMAGE_COUNT"])}
+            first_image: {int(os.environ["FIRST_IMAGE"])}
+            last_image: {int(os.environ["LAST_IMAGE"])}
+            derived_images_created: true
+            contact_sheets_created: true
+            errors: 0
+          """
+
+          Path("results-repo/BUILD-INFO.yaml").write_text(
+              build_info,
+              encoding="utf-8",
+          )
+          PY
+
+          if [[ ! -f results-repo/README.md ]]; then
+            cat > results-repo/README.md <<'EOF'
+          # San Antonio Baptism Records — Processed Results
+
+          This repository contains processing metadata and research work
+          products generated from the corresponding HTH source repository.
+
+          The full-resolution DOCX masters and source images are preserved in
+          the source repository and are not duplicated here.
+
+          See `BUILD-INFO.yaml` for the exact source commit, pipeline commit,
+          workflow run, and processing counts used to create the current
+          production results.
+
+          ## Structure
+
+          - `metadata/` — image manifests, hashes, page mapping, and duplicates
+          - `reports/` — preprocessing and quality-control summaries
+          - `analysis/` — page-analysis and review reports
+          - `ocr/` — machine-generated OCR
+          - `transcriptions/` — reviewed source-language transcriptions
+          - `translations/` — reviewed translations
+          - `indexes/` — names, dates, places, and searchable indexes
+          - `citations/` — collection and record citations
+          - `research-notes/` — historical and collection-level observations
+          - `test/` — impounded CI-test results and test-build history
+
+          Generated by the Hidden Texas History Research Framework.
+          EOF
+          fi
+
+      - name: Publish production results
+        if: ${{ inputs.mode == 'production' && inputs.publish_results }}
+        id: publish
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config \
+            user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C results-repo add --all
+
+          if git -C results-repo diff --cached --quiet; then
+            RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "results_commit=$RESULTS_COMMIT" >> "$GITHUB_OUTPUT"
+            {
+              echo
+              echo "### Production publication"
+              echo
+              echo "The production results were already current."
+              echo "- Results commit: \`$RESULTS_COMMIT\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            git -C results-repo commit \
+              -m "Publish HTH production build from source ${{ steps.build.outputs.source_short_commit }}"
+            git -C results-repo push origin main
+            RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "results_commit=$RESULTS_COMMIT" >> "$GITHUB_OUTPUT"
+            {
+              echo
+              echo "### Production publication"
+              echo
+              echo "- Results committed successfully"
+              echo "- Results commit: \`$RESULTS_COMMIT\`"
+              echo "- Metadata: \`metadata/\`"
+              echo "- Report: \`reports/preprocess-summary.json\`"
+              echo "- Build identity: \`BUILD-INFO.yaml\`"
+              echo "- Existing \`test/\` content was preserved"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      ############################################################
+      # STAGE_PUBLISH_TEST
+      ############################################################
+
+      - name: Prepare test publication
+        if: ${{ inputs.mode == 'test' && inputs.publish_results }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          LATEST="results-repo/test/latest"
+          HISTORY="results-repo/test/history/run-${GITHUB_RUN_NUMBER}"
+
+          rm -rf "$LATEST"
+          mkdir -p \
+            "$LATEST/raw" \
+            "$LATEST/metadata" \
+            "$LATEST/analysis" \
+            "$HISTORY"
+
+          cp -a "$OUTPUT_DIRECTORY/raw/." "$LATEST/raw/"
+          cp hth-pipeline/config/golden_set.json \
+            "$LATEST/reference_collection.json"
+          cp "$OUTPUT_DIRECTORY/summary.json" "$LATEST/summary.json"
+          cp -a "$OUTPUT_DIRECTORY/metadata/." "$LATEST/metadata/"
+          cp "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json" \
+            "$LATEST/analysis/"
+          cp "$OUTPUT_DIRECTORY/page-analysis/page-analysis.csv" \
+            "$LATEST/analysis/"
+          cp "$OUTPUT_DIRECTORY/page-analysis/review-queue.csv" \
+            "$LATEST/analysis/"
+          cp "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json" \
+            "$LATEST/analysis/"
+          cp "$OUTPUT_DIRECTORY/page-analysis/physical-geometry-report.json" \
+            "$LATEST/analysis/"
+
+          cat > "$LATEST/BUILD-INFO.yaml" <<EOF
+          schema_version: 1
+          build_type: test
+          status: successful
+
+          source:
+            repository: $SOURCE_REPOSITORY
+            commit: ${{ steps.build.outputs.source_commit }}
+            file: ${{ steps.source.outputs.test_file }}
+
+          pipeline:
+            repository: ${{ github.repository }}
+            commit: ${{ steps.build.outputs.pipeline_commit }}
+            workflow: ${{ github.workflow }}
+            workflow_run_id: ${{ github.run_id }}
+            workflow_run_number: ${{ github.run_number }}
+
+          build:
+            processed_at_utc: ${{ steps.build.outputs.processed_at }}
+            output_location: test/latest
+          EOF
+
+          cp "$LATEST/BUILD-INFO.yaml" "$HISTORY/BUILD-INFO.yaml"
+          cp "$LATEST/summary.json" "$HISTORY/summary.json"
+          cp "$LATEST/analysis/analysis-summary.json" \
+            "$HISTORY/analysis-summary.json"
+          cp "$LATEST/analysis/physical-geometry-report.json" \
+            "$HISTORY/physical-geometry-report.json"
+
+      - name: Commit test results
+        if: ${{ inputs.mode == 'test' && inputs.publish_results }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config \
+            user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C results-repo add test/
+
+          if git -C results-repo diff --cached --quiet; then
+            echo "Test results are unchanged; nothing to commit."
+            {
+              echo
+              echo "### Results repository validation"
+              echo
+              echo "Checkout succeeded; generated test content was unchanged."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            git -C results-repo commit \
+              -m "Record preprocessing test run ${GITHUB_RUN_NUMBER}"
+            git -C results-repo push origin main
+            RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
+            {
+              echo
+              echo "### Results repository validation"
+              echo
+              echo "- Cross-repository checkout: successful"
+              echo "- Test publication: successful"
+              echo "- Results commit: \`$RESULTS_COMMIT\`"
+              echo "- Published under: \`test/latest/\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      ############################################################
+      # JOB SUMMARY AND ARTIFACTS
+      ############################################################
+
+      - name: Add processing result to job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo
+            echo "### Processing result"
+            echo
+            if [[ -f "$OUTPUT_DIRECTORY/summary.json" ]]; then
+              echo '```json'
+              cat "$OUTPUT_DIRECTORY/summary.json"
+              echo
+              echo '```'
+            else
+              echo "No preprocessing summary was generated."
+            fi
+
+            if [[ -d "$OUTPUT_DIRECTORY" ]]; then
+              echo
+              echo "Complete generated build size:"
+              echo
+              echo '```text'
+              du -sh "$OUTPUT_DIRECTORY"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload generated build artifact
+        if: ${{ success() && inputs.upload_full_artifact }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: hth-${{ inputs.mode }}-${{ github.run_number }}-${{ steps.build.outputs.source_short_commit }}
+          path: ${{ env.OUTPUT_DIRECTORY }}
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact_retention_days }}
+          compression-level: ${{ inputs.mode == 'production' && 0 || 6 }}

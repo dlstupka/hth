@@ -1,12 +1,46 @@
-name: HTH Calibration
-on: {workflow_dispatch: {}}
+name: HTH calibrate geometry
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_file:
+        description: "DOCX filename to use for detector calibration"
+        required: true
+        type: string
+        default: "Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx"
+      geometry_fail_on:
+        description: "Validation threshold that fails the run"
+        required: true
+        type: choice
+        options:
+          - never
+          - fail
+          - near-pass
+        default: never
+      artifact_retention_days:
+        description: "Days to retain the calibration artifact"
+        required: true
+        type: number
+        default: 14
+
+permissions:
+  contents: read
+
+concurrency:
+  group: calibrate-geometry-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  pipeline:
+  calibrate-geometry:
     uses: ./.github/workflows/_core-hth.yml
     with:
       mode: calibration
-      process_limit: calibration
-      run_preprocess: false
-      run_detect: true
-      run_validate: true
-      run_publish: true
+      source_repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898
+      results_repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
+      test_file: ${{ inputs.test_file }}
+      output_directory: hth-pipeline/build/calibration
+      publish_results: false
+      upload_full_artifact: true
+      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+      geometry_fail_on: ${{ inputs.geometry_fail_on }}
+    secrets: inherit
