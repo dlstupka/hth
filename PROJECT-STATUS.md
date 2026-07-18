@@ -1,76 +1,58 @@
-# PROJECT-STATUS.md
+# Hidden Texas History — Project Status
 
-*Last updated: 2026-07-12*
-
-# Hidden Texas History (HTH)
+*Last updated: 2026-07-18*  
+*Framework release: v0.6*  
+*AutoHotkey acquisition utility: v0.5*
 
 ## Mission
 
-Build an open, reproducible digital humanities toolkit for preserving
-and indexing Texas historical records, beginning with the San Fernando
-Cathedral baptism registers.
+Build an open, reproducible digital-humanities framework for preserving,
+analyzing, and publishing Texas historical records, beginning with the San
+Fernando Cathedral baptism registers.
 
-## Current repositories
+## Current collection
 
-### hth
+**HTH-0001 — San Antonio Baptisms, 1788–1824 and 1858–1898**
 
-Purpose: - AutoHotkey capture automation - Python preprocessing -
-Metadata schemas - GitHub Actions - Documentation
+- 929 FamilySearch source images represented in DOCX masters;
+- replacement captures for early pages;
+- stable acquisition and preprocessing workflow;
+- structured manifests, page analysis, geometry candidates, and validation.
 
-Status: - AutoHotkey capture v0.5 complete. - Python preprocessor v0.1
-complete. - Public GitHub repository established. - GitHub Actions
-executing. - Remaining task: skip artifact upload when no output exists.
+## Framework status
 
-## Collection
+Completed foundation:
 
-HTH-0001 San Antonio Baptisms 1788--1824, 1858--1898
+- reusable production, test, and calibration workflow core;
+- preprocess and physical-page analysis stages;
+- detector registry and detector resilience;
+- contour, RANSAC, and Hough candidate detectors;
+- physical-geometry validation and reference tooling;
+- production and test publication layouts;
+- Publication Manifest and Pipeline Health;
+- canonical stage banners, UTC timestamps, and elapsed-time reporting;
+- unit tests and v0.6 architecture documentation.
 
-Source material: - 929 FamilySearch images - High-resolution Word
-masters - Replacement captures for early pages - Stable capture workflow
+## Current pipeline
 
-## Research progress
+```text
+Acquisition
+→ STAGE_PREPROCESS
+→ STAGE_DETECT_CURRENT
+→ STAGE_DETECT_CANDIDATES
+→ STAGE_VALIDATE_GEOMETRY
+→ STAGE_VALIDATE_OUTPUTS
+→ STAGE_PUBLISH_PRODUCTION / STAGE_PUBLISH_TEST
+```
 
-Completed: - Canonical image map started - Pass 1 complete - Metadata
-schema defined - Capture workflow documented
+## Next technical work
 
-Planned: 1. Structural page/date map 2. Record numbering 3. Priests /
-handwriting 4. Person index 5. Spanish transcription 6. English
-translation
-
-## Software roadmap
-
-v0.1 - Capture - Preprocess - Metadata - GitHub Actions
-
-v0.2 Analyzer: - manuscript page detection - year transitions - blank
-pages - inserts - image quality metrics - review package
-
-Future pipeline:
-
-Capture → Preprocess → Analyze → Transcribe → Translate → Publish
-
-## Repository philosophy
-
-Commit: - code - documentation - schemas - metadata - workflows
-
-Do not commit: - DOCX masters - generated images - caches - temporary
-artifacts
-
-## Long-term vision
-
-Core repository: software only
-
-Collection repositories: one per historical collection approved metadata
-future locked/unlocked processing
-
-## Immediate next steps
-
-1.  Green GitHub Actions.
-2.  Validate preprocessing.
-3.  Begin Analyzer v0.2.
-4.  Complete Pass 2.
-5.  Start Project Juana CRT/DRT-2.
+1. Establish representative stage-runtime expectations.
+2. Expand the detector registry with LSD, GrabCut, Connected Components, and Consensus.
+3. Benchmark detector quality and runtime against the approved reference collection.
+4. Advance OCR, transcription, translation, record extraction, historical reasoning, and publication.
 
 ## Historical objective
 
-Locate, document, and contextualize the baptism of Juana Navarro Alsbury
-while creating reusable tools for Texas historical research.
+Locate, document, and contextualize the baptism of Juana Navarro Alsbury while
+creating reusable tools for transparent Texas historical research.

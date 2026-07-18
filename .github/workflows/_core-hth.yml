@@ -81,7 +81,9 @@ jobs:
       - name: Record pipeline start
         id: pipeline_start
         shell: bash
-        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+          echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Configure Git defaults
         shell: bash
@@ -246,14 +248,14 @@ jobs:
       ############################################################
 
       - name: STAGE_PREPROCESS
+        id: stage_preprocess_start
         shell: bash
         run: |
-          printf '%s\n' \
-            '============================================================' \
-            'STAGE_PREPROCESS' \
-            '============================================================'
+          python hth-pipeline/hth/stage_timing.py start \
+            --stage "STAGE_PREPROCESS"
 
       - name: Run preprocessor
+        id: run_preprocessor
         shell: bash
         run: |
           set -euo pipefail
@@ -276,19 +278,31 @@ jobs:
             --contact-sheets \
             --overwrite
 
+
+      - name: Complete STAGE_PREPROCESS
+        if: ${{ always() && steps.stage_preprocess_start.outcome != 'skipped' }}
+        shell: bash
+        run: |
+          python hth-pipeline/hth/stage_timing.py finish \
+            --stage "STAGE_PREPROCESS" \
+            --start-epoch "${{ steps.stage_preprocess_start.outputs.epoch }}" \
+            --started-at "${{ steps.stage_preprocess_start.outputs.started_at }}" \
+            --status "${{ steps.run_preprocessor.outcome }}" \
+            --timings-file "$RUNNER_TEMP/hth-stage-timings.jsonl"
+
       ############################################################
       # STAGE_DETECT_CURRENT
       ############################################################
 
       - name: STAGE_DETECT_CURRENT
+        id: stage_detect_current_start
         shell: bash
         run: |
-          printf '%s\n' \
-            '============================================================' \
-            'STAGE_DETECT_CURRENT' \
-            '============================================================'
+          python hth-pipeline/hth/stage_timing.py start \
+            --stage "STAGE_DETECT_CURRENT"
 
       - name: Run physical page analysis
+        id: run_physical_page_analysis
         shell: bash
         run: |
           set -euo pipefail
@@ -305,20 +319,32 @@ jobs:
             --annotated-previews \
             --overwrite
 
+
+      - name: Complete STAGE_DETECT_CURRENT
+        if: ${{ always() && steps.stage_detect_current_start.outcome != 'skipped' }}
+        shell: bash
+        run: |
+          python hth-pipeline/hth/stage_timing.py finish \
+            --stage "STAGE_DETECT_CURRENT" \
+            --start-epoch "${{ steps.stage_detect_current_start.outputs.epoch }}" \
+            --started-at "${{ steps.stage_detect_current_start.outputs.started_at }}" \
+            --status "${{ steps.run_physical_page_analysis.outcome }}" \
+            --timings-file "$RUNNER_TEMP/hth-stage-timings.jsonl"
+
       ############################################################
       # STAGE_DETECT_CANDIDATES
       ############################################################
 
       - name: STAGE_DETECT_CANDIDATES
+        id: stage_detect_candidates_start
         if: ${{ inputs.mode != 'production' }}
         shell: bash
         run: |
-          printf '%s\n' \
-            '============================================================' \
-            'STAGE_DETECT_CANDIDATES' \
-            '============================================================'
+          python hth-pipeline/hth/stage_timing.py start \
+            --stage "STAGE_DETECT_CANDIDATES"
 
       - name: Generate geometry candidates
+        id: generate_geometry_candidates
         if: ${{ inputs.mode != 'production' }}
         shell: bash
         run: |
@@ -335,20 +361,32 @@ jobs:
             "$OUTPUT_DIRECTORY/page-analysis/page-analysis-with-candidates.json" \
             "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json"
 
+
+      - name: Complete STAGE_DETECT_CANDIDATES
+        if: ${{ always() && steps.stage_detect_candidates_start.outcome != 'skipped' }}
+        shell: bash
+        run: |
+          python hth-pipeline/hth/stage_timing.py finish \
+            --stage "STAGE_DETECT_CANDIDATES" \
+            --start-epoch "${{ steps.stage_detect_candidates_start.outputs.epoch }}" \
+            --started-at "${{ steps.stage_detect_candidates_start.outputs.started_at }}" \
+            --status "${{ steps.generate_geometry_candidates.outcome }}" \
+            --timings-file "$RUNNER_TEMP/hth-stage-timings.jsonl"
+
       ############################################################
       # STAGE_VALIDATE_GEOMETRY
       ############################################################
 
       - name: STAGE_VALIDATE_GEOMETRY
+        id: stage_validate_geometry_start
         if: ${{ inputs.mode != 'production' }}
         shell: bash
         run: |
-          printf '%s\n' \
-            '============================================================' \
-            'STAGE_VALIDATE_GEOMETRY' \
-            '============================================================'
+          python hth-pipeline/hth/stage_timing.py start \
+            --stage "STAGE_VALIDATE_GEOMETRY"
 
       - name: Validate physical geometry
+        id: validate_physical_geometry
         if: ${{ inputs.mode != 'production' }}
         shell: bash
         run: |
@@ -360,17 +398,28 @@ jobs:
             --output "$OUTPUT_DIRECTORY/page-analysis/physical-geometry-report.json" \
             --fail-on "${{ inputs.geometry_fail_on }}"
 
+
+      - name: Complete STAGE_VALIDATE_GEOMETRY
+        if: ${{ always() && steps.stage_validate_geometry_start.outcome != 'skipped' }}
+        shell: bash
+        run: |
+          python hth-pipeline/hth/stage_timing.py finish \
+            --stage "STAGE_VALIDATE_GEOMETRY" \
+            --start-epoch "${{ steps.stage_validate_geometry_start.outputs.epoch }}" \
+            --started-at "${{ steps.stage_validate_geometry_start.outputs.started_at }}" \
+            --status "${{ steps.validate_physical_geometry.outcome }}" \
+            --timings-file "$RUNNER_TEMP/hth-stage-timings.jsonl"
+
       ############################################################
       # STAGE_VALIDATE_OUTPUTS
       ############################################################
 
       - name: STAGE_VALIDATE_OUTPUTS
+        id: stage_validate_outputs_start
         shell: bash
         run: |
-          printf '%s\n' \
-            '============================================================' \
-            'STAGE_VALIDATE_OUTPUTS' \
-            '============================================================'
+          python hth-pipeline/hth/stage_timing.py start \
+            --stage "STAGE_VALIDATE_OUTPUTS"
 
       - name: Verify production build
         if: ${{ inputs.mode == 'production' }}
@@ -516,18 +565,29 @@ jobs:
           )
           PY
 
+
+      - name: Complete STAGE_VALIDATE_OUTPUTS
+        if: ${{ always() && steps.stage_validate_outputs_start.outcome != 'skipped' }}
+        shell: bash
+        run: |
+          python hth-pipeline/hth/stage_timing.py finish \
+            --stage "STAGE_VALIDATE_OUTPUTS" \
+            --start-epoch "${{ steps.stage_validate_outputs_start.outputs.epoch }}" \
+            --started-at "${{ steps.stage_validate_outputs_start.outputs.started_at }}" \
+            --status "${{ job.status }}" \
+            --timings-file "$RUNNER_TEMP/hth-stage-timings.jsonl"
+
       ############################################################
       # STAGE_PUBLISH_PRODUCTION
       ############################################################
 
       - name: STAGE_PUBLISH_PRODUCTION
+        id: stage_publish_production_start
         if: ${{ inputs.mode == 'production' && inputs.publish_results }}
         shell: bash
         run: |
-          printf '%s\n' \
-            '============================================================' \
-            'STAGE_PUBLISH_PRODUCTION' \
-            '============================================================'
+          python hth-pipeline/hth/stage_timing.py start \
+            --stage "STAGE_PUBLISH_PRODUCTION"
 
       - name: Prepare production publication
         id: prepare_production_publication
@@ -653,36 +713,9 @@ jobs:
           EOF
           fi
 
-      # Pipeline Health complements the Publication Manifest above.
-      - name: Write HTH production pipeline health
-        if: ${{ always() && steps.prepare_production_publication.outcome != 'skipped' }}
-        shell: bash
-        env:
-          HTH_SOURCE_REPOSITORY: ${{ inputs.source_repository }}
-          HTH_SOURCE_COMMIT: ${{ steps.build.outputs.source_commit }}
-          PIPELINE_START_EPOCH: ${{ steps.pipeline_start.outputs.epoch }}
-        run: |
-          set -u
-
-          end_epoch=$(date +%s)
-          if [[ "${PIPELINE_START_EPOCH:-}" =~ ^[0-9]+$ ]]; then
-            elapsed=$((end_epoch - PIPELINE_START_EPOCH))
-          else
-            elapsed=0
-          fi
-
-          python hth-pipeline/hth/write_run_summary.py \
-            --pipeline-name "Preprocess Pipeline — Production" \
-            --status "${{ job.status }}" \
-            --elapsed-seconds "$elapsed" \
-            --summary-json "$OUTPUT_DIRECTORY/summary.json" \
-            --analysis-summary-json "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json" \
-            --output "results-repo/metadata" \
-            --output "results-repo/reports/preprocess-summary.json" \
-            --output "results-repo/analysis" \
-            --output "results-repo/BUILD-INFO.yaml"
 
       - name: Publish production publication
+        id: publish_production_publication
         if: ${{ inputs.mode == 'production' && inputs.publish_results }}
         id: publish
         shell: bash
@@ -725,18 +758,60 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+
+      - name: Complete STAGE_PUBLISH_PRODUCTION
+        if: ${{ always() && steps.stage_publish_production_start.outcome != 'skipped' }}
+        shell: bash
+        run: |
+          python hth-pipeline/hth/stage_timing.py finish \
+            --stage "STAGE_PUBLISH_PRODUCTION" \
+            --start-epoch "${{ steps.stage_publish_production_start.outputs.epoch }}" \
+            --started-at "${{ steps.stage_publish_production_start.outputs.started_at }}" \
+            --status "${{ steps.publish_production_publication.outcome }}" \
+            --timings-file "$RUNNER_TEMP/hth-stage-timings.jsonl"
+
+      # Pipeline Health complements the Publication Manifest above.
+      - name: Write HTH production pipeline health
+        if: ${{ always() && steps.prepare_production_publication.outcome != 'skipped' }}
+        shell: bash
+        env:
+          HTH_SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          HTH_SOURCE_COMMIT: ${{ steps.build.outputs.source_commit }}
+          PIPELINE_START_EPOCH: ${{ steps.pipeline_start.outputs.epoch }}
+        run: |
+          set -u
+
+          end_epoch=$(date +%s)
+          if [[ "${PIPELINE_START_EPOCH:-}" =~ ^[0-9]+$ ]]; then
+            elapsed=$((end_epoch - PIPELINE_START_EPOCH))
+          else
+            elapsed=0
+          fi
+
+          python hth-pipeline/hth/write_run_summary.py \
+            --pipeline-name "Preprocess Pipeline — Production" \
+            --status "${{ job.status }}" \
+            --elapsed-seconds "$elapsed" \
+            --pipeline-started-at "${{ steps.pipeline_start.outputs.started_at }}" \
+            --stage-timings-jsonl "$RUNNER_TEMP/hth-stage-timings.jsonl" \
+            --summary-json "$OUTPUT_DIRECTORY/summary.json" \
+            --analysis-summary-json "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json" \
+            --output "results-repo/metadata" \
+            --output "results-repo/reports/preprocess-summary.json" \
+            --output "results-repo/analysis" \
+            --output "results-repo/BUILD-INFO.yaml"
+
       ############################################################
       # STAGE_PUBLISH_TEST
       ############################################################
 
       - name: STAGE_PUBLISH_TEST
+        id: stage_publish_test_start
         if: ${{ inputs.mode == 'test' && inputs.publish_results }}
         shell: bash
         run: |
-          printf '%s\n' \
-            '============================================================' \
-            'STAGE_PUBLISH_TEST' \
-            '============================================================'
+          python hth-pipeline/hth/stage_timing.py start \
+            --stage "STAGE_PUBLISH_TEST"
 
       - name: Prepare test publication
         id: prepare_test_publication
@@ -800,37 +875,9 @@ jobs:
           cp "$LATEST/analysis/physical-geometry-report.json" \
             "$HISTORY/physical-geometry-report.json"
 
-      # Pipeline Health complements the Publication Manifest above.
-      - name: Write HTH test pipeline health
-        if: ${{ always() && steps.prepare_test_publication.outcome != 'skipped' }}
-        shell: bash
-        env:
-          HTH_SOURCE_REPOSITORY: ${{ inputs.source_repository }}
-          HTH_SOURCE_COMMIT: ${{ steps.build.outputs.source_commit }}
-          PIPELINE_START_EPOCH: ${{ steps.pipeline_start.outputs.epoch }}
-        run: |
-          set -u
-
-          end_epoch=$(date +%s)
-          if [[ "${PIPELINE_START_EPOCH:-}" =~ ^[0-9]+$ ]]; then
-            elapsed=$((end_epoch - PIPELINE_START_EPOCH))
-          else
-            elapsed=0
-          fi
-
-          python hth-pipeline/hth/write_run_summary.py \
-            --pipeline-name "Preprocess Pipeline — Test" \
-            --status "${{ job.status }}" \
-            --elapsed-seconds "$elapsed" \
-            --summary-json "$OUTPUT_DIRECTORY/summary.json" \
-            --analysis-summary-json "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json" \
-            --output "results-repo/test/latest/raw" \
-            --output "results-repo/test/latest/metadata" \
-            --output "results-repo/test/latest/analysis" \
-            --output "results-repo/test/latest/summary.json" \
-            --output "results-repo/test/latest/BUILD-INFO.yaml"
 
       - name: Publish test publication
+        id: publish_test_publication
         if: ${{ inputs.mode == 'test' && inputs.publish_results }}
         shell: bash
         run: |
@@ -864,6 +911,50 @@ jobs:
               echo "- Published under: \`test/latest/\`"
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+
+
+      - name: Complete STAGE_PUBLISH_TEST
+        if: ${{ always() && steps.stage_publish_test_start.outcome != 'skipped' }}
+        shell: bash
+        run: |
+          python hth-pipeline/hth/stage_timing.py finish \
+            --stage "STAGE_PUBLISH_TEST" \
+            --start-epoch "${{ steps.stage_publish_test_start.outputs.epoch }}" \
+            --started-at "${{ steps.stage_publish_test_start.outputs.started_at }}" \
+            --status "${{ steps.publish_test_publication.outcome }}" \
+            --timings-file "$RUNNER_TEMP/hth-stage-timings.jsonl"
+
+      # Pipeline Health complements the Publication Manifest above.
+      - name: Write HTH test pipeline health
+        if: ${{ always() && steps.prepare_test_publication.outcome != 'skipped' }}
+        shell: bash
+        env:
+          HTH_SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          HTH_SOURCE_COMMIT: ${{ steps.build.outputs.source_commit }}
+          PIPELINE_START_EPOCH: ${{ steps.pipeline_start.outputs.epoch }}
+        run: |
+          set -u
+
+          end_epoch=$(date +%s)
+          if [[ "${PIPELINE_START_EPOCH:-}" =~ ^[0-9]+$ ]]; then
+            elapsed=$((end_epoch - PIPELINE_START_EPOCH))
+          else
+            elapsed=0
+          fi
+
+          python hth-pipeline/hth/write_run_summary.py \
+            --pipeline-name "Preprocess Pipeline — Test" \
+            --status "${{ job.status }}" \
+            --elapsed-seconds "$elapsed" \
+            --pipeline-started-at "${{ steps.pipeline_start.outputs.started_at }}" \
+            --stage-timings-jsonl "$RUNNER_TEMP/hth-stage-timings.jsonl" \
+            --summary-json "$OUTPUT_DIRECTORY/summary.json" \
+            --analysis-summary-json "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json" \
+            --output "results-repo/test/latest/raw" \
+            --output "results-repo/test/latest/metadata" \
+            --output "results-repo/test/latest/analysis" \
+            --output "results-repo/test/latest/summary.json" \
+            --output "results-repo/test/latest/BUILD-INFO.yaml"
 
       ############################################################
       # JOB SUMMARY AND ARTIFACTS

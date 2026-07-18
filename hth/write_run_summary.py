@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -26,6 +27,8 @@ def _short(value: str, length: int = 12) -> str:
 def _display_duration(seconds: float | None) -> str:
     if seconds is None or seconds < 0:
         return "unknown"
+    if seconds < 10:
+        return f"{seconds:.1f}s"
     rounded = int(round(seconds))
     minutes, secs = divmod(rounded, 60)
     hours, minutes = divmod(minutes, 60)
@@ -47,6 +50,28 @@ def _status_icon(status: str) -> str:
     }.get(normalized, "ℹ️")
 
 
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _read_stage_timings(path: str) -> list[dict[str, Any]]:
+    if not path:
+        return []
+    source = Path(path)
+    if not source.is_file():
+        return []
+    records: list[dict[str, Any]] = []
+    for line_number, raw in enumerate(source.read_text(encoding="utf-8").splitlines(), start=1):
+        if not raw.strip():
+            continue
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError(f"Expected a JSON object at {source}:{line_number}")
+        records.append(payload)
+    return records
+
+
 def _read_json(path: str) -> dict[str, Any]:
     if not path:
         return {}
@@ -57,6 +82,15 @@ def _read_json(path: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"Expected a JSON object in {source}")
     return payload
+
+
+def _as_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _as_int(value: Any) -> int | None:
@@ -137,6 +171,8 @@ def build_summary(args: argparse.Namespace) -> str:
         f"| Pipeline commit | `{_short(args.pipeline_commit)}` |",
         f"| Workflow | `{args.workflow_name or 'unknown'}` |",
         f"| Run | `{args.run_number or 'unknown'}` |",
+        f"| Pipeline started | `{args.pipeline_started_at or 'unknown'}` |",
+        f"| Summary generated | `{args.summary_generated_at}` |",
         f"| Duration | `{_display_duration(args.elapsed_seconds)}` |",
         "",
         "## Processing",
@@ -148,6 +184,25 @@ def build_summary(args: argparse.Namespace) -> str:
         f"| Pages processed | {args.processed_count if args.processed_count is not None else 'unknown'} |",
         f"| Page errors | {args.error_count if args.error_count is not None else 'unknown'} |",
     ]
+
+    stage_timings = _read_stage_timings(args.stage_timings_jsonl)
+    if stage_timings:
+        lines.extend([
+            "",
+            "## Stage performance",
+            "",
+            "| Stage | Status | Started UTC | Completed UTC | Elapsed |",
+            "|---|---|---|---|---:|",
+        ])
+        for record in stage_timings:
+            elapsed = _display_duration(_as_float(record.get("elapsed_seconds")))
+            lines.append(
+                f"| `{record.get('stage', 'unknown')}` "
+                f"| {record.get('status', 'unknown')} "
+                f"| `{record.get('started_at_utc', 'unknown')}` "
+                f"| `{record.get('completed_at_utc', 'unknown')}` "
+                f"| {elapsed} |"
+            )
 
     if args.notes:
         lines.extend(["", "## Notes", "", args.notes.strip()])
@@ -175,6 +230,9 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--run-number", default=_env("GITHUB_RUN_NUMBER"))
     p.add_argument("--run-url", default="")
     p.add_argument("--elapsed-seconds", type=float)
+    p.add_argument("--pipeline-started-at", default="")
+    p.add_argument("--summary-generated-at", default="")
+    p.add_argument("--stage-timings-jsonl", default="")
     p.add_argument("--docx-count", type=int)
     p.add_argument("--page-count", type=int)
     p.add_argument("--processed-count", type=int)
@@ -189,6 +247,8 @@ def parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = parser().parse_args()
+    if not args.summary_generated_at:
+        args.summary_generated_at = _utc_now()
     _hydrate_from_generated_json(args)
 
     if not args.run_url and _env("GITHUB_SERVER_URL") and _env("GITHUB_REPOSITORY") and _env("GITHUB_RUN_ID"):

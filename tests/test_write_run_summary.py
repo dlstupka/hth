@@ -19,6 +19,9 @@ class RunSummaryTests(unittest.TestCase):
             workflow_name="HTH preprocess test",
             run_number="32",
             elapsed_seconds=83,
+            pipeline_started_at="2026-07-18T19:48:18Z",
+            summary_generated_at="2026-07-18T19:50:05Z",
+            stage_timings_jsonl="",
             docx_count=None,
             page_count=None,
             processed_count=None,
@@ -94,6 +97,31 @@ class RunSummaryTests(unittest.TestCase):
         self.assertIn("HTH-0001", text)
         self.assertIn("| DOCX masters | 1 |", text)
         self.assertIn("| Pages discovered | 10 |", text)
+
+    def test_summary_includes_timestamps_and_stage_performance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            timings = Path(tmp) / "stage-timings.jsonl"
+            timings.write_text(json.dumps({
+                "stage": "STAGE_PREPROCESS",
+                "status": "success",
+                "started_at_utc": "2026-07-18T19:48:20Z",
+                "completed_at_utc": "2026-07-18T19:48:22Z",
+                "elapsed_seconds": 2.125,
+            }) + "\n", encoding="utf-8")
+            args = self.make_args(
+                collection_id="HTH-0001",
+                docx_count=1,
+                page_count=10,
+                processed_count=10,
+                error_count=0,
+                stage_timings_jsonl=str(timings),
+            )
+            text = build_summary(args)
+            self.assertIn("Pipeline started", text)
+            self.assertIn("2026-07-18T19:48:18Z", text)
+            self.assertIn("## Stage performance", text)
+            self.assertIn("STAGE_PREPROCESS", text)
+            self.assertIn("2.1s", text)
 
 
 if __name__ == "__main__":
