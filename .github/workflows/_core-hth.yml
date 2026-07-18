@@ -717,7 +717,6 @@ jobs:
       - name: Publish production publication
         id: publish_production_publication
         if: ${{ inputs.mode == 'production' && inputs.publish_results }}
-        id: publish
         shell: bash
         run: |
           set -euo pipefail
