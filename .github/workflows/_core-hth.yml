@@ -198,12 +198,14 @@ jobs:
           echo "processed_at=$PROCESSED_AT" >> "$GITHUB_OUTPUT"
 
           {
+            echo "## Publication Manifest"
+            echo
             if [[ "$HTH_MODE" == "production" ]]; then
-              echo "## HTH collection preprocessing"
+              echo "**Mode:** production collection preprocessing"
             elif [[ "$HTH_MODE" == "calibration" ]]; then
-              echo "## HTH physical-geometry calibration"
+              echo "**Mode:** physical-geometry calibration"
             else
-              echo "## HTH preprocessing test"
+              echo "**Mode:** preprocessing test"
             fi
             echo
             echo "### Build provenance"
@@ -571,7 +573,7 @@ jobs:
 
           if [[ ! -f results-repo/README.md ]]; then
             cat > results-repo/README.md <<'EOF'
-          # San Antonio Baptism Records — Processed Results
+          # San Antonio Baptism Records — Processed Publication
 
           This repository contains processing metadata and research work
           products generated from the corresponding HTH source repository.
@@ -581,7 +583,7 @@ jobs:
 
           See `BUILD-INFO.yaml` for the exact source commit, pipeline commit,
           workflow run, and processing counts used to create the current
-          production results.
+          production publication.
 
           ## Structure
 
@@ -600,35 +602,35 @@ jobs:
           EOF
           fi
 
-      # Write the summary after processing and before the final commit/push step.
-      # `if: always()` ensures partial and failed runs still leave a useful summary.
-      - name: Write HTH run summary
+      # Pipeline Health complements the Publication Manifest above.
+      - name: Write HTH production pipeline health
         if: ${{ always() && steps.prepare_production_publication.outcome != 'skipped' }}
         shell: bash
         env:
-          HTH_COLLECTION_ID: ${{ inputs.collection_id }}
           HTH_SOURCE_REPOSITORY: ${{ inputs.source_repository }}
-          HTH_SOURCE_COMMIT: ${{ steps.source_commit.outputs.sha }}
+          HTH_SOURCE_COMMIT: ${{ steps.build.outputs.source_commit }}
+          PIPELINE_START_EPOCH: ${{ steps.pipeline_start.outputs.epoch }}
         run: |
-          end_epoch=$(date +%s)
-          elapsed=$((end_epoch - ${{ steps.pipeline_start.outputs.epoch }}))
+          set -u
 
-          # Replace these examples with outputs from the processing step.
-          # The long-term design is for preprocess.py to publish these as GITHUB_OUTPUT.
+          end_epoch=$(date +%s)
+          if [[ "${PIPELINE_START_EPOCH:-}" =~ ^[0-9]+$ ]]; then
+            elapsed=$((end_epoch - PIPELINE_START_EPOCH))
+          else
+            elapsed=0
+          fi
+
           python hth-pipeline/hth/write_run_summary.py \
-            --pipeline-name "Preprocess Pipeline" \
+            --pipeline-name "Preprocess Pipeline — Production" \
             --status "${{ job.status }}" \
             --elapsed-seconds "$elapsed" \
-            --docx-count "${{ steps.preprocess.outputs.docx_count }}" \
-            --page-count "${{ steps.preprocess.outputs.page_count }}" \
-            --processed-count "${{ steps.preprocess.outputs.processed_count }}" \
-            --error-count "${{ steps.preprocess.outputs.error_count }}" \
-            --output "results-repo/build/preprocessed" \
-            --output "results-repo/build/derived" \
-            --output "results-repo/build/ocr" \
-            --output "results-repo/build/contactsheets" \
-            --output "results-repo/build/metadata"
-      
+            --summary-json "$OUTPUT_DIRECTORY/summary.json" \
+            --analysis-summary-json "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json" \
+            --output "results-repo/metadata" \
+            --output "results-repo/reports/preprocess-summary.json" \
+            --output "results-repo/analysis" \
+            --output "results-repo/BUILD-INFO.yaml"
+
       - name: Publish production publication
         if: ${{ inputs.mode == 'production' && inputs.publish_results }}
         id: publish
@@ -649,8 +651,8 @@ jobs:
               echo
               echo "### Production publication"
               echo
-              echo "The production results were already current."
-              echo "- Results commit: \`$RESULTS_COMMIT\`"
+              echo "The production publication was already current."
+              echo "- Publication commit: \`$RESULTS_COMMIT\`"
             } >> "$GITHUB_STEP_SUMMARY"
           else
             git -C results-repo commit \
@@ -663,8 +665,8 @@ jobs:
               echo
               echo "### Production publication"
               echo
-              echo "- Results committed successfully"
-              echo "- Results commit: \`$RESULTS_COMMIT\`"
+              echo "- Production publication committed successfully"
+              echo "- Publication commit: \`$RESULTS_COMMIT\`"
               echo "- Metadata: \`metadata/\`"
               echo "- Report: \`reports/preprocess-summary.json\`"
               echo "- Build identity: \`BUILD-INFO.yaml\`"
@@ -738,53 +740,37 @@ jobs:
           cp "$LATEST/analysis/physical-geometry-report.json" \
             "$HISTORY/physical-geometry-report.json"
 
-      # Write the summary after processing and before the final commit/push step.
-      # `if: always()` ensures partial and failed runs still leave a useful summary.
-      - name: Write HTH test run summary
+      # Pipeline Health complements the Publication Manifest above.
+      - name: Write HTH test pipeline health
         if: ${{ always() && steps.prepare_test_publication.outcome != 'skipped' }}
         shell: bash
         env:
-          HTH_COLLECTION_ID: ${{ inputs.collection_id }}
           HTH_SOURCE_REPOSITORY: ${{ inputs.source_repository }}
-          HTH_SOURCE_COMMIT: ${{ steps.source_commit.outputs.sha }}
-
+          HTH_SOURCE_COMMIT: ${{ steps.build.outputs.source_commit }}
           PIPELINE_START_EPOCH: ${{ steps.pipeline_start.outputs.epoch }}
-
-          DOCX_COUNT: ${{ steps.preprocess.outputs.docx_count }}
-          PAGE_COUNT: ${{ steps.preprocess.outputs.page_count }}
-          PROCESSED_COUNT: ${{ steps.preprocess.outputs.processed_count }}
-          ERROR_COUNT: ${{ steps.preprocess.outputs.error_count }}
         run: |
           set -u
 
           end_epoch=$(date +%s)
-
           if [[ "${PIPELINE_START_EPOCH:-}" =~ ^[0-9]+$ ]]; then
             elapsed=$((end_epoch - PIPELINE_START_EPOCH))
           else
             elapsed=0
           fi
 
-          docx_count=${DOCX_COUNT:-0}
-          page_count=${PAGE_COUNT:-0}
-          processed_count=${PROCESSED_COUNT:-0}
-          error_count=${ERROR_COUNT:-0}
-
           python hth-pipeline/hth/write_run_summary.py \
             --pipeline-name "Preprocess Pipeline — Test" \
             --status "${{ job.status }}" \
             --elapsed-seconds "$elapsed" \
-            --docx-count "$docx_count" \
-            --page-count "$page_count" \
-            --processed-count "$processed_count" \
-            --error-count "$error_count" \
-            --output "results-repo/test/build/preprocessed" \
-            --output "results-repo/test/build/derived" \
-            --output "results-repo/test/build/ocr" \
-            --output "results-repo/test/build/contactsheets" \
-            --output "results-repo/test/build/metadata"
-            
-      - name: Commit test results
+            --summary-json "$OUTPUT_DIRECTORY/summary.json" \
+            --analysis-summary-json "$OUTPUT_DIRECTORY/page-analysis/analysis-summary.json" \
+            --output "results-repo/test/latest/raw" \
+            --output "results-repo/test/latest/metadata" \
+            --output "results-repo/test/latest/analysis" \
+            --output "results-repo/test/latest/summary.json" \
+            --output "results-repo/test/latest/BUILD-INFO.yaml"
+
+      - name: Publish test publication
         if: ${{ inputs.mode == 'test' && inputs.publish_results }}
         shell: bash
         run: |
@@ -796,10 +782,10 @@ jobs:
           git -C results-repo add test/
 
           if git -C results-repo diff --cached --quiet; then
-            echo "Test results are unchanged; nothing to commit."
+            echo "Test publication is unchanged; nothing to commit."
             {
               echo
-              echo "### Results repository validation"
+              echo "### Publication repository validation"
               echo
               echo "Checkout succeeded; generated test content was unchanged."
             } >> "$GITHUB_STEP_SUMMARY"
@@ -810,11 +796,11 @@ jobs:
             RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
             {
               echo
-              echo "### Results repository validation"
+              echo "### Publication repository validation"
               echo
               echo "- Cross-repository checkout: successful"
               echo "- Test publication: successful"
-              echo "- Results commit: \`$RESULTS_COMMIT\`"
+              echo "- Publication commit: \`$RESULTS_COMMIT\`"
               echo "- Published under: \`test/latest/\`"
             } >> "$GITHUB_STEP_SUMMARY"
           fi

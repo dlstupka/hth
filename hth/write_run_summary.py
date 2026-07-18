@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Write a durable HTH GitHub Actions job summary.
+"""Write a durable HTH GitHub Actions pipeline-health summary.
 
-The script deliberately owns presentation while the workflow only supplies facts.
-This keeps YAML small and makes the summary testable outside GitHub Actions.
+The script owns presentation while the workflow supplies paths and provenance.
+It can derive processing counts from HTH's generated JSON, keeping workflow YAML
+small and making the summary testable outside GitHub Actions.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 
 def _env(name: str, default: str = "") -> str:
@@ -43,6 +45,67 @@ def _status_icon(status: str) -> str:
         "cancelled": "⏹️",
         "skipped": "⏭️",
     }.get(normalized, "ℹ️")
+
+
+def _read_json(path: str) -> dict[str, Any]:
+    if not path:
+        return {}
+    source = Path(path)
+    if not source.is_file():
+        return {}
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"Expected a JSON object in {source}")
+    return payload
+
+
+def _as_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _first_int(*values: Any) -> int | None:
+    for value in values:
+        parsed = _as_int(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _hydrate_from_generated_json(args: argparse.Namespace) -> None:
+    preprocess = _read_json(args.summary_json)
+    analysis = _read_json(args.analysis_summary_json)
+
+    if not args.collection_id:
+        args.collection_id = str(preprocess.get("collection_id", "")).strip()
+
+    args.docx_count = _first_int(
+        args.docx_count,
+        preprocess.get("source_docx_count"),
+    )
+    args.page_count = _first_int(
+        args.page_count,
+        preprocess.get("image_count"),
+        analysis.get("page_count"),
+    )
+    args.processed_count = _first_int(
+        args.processed_count,
+        analysis.get("page_count"),
+        preprocess.get("image_count"),
+    )
+
+    quality_counts = analysis.get("quality_status_counts", {})
+    analysis_errors = quality_counts.get("error") if isinstance(quality_counts, dict) else None
+    args.error_count = _first_int(
+        args.error_count,
+        analysis_errors,
+        preprocess.get("errors"),
+        0 if preprocess or analysis else None,
+    )
 
 
 def _existing_outputs(paths: Iterable[str]) -> list[str]:
@@ -91,7 +154,7 @@ def build_summary(args: argparse.Namespace) -> str:
 
     output_lines = _existing_outputs(args.output)
     if output_lines:
-        lines.extend(["", "## Outputs", "", *output_lines])
+        lines.extend(["", "## Publication outputs", "", *output_lines])
 
     if args.run_url:
         lines.extend(["", f"[Open workflow run]({args.run_url})"])
@@ -116,6 +179,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--page-count", type=int)
     p.add_argument("--processed-count", type=int)
     p.add_argument("--error-count", type=int)
+    p.add_argument("--summary-json", default="")
+    p.add_argument("--analysis-summary-json", default="")
     p.add_argument("--notes", default="")
     p.add_argument("--output", action="append", default=[])
     p.add_argument("--destination", default=_env("GITHUB_STEP_SUMMARY"))
@@ -124,6 +189,8 @@ def parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = parser().parse_args()
+    _hydrate_from_generated_json(args)
+
     if not args.run_url and _env("GITHUB_SERVER_URL") and _env("GITHUB_REPOSITORY") and _env("GITHUB_RUN_ID"):
         args.run_url = (
             f"{_env('GITHUB_SERVER_URL')}/{_env('GITHUB_REPOSITORY')}"
