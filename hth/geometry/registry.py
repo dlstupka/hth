@@ -7,7 +7,7 @@ import traceback
 
 import numpy as np
 
-from . import detector_contour, detector_hough, detector_ransac
+from . import detector_components, detector_contour, detector_hough, detector_ransac
 from .model import Candidate
 
 Detector = Callable[..., Candidate]
@@ -15,6 +15,7 @@ Detector = Callable[..., Candidate]
 # Order is intentional and preserves the pre-registry JSON candidate order.
 _REGISTRY: tuple[tuple[str, Detector], ...] = (
     (detector_contour.METHOD, detector_contour.detect),
+    (detector_components.METHOD, detector_components.detect),
     (detector_ransac.METHOD, detector_ransac.detect),
     (detector_hough.METHOD, detector_hough.detect),
 )
