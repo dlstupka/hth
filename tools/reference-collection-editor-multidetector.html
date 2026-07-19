@@ -103,32 +103,31 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
 
 
   <div class="box"><h2>Geometry detectors</h2><div class="body">
-    <div class="detector-row"><input id="enableCurrent" class="detector-toggle" type="checkbox" checked disabled title="Show or hide this overlay"><span class="color-chip" style="background:#ff3b30"></span><span class="detector-name">Stage 2 selected geometry</span><select id="opacityCurrent" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
     <div class="detector-row"><input id="enableContour" class="detector-toggle" type="checkbox" checked disabled title="Show or hide this overlay"><span class="color-chip" style="background:#22d3ee"></span><span class="detector-name">Contour (HTH)</span><select id="opacityContour" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
     <div class="detector-row"><input id="enableComponents" class="detector-toggle" type="checkbox" checked disabled title="Show or hide this overlay"><span class="color-chip" style="background:#3b82f6"></span><span class="detector-name">Connected Components (OpenCV)</span><select id="opacityComponents" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
     <div class="detector-row"><input id="enableRansac" class="detector-toggle" type="checkbox" checked disabled title="Show or hide this overlay"><span class="color-chip" style="background:#d946ef"></span><span class="detector-name">RANSAC (HTH)</span><select id="opacityRansac" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
     <div class="detector-row"><input id="enableHough" class="detector-toggle" type="checkbox" checked disabled title="Show or hide this overlay"><span class="color-chip" style="background:#f59e0b"></span><span class="detector-name">Hough Lines (OpenCV)</span><select id="opacityHough" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
     <div class="detector-row"><input id="enableLsd" class="detector-toggle" type="checkbox" checked disabled title="Show or hide this overlay"><span class="color-chip" style="background:#84cc16"></span><span class="detector-name">Line Segment Detector (OpenCV)</span><select id="opacityLsd" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
     <div class="detector-row"><input id="enableGrabcut" class="detector-toggle" type="checkbox" checked disabled title="Show or hide this overlay"><span class="color-chip" style="background:#8b5cf6"></span><span class="detector-name">GrabCut (OpenCV)</span><select id="opacityGrabcut" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
-    <div class="detector-row"><span></span><span class="color-chip" style="background:#35d07f"></span><span class="detector-name">Approved / manual</span><select id="opacityApproved" disabled><option selected>100%</option><option>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
+    <div class="detector-row"><input id="enableApproved" class="detector-toggle" type="checkbox" checked disabled title="Show or hide the Golden Set reference"><span class="color-chip" style="background:#35d07f"></span><span class="detector-name">Golden Set (Approved)</span><select id="opacityApproved" disabled><option selected>100%</option><option>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
     <div class="grid2" style="margin-top:9px"><button id="muteAll" disabled>Disable all detectors</button><button id="restoreAll" disabled>Enable all detectors</button></div>
     <div class="field" style="margin-top:9px"><label>Overlay line width</label><select id="overlayLineWidth" disabled><option value="1">1 px</option><option value="2" selected>2 px</option><option value="3">3 px</option><option value="4">4 px</option></select></div>
-    <p class="help">Checkboxes control detector visibility. Opacity is independent and 0% is fully transparent. Line width stays constant while zooming. The approved box remains independent.</p>
+    <p class="help">Checkboxes control detector visibility. Opacity is independent and 0% is fully transparent. Line width stays constant while zooming. The Golden Set reference remains independent of detector visibility.</p>
   </div></div>
 
   <div class="box"><h2>Selected detector</h2><div class="body">
-    <div class="field"><label>Selected detector</label><select id="selectedDetector" disabled><option value="current">Stage 2 selected geometry</option><option value="contour">Contour (HTH)</option><option value="components">Connected Components (OpenCV)</option><option value="ransac">RANSAC (HTH)</option><option value="hough">Hough Lines (OpenCV)</option><option value="lsd">Line Segment Detector (OpenCV)</option><option value="grabcut">GrabCut (OpenCV)</option></select></div><div id="predictionMeta" class="meta">No analysis loaded.</div>
+    <div class="field"><label>Selected detector</label><select id="selectedDetector" disabled><option value="contour">Contour (HTH)</option><option value="components">Connected Components (OpenCV)</option><option value="ransac">RANSAC (HTH)</option><option value="hough">Hough Lines (OpenCV)</option><option value="lsd">Line Segment Detector (OpenCV)</option><option value="grabcut">GrabCut (OpenCV)</option></select></div><div id="predictionMeta" class="meta">No analysis loaded.</div>
     <div style="height:8px"></div>
     <div class="metric"><span>Confidence / quality</span><strong id="confidenceText">—</strong></div>
     <div class="meter"><span id="confidenceBar" style="width:0%"></span></div>
     <div id="confidenceWord" class="confidence-word">No analysis</div>
     <div style="height:9px"></div>
     <button id="usePrediction" style="width:100%" disabled>Use selected detector</button>
-    <div class="legend"><span><i class="swatch pred"></i>prediction</span><span><i class="swatch approved"></i>approved</span></div><div style="height:8px"></div><div id="deltaInfo" class="delta-list">No approved comparison yet.</div>
+    <div class="legend"><span><i class="swatch pred"></i>selected detector</span><span><i class="swatch approved"></i>Golden Set</span></div><div style="height:8px"></div><div id="deltaInfo" class="delta-list">No approved comparison yet.</div>
   </div></div>
 
-  <div class="box"><h2>Approved physical-document box</h2><div class="body">
-    <p class="help">Drag a rectangle on the image. Green is the approved reference; red is the Stage 2 prediction.</p>
+  <div class="box"><h2>Golden Set physical-document box</h2><div class="body">
+    <p class="help">Drag a rectangle on the image. Green is the Golden Set reference; detector colors match the overlay controls.</p>
     <div class="grid3">
       <button id="full" disabled>Full frame</button>
       <button id="clear" disabled>Clear</button>
@@ -151,9 +150,9 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
   <div class="box"><h2>Display</h2><div class="body">
     <div class="grid3"><button id="fit" disabled>Fit image</button><button id="actual" disabled>100%</button><button id="compare" disabled>Compare</button></div><div style="height:8px"></div><button id="undo" style="width:100%" disabled>Undo last box change</button>
     <div style="height:8px"></div>
-    <label><input id="showPrediction" type="checkbox" checked disabled> Show Stage 2 prediction</label>
-    <label><input id="mutePrediction" type="checkbox" checked disabled> Mute prediction after approval</label>
-    <label><input id="showBox" type="checkbox" checked disabled> Show approved box</label>
+    <label><input id="showPrediction" type="checkbox" checked disabled> Show detector overlays</label>
+    <label><input id="mutePrediction" type="checkbox" checked disabled> Mute detector overlays after approval</label>
+    <label><input id="showBox" type="checkbox" checked disabled> Show Golden Set box</label>
     <label><input id="showMetadata" type="checkbox" checked disabled> Show metadata overlay</label>
     <div class="shortcut-grid"><code>Space</code><span>Approve</span><code>A</code><span>Use selected detector</span><code>N / P</code><span>Next / previous page</span><code>F</code><span>Fit image</span><code>1</code><span>100%</span><code>C</code><span>Compare</span><code>Ctrl+Z</code><span>Undo box change</span><code>Esc</code><span>Cancel active drag</span></div>
   </div></div>
@@ -201,9 +200,9 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
 const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d'),wrap=$('canvasWrap');
 const s={
   collection:null,pages:[],index:-1,images:new Map(),image:null,zoom:1,fitZoom:1,start:null,
-  box:null,dirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false,undoStack:[],approvedSnapshot:null,visibleIndices:[],detectorDefaults:{current:75,contour:75,components:75,ransac:75,hough:75,lsd:75,grabcut:75,approved:100}
+  box:null,dirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false,undoStack:[],approvedSnapshot:null,visibleIndices:[],detectorDefaults:{contour:75,components:75,ransac:75,hough:75,lsd:75,grabcut:75,approved:100}
 };
-const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther','mutePrediction','undo','opacityCurrent','opacityContour','opacityComponents','opacityRansac','opacityHough','opacityLsd','opacityGrabcut','opacityApproved','enableCurrent','enableContour','enableComponents','enableRansac','enableHough','enableLsd','enableGrabcut','overlayLineWidth','muteAll','restoreAll','selectedDetector','imageSelectionMode','selectionFrom','selectionTo','selectionOrdinals','applyImageSelection','showAllImages','calibrationSelected','includeVisibleCalibration','excludeVisibleCalibration','exportCalibrationManifest'];
+const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther','mutePrediction','undo','opacityContour','opacityComponents','opacityRansac','opacityHough','opacityLsd','opacityGrabcut','opacityApproved','enableApproved','enableContour','enableComponents','enableRansac','enableHough','enableLsd','enableGrabcut','overlayLineWidth','muteAll','restoreAll','selectedDetector','imageSelectionMode','selectionFrom','selectionTo','selectionOrdinals','applyImageSelection','showAllImages','calibrationSelected','includeVisibleCalibration','excludeVisibleCalibration','exportCalibrationManifest'];
 function enable(v){ids.forEach(id=>$(id).disabled=!v)}
 function ordinalFromName(n){for(const r of [/fs[_-]?0*(\d+)/i,/(?:^|[_-])p(?:age)?[_-]?0*(\d+)/i,/(?:^|[_-])0*(\d+)(?:\.[^.]+)?$/i]){const m=n.match(r);if(m)return Number(m[1])}return null}
 function esc(v){return String(v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
@@ -239,9 +238,8 @@ async function loadWorkspace(files){
 
 
 
-const detectorMethods=['current','contour','components','ransac','hough','lsd','grabcut'];
+const detectorMethods=['contour','components','ransac','hough','lsd','grabcut'];
 const detectorStyles={
-  current:{label:'Stage 2 selected geometry',color:'#ff3b30',dash:[9,6]},
   contour:{label:'Contour (HTH)',color:'#22d3ee',dash:[5,4]},
   components:{label:'Connected Components (OpenCV)',color:'#3b82f6',dash:[7,4]},
   ransac:{label:'RANSAC (HTH)',color:'#d946ef',dash:[12,4,3,4]},
@@ -250,7 +248,6 @@ const detectorStyles={
   grabcut:{label:'GrabCut (OpenCV)',color:'#8b5cf6',dash:[14,4]}
 };
 const detectorControls={
-  current:{opacity:'opacityCurrent',enabled:'enableCurrent'},
   contour:{opacity:'opacityContour',enabled:'enableContour'},
   components:{opacity:'opacityComponents',enabled:'enableComponents'},
   ransac:{opacity:'opacityRansac',enabled:'enableRansac'},
@@ -270,12 +267,9 @@ function hexToRgba(hex,alpha){
 function candidateMap(record){
   const map=new Map();
   if(!record)return map;
-  const legacy=analysisBBox(record);
-  if(legacy)map.set('current',{method:'current',bbox:legacy,confidence:Number(record.quality_score??record.confidence??0),diagnostics:{quality_status:record.quality_status,review_reasons:record.review_reasons}});
   for(const raw of record.geometry_candidates||[]){
     const method=String(raw.method||'').toLowerCase();
     const aliases={
-      current:'current',legacy:'current',hth_current:'current',
       contour:'contour',contour_quadrilateral:'contour',
       components:'components',connected_components:'components',component:'components',
       ransac:'ransac',ransac_edges:'ransac',ransac_four_edge:'ransac',
@@ -351,7 +345,7 @@ function updateRibbon(){
     `<span class="pill ${approved?'ok':'warn'}">Approved: ${approved?'Yes':'No'}</span>`
 }
 function updateDeltaInfo(){
-  const pred=analysisBBox(predictionForCurrent());
+  const pred=selectedCandidate()?.bbox;
   if(!pred||!s.box){$('deltaInfo').textContent='No approved comparison yet.';return}
   const names=['Left','Top','Right','Bottom'];
   const deltas=s.box.map((v,i)=>Math.round(v-pred[i]));
@@ -612,7 +606,7 @@ function render(){
     }
     if(s.box){
       ctx.save();ctx.translate(s.image.naturalWidth*s.zoom+gap,0);
-      const alpha=opacityValue('opacityApproved');
+      const alpha=$('enableApproved').checked?opacityValue('opacityApproved'):0;
       if(alpha>0)drawBox(s.box,hexToRgba('#35d07f',alpha),hexToRgba('#35d07f',.035*alpha),[],overlayLineWidth(true));
       ctx.restore()
     }
@@ -633,7 +627,7 @@ function render(){
       drawBox(candidate.bbox,hexToRgba(style.color,effective),hexToRgba(style.color,.018*effective),style.dash,overlayLineWidth(selected))
     }
   }
-  const approvedAlpha=opacityValue('opacityApproved');
+  const approvedAlpha=$('enableApproved').checked?opacityValue('opacityApproved'):0;
   if($('showBox').checked&&s.box&&approvedAlpha>0){
     drawBox(s.box,hexToRgba('#35d07f',approvedAlpha),hexToRgba('#35d07f',.03*approvedAlpha),[],overlayLineWidth(true));
     const size=handleSize();
@@ -702,9 +696,9 @@ $('excludeVisibleCalibration').onclick=()=>{refreshVisibleIndices();for(const i 
 $('exportCalibrationManifest').onclick=exportCalibrationManifest;
 
 $('showBox').onchange=render;$('showPrediction').onchange=render;$('mutePrediction').onchange=render;$('showMetadata').onchange=updateCanvasHint;$('undo').onclick=undoBox;$('selectedDetector').onchange=()=>{updatePrediction();render()};
-[...Object.values(detectorControls).flatMap(c=>[c.opacity,c.enabled]),'opacityApproved','overlayLineWidth'].forEach(id=>$(id).onchange=render);
+[...Object.values(detectorControls).flatMap(c=>[c.opacity,c.enabled]),'opacityApproved','enableApproved','overlayLineWidth'].forEach(id=>$(id).onchange=render);
 $('muteAll').onclick=()=>{for(const method of detectorMethods)$(detectorControls[method].enabled).checked=false;render()};
-$('restoreAll').onclick=()=>{for(const method of detectorMethods){$(detectorControls[method].enabled).checked=true;$(detectorControls[method].opacity).value=`${s.detectorDefaults[method]}%`}$('opacityApproved').value=`${s.detectorDefaults.approved}%`;render()};
+$('restoreAll').onclick=()=>{for(const method of detectorMethods){$(detectorControls[method].enabled).checked=true;$(detectorControls[method].opacity).value=`${s.detectorDefaults[method]}%`}$('enableApproved').checked=true;$('opacityApproved').value=`${s.detectorDefaults.approved}%`;render()};
 ['filterReview','filterApproved','filterOther'].forEach(id=>$(id).onchange=rebuild);
 
 canvas.onmousedown=e=>{
