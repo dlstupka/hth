@@ -12,7 +12,15 @@ import numpy as np
 
 from . import detector_components, detector_contour, detector_hough, detector_ransac
 from .model import Candidate
-from hth.version import HTH_REPOSITORY, HTH_VERSION
+try:
+    # Package mode: imported as hth.geometry.registry (tests, installed use).
+    from hth.version import HTH_REPOSITORY, HTH_VERSION
+except ModuleNotFoundError as exc:
+    # Script mode: workflows execute hth/detect_geometry_candidates.py directly,
+    # which places the hth/ directory itself on sys.path.
+    if exc.name != "hth":
+        raise
+    from version import HTH_REPOSITORY, HTH_VERSION
 
 Detector = Callable[..., Candidate]
 

@@ -119,3 +119,24 @@ class RegistryIsolationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_registry_imports_when_hth_directory_is_python_path(tmp_path):
+    """Match GitHub Actions script-mode imports used by detect_geometry_candidates.py."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    hth_dir = Path(__file__).resolve().parents[1] / "hth"
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(hth_dir)
+    completed = subprocess.run(
+        [sys.executable, "-c", "import geometry.registry as r; assert r.detector_names()"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
