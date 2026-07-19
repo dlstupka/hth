@@ -53,7 +53,7 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
 .metric{display:grid;grid-template-columns:1fr auto;gap:8px;font-size:12px;margin-bottom:6px}
 .meter{height:8px;background:#0d1117;border-radius:999px;overflow:hidden;border:1px solid var(--line)}
 .meter span{display:block;height:100%;background:var(--accent)}
-.legend{display:flex;gap:10px;font-size:11px;color:var(--muted);margin-top:7px;flex-wrap:wrap}.detector-row{display:grid;grid-template-columns:16px 1fr 92px;gap:8px;align-items:center;margin-bottom:7px}.detector-row:last-child{margin-bottom:0}.color-chip{width:14px;height:14px;border-radius:3px;border:1px solid #ffffff55}.detector-name{font-size:12px}.detector-row select{padding:5px 6px;font-size:12px}
+.legend{display:flex;gap:10px;font-size:11px;color:var(--muted);margin-top:7px;flex-wrap:wrap}.detector-row{display:grid;grid-template-columns:20px 16px 1fr 86px;gap:7px;align-items:center;margin-bottom:7px}.detector-row:last-child{margin-bottom:0}.detector-toggle{width:16px;height:16px;margin:0;accent-color:var(--accent)}.color-chip{width:14px;height:14px;border-radius:3px;border:1px solid #ffffff55}.detector-name{font-size:12px;min-width:0}.detector-row select{padding:5px 6px;font-size:12px}
 .swatch{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:4px}
 .swatch.pred{background:var(--pred)}.swatch.approved{background:var(--approved)}.delta-list{font-size:12px;color:var(--muted);line-height:1.5}.delta-list strong{color:var(--text)}.shortcut-grid{display:grid;grid-template-columns:auto 1fr;gap:5px 9px;font-size:12px;color:var(--muted)}.shortcut-grid code{color:var(--text);background:#0f1319;border:1px solid var(--line);border-radius:4px;padding:1px 5px}
 .coorddetails summary{cursor:pointer;color:var(--muted);font-size:12px;margin-bottom:8px}.confidence-word{font-size:15px;font-weight:700;margin-top:5px}.filter-row{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
@@ -103,17 +103,21 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
 
 
   <div class="box"><h2>Geometry detectors</h2><div class="body">
-    <div class="detector-row"><span class="color-chip" style="background:#ff3b30"></span><span class="detector-name">Current HTH detector</span><select id="opacityCurrent" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
-    <div class="detector-row"><span class="color-chip" style="background:#22d3ee"></span><span class="detector-name">Contour quadrilateral</span><select id="opacityContour" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
-    <div class="detector-row"><span class="color-chip" style="background:#d946ef"></span><span class="detector-name">RANSAC four-edge</span><select id="opacityRansac" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
-    <div class="detector-row"><span class="color-chip" style="background:#f59e0b"></span><span class="detector-name">Hough-line quadrilateral</span><select id="opacityHough" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
-    <div class="detector-row"><span class="color-chip" style="background:#35d07f"></span><span class="detector-name">Approved / manual</span><select id="opacityApproved" disabled><option selected>100%</option><option>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
-    <div class="grid2" style="margin-top:9px"><button id="muteAll" disabled>Mute all detectors</button><button id="restoreAll" disabled>Restore overlays</button></div>
-    <p class="help">Each detector can be shown at 100%, 75%, 50%, 25%, or 0%. The approved box remains independent.</p>
+    <div class="detector-row"><input id="enableCurrent" class="detector-toggle" type="checkbox" checked disabled title="Show or hide this overlay"><span class="color-chip" style="background:#ff3b30"></span><span class="detector-name">Stage 2 selected geometry</span><select id="opacityCurrent" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
+    <div class="detector-row"><input id="enableContour" class="detector-toggle" type="checkbox" checked disabled title="Show or hide this overlay"><span class="color-chip" style="background:#22d3ee"></span><span class="detector-name">Contour (HTH)</span><select id="opacityContour" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
+    <div class="detector-row"><input id="enableComponents" class="detector-toggle" type="checkbox" checked disabled title="Show or hide this overlay"><span class="color-chip" style="background:#3b82f6"></span><span class="detector-name">Connected Components (OpenCV)</span><select id="opacityComponents" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
+    <div class="detector-row"><input id="enableRansac" class="detector-toggle" type="checkbox" checked disabled title="Show or hide this overlay"><span class="color-chip" style="background:#d946ef"></span><span class="detector-name">RANSAC (HTH)</span><select id="opacityRansac" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
+    <div class="detector-row"><input id="enableHough" class="detector-toggle" type="checkbox" checked disabled title="Show or hide this overlay"><span class="color-chip" style="background:#f59e0b"></span><span class="detector-name">Hough Lines (OpenCV)</span><select id="opacityHough" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
+    <div class="detector-row"><input id="enableLsd" class="detector-toggle" type="checkbox" checked disabled title="Show or hide this overlay"><span class="color-chip" style="background:#84cc16"></span><span class="detector-name">Line Segment Detector (OpenCV)</span><select id="opacityLsd" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
+    <div class="detector-row"><input id="enableGrabcut" class="detector-toggle" type="checkbox" checked disabled title="Show or hide this overlay"><span class="color-chip" style="background:#8b5cf6"></span><span class="detector-name">GrabCut (OpenCV)</span><select id="opacityGrabcut" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
+    <div class="detector-row"><span></span><span class="color-chip" style="background:#35d07f"></span><span class="detector-name">Approved / manual</span><select id="opacityApproved" disabled><option selected>100%</option><option>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
+    <div class="grid2" style="margin-top:9px"><button id="muteAll" disabled>Disable all detectors</button><button id="restoreAll" disabled>Enable all detectors</button></div>
+    <div class="field" style="margin-top:9px"><label>Overlay line width</label><select id="overlayLineWidth" disabled><option value="1">1 px</option><option value="2" selected>2 px</option><option value="3">3 px</option><option value="4">4 px</option></select></div>
+    <p class="help">Checkboxes control detector visibility. Opacity is independent and 0% is fully transparent. Line width stays constant while zooming. The approved box remains independent.</p>
   </div></div>
 
   <div class="box"><h2>Selected detector</h2><div class="body">
-    <div class="field"><label>Selected detector</label><select id="selectedDetector" disabled><option value="current">Current HTH detector</option><option value="contour">Contour quadrilateral</option><option value="ransac">RANSAC four-edge</option><option value="hough">Hough-line quadrilateral</option></select></div><div id="predictionMeta" class="meta">No analysis loaded.</div>
+    <div class="field"><label>Selected detector</label><select id="selectedDetector" disabled><option value="current">Stage 2 selected geometry</option><option value="contour">Contour (HTH)</option><option value="components">Connected Components (OpenCV)</option><option value="ransac">RANSAC (HTH)</option><option value="hough">Hough Lines (OpenCV)</option><option value="lsd">Line Segment Detector (OpenCV)</option><option value="grabcut">GrabCut (OpenCV)</option></select></div><div id="predictionMeta" class="meta">No analysis loaded.</div>
     <div style="height:8px"></div>
     <div class="metric"><span>Confidence / quality</span><strong id="confidenceText">—</strong></div>
     <div class="meter"><span id="confidenceBar" style="width:0%"></span></div>
@@ -197,9 +201,9 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
 const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d'),wrap=$('canvasWrap');
 const s={
   collection:null,pages:[],index:-1,images:new Map(),image:null,zoom:1,fitZoom:1,start:null,
-  box:null,dirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false,undoStack:[],approvedSnapshot:null,visibleIndices:[],detectorDefaults:{current:75,contour:75,ransac:75,hough:75,approved:100}
+  box:null,dirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false,undoStack:[],approvedSnapshot:null,visibleIndices:[],detectorDefaults:{current:75,contour:75,components:75,ransac:75,hough:75,lsd:75,grabcut:75,approved:100}
 };
-const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther','mutePrediction','undo','opacityCurrent','opacityContour','opacityRansac','opacityHough','opacityApproved','muteAll','restoreAll','selectedDetector','imageSelectionMode','selectionFrom','selectionTo','selectionOrdinals','applyImageSelection','showAllImages','calibrationSelected','includeVisibleCalibration','excludeVisibleCalibration','exportCalibrationManifest'];
+const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther','mutePrediction','undo','opacityCurrent','opacityContour','opacityComponents','opacityRansac','opacityHough','opacityLsd','opacityGrabcut','opacityApproved','enableCurrent','enableContour','enableComponents','enableRansac','enableHough','enableLsd','enableGrabcut','overlayLineWidth','muteAll','restoreAll','selectedDetector','imageSelectionMode','selectionFrom','selectionTo','selectionOrdinals','applyImageSelection','showAllImages','calibrationSelected','includeVisibleCalibration','excludeVisibleCalibration','exportCalibrationManifest'];
 function enable(v){ids.forEach(id=>$(id).disabled=!v)}
 function ordinalFromName(n){for(const r of [/fs[_-]?0*(\d+)/i,/(?:^|[_-])p(?:age)?[_-]?0*(\d+)/i,/(?:^|[_-])0*(\d+)(?:\.[^.]+)?$/i]){const m=n.match(r);if(m)return Number(m[1])}return null}
 function esc(v){return String(v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
@@ -235,11 +239,24 @@ async function loadWorkspace(files){
 
 
 
+const detectorMethods=['current','contour','components','ransac','hough','lsd','grabcut'];
 const detectorStyles={
-  current:{label:'Current HTH detector',color:'#ff3b30',dash:[9,6]},
-  contour:{label:'Contour quadrilateral',color:'#22d3ee',dash:[5,4]},
-  ransac:{label:'RANSAC four-edge',color:'#d946ef',dash:[12,4,3,4]},
-  hough:{label:'Hough-line quadrilateral',color:'#f59e0b',dash:[2,5]}
+  current:{label:'Stage 2 selected geometry',color:'#ff3b30',dash:[9,6]},
+  contour:{label:'Contour (HTH)',color:'#22d3ee',dash:[5,4]},
+  components:{label:'Connected Components (OpenCV)',color:'#3b82f6',dash:[7,4]},
+  ransac:{label:'RANSAC (HTH)',color:'#d946ef',dash:[12,4,3,4]},
+  hough:{label:'Hough Lines (OpenCV)',color:'#f59e0b',dash:[2,5]},
+  lsd:{label:'Line Segment Detector (OpenCV)',color:'#84cc16',dash:[10,3]},
+  grabcut:{label:'GrabCut (OpenCV)',color:'#8b5cf6',dash:[14,4]}
+};
+const detectorControls={
+  current:{opacity:'opacityCurrent',enabled:'enableCurrent'},
+  contour:{opacity:'opacityContour',enabled:'enableContour'},
+  components:{opacity:'opacityComponents',enabled:'enableComponents'},
+  ransac:{opacity:'opacityRansac',enabled:'enableRansac'},
+  hough:{opacity:'opacityHough',enabled:'enableHough'},
+  lsd:{opacity:'opacityLsd',enabled:'enableLsd'},
+  grabcut:{opacity:'opacityGrabcut',enabled:'enableGrabcut'}
 };
 function opacityValue(id){
   const value=parseInt($(id).value,10);
@@ -260,8 +277,11 @@ function candidateMap(record){
     const aliases={
       current:'current',legacy:'current',hth_current:'current',
       contour:'contour',contour_quadrilateral:'contour',
+      components:'components',connected_components:'components',component:'components',
       ransac:'ransac',ransac_edges:'ransac',ransac_four_edge:'ransac',
-      hough:'hough',hough_lines:'hough',hough_quadrilateral:'hough'
+      hough:'hough',hough_lines:'hough',hough_quadrilateral:'hough',
+      lsd:'lsd',line_segment_detector:'lsd',line_segments:'lsd',
+      grabcut:'grabcut',grab_cut:'grabcut'
     };
     const key=aliases[method];
     const box=raw.bbox||raw.physical_document_bbox;
@@ -276,17 +296,22 @@ function selectedCandidate(){
   return candidateMap(record).get($('selectedDetector').value)||null
 }
 function detectorOpacity(method){
-  const ids={current:'opacityCurrent',contour:'opacityContour',ransac:'opacityRansac',hough:'opacityHough'};
-  return opacityValue(ids[method])
+  const controls=detectorControls[method];
+  if(!controls||!$(controls.enabled).checked)return 0;
+  return opacityValue(controls.opacity)
+}
+function overlayLineWidth(selected=false){
+  const base=Math.max(1,Number($('overlayLineWidth').value)||2);
+  return selected?base+1:base
 }
 function updateDetectorAvailability(){
   const map=candidateMap(predictionForCurrent());
-  for(const method of ['current','contour','ransac','hough']){
+  for(const method of detectorMethods){
     const option=[...$('selectedDetector').options].find(o=>o.value===method);
     if(option)option.disabled=!map.has(method)
   }
   if(!map.has($('selectedDetector').value)){
-    const first=['current','contour','ransac','hough'].find(x=>map.has(x));
+    const first=detectorMethods.find(x=>map.has(x));
     if(first)$('selectedDetector').value=first
   }
 }
@@ -539,7 +564,7 @@ function updatePrediction(){
   $('confidenceWord').textContent=confidenceDescription(score,r.quality_status);
   const d=candidate.diagnostics||{};
   $('predictionMeta').innerHTML=
-    `Method: <strong>${esc(detectorStyles[candidate.method]?.label||candidate.method)}</strong><br>`+
+    `Method: <strong>${esc(candidate.display_name||candidate.detector_name||detectorStyles[candidate.method]?.label||candidate.method)}</strong><br>`+
     `Status: <strong>${esc(d.quality_status||r.quality_status||'candidate')}</strong><br>`+
     `Score: ${esc(candidate.score??candidate.confidence??r.quality_score??'—')}<br>`+
     `Notes: ${esc(d.reason||d.review_reasons||r.review_reasons||'none')}`;
@@ -548,12 +573,13 @@ function updatePrediction(){
 function updateCanvasHint(){
   const hint=$('canvasHint');
   if(!$('showMetadata').checked||s.index<0){hint.hidden=true;return}
-  const p=s.pages[s.index],r=predictionForCurrent();
-  const score=r?Number(r.quality_score??r.confidence??NaN):NaN;
+  const p=s.pages[s.index],r=predictionForCurrent(),candidate=selectedCandidate();
+  const score=candidate?Number(candidate.confidence??candidate.score??NaN):(r?Number(r.quality_score??r.confidence??NaN):NaN);
   const pct=Number.isFinite(score)?Math.round(score*100):'—';
+  const detectorLabel=candidate?.display_name||candidate?.detector_name||detectorStyles[$('selectedDetector').value]?.label||$('selectedDetector').value;
   hint.innerHTML=`<strong>${esc(p.layout_type||'unknown')}</strong><br>`+
     `Ordinal: ${esc(p.global_ordinal)}<br>`+
-    `Detector: ${esc(detectorStyles[$('selectedDetector').value]?.label||$('selectedDetector').value)}<br>`+`Quality: ${esc(pct)}% (${esc(confidenceDescription(score,r?.quality_status))})<br>`+
+    `Detector: ${esc(detectorLabel)}<br>`+`Confidence: ${esc(pct)}% (${esc(confidenceDescription(score,r?.quality_status))})<br>`+
     `Skew: ${esc(r?.estimated_skew_degrees??'—')}°<br>`+
     `Brightness: ${esc(r?.brightness_mean??'—')}<br>`+
     `Contrast: ${esc(r?.contrast_stddev??'—')}<br>`+
@@ -566,8 +592,8 @@ function fitImage(){
   const logicalWidth=s.compareMode?s.image.naturalWidth*2+24:s.image.naturalWidth;s.fitZoom=Math.min(availableW/logicalWidth,availableH/s.image.naturalHeight);
   s.zoom=Math.max(.05,Math.min(4,s.fitZoom));render();status()
 }
-function drawBox(box,color,fill,dash){
-  if(!box)return;const[l,t,r,b]=box;ctx.save();ctx.strokeStyle=color;ctx.lineWidth=Math.max(2,3*s.zoom);ctx.setLineDash(dash.map(v=>v*s.zoom));ctx.strokeRect(l*s.zoom,t*s.zoom,(r-l)*s.zoom,(b-t)*s.zoom);if(fill){ctx.fillStyle=fill;ctx.fillRect(l*s.zoom,t*s.zoom,(r-l)*s.zoom,(b-t)*s.zoom)}ctx.restore()
+function drawBox(box,color,fill,dash,lineWidth=2){
+  if(!box)return;const[l,t,r,b]=box;ctx.save();ctx.strokeStyle=color;ctx.lineWidth=lineWidth;ctx.setLineDash(dash);ctx.strokeRect(l*s.zoom,t*s.zoom,(r-l)*s.zoom,(b-t)*s.zoom);if(fill){ctx.fillStyle=fill;ctx.fillRect(l*s.zoom,t*s.zoom,(r-l)*s.zoom,(b-t)*s.zoom)}ctx.restore()
 }
 function render(){
   if(!s.image)return;
@@ -581,13 +607,13 @@ function render(){
     ctx.drawImage(s.image,s.image.naturalWidth*s.zoom+gap,0,s.image.naturalWidth*s.zoom,s.image.naturalHeight*s.zoom);
     const selected=selectedCandidate();
     if(selected){
-      const style=detectorStyles[selected.method],alpha=Math.max(.15,detectorOpacity(selected.method));
-      drawBox(selected.bbox,hexToRgba(style.color,alpha),hexToRgba(style.color,.025*alpha),style.dash)
+      const style=detectorStyles[selected.method],alpha=detectorOpacity(selected.method);
+      if(alpha>0)drawBox(selected.bbox,hexToRgba(style.color,alpha),hexToRgba(style.color,.025*alpha),style.dash,overlayLineWidth(true))
     }
     if(s.box){
       ctx.save();ctx.translate(s.image.naturalWidth*s.zoom+gap,0);
       const alpha=opacityValue('opacityApproved');
-      drawBox(s.box,hexToRgba('#35d07f',alpha),hexToRgba('#35d07f',.035*alpha),[]);
+      if(alpha>0)drawBox(s.box,hexToRgba('#35d07f',alpha),hexToRgba('#35d07f',.035*alpha),[],overlayLineWidth(true));
       ctx.restore()
     }
     return
@@ -598,18 +624,18 @@ function render(){
   ctx.drawImage(s.image,0,0,canvas.width,canvas.height);
 
   if($('showPrediction').checked){
-    for(const method of ['current','contour','ransac','hough']){
+    for(const method of detectorMethods){
       const candidate=candidates.get(method),alpha=detectorOpacity(method);
       if(!candidate||alpha<=0)continue;
       const style=detectorStyles[method];
       const selected=$('selectedDetector').value===method;
       const effective=selected?alpha:alpha*.72;
-      drawBox(candidate.bbox,hexToRgba(style.color,effective),hexToRgba(style.color,.018*effective),style.dash)
+      drawBox(candidate.bbox,hexToRgba(style.color,effective),hexToRgba(style.color,.018*effective),style.dash,overlayLineWidth(selected))
     }
   }
   const approvedAlpha=opacityValue('opacityApproved');
   if($('showBox').checked&&s.box&&approvedAlpha>0){
-    drawBox(s.box,hexToRgba('#35d07f',approvedAlpha),hexToRgba('#35d07f',.03*approvedAlpha),[]);
+    drawBox(s.box,hexToRgba('#35d07f',approvedAlpha),hexToRgba('#35d07f',.03*approvedAlpha),[],overlayLineWidth(true));
     const size=handleSize();
     ctx.save();ctx.fillStyle=hexToRgba('#35d07f',approvedAlpha);ctx.strokeStyle='#07150e';ctx.lineWidth=1.5;
     for(const[,x,y]of boxHandles(s.box)){
@@ -675,7 +701,11 @@ $('includeVisibleCalibration').onclick=()=>{refreshVisibleIndices();for(const i 
 $('excludeVisibleCalibration').onclick=()=>{refreshVisibleIndices();for(const i of s.visibleIndices)s.pages[i].calibration_selected=false;s.dirty=true;rebuild();if(s.index>=0)$('calibrationSelected').checked=s.pages[s.index].calibration_selected!==false;status()};
 $('exportCalibrationManifest').onclick=exportCalibrationManifest;
 
-$('showBox').onchange=render;$('showPrediction').onchange=render;$('mutePrediction').onchange=render;$('showMetadata').onchange=updateCanvasHint;$('undo').onclick=undoBox;$('selectedDetector').onchange=()=>{updatePrediction();render()};['opacityCurrent','opacityContour','opacityRansac','opacityHough','opacityApproved'].forEach(id=>$(id).onchange=render);$('muteAll').onclick=()=>{['opacityCurrent','opacityContour','opacityRansac','opacityHough'].forEach(id=>$(id).value='0%');render()};$('restoreAll').onclick=()=>{$('opacityCurrent').value='75%';$('opacityContour').value='75%';$('opacityRansac').value='75%';$('opacityHough').value='75%';$('opacityApproved').value='100%';render()};['filterReview','filterApproved','filterOther'].forEach(id=>$(id).onchange=rebuild);
+$('showBox').onchange=render;$('showPrediction').onchange=render;$('mutePrediction').onchange=render;$('showMetadata').onchange=updateCanvasHint;$('undo').onclick=undoBox;$('selectedDetector').onchange=()=>{updatePrediction();render()};
+[...Object.values(detectorControls).flatMap(c=>[c.opacity,c.enabled]),'opacityApproved','overlayLineWidth'].forEach(id=>$(id).onchange=render);
+$('muteAll').onclick=()=>{for(const method of detectorMethods)$(detectorControls[method].enabled).checked=false;render()};
+$('restoreAll').onclick=()=>{for(const method of detectorMethods){$(detectorControls[method].enabled).checked=true;$(detectorControls[method].opacity).value=`${s.detectorDefaults[method]}%`}$('opacityApproved').value=`${s.detectorDefaults.approved}%`;render()};
+['filterReview','filterApproved','filterOther'].forEach(id=>$(id).onchange=rebuild);
 
 canvas.onmousedown=e=>{
   if(!s.image||s.compareMode)return;
