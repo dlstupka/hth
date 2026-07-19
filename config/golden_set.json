@@ -5,11 +5,11 @@
   "acceptance": {
     "minimum_iou": 0.95,
     "maximum_edge_error_px": 20,
-    "near_pass_minimum_iou": 0.90,
+    "near_pass_minimum_iou": 0.9,
     "near_pass_maximum_edge_error_ratio": 0.06,
     "require_layout_match": false
   },
-"pages": [
+  "pages": [
     {
       "global_ordinal": 1,
       "label": "ordinary_two_page_spread",
@@ -68,20 +68,29 @@
         "build": {
           "schema_version": "1\nbuild_type: test\nstatus: successful\n\nsource:\n  repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898\n  commit: 9f03a2632820a26b9724dac7a7a62e87776b1b04\n  file: Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx\n\npipeline:\n  repository: dlstupka/hth\n  commit: f5cc585c27ed52e04a38cb52f21f54d239e87414\n  workflow: HTH preprocess test\n  workflow_run_id: 29453379575\n  workflow_run_number: 18\n\nbuild:\n  processed_at_utc: 2026-07-15T21:51:57Z\n  output_location: test/latest"
         }
-      }
+      },
+      "calibration_selected": true
     },
-	{
-	  "global_ordinal": 5,
-	  "label": "damaged_partial_register_spread",
-	  "layout_type": "two_page_spread",
-	  "physical_document_bbox": null,
-	  "gutter_x": null,
-	  "left_page_bbox": null,
-	  "right_page_bbox": null,
-	  "expected_regions": [],
-	  "notes": "Severely damaged spread with a readable register page on the left and heavily damaged backing or opposing page on the right."
-	},
-	{
+    {
+      "global_ordinal": 5,
+      "label": "damaged_partial_register_spread",
+      "layout_type": "two_page_spread",
+      "physical_document_bbox": [
+        67,
+        8,
+        1233,
+        977
+      ],
+      "gutter_x": null,
+      "left_page_bbox": null,
+      "right_page_bbox": null,
+      "expected_regions": [],
+      "notes": "Severely damaged spread with a readable register page on the left and heavily damaged backing or opposing page on the right.",
+      "calibration_selected": true,
+      "reviewed_at_utc": "2026-07-19T08:53:40.025Z",
+      "review_status": "approved"
+    },
+    {
       "global_ordinal": 6,
       "label": "title_or_index_sheet",
       "layout_type": "single_page",
@@ -139,7 +148,8 @@
         "build": {
           "schema_version": "1\nbuild_type: test\nstatus: successful\n\nsource:\n  repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898\n  commit: 9f03a2632820a26b9724dac7a7a62e87776b1b04\n  file: Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx\n\npipeline:\n  repository: dlstupka/hth\n  commit: f5cc585c27ed52e04a38cb52f21f54d239e87414\n  workflow: HTH preprocess test\n  workflow_run_id: 29453379575\n  workflow_run_number: 18\n\nbuild:\n  processed_at_utc: 2026-07-15T21:51:57Z\n  output_location: test/latest"
         }
-      }
+      },
+      "calibration_selected": true
     },
     {
       "global_ordinal": 9,
@@ -199,7 +209,8 @@
         "build": {
           "schema_version": "1\nbuild_type: test\nstatus: successful\n\nsource:\n  repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898\n  commit: 9f03a2632820a26b9724dac7a7a62e87776b1b04\n  file: Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx\n\npipeline:\n  repository: dlstupka/hth\n  commit: f5cc585c27ed52e04a38cb52f21f54d239e87414\n  workflow: HTH preprocess test\n  workflow_run_id: 29453379575\n  workflow_run_number: 18\n\nbuild:\n  processed_at_utc: 2026-07-15T21:51:57Z\n  output_location: test/latest"
         }
-      }
+      },
+      "calibration_selected": true
     },
     {
       "global_ordinal": 10,
@@ -259,7 +270,8 @@
         "build": {
           "schema_version": "1\nbuild_type: test\nstatus: successful\n\nsource:\n  repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898\n  commit: 9f03a2632820a26b9724dac7a7a62e87776b1b04\n  file: Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx\n\npipeline:\n  repository: dlstupka/hth\n  commit: f5cc585c27ed52e04a38cb52f21f54d239e87414\n  workflow: HTH preprocess test\n  workflow_run_id: 29453379575\n  workflow_run_number: 18\n\nbuild:\n  processed_at_utc: 2026-07-15T21:51:57Z\n  output_location: test/latest"
         }
-      }
+      },
+      "calibration_selected": true
     }
   ],
   "reference_metrics": {
