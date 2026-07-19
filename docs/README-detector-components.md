@@ -50,3 +50,17 @@ A normal miss uses `status: no_candidate`; a plugin exception is isolated and re
 ## Plugin design direction
 
 Detector implementations return a `Candidate`. The registry supplies provenance, timing, validation, exception isolation, and reporting. Production loading can therefore be strongly vetted while test/CI registries can substitute experimental `DetectorSpec` entries with very little ceremony.
+
+## Provenance metadata
+
+The detector registry owns provenance so detector implementations stay small.
+Each registered detector may declare:
+
+- `origin`: the project or upstream source credited in runtime reports;
+- `foundation`: algorithms and libraries on which the detector is built;
+- `authors`: the primary source authors or implementers;
+- `version`: an optional implementation or library version;
+- `repository`: an optional source repository.
+
+Connected Components is reported as `Connected Components (OpenCV)`, with
+OpenCV recorded as both its origin and foundation.

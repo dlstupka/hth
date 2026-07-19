@@ -24,8 +24,8 @@ class RegistryIsolationTests(unittest.TestCase):
             return Candidate("healthy", [1, 1, 9, 9], None, 0.8, 0.8, {})
 
         specs = (
-            registry.DetectorSpec("broken", "Broken", "Test", broken),
-            registry.DetectorSpec("healthy", "Healthy", "Test", healthy),
+            registry.DetectorSpec("broken", "Broken", "Test", broken, authors=("Test Author",)),
+            registry.DetectorSpec("healthy", "Healthy", "Test", healthy, foundation=("Test Library",), authors=("Test Author",)),
         )
         image = np.zeros((10, 10, 3), dtype=np.uint8)
         mask = np.zeros((10, 10), dtype=np.uint8)
@@ -38,6 +38,8 @@ class RegistryIsolationTests(unittest.TestCase):
         self.assertEqual(candidates[0].detector_name, "Broken")
         self.assertEqual(candidates[1].status, "ok")
         self.assertEqual(candidates[1].origin, "Test")
+        self.assertEqual(candidates[1].foundation, ["Test Library"])
+        self.assertEqual(candidates[1].authors, ["Test Author"])
         self.assertIn("elapsed_ms", candidates[1].diagnostics)
 
     def test_normal_empty_result_is_no_candidate_not_error(self) -> None:
@@ -58,8 +60,19 @@ class RegistryIsolationTests(unittest.TestCase):
         item = next(x for x in registry.detector_catalog() if x["method"] == "components")
         self.assertEqual(item["name"], "Connected Components")
         self.assertEqual(item["origin"], "OpenCV")
+        self.assertEqual(item["foundation"], ["OpenCV"])
+        self.assertEqual(item["authors"], ["OpenCV contributors"])
         self.assertTrue(item["version"])
         self.assertIn("opencv", item["repository"])
+
+    def test_hth_detectors_preserve_source_authorship(self) -> None:
+        catalog = {item["method"]: item for item in registry.detector_catalog()}
+        self.assertEqual(catalog["contour"]["origin"], "HTH")
+        self.assertEqual(catalog["contour"]["authors"], ["OpenAI ChatGPT"])
+        self.assertIn("OpenCV", catalog["contour"]["foundation"])
+        self.assertEqual(catalog["ransac"]["origin"], "HTH")
+        self.assertEqual(catalog["ransac"]["authors"], ["OpenAI ChatGPT"])
+        self.assertIn("RANSAC", catalog["ransac"]["foundation"])
 
 
 if __name__ == "__main__":

@@ -20,5 +20,7 @@ class Candidate:
     # detector implementation only needs to return geometry and diagnostics.
     detector_name: str = ""
     origin: str = ""
+    foundation: list[str] | None = None
+    authors: list[str] | None = None
     version: str = ""
     repository: str = ""

@@ -23,6 +23,8 @@ class DetectorSpec:
     name: str
     origin: str
     entrypoint: Detector
+    foundation: tuple[str, ...] = ()
+    authors: tuple[str, ...] = ()
     version: str = ""
     repository: str = ""
 
@@ -37,28 +39,36 @@ _REGISTRY: tuple[DetectorSpec, ...] = (
     DetectorSpec(
         method=detector_contour.METHOD,
         name="Contour",
-        origin="HTH / ChatGPT",
+        origin="HTH",
         entrypoint=detector_contour.detect,
+        foundation=("OpenCV",),
+        authors=("OpenAI ChatGPT",),
     ),
     DetectorSpec(
         method=detector_components.METHOD,
         name="Connected Components",
         origin="OpenCV",
         entrypoint=detector_components.detect,
+        foundation=("OpenCV",),
+        authors=("OpenCV contributors",),
         version=cv2.__version__,
         repository="https://github.com/opencv/opencv",
     ),
     DetectorSpec(
         method=detector_ransac.METHOD,
         name="RANSAC",
-        origin="HTH / ChatGPT",
+        origin="HTH",
         entrypoint=detector_ransac.detect,
+        foundation=("RANSAC", "OpenCV"),
+        authors=("OpenAI ChatGPT",),
     ),
     DetectorSpec(
         method=detector_hough.METHOD,
         name="Hough Lines",
         origin="OpenCV",
         entrypoint=detector_hough.detect,
+        foundation=("Hough transform", "OpenCV"),
+        authors=("OpenCV contributors",),
         version=cv2.__version__,
         repository="https://github.com/opencv/opencv",
     ),
@@ -80,6 +90,8 @@ def detector_catalog() -> list[dict[str, str]]:
             "name": spec.name,
             "display_name": spec.display_name,
             "origin": spec.origin,
+            "foundation": list(spec.foundation),
+            "authors": list(spec.authors),
             "version": spec.version,
             "repository": spec.repository,
         }
@@ -90,6 +102,8 @@ def detector_catalog() -> list[dict[str, str]]:
 def _apply_spec(candidate: Candidate, spec: DetectorSpec) -> Candidate:
     candidate.detector_name = spec.name
     candidate.origin = spec.origin
+    candidate.foundation = list(spec.foundation)
+    candidate.authors = list(spec.authors)
     candidate.version = spec.version
     candidate.repository = spec.repository
     return candidate

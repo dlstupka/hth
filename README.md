@@ -97,6 +97,14 @@ Always review `git diff` before committing.
 - [Multi-detector geometry](README-multidetector-geometry.md)
 - [Acquisition pipeline](README-acquisition-pipeline.md)
 
+## Acknowledgments
+
+HTH was conceived and developed by **Dan Stupka**. The framework architecture,
+detector implementations, workflow design, and engineering were developed
+collaboratively with **OpenAI ChatGPT**. Detector-level metadata separately
+records each implementation's origin, algorithmic foundation, authorship,
+version, and source repository.
+
 ## Contact
 
 Project maintainer: **Dan Stupka**  
