@@ -167,7 +167,9 @@ def _read_detector_performance(path: str) -> list[dict[str, Any]]:
         if not isinstance(counts, dict):
             counts = {}
         rows.append({
+            "name": detector.get("name") or detector.get("display_name") or method,
             "display_name": detector.get("display_name") or detector.get("name") or method,
+            "origin": detector.get("origin", ""),
             "version": detector.get("version", ""),
             "runs": perf.get("runs"),
             "average_ms": perf.get("elapsed_ms_average"),
@@ -257,9 +259,12 @@ def build_summary(args: argparse.Namespace) -> str:
             confidence = _as_float(row.get("average_confidence"))
             confidence_text = f"{confidence:.3f}" if confidence is not None else "—"
             version = str(row.get("version", "")).strip()
-            detector = str(row.get("display_name", "unknown"))
+            origin = str(row.get("origin", "")).strip()
+            detector = str(row.get("name") or row.get("display_name") or "unknown")
             if version:
                 detector += f" `v{version}`"
+            if origin:
+                detector += f" ({origin})"
             lines.append(
                 f"| {detector} | {row.get('runs', 'unknown')} "
                 f"| {row.get('ok', 0)} | {row.get('no_candidate', 0)} "

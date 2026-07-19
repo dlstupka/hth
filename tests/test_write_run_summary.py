@@ -128,7 +128,8 @@ class RunSummaryTests(unittest.TestCase):
             args = self.make_args(page_analysis_json=str(geometry))
             text = build_summary(args)
             self.assertIn("## Detector performance", text)
-            self.assertIn("Connected Components (OpenCV)", text)
+            self.assertIn("Connected Components `v4.10.0` (OpenCV)", text)
+            self.assertNotIn("Connected Components (OpenCV) `v4.10.0`", text)
             self.assertIn("11.2 ms", text)
             self.assertIn("0.812", text)
 
