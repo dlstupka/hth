@@ -70,7 +70,18 @@
         }
       }
     },
-    {
+	{
+	  "global_ordinal": 5,
+	  "label": "damaged_partial_register_spread",
+	  "layout_type": "two_page_spread",
+	  "physical_document_bbox": null,
+	  "gutter_x": null,
+	  "left_page_bbox": null,
+	  "right_page_bbox": null,
+	  "expected_regions": [],
+	  "notes": "Severely damaged spread with a readable register page on the left and heavily damaged backing or opposing page on the right."
+	},
+	{
       "global_ordinal": 6,
       "label": "title_or_index_sheet",
       "layout_type": "single_page",
