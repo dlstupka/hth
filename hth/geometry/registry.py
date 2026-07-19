@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 import time
 import traceback
 
@@ -11,6 +12,7 @@ import numpy as np
 
 from . import detector_components, detector_contour, detector_hough, detector_ransac
 from .model import Candidate
+from hth.version import HTH_REPOSITORY, HTH_VERSION
 
 Detector = Callable[..., Candidate]
 
@@ -43,6 +45,8 @@ _REGISTRY: tuple[DetectorSpec, ...] = (
         entrypoint=detector_contour.detect,
         foundation=("OpenCV",),
         authors=("OpenAI ChatGPT",),
+        version=HTH_VERSION,
+        repository=HTH_REPOSITORY,
     ),
     DetectorSpec(
         method=detector_components.METHOD,
@@ -61,6 +65,8 @@ _REGISTRY: tuple[DetectorSpec, ...] = (
         entrypoint=detector_ransac.detect,
         foundation=("RANSAC", "OpenCV"),
         authors=("OpenAI ChatGPT",),
+        version=HTH_VERSION,
+        repository=HTH_REPOSITORY,
     ),
     DetectorSpec(
         method=detector_hough.METHOD,
@@ -83,7 +89,7 @@ def detector_names() -> list[str]:
     return [spec.method for spec in _REGISTRY]
 
 
-def detector_catalog() -> list[dict[str, str]]:
+def detector_catalog() -> list[dict[str, Any]]:
     return [
         {
             "method": spec.method,

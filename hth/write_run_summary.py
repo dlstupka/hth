@@ -242,7 +242,7 @@ def build_summary(args: argparse.Namespace) -> str:
                 f"| {elapsed} |"
             )
 
-    detector_rows = _read_detector_performance(args.geometry_json)
+    detector_rows = _read_detector_performance(args.page_analysis_json)
     if detector_rows:
         lines.extend([
             "",
@@ -301,7 +301,16 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--error-count", type=int)
     p.add_argument("--summary-json", default="")
     p.add_argument("--analysis-summary-json", default="")
-    p.add_argument("--geometry-json", default="")
+    p.add_argument(
+        "--page-analysis-json",
+        "--geometry-json",
+        dest="page_analysis_json",
+        default="",
+        help=(
+            "Path to page-analysis.json. --geometry-json remains as a "
+            "compatibility alias."
+        ),
+    )
     p.add_argument("--notes", default="")
     p.add_argument("--output", action="append", default=[])
     p.add_argument("--destination", default=_env("GITHUB_STEP_SUMMARY"))

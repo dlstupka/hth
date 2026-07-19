@@ -64,3 +64,15 @@ Each registered detector may declare:
 
 Connected Components is reported as `Connected Components (OpenCV)`, with
 OpenCV recorded as both its origin and foundation.
+
+### Field ownership and version policy
+
+`DetectorSpec` in `hth/geometry/registry.py` is the authoritative source for all
+identity and provenance fields. `detector_components.py` does not construct or
+maintain them. The registry overwrites any detector-supplied metadata before the
+candidate is serialized, preventing drift between implementations and reports.
+
+Field meanings are documented in `README-multidetector-geometry.md`. In
+particular, `version` is the installed OpenCV version for this detector and
+`repository` is the canonical OpenCV source repository. The exact HTH pipeline
+commit remains recorded separately in every page-analysis record.

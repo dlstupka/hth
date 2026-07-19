@@ -89,3 +89,32 @@ Each has an independent `100 / 75 / 50 / 25 / 0%` opacity selector.
 This is an evaluation trial, not a declaration that any detector is correct.
 
 The reference collection and physical-geometry validator decide which method performs best by page type. Retain every candidate and its diagnostics, even when it loses.
+
+## Detector registry and provenance metadata
+
+The geometry registry is the single source of truth for detector identity and
+provenance. Detector implementations return only a `Candidate` containing the
+algorithm result and diagnostics. The registry validates that result, records
+elapsed time, isolates exceptions, and injects the metadata below before JSON
+serialization and reporting.
+
+| Field | Purpose |
+|---|---|
+| `method` | Stable machine identifier used by configuration, tests, and downstream consumers. Renaming a display label must not change this value. |
+| `name` / `detector_name` | Human-readable detector name. `DetectorSpec.name` is serialized as `detector_name` for compatibility with the current page-analysis schema. |
+| `origin` | Project or upstream source primarily credited for the detector implementation shown in runtime reports. |
+| `foundation` | Ordered list of algorithms and libraries on which the implementation is built. This is always represented as a list. |
+| `authors` | Ordered list of primary implementers or upstream contributor groups credited for the implementation. |
+| `version` | Human-readable implementation version. HTH detectors use the HTH framework version; OpenCV detectors use the installed OpenCV version. Exact source reproduction remains anchored by the pipeline commit recorded elsewhere in page analysis. |
+| `repository` | Canonical source repository for the credited implementation. HTH detectors point to the HTH repository; OpenCV detectors point to the OpenCV repository. |
+| `entrypoint` | Python callable invoked by the registry. It is runtime configuration and is not serialized. |
+| `display_name` | Derived presentation label in the form `Name (Origin)`; it is not independently configured. |
+
+`family` is intentionally not part of `DetectorSpec`. All current entries are
+geometry detectors and are already scoped by the geometry registry and pipeline
+stage. A category field can be added later if multiple plugin types genuinely
+share one registry.
+
+Production registries should contain only reviewed and pinned detector entries.
+Test and CI code may substitute a temporary `DetectorSpec` registry to make
+algorithm experimentation inexpensive without weakening production loading.

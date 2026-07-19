@@ -7,6 +7,7 @@ import numpy as np
 
 from hth.geometry.model import Candidate
 from hth.geometry import registry
+from hth.version import HTH_REPOSITORY, HTH_VERSION
 
 
 class RegistryIsolationTests(unittest.TestCase):
@@ -70,9 +71,50 @@ class RegistryIsolationTests(unittest.TestCase):
         self.assertEqual(catalog["contour"]["origin"], "HTH")
         self.assertEqual(catalog["contour"]["authors"], ["OpenAI ChatGPT"])
         self.assertIn("OpenCV", catalog["contour"]["foundation"])
+        self.assertEqual(catalog["contour"]["version"], HTH_VERSION)
+        self.assertEqual(catalog["contour"]["repository"], HTH_REPOSITORY)
         self.assertEqual(catalog["ransac"]["origin"], "HTH")
         self.assertEqual(catalog["ransac"]["authors"], ["OpenAI ChatGPT"])
         self.assertIn("RANSAC", catalog["ransac"]["foundation"])
+        self.assertEqual(catalog["ransac"]["version"], HTH_VERSION)
+        self.assertEqual(catalog["ransac"]["repository"], HTH_REPOSITORY)
+
+    def test_registry_is_authoritative_for_serialized_metadata(self) -> None:
+        def misleading(*, image_bgr: np.ndarray, mask: np.ndarray) -> Candidate:
+            del image_bgr, mask
+            return Candidate(
+                "test", [1, 1, 9, 9], None, 0.8, 0.8, {},
+                detector_name="Wrong",
+                origin="Wrong",
+                foundation=["Wrong"],
+                authors=["Wrong"],
+                version="wrong",
+                repository="wrong",
+            )
+
+        spec = registry.DetectorSpec(
+            method="test",
+            name="Registry Name",
+            origin="Registry Origin",
+            entrypoint=misleading,
+            foundation=("Registry Foundation",),
+            authors=("Registry Author",),
+            version="1.2.3",
+            repository="https://example.test/repository",
+        )
+        image = np.zeros((10, 10, 3), dtype=np.uint8)
+        mask = np.zeros((10, 10), dtype=np.uint8)
+        with patch.object(registry, "_REGISTRY", (spec,)):
+            candidate = registry.run_registered_detectors(
+                image_bgr=image, mask=mask
+            )[0]
+
+        self.assertEqual(candidate.detector_name, "Registry Name")
+        self.assertEqual(candidate.origin, "Registry Origin")
+        self.assertEqual(candidate.foundation, ["Registry Foundation"])
+        self.assertEqual(candidate.authors, ["Registry Author"])
+        self.assertEqual(candidate.version, "1.2.3")
+        self.assertEqual(candidate.repository, "https://example.test/repository")
 
 
 if __name__ == "__main__":

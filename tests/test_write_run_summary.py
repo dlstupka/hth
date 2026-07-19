@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.write_run_summary import _hydrate_from_generated_json, build_summary
+from hth.write_run_summary import _hydrate_from_generated_json, build_summary, parser
 
 
 class RunSummaryTests(unittest.TestCase):
@@ -28,7 +28,7 @@ class RunSummaryTests(unittest.TestCase):
             error_count=None,
             summary_json="",
             analysis_summary_json="",
-            geometry_json="",
+            page_analysis_json="",
             notes="",
             output=[],
             run_url="",
@@ -125,7 +125,7 @@ class RunSummaryTests(unittest.TestCase):
                     },
                 }
             }), encoding="utf-8")
-            args = self.make_args(geometry_json=str(geometry))
+            args = self.make_args(page_analysis_json=str(geometry))
             text = build_summary(args)
             self.assertIn("## Detector performance", text)
             self.assertIn("Connected Components (OpenCV)", text)
@@ -156,6 +156,14 @@ class RunSummaryTests(unittest.TestCase):
             self.assertIn("## Stage performance", text)
             self.assertIn("STAGE_PREPROCESS", text)
             self.assertIn("2.1s", text)
+
+    def test_geometry_json_remains_compatibility_alias(self):
+        args = parser().parse_args(["--geometry-json", "legacy.json"])
+        self.assertEqual(args.page_analysis_json, "legacy.json")
+
+    def test_page_analysis_json_is_preferred_argument_name(self):
+        args = parser().parse_args(["--page-analysis-json", "page-analysis.json"])
+        self.assertEqual(args.page_analysis_json, "page-analysis.json")
 
 
 if __name__ == "__main__":

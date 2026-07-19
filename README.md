@@ -105,6 +105,12 @@ collaboratively with **OpenAI ChatGPT**. Detector-level metadata separately
 records each implementation's origin, algorithmic foundation, authorship,
 version, and source repository.
 
+The detector registry is the single source of truth for those fields. Detector
+implementations return algorithm results and diagnostics only; the registry
+injects provenance, timing, validation, and exception isolation uniformly.
+Detailed field definitions and version policy are documented in
+[README-multidetector-geometry.md](README-multidetector-geometry.md).
+
 ## Contact
 
 Project maintainer: **Dan Stupka**  
