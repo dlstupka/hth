@@ -29,7 +29,7 @@ def detect(*, image_bgr: np.ndarray, mask: np.ndarray) -> Candidate:
         return Candidate(METHOD, None, None, 0.0, 0.0, {"reason": "no_hough_lines"})
 
     vertical, horizontal = [], []
-    for item in lines[:, 0, :]:
+    for item in np.asarray(lines, dtype=float).reshape(-1, 4):
         x1, y1, x2, y2 = map(float, item)
         dx, dy = x2 - x1, y2 - y1
         length = math.hypot(dx, dy)

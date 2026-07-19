@@ -1,7 +1,7 @@
 # Hidden Texas History — Project Status
 
-*Last updated: 2026-07-18*  
-*Framework release: v0.6*  
+*Last updated: 2026-07-18*
+*Framework release: v0.6.1*
 *AutoHotkey acquisition utility: v0.5*
 
 ## Mission
@@ -26,12 +26,12 @@ Completed foundation:
 - reusable production, test, and calibration workflow core;
 - preprocess and physical-page analysis stages;
 - detector registry and detector resilience;
-- contour, RANSAC, and Hough candidate detectors;
+- contour, Connected Components, RANSAC, Hough, LSD, and GrabCut candidate detectors;
 - physical-geometry validation and reference tooling;
 - production and test publication layouts;
 - Publication Manifest and Pipeline Health;
 - canonical stage banners, UTC timestamps, and elapsed-time reporting;
-- unit tests and v0.6 architecture documentation.
+- unit tests and v0.6.1 detector/provenance documentation.
 
 ## Current pipeline
 
@@ -48,7 +48,7 @@ Acquisition
 ## Next technical work
 
 1. Establish representative stage-runtime expectations.
-2. Expand the detector registry with LSD, GrabCut, Connected Components, and Consensus.
+2. Add and evaluate consensus without changing the retained candidate evidence.
 3. Benchmark detector quality and runtime against the approved reference collection.
 4. Advance OCR, transcription, translation, record extraction, historical reasoning, and publication.
 

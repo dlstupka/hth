@@ -79,6 +79,17 @@ class RegistryIsolationTests(unittest.TestCase):
         self.assertEqual(catalog["ransac"]["version"], HTH_VERSION)
         self.assertEqual(catalog["ransac"]["repository"], HTH_REPOSITORY)
 
+
+    def test_lsd_and_grabcut_are_registered_with_opencv_provenance(self) -> None:
+        catalog = {item["method"]: item for item in registry.detector_catalog()}
+        for method in ("lsd", "grabcut"):
+            self.assertIn(method, catalog)
+            self.assertEqual(catalog[method]["origin"], "OpenCV")
+            self.assertIn("OpenCV", catalog[method]["foundation"])
+            self.assertEqual(catalog[method]["authors"], ["OpenCV contributors"])
+            self.assertTrue(catalog[method]["version"])
+            self.assertIn("opencv", catalog[method]["repository"])
+
     def test_registry_is_authoritative_for_serialized_metadata(self) -> None:
         def misleading(*, image_bgr: np.ndarray, mask: np.ndarray) -> Candidate:
             del image_bgr, mask

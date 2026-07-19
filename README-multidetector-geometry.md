@@ -1,12 +1,15 @@
 # HTH Multi-Detector Geometry Trial
 
-This trial preserves the existing HTH detector and adds three established geometry candidates:
+The geometry trial runs six registered candidates independently:
 
 1. **Contour quadrilateral**
-2. **RANSAC four-edge fitting**
-3. **Hough-line quadrilateral**
+2. **Connected Components envelope**
+3. **RANSAC four-edge fitting**
+4. **Hough-line envelope**
+5. **OpenCV Line Segment Detector (LSD)**
+6. **OpenCV GrabCut segmentation**
 
-The workbench displays all four alongside the approved/manual reference.
+Every candidate is retained with diagnostics and provenance. Existing workbench overlays remain backward compatible; UI support for additional overlays may be added separately.
 
 ## Files
 
@@ -68,6 +71,14 @@ The replacement keeps all original analysis fields and adds:
   {
     "method": "hough",
     "...": "..."
+  },
+  {
+    "method": "lsd",
+    "...": "..."
+  },
+  {
+    "method": "grabcut",
+    "...": "..."
   }
 ]
 ```
@@ -118,3 +129,14 @@ share one registry.
 Production registries should contain only reviewed and pinned detector entries.
 Test and CI code may substitute a temporary `DetectorSpec` registry to make
 algorithm experimentation inexpensive without weakening production loading.
+
+
+## Detector-specific documentation
+
+- [Connected Components](docs/README-detector-components.md)
+- [Line Segment Detector](docs/README-detector-lsd.md)
+- [GrabCut](docs/README-detector-grabcut.md)
+
+LSD and GrabCut are registered as OpenCV-origin detectors. Their `version` is
+the installed OpenCV version, their canonical repository is the OpenCV project,
+and their implementation metadata is injected solely by `DetectorSpec`.

@@ -1,4 +1,4 @@
-# Hidden Texas History Research Framework (HTH) v0.6
+# Hidden Texas History Research Framework (HTH) v0.6.1
 
 HTH is an open, reproducible digital-humanities framework for acquiring,
 preprocessing, analyzing, validating, and publishing historical document
@@ -36,7 +36,7 @@ full log.
 
 ## Version 0.6
 
-HTH framework v0.6 establishes the maintainable pipeline foundation:
+HTH framework v0.6.1 extends the maintainable pipeline foundation:
 
 - reusable GitHub Actions core with thin production, test, and calibration wrappers;
 - detector registry with independent detector failure handling;
@@ -95,6 +95,9 @@ Always review `git diff` before committing.
 - [Preprocessor](README-preprocessor.md)
 - [Physical page analysis](README-analyze-pages.md)
 - [Multi-detector geometry](README-multidetector-geometry.md)
+  - [Connected Components detector](docs/README-detector-components.md)
+  - [Line Segment Detector](docs/README-detector-lsd.md)
+  - [GrabCut detector](docs/README-detector-grabcut.md)
 - [Acquisition pipeline](README-acquisition-pipeline.md)
 
 ## Acknowledgments

@@ -10,7 +10,14 @@ import traceback
 import cv2
 import numpy as np
 
-from . import detector_components, detector_contour, detector_hough, detector_ransac
+from . import (
+    detector_components,
+    detector_contour,
+    detector_grabcut,
+    detector_hough,
+    detector_lsd,
+    detector_ransac,
+)
 from .model import Candidate
 try:
     # Package mode: imported as hth.geometry.registry (tests, installed use).
@@ -82,6 +89,26 @@ _REGISTRY: tuple[DetectorSpec, ...] = (
         origin="OpenCV",
         entrypoint=detector_hough.detect,
         foundation=("Hough transform", "OpenCV"),
+        authors=("OpenCV contributors",),
+        version=cv2.__version__,
+        repository="https://github.com/opencv/opencv",
+    ),
+    DetectorSpec(
+        method=detector_lsd.METHOD,
+        name="Line Segment Detector",
+        origin="OpenCV",
+        entrypoint=detector_lsd.detect,
+        foundation=("LSD", "OpenCV"),
+        authors=("OpenCV contributors",),
+        version=cv2.__version__,
+        repository="https://github.com/opencv/opencv",
+    ),
+    DetectorSpec(
+        method=detector_grabcut.METHOD,
+        name="GrabCut",
+        origin="OpenCV",
+        entrypoint=detector_grabcut.detect,
+        foundation=("GrabCut", "OpenCV"),
         authors=("OpenCV contributors",),
         version=cv2.__version__,
         repository="https://github.com/opencv/opencv",
