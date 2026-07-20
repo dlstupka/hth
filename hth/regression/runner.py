@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 import cv2
 from hth.geometry.common import document_mask, resize_for_analysis, scale_bbox, valid_bbox
-from .adapters import grabcut
+from .adapters.grabcut import detect as grabcut_detect
 from .io import create_run_directory, environment_info, utc_now, write_json
 from .metrics import bbox_iou, edge_errors
 from .parameter_space import canonical_parameters, parameter_set_id
@@ -15,7 +15,7 @@ from .reports import ranking_key, write_rankings, write_raw_results
 from .strategies.cartesian import generate as cartesian_generate
 from .strategies.binary_refine import search as binary_search
 
-DETECTORS={"grabcut":grabcut}
+DETECTORS={"grabcut":grabcut_detect}
 
 def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
     p=argparse.ArgumentParser()
@@ -77,6 +77,11 @@ def run(args:argparse.Namespace)->Path:
     write_json(run_dir/"manifest.json",manifest)
     try:
         pages=load_pages(args.golden_set,args.image_root,args.max_dimension); detector=DETECTORS[name]
+        if not callable(detector):
+            raise TypeError(
+                f"Detector registry entry {name!r} is not callable: "
+                f"{type(detector).__name__}"
+            )
         if args.strategy=="exhaustive": results=[evaluate_set(detector,p,pages) for p in cartesian_generate(config,args.limit)]
         else: results=binary_search(config,lambda p:evaluate_set(detector,p,pages),ranking_key)
         profiles={canonical_parameters(p):n for n,p in config.get("profiles",{}).items()}
