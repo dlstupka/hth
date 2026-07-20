@@ -10,10 +10,11 @@ from hth.geometry.common import document_mask, resize_for_analysis, scale_bbox, 
 from .adapters.grabcut import detect as grabcut_detect
 from .io import create_run_directory, environment_info, utc_now, write_json
 from .metrics import bbox_iou, edge_errors
-from .parameter_space import canonical_parameters, parameter_set_id
+from .parameter_space import canonical_parameters, parameter_set_id, exhaustive_parameter_sets
 from .reports import ranking_key, write_rankings, write_raw_results
 from .strategies.cartesian import generate as cartesian_generate
 from .strategies.binary_refine import search as binary_search
+from .progress import ProgressReporter
 
 DETECTORS={"grabcut":grabcut_detect}
 
@@ -82,22 +83,46 @@ def run(args:argparse.Namespace)->Path:
                 f"Detector registry entry {name!r} is not callable: "
                 f"{type(detector).__name__}"
             )
-        if args.strategy=="exhaustive": results=[evaluate_set(detector,p,pages) for p in cartesian_generate(config,args.limit)]
-        else: results=binary_search(config,lambda p:evaluate_set(detector,p,pages),ranking_key)
         profiles={canonical_parameters(p):n for n,p in config.get("profiles",{}).items()}
+        estimated_total=len(exhaustive_parameter_sets(config))
+        if args.limit is not None:
+            estimated_total=min(estimated_total,args.limit)
+        progress=ProgressReporter(total=estimated_total,interval_seconds=60.0)
+        progress.start()
+        def evaluate(parameters:dict[str,Any])->dict[str,Any]:
+            result=evaluate_set(detector,parameters,pages)
+            profile=profiles.get(canonical_parameters(parameters))
+            progress.observe(result,profile)
+            return result
+        if args.strategy=="exhaustive": results=[evaluate(p) for p in cartesian_generate(config,args.limit)]
+        else: results=binary_search(config,evaluate,ranking_key)
+        progress_snapshot=progress.finish()
         for r in results: r["profile"]=profiles.get(canonical_parameters(r["parameters"])); r["run_id"]=run_id
         ranked=sorted(results,key=ranking_key)
         for rank,r in enumerate(ranked,1): r["rank"]=rank
         baseline=next((r for r in ranked if r.get("profile")=="baseline"),None)
         raw=run_dir/"raw"/"results.csv"; rankings=run_dir/"reports"/"rankings.csv"; top=run_dir/"reports"/"top20.csv"
         write_raw_results(raw,ranked); write_rankings(rankings,ranked); write_rankings(top,ranked[:max(0,args.top)])
-        summary={"schema_version":"0.2","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"winner":ranked[0],"baseline":baseline}
+        summary={"schema_version":"0.3","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"winner":ranked[0],"baseline":baseline,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures}}
         write_json(run_dir/"reports"/"summary.json",summary)
         finished=utc_now(); info={"schema_version":"0.2","run_id":run_id,"detector":name,"strategy":args.strategy,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"detector_config":str(args.detector_config),**environment_info(Path.cwd())}
         write_json(run_dir/"RUN-INFO.json",info)
         manifest.update({"status":"complete","finished_at_utc":finished,"outputs":["RUN-INFO.json","parameters.json","raw/results.csv","reports/summary.json","reports/rankings.csv","reports/top20.csv"]}); write_json(run_dir/"manifest.json",manifest)
         # Convenience report at detector root, refreshed on every completed run.
         write_rankings(run_dir.parent/f"{name}-regression-results.csv",ranked)
+        winner_summary=ranked[0]["summary"]
+        baseline_summary=baseline["summary"] if baseline else None
+        print("\nRegression Summary")
+        print(f"Run: {run_id}")
+        print(f"Parameter sets evaluated: {len(ranked)}")
+        print(f"Page evaluations: {len(ranked)*len(pages)}")
+        print(f"Elapsed: {time.perf_counter()-wall:.1f}s")
+        print(f"Winner: {ranked[0].get('profile') or 'ps:'+ranked[0]['parameter_set_id'][:8]}")
+        print(f"Best Mean IoU: {winner_summary['mean_iou']:.4f}")
+        print(f"Worst IoU: {winner_summary['minimum_iou']:.4f}")
+        if baseline_summary:
+            print(f"Baseline Mean IoU: {baseline_summary['mean_iou']:.4f}")
+            print(f"Improvement: {winner_summary['mean_iou']-baseline_summary['mean_iou']:+.4f}")
         print(json.dumps({"run_id":run_id,"run_directory":str(run_dir),"winner":ranked[0],"baseline":baseline},indent=2))
         return run_dir
     except Exception as exc:

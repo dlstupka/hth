@@ -190,6 +190,29 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
     <p class="help">The workbench shows all images by default. Calibration membership is saved in the reference JSON and is independent of the fast test/CI workflow.</p>
   </div></div>
 
+
+  <div class="box"><h2>Golden Set provenance</h2><div class="body">
+    <div class="grid2">
+      <div class="field"><label>Created by</label><input id="goldenCreatedBy" type="text" placeholder="Dan Stupka" disabled></div>
+      <div class="field"><label>Creator role</label><input id="goldenCreatedRole" type="text" placeholder="Research Curator" disabled></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>Reviewed by</label><input id="goldenReviewedBy" type="text" placeholder="ChatGPT" disabled></div>
+      <div class="field"><label>Reviewer role</label><input id="goldenReviewedRole" type="text" placeholder="Technical Review Assistant" disabled></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>Approved by</label><input id="goldenApprovedBy" type="text" placeholder="Dan Stupka" disabled></div>
+      <div class="field"><label>Approver role</label><input id="goldenApprovedRole" type="text" placeholder="Research Curator" disabled></div>
+    </div>
+    <div class="field"><label>Approval / change notes</label><textarea id="goldenApprovalNotes" placeholder="Why this Golden Set is trusted or what changed." disabled></textarea></div>
+    <div class="meta" id="goldenApprovalStatus">Status: not approved</div>
+    <div class="grid2" style="margin-top:8px">
+      <button id="approveGoldenSet" class="good" disabled>Approve current state</button>
+      <button id="exportGoldenSet" class="primary" disabled>Export golden_set.json</button>
+    </div>
+    <p class="help">Any page, geometry, membership, order, or provenance change invalidates the prior approval. Git preserves history; the Workbench enforces reapproval.</p>
+  </div></div>
+
   <div class="box"><h2>Collection status</h2><div class="body"><div id="meta" class="meta">No collection loaded.</div><div style="height:8px"></div><div id="badges"></div><div style="height:8px"></div><div class="filter-row"><label><input id="filterReview" type="checkbox" checked disabled> Review</label><label><input id="filterApproved" type="checkbox" checked disabled> Approved</label><label><input id="filterOther" type="checkbox" checked disabled> Other</label></div></div></div>
 </aside>
 </main>
@@ -202,14 +225,14 @@ const s={
   collection:null,pages:[],index:-1,images:new Map(),image:null,zoom:1,fitZoom:1,start:null,
   box:null,dirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false,undoStack:[],approvedSnapshot:null,visibleIndices:[],detectorDefaults:{contour:75,components:75,ransac:75,hough:75,lsd:75,grabcut:75,approved:100}
 };
-const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther','mutePrediction','undo','opacityContour','opacityComponents','opacityRansac','opacityHough','opacityLsd','opacityGrabcut','opacityApproved','enableApproved','enableContour','enableComponents','enableRansac','enableHough','enableLsd','enableGrabcut','overlayLineWidth','muteAll','restoreAll','selectedDetector','imageSelectionMode','selectionFrom','selectionTo','selectionOrdinals','applyImageSelection','showAllImages','calibrationSelected','includeVisibleCalibration','excludeVisibleCalibration','exportCalibrationManifest'];
+const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther','mutePrediction','undo','opacityContour','opacityComponents','opacityRansac','opacityHough','opacityLsd','opacityGrabcut','opacityApproved','enableApproved','enableContour','enableComponents','enableRansac','enableHough','enableLsd','enableGrabcut','overlayLineWidth','muteAll','restoreAll','selectedDetector','imageSelectionMode','selectionFrom','selectionTo','selectionOrdinals','applyImageSelection','showAllImages','calibrationSelected','includeVisibleCalibration','excludeVisibleCalibration','exportCalibrationManifest','goldenCreatedBy','goldenCreatedRole','goldenReviewedBy','goldenReviewedRole','goldenApprovedBy','goldenApprovedRole','goldenApprovalNotes','approveGoldenSet','exportGoldenSet'];
 function enable(v){ids.forEach(id=>$(id).disabled=!v)}
 function ordinalFromName(n){for(const r of [/fs[_-]?0*(\d+)/i,/(?:^|[_-])p(?:age)?[_-]?0*(\d+)/i,/(?:^|[_-])0*(\d+)(?:\.[^.]+)?$/i]){const m=n.match(r);if(m)return Number(m[1])}return null}
 function esc(v){return String(v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
 function pathOf(f){return (f.webkitRelativePath||f.name).replaceAll('\\','/')}
 function basename(p){const a=p.split('/');return a[a.length-1]}
 function pathScore(path,name){const p=path.toLowerCase(),n=name.toLowerCase();let score=0;if(n==='reference_collection.json')score+=100;if(n==='golden_set.json')score+=90;if(p.includes('/test/latest/'))score+=20;if(p.includes('/config/'))score+=15;return score}
-function normalize(d){if(!d||!Array.isArray(d.pages))throw Error('JSON must contain a pages array');d.pages.forEach(p=>{if(!('physical_document_bbox'in p))p.physical_document_bbox=null;if(!p.layout_type)p.layout_type='other';if(!p.label)p.label=`page_${p.global_ordinal}`;if(!p.notes)p.notes='';if(!Array.isArray(p.expected_regions))p.expected_regions=[];if(typeof p.calibration_selected!=='boolean')p.calibration_selected=true});return d}
+function normalize(d){if(!d||!Array.isArray(d.pages))throw Error('JSON must contain a pages array');d.pages.forEach(p=>{if(!('physical_document_bbox'in p))p.physical_document_bbox=null;if(!p.layout_type)p.layout_type='other';if(!p.label)p.label=`page_${p.global_ordinal}`;if(!p.notes)p.notes='';if(!Array.isArray(p.expected_regions))p.expected_regions=[];if(typeof p.calibration_selected!=='boolean')p.calibration_selected=true});d.golden_set_workflow=d.golden_set_workflow||{status:'draft',created_by:{name:'',role:''},reviewed_by:{name:'',role:''},approved_by:{name:'',role:''},notes:'',approved_at_utc:null,approved_sha256:null};return d}
 function analysisBBox(r){if(!r)return null;for(const keys of [['page_left_px','page_top_px','page_right_px','page_bottom_px'],['content_left_px','content_top_px','content_right_px','content_bottom_px']]){if(keys.every(k=>Number.isFinite(Number(r[k]))))return keys.map(k=>Number(r[k]))}if(Array.isArray(r.physical_document_bbox)&&r.physical_document_bbox.length===4)return r.physical_document_bbox.map(Number);return null}
 function parseCsv(text){const lines=text.trim().split(/\r?\n/);if(lines.length<2)return[];const head=lines[0].split(',');return lines.slice(1).map(line=>{const vals=line.split(',');const o={};head.forEach((h,i)=>o[h]=vals[i]??'');return o})}
 
@@ -410,25 +433,39 @@ function nearestVisibleIndex(current,direction){
   const next=pos+direction;
   return next>=0&&next<s.visibleIndices.length?s.visibleIndices[next]:-1
 }
-function exportCalibrationManifest(){
-  const pages=s.pages.filter(p=>p.calibration_selected!==false).map(p=>({
-    global_ordinal:Number(p.global_ordinal),
-    label:p.label||'',
-    layout_type:p.layout_type||'other',
-    approved_bbox:Array.isArray(p.physical_document_bbox)?p.physical_document_bbox:null,
-    review_status:p.review_status||null
-  }));
-  const payload={
-    schema_version:'1.0',
-    generated_at_utc:new Date().toISOString(),
-    source_reference_collection:s.collection?.collection_id||s.collection?.id||null,
-    image_count:pages.length,
-    pages
-  };
-  const blob=new Blob([JSON.stringify(payload,null,2)+'\n'],{type:'application/json'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);a.download='calibration_manifest.json';a.click();URL.revokeObjectURL(a.href)
+function goldenWorkflow(){return s.collection.golden_set_workflow||(s.collection.golden_set_workflow={status:'draft',created_by:{name:'',role:''},reviewed_by:{name:'',role:''},approved_by:{name:'',role:''},notes:'',approved_at_utc:null,approved_sha256:null})}
+function invalidateGoldenApproval(reason){
+  if(!s.collection)return;const g=goldenWorkflow();
+  if(g.status==='approved'||g.approved_sha256){g.status='modified';g.approved_at_utc=null;g.approved_sha256=null;g.last_invalidation_reason=reason||'Golden Set changed';g.last_modified_at_utc=new Date().toISOString()}
+  updateGoldenFields()
 }
+function updateGoldenFields(){
+  if(!s.collection)return;const g=goldenWorkflow();
+  $('goldenCreatedBy').value=g.created_by?.name||'';$('goldenCreatedRole').value=g.created_by?.role||'';
+  $('goldenReviewedBy').value=g.reviewed_by?.name||'';$('goldenReviewedRole').value=g.reviewed_by?.role||'';
+  $('goldenApprovedBy').value=g.approved_by?.name||'';$('goldenApprovedRole').value=g.approved_by?.role||'';
+  $('goldenApprovalNotes').value=g.notes||'';
+  const sha=g.approved_sha256?` · SHA-256 ${g.approved_sha256.slice(0,16)}…`:'';
+  const when=g.approved_at_utc?` · ${g.approved_at_utc}`:'';
+  $('goldenApprovalStatus').textContent=`Status: ${(g.status||'draft').toUpperCase()}${when}${sha}`
+}
+function readGoldenFields(){const g=goldenWorkflow();g.created_by={name:$('goldenCreatedBy').value.trim(),role:$('goldenCreatedRole').value.trim()};g.reviewed_by={name:$('goldenReviewedBy').value.trim(),role:$('goldenReviewedRole').value.trim()};g.approved_by={name:$('goldenApprovedBy').value.trim(),role:$('goldenApprovedRole').value.trim()};g.notes=$('goldenApprovalNotes').value.trim();return g}
+function goldenPayload(includeApproval=true){
+  if(s.dirty)save();readGoldenFields();
+  const selected=s.pages.filter(p=>p.calibration_selected!==false).map(p=>({...p}));
+  const workflow=JSON.parse(JSON.stringify(goldenWorkflow()));
+  if(!includeApproval){workflow.approved_sha256=null}
+  return {schema_version:'1.0',collection_id:s.collection.collection_id||s.collection.id||null,golden_set_workflow:workflow,pages:selected,reference_collection_version:s.collection.reference_collection_version||null}
+}
+async function sha256Hex(value){const bytes=new TextEncoder().encode(value);const digest=await crypto.subtle.digest('SHA-256',bytes);return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('')}
+async function approveGoldenSet(){
+  const g=readGoldenFields();if(!g.approved_by.name){alert('Approved by is required.');return}if(!g.reviewed_by.name){alert('Reviewed by is required.');return}if(!g.notes){alert('Approval / change notes are required.');return}
+  const payload=goldenPayload(false);g.approved_sha256=await sha256Hex(JSON.stringify(payload));g.approved_at_utc=new Date().toISOString();g.status='approved';g.last_invalidation_reason=null;s.dirty=true;updateGoldenFields();status()
+}
+function downloadJson(name,payload){const blob=new Blob([JSON.stringify(payload,null,2)+'\n'],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();URL.revokeObjectURL(a.href)}
+function exportGoldenSet(){downloadJson('golden_set.json',goldenPayload(true))}
+function exportCalibrationManifest(){downloadJson('calibration_manifest.json',goldenPayload(true))}
+
 function filterVisible(status){
   if(status==='approved')return $('filterApproved').checked;
   if(status==='review'||status==='fail')return $('filterReview').checked;
@@ -641,7 +678,7 @@ function render(){
 function load(i){
   if(!s.pages.length)return;if(s.dirty&&!confirm('Discard unsaved changes?'))return;
   s.index=Math.max(0,Math.min(i,s.pages.length-1));s.dirty=false;s.compareMode=false;s.undoStack=[];$('undo').disabled=true;wrap.classList.remove('compare');$('compare').textContent='Compare';
-  const p=s.pages[s.index];$('pageSelect').value=s.index;$('calibrationSelected').checked=p.calibration_selected!==false;$('ordinal').value=p.global_ordinal;$('label').value=p.label;$('layout').value=p.layout_type;$('notes').value=p.notes;
+  const p=s.pages[s.index];updateGoldenFields();$('pageSelect').value=s.index;$('calibrationSelected').checked=p.calibration_selected!==false;$('ordinal').value=p.global_ordinal;$('label').value=p.label;$('layout').value=p.layout_type;$('notes').value=p.notes;
   s.box=Array.isArray(p.physical_document_bbox)?[...p.physical_document_bbox]:null;s.approvedSnapshot=cloneBox(s.box);syncBox();updatePrediction();updateCanvasHint();updateRibbon();updateDeltaInfo();
   const f=s.images.get(Number(p.global_ordinal));
   if(s.objectUrl)URL.revokeObjectURL(s.objectUrl);
@@ -649,10 +686,10 @@ function load(i){
   else{s.image=null;canvas.hidden=true;$('empty').hidden=false;$('empty').innerHTML=`<div><h2>No matching image</h2><p>Expected ordinal ${p.global_ordinal}.</p></div>`;status()}
   rebuild();$('prev').disabled=nearestVisibleIndex(s.index,-1)<0;$('next').disabled=nearestVisibleIndex(s.index,1)<0
 }
-function dirty(){s.dirty=true;status()}
+function dirty(){s.dirty=true;invalidateGoldenApproval('Golden Set content changed');status()}
 function readInputs(){const v=['left','top','right','bottom'].map(id=>Number($(id).value));if(v.some(x=>!Number.isFinite(x)))return null;let[l,t,r,b]=v;if(r<l)[l,r]=[r,l];if(b<t)[t,b]=[b,t];return[l,t,r,b].map(Math.round)}
 function save(){
-  if(s.index<0)return;const p=s.pages[s.index];
+  if(s.index<0)return;invalidateGoldenApproval('Page metadata or geometry changed');const p=s.pages[s.index];
   p.global_ordinal=Number($('ordinal').value);p.calibration_selected=$('calibrationSelected').checked;p.label=$('label').value.trim();p.layout_type=$('layout').value;p.notes=$('notes').value;p.physical_document_bbox=s.box?[...s.box]:null;
   p.reviewed_at_utc=new Date().toISOString();p.review_status='approved';
   s.dirty=false;s.approvedSnapshot=cloneBox(s.box);rebuild();collectionStatus();status();updateRibbon();updateDeltaInfo();render();if($('autoAdvance').checked){const n=nextReviewIndex(s.index);if(n>=0&&n!==s.index)load(n)}
@@ -689,11 +726,13 @@ $('showAllImages').onclick=()=>{
   rebuild();if(s.visibleIndices.length&&!s.visibleIndices.includes(s.index))load(s.visibleIndices[0])
 };
 $('calibrationSelected').onchange=()=>{
-  if(s.index<0)return;s.pages[s.index].calibration_selected=$('calibrationSelected').checked;s.dirty=true;rebuild();status()
+  if(s.index<0)return;s.pages[s.index].calibration_selected=$('calibrationSelected').checked;s.dirty=true;invalidateGoldenApproval('Calibration membership changed');rebuild();status()
 };
-$('includeVisibleCalibration').onclick=()=>{refreshVisibleIndices();for(const i of s.visibleIndices)s.pages[i].calibration_selected=true;s.dirty=true;rebuild();if(s.index>=0)$('calibrationSelected').checked=s.pages[s.index].calibration_selected!==false;status()};
-$('excludeVisibleCalibration').onclick=()=>{refreshVisibleIndices();for(const i of s.visibleIndices)s.pages[i].calibration_selected=false;s.dirty=true;rebuild();if(s.index>=0)$('calibrationSelected').checked=s.pages[s.index].calibration_selected!==false;status()};
+$('includeVisibleCalibration').onclick=()=>{refreshVisibleIndices();for(const i of s.visibleIndices)s.pages[i].calibration_selected=true;s.dirty=true;invalidateGoldenApproval('Calibration membership changed');rebuild();if(s.index>=0)$('calibrationSelected').checked=s.pages[s.index].calibration_selected!==false;status()};
+$('excludeVisibleCalibration').onclick=()=>{refreshVisibleIndices();for(const i of s.visibleIndices)s.pages[i].calibration_selected=false;s.dirty=true;invalidateGoldenApproval('Calibration membership changed');rebuild();if(s.index>=0)$('calibrationSelected').checked=s.pages[s.index].calibration_selected!==false;status()};
 $('exportCalibrationManifest').onclick=exportCalibrationManifest;
+$('approveGoldenSet').onclick=approveGoldenSet;$('exportGoldenSet').onclick=exportGoldenSet;
+['goldenCreatedBy','goldenCreatedRole','goldenReviewedBy','goldenReviewedRole','goldenApprovedBy','goldenApprovedRole','goldenApprovalNotes'].forEach(id=>$(id).oninput=()=>{readGoldenFields();s.dirty=true;invalidateGoldenApproval('Golden Set provenance changed');status()});
 
 $('showBox').onchange=render;$('showPrediction').onchange=render;$('mutePrediction').onchange=render;$('showMetadata').onchange=updateCanvasHint;$('undo').onclick=undoBox;$('selectedDetector').onchange=()=>{updatePrediction();render()};
 [...Object.values(detectorControls).flatMap(c=>[c.opacity,c.enabled]),'opacityApproved','enableApproved','overlayLineWidth'].forEach(id=>$(id).onchange=render);

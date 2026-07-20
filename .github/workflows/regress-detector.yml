@@ -54,7 +54,7 @@ jobs:
   regress:
     name: Regress detector against Golden Set
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 1440
 
     steps:
       - name: Checkout HTH pipeline
