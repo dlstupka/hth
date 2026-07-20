@@ -93,15 +93,22 @@ def build_summary(run_dir: Path, run_url: str = "") -> str:
         "## Parameter space",
         "",
         f"- Parameter sets evaluated: `{summary.get('parameter_set_count', 'unknown')}`",
-        f"- Named profiles: `{', '.join(sorted(profiles)) if profiles else 'none'}`",
+        f"- Configured named profiles: `{', '.join(sorted(profiles)) if profiles else 'none'}`",
         "",
         "## Result",
         "",
-        "| Result | Profile | Parameter set | Mean IoU | Worst IoU | Failures | Elapsed |",
+        "| Result | Profile | Parameter set | Mean IoU | Worst IoU | Failures | Evaluation time |",
         "|---|---|---|---:|---:|---:|---:|",
         f"| Winner | `{_profile(winner)}` | `{_parameter_id(winner)}` | {_number(winner_stats.get('mean_iou'))} | {_number(winner_stats.get('minimum_iou'))} | {winner_stats.get('failure_count', 'unknown')} | {_duration((winner_stats.get('elapsed_ms_total') or 0) / 1000 if winner_stats else None)} |",
-        f"| Baseline | `{_profile(baseline)}` | `{_parameter_id(baseline)}` | {_number(baseline_stats.get('mean_iou'))} | {_number(baseline_stats.get('minimum_iou'))} | {baseline_stats.get('failure_count', 'unknown')} | {_duration((baseline_stats.get('elapsed_ms_total') or 0) / 1000 if baseline_stats else None)} |",
     ]
+    if baseline:
+        lines.append(
+            f"| Baseline | `{_profile(baseline)}` | `{_parameter_id(baseline)}` | "
+            f"{_number(baseline_stats.get('mean_iou'))} | "
+            f"{_number(baseline_stats.get('minimum_iou'))} | "
+            f"{baseline_stats.get('failure_count', 'unknown')} | "
+            f"{_duration((baseline_stats.get('elapsed_ms_total') or 0) / 1000)} |"
+        )
 
     if outputs:
         lines.extend(["", "## Outputs", ""])

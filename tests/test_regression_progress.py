@@ -15,56 +15,66 @@ class FakeClock:
 
 
 class RegressionProgressTests(unittest.TestCase):
-    def test_header_zero_heartbeat_minute_cadence_and_milestones(self) -> None:
+    def test_eta_starts_after_first_completion_and_columns_align(self) -> None:
         clock = FakeClock()
         stream = io.StringIO()
-        reporter = ProgressReporter(
-            total=1000,
-            interval_seconds=60,
-            stream=stream,
-            clock=clock,
-            eta_min_completed=2,
-            eta_min_elapsed_seconds=60,
-        )
+        reporter = ProgressReporter(total=10, interval_seconds=60, stream=stream, clock=clock)
         reporter.start()
-        initial = stream.getvalue()
-        self.assertIn("Best Mean IoU", initial)
-        self.assertIn("Worst IoU", initial)
-        self.assertIn("Last Improvement", initial)
-        self.assertIn("Evaluating", initial)
-        self.assertNotIn("Current Profile", initial)
-        self.assertIn("0/1000", initial)
-        self.assertIn("estimating...", initial)
 
-        first = {
-            "parameter_set_id": "abcdef123456",
-            "summary": {"mean_iou": 0.8, "minimum_iou": 0.6, "failure_count": 0},
-        }
-        clock.value = 30
-        reporter.begin_evaluation("baseline")
-        reporter.observe(first, "baseline")
-        self.assertNotIn("00:00:30 >>>", stream.getvalue())
+        lines = stream.getvalue().splitlines()
+        header = next(line for line in lines if line.startswith("Elapsed"))
+        initial = lines[-1]
+        self.assertIn("TBD", initial)
+        self.assertIn("0/10 0.0%", initial)
+        self.assertNotIn("estimating", initial)
 
         clock.value = 60
-        reporter.begin_evaluation("ps:feedface")
-        reporter.emit()
-        text = stream.getvalue()
-        self.assertIn("1/1000 0.10%", text)
-        self.assertIn("estimating...", text)
-        self.assertIn("ps:feedface", text)
+        reporter.begin_evaluation("baseline")
+        reporter.observe({
+            "parameter_set_id": "abcdef123456",
+            "summary": {"mean_iou": 0.8, "minimum_iou": 0.6, "failure_count": 0},
+        }, "baseline")
+        reporter.emit(force=True)
+        row = stream.getvalue().splitlines()[-1]
+        self.assertIn("00:09:00", row)
+        self.assertIn("1/10 10.0%", row)
+        self.assertIn("00:01:00", row)  # actual elapsed timestamp of last improvement
 
+        self.assertEqual(
+            header,
+            "Elapsed   ETA       Complete       Eval Rate  Best Mean IoU  Worst IoU  "
+            "Failures  Last Improvement  Evaluating",
+        )
+        self.assertEqual(
+            row,
+            "00:01:00  00:09:00  1/10 10.0%        0.02/s         0.8000     "
+            "0.6000         0  00:01:00          baseline",
+        )
+
+    def test_milestones_and_final_row_clear_evaluating(self) -> None:
+        clock = FakeClock()
+        stream = io.StringIO()
+        reporter = ProgressReporter(total=2, interval_seconds=60, stream=stream, clock=clock)
+        reporter.start()
+        reporter.begin_evaluation("baseline")
+        reporter.observe({
+            "parameter_set_id": "aaaaaaaa",
+            "summary": {"mean_iou": 0.8, "minimum_iou": 0.5, "failure_count": 0},
+        }, "baseline")
         clock.value = 61
-        better = {
-            "parameter_set_id": "1234567890ab",
-            "summary": {"mean_iou": 0.9, "minimum_iou": 0.7, "failure_count": 0},
-        }
-        reporter.observe(better)
+        reporter.begin_evaluation("ps:bbbbbbbb")
+        reporter.observe({
+            "parameter_set_id": "bbbbbbbb",
+            "summary": {"mean_iou": 0.9, "minimum_iou": 0.6, "failure_count": 0},
+        })
         text = stream.getvalue()
-        self.assertIn("00:01:01 >>> New best mean IoU ps:12345678", text)
-        self.assertIn("00:01:01 >>> New worst-page IoU ps:12345678", text)
-        self.assertIn("00:01:01 >>> Baseline surpassed ps:12345678", text)
-        milestone_rows = [line for line in text.splitlines() if line.startswith("00:01:01") and ">>>" not in line]
-        self.assertEqual(len(milestone_rows), 1)
+        self.assertIn("00:01:01 >>> New best mean IoU ps:bbbbbbbb", text)
+        self.assertIn("00:01:01 >>> New worst-page IoU ps:bbbbbbbb", text)
+        self.assertIn("00:01:01 >>> Baseline surpassed ps:bbbbbbbb", text)
+
+        reporter.finish()
+        final_row = stream.getvalue().splitlines()[-1]
+        self.assertTrue(final_row.endswith("--"), final_row)
 
     def test_worst_page_can_improve_without_mean(self) -> None:
         clock = FakeClock()

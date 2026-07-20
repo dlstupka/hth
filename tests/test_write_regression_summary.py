@@ -42,6 +42,8 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("`binary-refine`", text)
             self.assertIn("`1234567890ab`", text)
             self.assertIn("| Winner | `unnamed` | `winner` | 0.9700", text)
+            self.assertIn("Configured named profiles: `baseline`", text)
+            self.assertIn("Evaluation time", text)
             self.assertIn("| Baseline | `baseline` | `base` | 0.9000", text)
             self.assertIn("`raw/results.csv` — present", text)
             self.assertIn("`reports/summary.json` — present", text)

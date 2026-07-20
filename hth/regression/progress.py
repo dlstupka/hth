@@ -35,9 +35,26 @@ class ProgressSnapshot:
 class ProgressReporter:
     """Emit one fixed-width heartbeat line per interval plus sparse milestones."""
 
+    COLUMN_WIDTHS = {
+        "elapsed": 8,
+        "eta": 8,
+        "complete": 13,
+        "rate": 9,
+        "best": 13,
+        "worst": 9,
+        "failures": 8,
+        "last_improvement": 16,
+    }
     HEADER = (
-        "Elapsed    ETA          Complete          Eval Rate   Best Mean IoU   "
-        "Worst IoU   Failures   Last Improvement   Evaluating"
+        f"{'Elapsed':<{COLUMN_WIDTHS['elapsed']}}  "
+        f"{'ETA':<{COLUMN_WIDTHS['eta']}}  "
+        f"{'Complete':<{COLUMN_WIDTHS['complete']}}  "
+        f"{'Eval Rate':>{COLUMN_WIDTHS['rate']}}  "
+        f"{'Best Mean IoU':>{COLUMN_WIDTHS['best']}}  "
+        f"{'Worst IoU':>{COLUMN_WIDTHS['worst']}}  "
+        f"{'Failures':>{COLUMN_WIDTHS['failures']}}  "
+        f"{'Last Improvement':<{COLUMN_WIDTHS['last_improvement']}}  "
+        "Evaluating"
     )
 
     def __init__(
@@ -47,8 +64,8 @@ class ProgressReporter:
         interval_seconds: float = 60.0,
         stream: TextIO = sys.stdout,
         clock: Callable[[], float] = time.monotonic,
-        eta_min_completed: int = 10,
-        eta_min_elapsed_seconds: float = 600.0,
+        eta_min_completed: int = 1,
+        eta_min_elapsed_seconds: float = 0.0,
     ) -> None:
         self.total = max(0, int(total))
         self.interval_seconds = float(interval_seconds)
@@ -189,12 +206,9 @@ class ProgressReporter:
         elapsed = max(0.0, now - self.started)
         rate = self.completed / elapsed if elapsed > 0 and self.completed else None
         remaining = max(0, self.total - self.completed)
-        eta_ready = (
-            rate is not None
-            and self.completed >= self.eta_min_completed
-            and elapsed >= self.eta_min_elapsed_seconds
-        )
-        eta = remaining / rate if eta_ready and rate else None
+        # A first completed evaluation is enough for a useful operational estimate.
+        # The estimate will naturally stabilize as additional profiles complete.
+        eta = remaining / rate if rate else None
         mean_summary = self.best_mean_result.get("summary", {}) if self.best_mean_result else {}
         worst_summary = self.best_worst_result.get("summary", {}) if self.best_worst_result else {}
         since_improvement = (
@@ -240,19 +254,26 @@ class ProgressReporter:
             return False
         snap = self.snapshot()
         complete = f"{snap.completed}/{snap.total} {self._percent(snap.completed, snap.total)}"
-        rate = f"{snap.eval_rate:8.2f}/s" if snap.eval_rate is not None else "       --"
-        best = f"{snap.best_mean_iou:13.4f}" if snap.best_mean_iou is not None else "           --"
-        worst = f"{snap.worst_page_iou:9.4f}" if snap.worst_page_iou is not None else "       --"
-        eta = _duration(snap.eta_seconds) if snap.eta_seconds is not None else "estimating..."
+        widths = self.COLUMN_WIDTHS
+        rate = f"{snap.eval_rate:.2f}/s" if snap.eval_rate is not None else "--"
+        best = f"{snap.best_mean_iou:.4f}" if snap.best_mean_iou is not None else "--"
+        worst = f"{snap.worst_page_iou:.4f}" if snap.worst_page_iou is not None else "--"
+        eta = _duration(snap.eta_seconds) if snap.eta_seconds is not None else "TBD"
         last_improvement = (
-            _duration(snap.last_improvement_seconds)
-            if snap.last_improvement_seconds is not None
+            _duration(snap.last_improvement_elapsed_seconds)
+            if snap.last_improvement_elapsed_seconds is not None
             else "--"
         )
         print(
-            f"{_duration(snap.elapsed_seconds):10} {eta:12} "
-            f"{complete:18} {rate:11} {best}   {worst}   {snap.failures:8d}   "
-            f"{last_improvement:16}   {snap.evaluating}",
+            f"{_duration(snap.elapsed_seconds):<{widths['elapsed']}}  "
+            f"{eta:<{widths['eta']}}  "
+            f"{complete:<{widths['complete']}}  "
+            f"{rate:>{widths['rate']}}  "
+            f"{best:>{widths['best']}}  "
+            f"{worst:>{widths['worst']}}  "
+            f"{snap.failures:>{widths['failures']}d}  "
+            f"{last_improvement:<{widths['last_improvement']}}  "
+            f"{snap.evaluating}",
             file=self.stream,
             flush=True,
         )
@@ -264,5 +285,7 @@ class ProgressReporter:
         if self._thread is not None:
             self._thread.join(timeout=min(1.0, self.interval_seconds))
         with self._lock:
+            # The final row describes a completed run, not an evaluation still in flight.
+            self.evaluating = "--"
             self.emit(force=True)
             return self.snapshot()
