@@ -21,7 +21,7 @@ on:
       image_root:
         description: Image directory inside the results repository
         required: true
-        default: test/latest/preprocessed
+        default: test/latest/raw
         type: string
       strategy:
         description: Regression search strategy
