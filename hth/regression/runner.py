@@ -103,7 +103,7 @@ def run(args:argparse.Namespace)->Path:
         baseline=next((r for r in ranked if r.get("profile")=="baseline"),None)
         raw=run_dir/"raw"/"results.csv"; rankings=run_dir/"reports"/"rankings.csv"; top=run_dir/"reports"/"top20.csv"
         write_raw_results(raw,ranked); write_rankings(rankings,ranked); write_rankings(top,ranked[:max(0,args.top)])
-        summary={"schema_version":"0.3","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"winner":ranked[0],"baseline":baseline,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures}}
+        summary={"schema_version":"0.4","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"winner":ranked[0],"baseline":baseline,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.worst_page_iou,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
         write_json(run_dir/"reports"/"summary.json",summary)
         finished=utc_now(); info={"schema_version":"0.2","run_id":run_id,"detector":name,"strategy":args.strategy,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"detector_config":str(args.detector_config),**environment_info(Path.cwd())}
         write_json(run_dir/"RUN-INFO.json",info)
@@ -112,17 +112,26 @@ def run(args:argparse.Namespace)->Path:
         write_rankings(run_dir.parent/f"{name}-regression-results.csv",ranked)
         winner_summary=ranked[0]["summary"]
         baseline_summary=baseline["summary"] if baseline else None
-        print("\nRegression Summary")
+        winner_profile=ranked[0].get("profile") or "ps:"+ranked[0]["parameter_set_id"][:8]
+        progress.announce("Regression complete", winner_profile)
+        elapsed_seconds=time.perf_counter()-wall
+        print("Regression Summary")
         print(f"Run: {run_id}")
+        print(f"Elapsed: {elapsed_seconds:.1f}s")
+        print(f"Average Eval Rate: {(len(ranked)/elapsed_seconds if elapsed_seconds else 0.0):.4f}/s")
         print(f"Parameter sets evaluated: {len(ranked)}")
         print(f"Page evaluations: {len(ranked)*len(pages)}")
-        print(f"Elapsed: {time.perf_counter()-wall:.1f}s")
-        print(f"Winner: {ranked[0].get('profile') or 'ps:'+ranked[0]['parameter_set_id'][:8]}")
+        print(f"Successful parameter sets: {sum(1 for r in ranked if int(r['summary'].get('failure_count',0) or 0)==0)}")
+        print(f"Failed page evaluations: {progress_snapshot.failures}")
+        print(f"Winner: {winner_profile}")
         print(f"Best Mean IoU: {winner_summary['mean_iou']:.4f}")
-        print(f"Worst IoU: {winner_summary['minimum_iou']:.4f}")
+        print(f"Worst-page IoU: {winner_summary['minimum_iou']:.4f}")
+        if progress_snapshot.last_improvement_elapsed_seconds is not None:
+            print(f"Last improvement at: {progress_snapshot.last_improvement_elapsed_seconds:.1f}s")
         if baseline_summary:
             print(f"Baseline Mean IoU: {baseline_summary['mean_iou']:.4f}")
-            print(f"Improvement: {winner_summary['mean_iou']-baseline_summary['mean_iou']:+.4f}")
+            print(f"Mean IoU improvement: {winner_summary['mean_iou']-baseline_summary['mean_iou']:+.4f}")
+            print(f"Worst-page IoU improvement: {winner_summary['minimum_iou']-baseline_summary['minimum_iou']:+.4f}")
         print(json.dumps({"run_id":run_id,"run_directory":str(run_dir),"winner":ranked[0],"baseline":baseline},indent=2))
         return run_dir
     except Exception as exc:
