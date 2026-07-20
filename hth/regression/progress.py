@@ -27,7 +27,7 @@ class ProgressSnapshot:
     best_mean_iou: float | None
     worst_page_iou: float | None
     failures: int
-    current_profile: str
+    evaluating: str
     last_improvement_seconds: float | None
     last_improvement_elapsed_seconds: float | None
 
@@ -37,7 +37,7 @@ class ProgressReporter:
 
     HEADER = (
         "Elapsed    ETA          Complete          Eval Rate   Best Mean IoU   "
-        "Worst IoU   Failures   Last Improvement   Current Profile"
+        "Worst IoU   Failures   Last Improvement   Evaluating"
     )
 
     def __init__(
@@ -64,7 +64,7 @@ class ProgressReporter:
         self.best_worst_result: dict[str, Any] | None = None
         self.baseline_mean_iou: float | None = None
         self.baseline_surpassed = False
-        self.current_profile = "--"
+        self.evaluating = "--"
         self._last_improvement_at: float | None = None
         self._lock = threading.RLock()
         self._stop_event = threading.Event()
@@ -122,6 +122,12 @@ class ProgressReporter:
         self.emit(force=True)
         print(file=self.stream, flush=True)
 
+
+    def begin_evaluation(self, profile: str) -> None:
+        """Record the parameter set currently being evaluated for heartbeat telemetry."""
+        with self._lock:
+            self.evaluating = profile
+
     def observe(self, result: dict[str, Any], profile: str | None = None) -> None:
         with self._lock:
             self.completed += 1
@@ -152,7 +158,6 @@ class ProgressReporter:
             if new_best_worst:
                 self.best_worst_result = result
             if new_best_mean or new_best_worst:
-                self.current_profile = profile_name
                 self._last_improvement_at = now
 
             if profile == "baseline":
@@ -217,7 +222,7 @@ class ProgressReporter:
                 else None
             ),
             failures=self.failures,
-            current_profile=self.current_profile,
+            evaluating=self.evaluating,
             last_improvement_seconds=since_improvement,
             last_improvement_elapsed_seconds=improvement_elapsed,
         )
@@ -247,7 +252,7 @@ class ProgressReporter:
         print(
             f"{_duration(snap.elapsed_seconds):10} {eta:12} "
             f"{complete:18} {rate:11} {best}   {worst}   {snap.failures:8d}   "
-            f"{last_improvement:16}   {snap.current_profile}",
+            f"{last_improvement:16}   {snap.evaluating}",
             file=self.stream,
             flush=True,
         )

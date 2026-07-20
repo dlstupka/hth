@@ -31,6 +31,8 @@ class RegressionProgressTests(unittest.TestCase):
         self.assertIn("Best Mean IoU", initial)
         self.assertIn("Worst IoU", initial)
         self.assertIn("Last Improvement", initial)
+        self.assertIn("Evaluating", initial)
+        self.assertNotIn("Current Profile", initial)
         self.assertIn("0/1000", initial)
         self.assertIn("estimating...", initial)
 
@@ -39,14 +41,17 @@ class RegressionProgressTests(unittest.TestCase):
             "summary": {"mean_iou": 0.8, "minimum_iou": 0.6, "failure_count": 0},
         }
         clock.value = 30
+        reporter.begin_evaluation("baseline")
         reporter.observe(first, "baseline")
         self.assertNotIn("00:00:30 >>>", stream.getvalue())
 
         clock.value = 60
+        reporter.begin_evaluation("ps:feedface")
         reporter.emit()
         text = stream.getvalue()
         self.assertIn("1/1000 0.10%", text)
         self.assertIn("estimating...", text)
+        self.assertIn("ps:feedface", text)
 
         clock.value = 61
         better = {

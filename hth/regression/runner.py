@@ -1,6 +1,6 @@
 """Execute a reproducible detector regression run."""
 from __future__ import annotations
-import argparse, json, time
+import argparse, json, os, time
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +17,38 @@ from .strategies.binary_refine import search as binary_search
 from .progress import ProgressReporter
 
 DETECTORS={"grabcut":grabcut_detect}
+
+
+def repository_root(path: Path) -> Path:
+    candidate = path.resolve()
+    if candidate.is_file():
+        candidate = candidate.parent
+    for directory in (candidate, *candidate.parents):
+        if (directory / ".git").exists():
+            return directory
+    return Path.cwd()
+
+
+def print_environment_banner(*, environment: dict[str, Any], detector: str, golden_set: Path, source_commit: str | None = None) -> None:
+    """Print the execution environment once before a long regression begins."""
+    print("Detector Regression Environment")
+    print("=" * 31)
+    print(f"Execution Target : {environment.get('execution_target') or '--'}")
+    print(f"Runner           : {environment.get('runner_name') or '--'} ({environment.get('runner_environment') or '--'})")
+    print(f"Machine          : {environment.get('machine_name') or '--'}")
+    print(f"CPU              : {environment.get('cpu_model') or '--'}")
+    print(f"Logical CPUs     : {environment.get('logical_cpu_count') or '--'}")
+    memory = environment.get('memory_gib')
+    print(f"Memory           : {memory:.2f} GiB" if isinstance(memory, (int, float)) else "Memory           : --")
+    print(f"OS / Architecture: {environment.get('platform') or '--'} / {environment.get('runner_arch') or '--'}")
+    print(f"Python           : {environment.get('python_version') or '--'}")
+    print(f"OpenCV           : {environment.get('opencv_version') or '--'}")
+    print(f"NumPy            : {environment.get('numpy_version') or '--'}")
+    print(f"Pipeline Commit  : {environment.get('pipeline_commit') or '--'}")
+    print(f"Source Commit    : {source_commit or '--'}")
+    print(f"Golden Set       : {golden_set}")
+    print(f"Detector         : {detector}")
+    print()
 
 def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
     p=argparse.ArgumentParser()
@@ -73,6 +105,8 @@ def run(args:argparse.Namespace)->Path:
     config=json.loads(args.detector_config.read_text(encoding="utf-8")); name=str(config["detector"])
     if name not in DETECTORS: raise SystemExit(f"Unsupported detector: {name}")
     run_id,run_dir=create_run_directory(args.output,name,args.run_id); started=utc_now(); wall=time.perf_counter()
+    environment=environment_info(repository_root(args.detector_config))
+    source_commit=os.environ.get("HTH_SOURCE_COMMIT")
     write_json(run_dir/"parameters.json",{"schema_version":"0.2","detector":name,"strategy":args.strategy,"detector_config":str(args.detector_config),"golden_set":str(args.golden_set),"image_root":str(args.image_root),"max_dimension":args.max_dimension,"limit":args.limit,"configuration":config})
     manifest={"schema_version":"0.1","run_id":run_id,"detector":name,"strategy":args.strategy,"status":"running","started_at_utc":started,"outputs":[]}
     write_json(run_dir/"manifest.json",manifest)
@@ -87,11 +121,14 @@ def run(args:argparse.Namespace)->Path:
         estimated_total=len(exhaustive_parameter_sets(config))
         if args.limit is not None:
             estimated_total=min(estimated_total,args.limit)
+        print_environment_banner(environment=environment,detector=name,golden_set=args.golden_set,source_commit=source_commit)
         progress=ProgressReporter(total=estimated_total,interval_seconds=60.0)
         progress.start()
         def evaluate(parameters:dict[str,Any])->dict[str,Any]:
-            result=evaluate_set(detector,parameters,pages)
             profile=profiles.get(canonical_parameters(parameters))
+            profile_name=profile or f"ps:{parameter_set_id(parameters)[:8]}"
+            progress.begin_evaluation(profile_name)
+            result=evaluate_set(detector,parameters,pages)
             progress.observe(result,profile)
             return result
         if args.strategy=="exhaustive": results=[evaluate(p) for p in cartesian_generate(config,args.limit)]
@@ -103,9 +140,9 @@ def run(args:argparse.Namespace)->Path:
         baseline=next((r for r in ranked if r.get("profile")=="baseline"),None)
         raw=run_dir/"raw"/"results.csv"; rankings=run_dir/"reports"/"rankings.csv"; top=run_dir/"reports"/"top20.csv"
         write_raw_results(raw,ranked); write_rankings(rankings,ranked); write_rankings(top,ranked[:max(0,args.top)])
-        summary={"schema_version":"0.4","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"winner":ranked[0],"baseline":baseline,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.worst_page_iou,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
+        summary={"schema_version":"0.5","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"winner":ranked[0],"baseline":baseline,"runner":environment,"source_commit":source_commit,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.worst_page_iou,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
         write_json(run_dir/"reports"/"summary.json",summary)
-        finished=utc_now(); info={"schema_version":"0.2","run_id":run_id,"detector":name,"strategy":args.strategy,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"detector_config":str(args.detector_config),**environment_info(Path.cwd())}
+        finished=utc_now(); info={"schema_version":"0.2","run_id":run_id,"detector":name,"strategy":args.strategy,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"detector_config":str(args.detector_config),"source_commit":source_commit,**environment}
         write_json(run_dir/"RUN-INFO.json",info)
         manifest.update({"status":"complete","finished_at_utc":finished,"outputs":["RUN-INFO.json","parameters.json","raw/results.csv","reports/summary.json","reports/rankings.csv","reports/top20.csv"]}); write_json(run_dir/"manifest.json",manifest)
         # Convenience report at detector root, refreshed on every completed run.

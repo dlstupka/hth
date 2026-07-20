@@ -1,6 +1,24 @@
 name: HTH detector regression
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "hth/**"
+      - "config/detectors/**"
+      - "config/golden_set.json"
+      - "requirements.txt"
+      - ".github/workflows/regress-detector.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "hth/**"
+      - "config/detectors/**"
+      - "config/golden_set.json"
+      - "requirements.txt"
+      - ".github/workflows/regress-detector.yml"
   workflow_dispatch:
     inputs:
       detector_config:
@@ -50,11 +68,26 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: detector-regression-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
 jobs:
   regress:
-    name: Regress detector against Golden Set
+    name: ${{ github.event_name == 'workflow_dispatch' && 'Regress detector against Golden Set' || 'Detector Regression Smoke Test' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 1440
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 360 || 30 }}
+
+    env:
+      DETECTOR_CONFIG: ${{ github.event_name == 'workflow_dispatch' && inputs.detector_config || 'config/detectors/grabcut.json' }}
+      GOLDEN_SET: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_set || 'config/golden_set.json' }}
+      RESULTS_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && inputs.results_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results' }}
+      IMAGE_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_root || 'test/latest/raw' }}
+      STRATEGY: ${{ github.event_name == 'workflow_dispatch' && inputs.strategy || 'exhaustive' }}
+      LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '10' }}
+      MAX_DIMENSION: ${{ github.event_name == 'workflow_dispatch' && inputs.max_dimension || '1800' }}
+      TOP_COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.top || '10' }}
+      HTH_RUNNER_LABELS: ubuntu-latest
 
     steps:
       - name: Checkout HTH pipeline
@@ -67,7 +100,7 @@ jobs:
       - name: Checkout results repository
         uses: actions/checkout@v6
         with:
-          repository: ${{ inputs.results_repository }}
+          repository: ${{ env.RESULTS_REPOSITORY }}
           path: results-repo
           fetch-depth: 1
           persist-credentials: false
@@ -91,16 +124,10 @@ jobs:
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
-          DETECTOR_CONFIG: ${{ inputs.detector_config }}
-          GOLDEN_SET: ${{ inputs.golden_set }}
-          IMAGE_ROOT: ${{ inputs.image_root }}
-          STRATEGY: ${{ inputs.strategy }}
-          LIMIT: ${{ inputs.limit }}
-          MAX_DIMENSION: ${{ inputs.max_dimension }}
-          TOP_COUNT: ${{ inputs.top }}
         run: |
           set -euo pipefail
           mkdir -p regression-output
+          export HTH_SOURCE_COMMIT="$(git -C results-repo rev-parse HEAD)"
 
           args=(
             python -m hth.regress_detector
