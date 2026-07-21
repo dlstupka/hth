@@ -145,11 +145,9 @@ jobs:
           mkdir -p regression-output
           export HTH_SOURCE_COMMIT="$(git -C results-repo rev-parse HEAD)"
 
-          EXTRA_ARGS=""
-          if [[ "${{ inputs.mode }}" == "smoke" ]]; then
-            EXTRA_ARGS="--limit 10"
-          fi
-                    
+          echo "Regression mode: '${REGRESSION_MODE}'"
+          echo "Configured limit: '${LIMIT:-}'"
+
           args=(
             python -m hth.regress_detector
             --detector-config "hth-pipeline/$DETECTOR_CONFIG"
@@ -160,11 +158,25 @@ jobs:
             --max-dimension "$MAX_DIMENSION"
             --top "$TOP_COUNT"
           )
-          if [[ "${{ inputs.mode }}" == "smoke" ]]; then
-            args+=(--limit 10)
-          elif [[ -n "$LIMIT" ]]; then
-            args+=(--limit "$LIMIT")
-          fi
+          case "${REGRESSION_MODE}" in
+            smoke)
+              args+=(--limit 10)
+              ;;
+            full)
+              if [[ -n "${LIMIT:-}" ]]; then
+                args+=(--limit "$LIMIT")
+              fi
+              ;;
+            *)
+              echo "::error::Unexpected regression mode: '${REGRESSION_MODE}'"
+              exit 1
+              ;;
+          esac
+      
+          printf 'Regression command:'
+          printf ' %q' "${args[@]}"
+          printf '\n'
+      
           "${args[@]}" | tee regression-output/runner-output.json
 
           RUN_DIR="$(find regression-output -mindepth 2 -maxdepth 2 -type d -name 'run-*' | sort | tail -n 1)"
