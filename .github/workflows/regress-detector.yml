@@ -159,9 +159,10 @@ jobs:
             --strategy "$STRATEGY"
             --max-dimension "$MAX_DIMENSION"
             --top "$TOP_COUNT"
-            $EXTRA_ARGS
           )
-          if [[ -n "$LIMIT" ]]; then
+          if [[ "${{ inputs.mode }}" == "smoke" ]]; then
+            args+=(--limit 10)
+          elif [[ -n "$LIMIT" ]]; then
             args+=(--limit "$LIMIT")
           fi
           "${args[@]}" | tee regression-output/runner-output.json
