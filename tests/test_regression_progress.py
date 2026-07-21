@@ -25,7 +25,8 @@ class RegressionProgressTests(unittest.TestCase):
         header = next(line for line in lines if line.startswith("Elapsed"))
         initial = lines[-1]
         self.assertIn("TBD", initial)
-        self.assertIn("0/10  0.0%", initial)
+        self.assertIn("0/10", initial)
+        self.assertIn("0.0%", initial)
         self.assertNotIn("estimating", initial)
 
         clock.value = 60
@@ -36,7 +37,8 @@ class RegressionProgressTests(unittest.TestCase):
         })
         baseline_row = stream.getvalue().splitlines()[-1]
         self.assertIn("TBD", baseline_row)
-        self.assertIn("0/10  0.0%", baseline_row)
+        self.assertIn("0/10", baseline_row)
+        self.assertIn("0.0%", baseline_row)
         self.assertIn("0.8000", baseline_row)
 
         clock.value = 120
@@ -48,18 +50,19 @@ class RegressionProgressTests(unittest.TestCase):
         reporter.emit(force=True)
         row = stream.getvalue().splitlines()[-1]
         self.assertIn("00:09:00", row)
-        self.assertIn("1/10  10.0%", row)
+        self.assertIn("1/10", row)
+        self.assertIn("10.0%", row)
         self.assertIn("00:01:00", row)  # baseline established best at elapsed minute one
 
         self.assertEqual(
             header,
-            "Elapsed   ETA       Complete            Rate  Avg IoU  Min IoU  StdDev  "
-            "Fail  Improved At  Evaluating",
+            "Elapsed   ETA       Progress       %     Rate  Avg IoU  Min IoU  StdDev  "
+            "Fail  Improved  Profile",
         )
         self.assertEqual(
             row,
-            "00:02:00  00:09:00  1/10  10.0%      0.017/s   0.8000   0.6000  "
-            "0.0610     0  00:01:00     ps:12345678",
+            "00:02:00  00:09:00  1/10       10.0%  0.017/s   0.8000   0.6000  "
+            "0.0610     0  00:01:00  12345678",
         )
 
     def test_milestones_and_final_row_clear_evaluating(self) -> None:
@@ -79,13 +82,13 @@ class RegressionProgressTests(unittest.TestCase):
             "summary": {"mean_iou": 0.9, "minimum_iou": 0.6, "stddev_iou": 0.08, "failure_count": 0},
         })
         text = stream.getvalue()
-        self.assertIn("00:01:01 >>> New best average page IoU ps:bbbbbbbb", text)
-        self.assertIn("00:01:01 >>> New minimum page IoU ps:bbbbbbbb", text)
-        self.assertIn("00:01:01 >>> Baseline surpassed ps:bbbbbbbb", text)
+        self.assertIn("00:01:01 >>> New best average page IoU bbbbbbbb", text)
+        self.assertIn("00:01:01 >>> New minimum page IoU bbbbbbbb", text)
+        self.assertIn("00:01:01 >>> Baseline surpassed bbbbbbbb", text)
 
+        before_finish = stream.getvalue()
         reporter.finish()
-        final_row = stream.getvalue().splitlines()[-1]
-        self.assertTrue(final_row.endswith("--"), final_row)
+        self.assertEqual(stream.getvalue(), before_finish)
 
     def test_worst_page_can_improve_without_mean(self) -> None:
         clock = FakeClock()
@@ -102,8 +105,8 @@ class RegressionProgressTests(unittest.TestCase):
             "summary": {"mean_iou": 0.85, "minimum_iou": 0.6, "stddev_iou": 0.07, "failure_count": 0},
         })
         text = stream.getvalue()
-        self.assertIn("New minimum page IoU ps:bbbbbbbb", text)
-        self.assertNotIn("New best average page IoU ps:bbbbbbbb", text)
+        self.assertIn("New minimum page IoU bbbbbbbb", text)
+        self.assertNotIn("New best average page IoU bbbbbbbb", text)
         self.assertAlmostEqual(reporter.snapshot().best_mean_iou or 0, 0.9)
         self.assertAlmostEqual(reporter.snapshot().minimum_page_iou or 0, 0.5)
 

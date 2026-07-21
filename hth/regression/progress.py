@@ -39,25 +39,27 @@ class ProgressReporter:
     COLUMN_WIDTHS = {
         "elapsed": 8,
         "eta": 8,
-        "complete": 15,
+        "progress": 8,
+        "percent": 6,
         "rate": 7,
         "average": 7,
         "minimum": 7,
         "stddev": 6,
         "failures": 4,
-        "improved_at": 11,
+        "improved": 8,
     }
     HEADER = (
         f"{'Elapsed':<{COLUMN_WIDTHS['elapsed']}}  "
         f"{'ETA':<{COLUMN_WIDTHS['eta']}}  "
-        f"{'Complete':<{COLUMN_WIDTHS['complete']}}  "
+        f"{'Progress':<{COLUMN_WIDTHS['progress']}}  "
+        f"{'%':>{COLUMN_WIDTHS['percent']}}  "
         f"{'Rate':>{COLUMN_WIDTHS['rate']}}  "
         f"{'Avg IoU':>{COLUMN_WIDTHS['average']}}  "
         f"{'Min IoU':>{COLUMN_WIDTHS['minimum']}}  "
         f"{'StdDev':>{COLUMN_WIDTHS['stddev']}}  "
         f"{'Fail':>{COLUMN_WIDTHS['failures']}}  "
-        f"{'Improved At':<{COLUMN_WIDTHS['improved_at']}}  "
-        "Evaluating"
+        f"{'Improved':<{COLUMN_WIDTHS['improved']}}  "
+        "Profile"
     )
 
     def __init__(
@@ -127,11 +129,22 @@ class ProgressReporter:
                     print(file=self.stream, flush=True)
 
     @staticmethod
-    def _profile_name(result: dict[str, Any], profile: str | None) -> str:
-        return profile or f"ps:{str(result.get('parameter_set_id', 'unknown'))[:8]}"
+    def _normalize_profile(profile: str) -> str:
+        return profile[3:] if profile.startswith("ps:") else profile
 
-    def announce(self, labels: str | list[str], profile: str | None = None) -> None:
-        """Interleave one or more sparse milestone labels with a single status row."""
+    @classmethod
+    def _profile_name(cls, result: dict[str, Any], profile: str | None) -> str:
+        value = profile or str(result.get("parameter_set_id", "unknown"))[:8]
+        return cls._normalize_profile(value)
+
+    def announce(
+        self,
+        labels: str | list[str],
+        profile: str | None = None,
+        *,
+        emit_status: bool = True,
+    ) -> None:
+        """Emit one or more sparse milestone labels, optionally followed by status."""
         milestone_labels = [labels] if isinstance(labels, str) else list(labels)
         if not milestone_labels:
             return
@@ -140,14 +153,15 @@ class ProgressReporter:
         print(file=self.stream)
         for label in milestone_labels:
             print(f"{_duration(now - self.started)} >>> {label}{suffix}", file=self.stream)
-        self.emit(force=True)
+        if emit_status:
+            self.emit(force=True)
         print(file=self.stream, flush=True)
 
 
     def begin_evaluation(self, profile: str) -> None:
         """Record the parameter set currently being evaluated for heartbeat telemetry."""
         with self._lock:
-            self.evaluating = profile
+            self.evaluating = self._normalize_profile(profile)
 
     def observe_baseline(self, result: dict[str, Any]) -> None:
         """Seed comparison metrics without counting baseline as a search iteration.
@@ -285,7 +299,8 @@ class ProgressReporter:
         if not force and now - self.last_emit < self.interval_seconds:
             return False
         snap = self.snapshot()
-        complete = f"{snap.completed}/{snap.total}  {self._percent(snap.completed, snap.total)}"
+        progress = f"{snap.completed}/{snap.total}"
+        percent = self._percent(snap.completed, snap.total)
         widths = self.COLUMN_WIDTHS
         rate = f"{snap.eval_rate:.3f}/s" if snap.eval_rate is not None else "--"
         average = f"{snap.best_mean_iou:.4f}" if snap.best_mean_iou is not None else "--"
@@ -300,13 +315,14 @@ class ProgressReporter:
         print(
             f"{_duration(snap.elapsed_seconds):<{widths['elapsed']}}  "
             f"{eta:<{widths['eta']}}  "
-            f"{complete:<{widths['complete']}}  "
+            f"{progress:<{widths['progress']}}  "
+            f"{percent:>{widths['percent']}}  "
             f"{rate:>{widths['rate']}}  "
             f"{average:>{widths['average']}}  "
             f"{minimum:>{widths['minimum']}}  "
             f"{stddev:>{widths['stddev']}}  "
             f"{snap.failures:>{widths['failures']}d}  "
-            f"{last_improvement:<{widths['improved_at']}}  "
+            f"{last_improvement:<{widths['improved']}}  "
             f"{snap.evaluating}",
             file=self.stream,
             flush=True,
@@ -319,7 +335,5 @@ class ProgressReporter:
         if self._thread is not None:
             self._thread.join(timeout=min(1.0, self.interval_seconds))
         with self._lock:
-            # The final row describes a completed run, not an evaluation still in flight.
-            self.evaluating = "--"
-            self.emit(force=True)
+            # Completion is announced separately; do not duplicate the final status row.
             return self.snapshot()

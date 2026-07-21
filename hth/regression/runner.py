@@ -148,7 +148,7 @@ def run(args:argparse.Namespace)->Path:
             if canonical == baseline_key:
                 return baseline_result
             profile=profiles.get(canonical)
-            profile_name=profile or f"ps:{parameter_set_id(parameters)[:8]}"
+            profile_name=profile or parameter_set_id(parameters)[:8]
             progress.begin_evaluation(profile_name)
             result=evaluate_set(detector,parameters,pages)
             progress.observe(result,profile)
@@ -175,8 +175,8 @@ def run(args:argparse.Namespace)->Path:
         write_rankings(run_dir.parent/f"{name}-regression-results.csv",ranked)
         winner_summary=ranked[0]["summary"]
         baseline_summary=baseline["summary"] if baseline else None
-        winner_profile=ranked[0].get("profile") or "ps:"+ranked[0]["parameter_set_id"][:8]
-        progress.announce("Regression complete", winner_profile)
+        winner_profile=ranked[0].get("profile") or ranked[0]["parameter_set_id"][:8]
+        progress.announce("Regression complete", emit_status=False)
         elapsed_seconds=time.perf_counter()-wall
         print("Regression Summary")
         print(f"Run: {run_id}")
