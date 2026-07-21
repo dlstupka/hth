@@ -30,15 +30,26 @@ class RegressionProgressTests(unittest.TestCase):
 
         clock.value = 60
         reporter.begin_evaluation("baseline")
-        reporter.observe({
+        reporter.observe_baseline({
             "parameter_set_id": "abcdef123456",
             "summary": {"mean_iou": 0.8, "minimum_iou": 0.6, "stddev_iou": 0.061, "failure_count": 0},
-        }, "baseline")
+        })
+        baseline_row = stream.getvalue().splitlines()[-1]
+        self.assertIn("TBD", baseline_row)
+        self.assertIn("0/10  0.0%", baseline_row)
+        self.assertIn("0.8000", baseline_row)
+
+        clock.value = 120
+        reporter.begin_evaluation("ps:12345678")
+        reporter.observe({
+            "parameter_set_id": "123456789abc",
+            "summary": {"mean_iou": 0.79, "minimum_iou": 0.59, "stddev_iou": 0.062, "failure_count": 0},
+        })
         reporter.emit(force=True)
         row = stream.getvalue().splitlines()[-1]
         self.assertIn("00:09:00", row)
         self.assertIn("1/10  10.0%", row)
-        self.assertIn("00:01:00", row)  # actual elapsed timestamp of last improvement
+        self.assertIn("00:01:00", row)  # baseline established best at elapsed minute one
 
         self.assertEqual(
             header,
@@ -47,8 +58,8 @@ class RegressionProgressTests(unittest.TestCase):
         )
         self.assertEqual(
             row,
-            "00:01:00  00:09:00  1/10  10.0%      0.017/s   0.8000   0.6000  "
-            "0.0610     0  00:01:00     baseline",
+            "00:02:00  00:09:00  1/10  10.0%      0.017/s   0.8000   0.6000  "
+            "0.0610     0  00:01:00     ps:12345678",
         )
 
     def test_milestones_and_final_row_clear_evaluating(self) -> None:
@@ -57,10 +68,10 @@ class RegressionProgressTests(unittest.TestCase):
         reporter = ProgressReporter(total=2, interval_seconds=60, stream=stream, clock=clock)
         reporter.start()
         reporter.begin_evaluation("baseline")
-        reporter.observe({
+        reporter.observe_baseline({
             "parameter_set_id": "aaaaaaaa",
             "summary": {"mean_iou": 0.8, "minimum_iou": 0.5, "stddev_iou": 0.10, "failure_count": 0},
-        }, "baseline")
+        })
         clock.value = 61
         reporter.begin_evaluation("ps:bbbbbbbb")
         reporter.observe({

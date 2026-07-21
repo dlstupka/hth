@@ -118,21 +118,47 @@ def run(args:argparse.Namespace)->Path:
                 f"{type(detector).__name__}"
             )
         profiles={canonical_parameters(p):n for n,p in config.get("profiles",{}).items()}
-        estimated_total=len(exhaustive_parameter_sets(config))
+        baseline_parameters=config.get("profiles",{}).get("baseline")
+        if not isinstance(baseline_parameters,dict):
+            raise ValueError("Detector configuration must define profiles.baseline")
+        baseline_key=canonical_parameters(baseline_parameters)
+
+        exhaustive_candidates=[
+            parameters for parameters in cartesian_generate(config)
+            if canonical_parameters(parameters) != baseline_key
+        ]
         if args.limit is not None:
-            estimated_total=min(estimated_total,args.limit)
+            exhaustive_candidates=exhaustive_candidates[:args.limit]
+        estimated_total=(
+            len(exhaustive_candidates)
+            if args.strategy=="exhaustive"
+            else max(0,len(exhaustive_parameter_sets(config))-1)
+        )
+
         print_environment_banner(environment=environment,detector=name,golden_set=args.golden_set,source_commit=source_commit)
         progress=ProgressReporter(total=estimated_total,interval_seconds=60.0)
         progress.start()
+
+        progress.begin_evaluation("baseline")
+        baseline_result=evaluate_set(detector,dict(baseline_parameters),pages)
+        progress.observe_baseline(baseline_result)
+
         def evaluate(parameters:dict[str,Any])->dict[str,Any]:
-            profile=profiles.get(canonical_parameters(parameters))
+            canonical=canonical_parameters(parameters)
+            if canonical == baseline_key:
+                return baseline_result
+            profile=profiles.get(canonical)
             profile_name=profile or f"ps:{parameter_set_id(parameters)[:8]}"
             progress.begin_evaluation(profile_name)
             result=evaluate_set(detector,parameters,pages)
             progress.observe(result,profile)
             return result
-        if args.strategy=="exhaustive": results=[evaluate(p) for p in cartesian_generate(config,args.limit)]
-        else: results=binary_search(config,evaluate,ranking_key)
+        if args.strategy=="exhaustive":
+            results=[baseline_result,*[evaluate(p) for p in exhaustive_candidates]]
+        else:
+            results=binary_search(config,evaluate,ranking_key)
+            if not any(canonical_parameters(r["parameters"]) == baseline_key for r in results):
+                results.insert(0,baseline_result)
         progress_snapshot=progress.finish()
         for r in results: r["profile"]=profiles.get(canonical_parameters(r["parameters"])); r["run_id"]=run_id
         ranked=sorted(results,key=ranking_key)

@@ -90,6 +90,7 @@ class ProgressReporter:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_progress_at = self.started
+        self._search_started_at: float | None = None
         self._last_stall_warning_at: float | None = None
 
     def start(self) -> None:
@@ -148,6 +149,25 @@ class ProgressReporter:
         with self._lock:
             self.evaluating = profile
 
+    def observe_baseline(self, result: dict[str, Any]) -> None:
+        """Seed comparison metrics without counting baseline as a search iteration.
+
+        Baseline is iteration zero: it establishes best-so-far values and the start
+        of search timing, but it does not affect Complete, Rate, or ETA.
+        """
+        with self._lock:
+            now = self.clock()
+            summary = result.get("summary", {})
+            self.best_mean_result = result
+            self.best_worst_result = result
+            self.baseline_mean_iou = float(summary.get("mean_iou", 0.0) or 0.0)
+            self.failures += int(summary.get("failure_count", 0) or 0)
+            self.evaluating = "baseline"
+            self._last_improvement_at = now
+            self._last_progress_at = now
+            self._search_started_at = now
+            self.emit(force=True)
+
     def observe(self, result: dict[str, Any], profile: str | None = None) -> None:
         with self._lock:
             self.completed += 1
@@ -184,9 +204,9 @@ class ProgressReporter:
                 self.baseline_mean_iou = mean_iou
 
             milestones: list[str] = []
-            if self.completed > 1 and new_best_mean:
+            if new_best_mean:
                 milestones.append("New best average page IoU")
-            if self.completed > 1 and new_best_worst:
+            if new_best_worst:
                 milestones.append("New minimum page IoU")
 
             if (
@@ -207,7 +227,12 @@ class ProgressReporter:
     def snapshot(self) -> ProgressSnapshot:
         now = self.clock()
         elapsed = max(0.0, now - self.started)
-        rate = self.completed / elapsed if elapsed > 0 and self.completed else None
+        search_elapsed = (
+            max(0.0, now - self._search_started_at)
+            if self._search_started_at is not None
+            else 0.0
+        )
+        rate = self.completed / search_elapsed if search_elapsed > 0 and self.completed else None
         remaining = max(0, self.total - self.completed)
         # A first completed evaluation is enough for a useful operational estimate.
         # The estimate will naturally stabilize as additional profiles complete.
