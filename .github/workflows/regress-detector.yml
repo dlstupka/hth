@@ -83,7 +83,10 @@ concurrency:
 jobs:
   regress:
     name: ${{ github.event_name == 'workflow_dispatch' && 'Regress detector against Golden Set' || 'Detector Regression Smoke Test' }}
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && fromJSON('["self-hosted","Windows","X64"]') || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'workflow_dispatch'
+    && inputs.runner == 'self-hosted-hth'
+    && fromJSON('["self-hosted","Linux","X64","hth"]')
+    || 'ubuntu-latest' }}
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 360 || 30 }}
 
     env:
