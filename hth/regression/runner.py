@@ -48,7 +48,9 @@ def print_environment_banner(*, environment: dict[str, Any], detector: str, gold
     print(f"Source Commit    : {source_commit or '--'}")
     print(f"Golden Set       : {golden_set}")
     print(f"Detector         : {detector}")
-    print()
+    # GitHub Actions can visually collapse truly empty log records. A single
+    # space preserves the intended blank separator in both Actions and terminals.
+    print(" ")
 
 def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
     p=argparse.ArgumentParser()
@@ -177,6 +179,8 @@ def run(args:argparse.Namespace)->Path:
         baseline_summary=baseline["summary"] if baseline else None
         winner_profile=ranked[0].get("profile") or ranked[0]["parameter_set_id"][:8]
         progress.announce("Regression complete", emit_status=False)
+        # Preserve one visible separator before the summary in GitHub Actions.
+        print(" ")
         elapsed_seconds=time.perf_counter()-wall
         print("Regression Summary")
         print(f"Run: {run_id}")

@@ -64,6 +64,14 @@ on:
         required: true
         default: "20"
         type: string
+      runner:
+        description: Execution runner
+        required: true
+        default: github-hosted
+        type: choice
+        options:
+          - github-hosted
+          - self-hosted-hth
 
 permissions:
   contents: read
@@ -75,7 +83,7 @@ concurrency:
 jobs:
   regress:
     name: ${{ github.event_name == 'workflow_dispatch' && 'Regress detector against Golden Set' || 'Detector Regression Smoke Test' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && fromJSON('["self-hosted","linux","x64","hth"]') || 'ubuntu-latest' }}
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 360 || 30 }}
 
     env:
@@ -87,7 +95,7 @@ jobs:
       LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '10' }}
       MAX_DIMENSION: ${{ github.event_name == 'workflow_dispatch' && inputs.max_dimension || '1800' }}
       TOP_COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.top || '10' }}
-      HTH_RUNNER_LABELS: ubuntu-latest
+      HTH_RUNNER_LABELS: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && 'self-hosted,linux,x64,hth' || 'ubuntu-latest' }}
 
     steps:
       - name: Checkout HTH pipeline

@@ -44,4 +44,11 @@ The `baseline` profile is treated as a named production reference, not a privile
 
 The manually dispatched **HTH detector regression** workflow checks out a results repository, runs the selected detector against the Golden Set, uploads the complete canonical run directory, and writes a **Regression Manifest** to the Actions job summary. The manifest records provenance, Golden Set pages, parameter-space size, winner and baseline metrics, and output validation.
 
+Manual dispatch supports two execution targets through the same job and the same regression command:
+
+- `github-hosted` (default): `ubuntu-latest`
+- `self-hosted-hth`: `[self-hosted, linux, x64, hth]`
+
+Push and pull-request smoke tests remain on GitHub-hosted runners. A local runner therefore cannot unexpectedly claim ordinary CI work; it is selected only during manual dispatch.
+
 The default image root is `test/latest/preprocessed` in the results repository. Override it at dispatch time when running against another published build.
