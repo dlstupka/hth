@@ -135,6 +135,60 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --requirement hth-pipeline/requirements.txt
 
+      - name: Show OpenCV build
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          python - <<'EOF'
+          import cv2
+
+          print(f"OpenCV version: {cv2.__version__}")
+          print()
+
+          wanted = (
+              "CPU/HW",
+              "Baseline:",
+              "Dispatched code generation:",
+              "Parallel framework",
+              "Intel IPP",
+              "OpenCL",
+              "AVX",
+              "SSE",
+              "TBB",
+              "OpenMP",
+          )
+
+          for line in cv2.getBuildInformation().splitlines():
+              if any(token in line for token in wanted):
+                  print(line)
+          EOF
+ 
+      - name: Benchmark OpenCV
+        shell: bash
+        run: |
+          python - <<'EOF'
+          import time
+          import cv2
+          import numpy as np
+
+          image = np.random.default_rng(12345).integers(
+              0, 256, size=(3000, 3000), dtype=np.uint8
+          )
+
+          # Warm-up
+          for _ in range(5):
+              cv2.GaussianBlur(image, (9, 9), 0)
+
+          started = time.perf_counter()
+          for _ in range(100):
+              cv2.GaussianBlur(image, (9, 9), 0)
+          elapsed = time.perf_counter() - started
+
+          print(f"GaussianBlur 100 iterations: {elapsed:.3f} seconds")
+          print(f"Average per iteration: {elapsed / 100:.6f} seconds")
+          EOF
+          
       - name: Run detector regression
         id: regression
         shell: bash
