@@ -158,7 +158,9 @@ jobs:
             --top "$TOP_COUNT"
           )
           if [[ -n "${LIMIT:-}" ]]; then
-            args+=(--limit "$LIMIT")
+            args+=(--strategy exhaustive --limit "$LIMIT")
+          else
+            args+=(--strategy "$STRATEGY")
           fi
       
           printf 'Regression command:'
