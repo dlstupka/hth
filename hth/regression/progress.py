@@ -25,7 +25,8 @@ class ProgressSnapshot:
     eta_seconds: float | None
     eval_rate: float | None
     best_mean_iou: float | None
-    worst_page_iou: float | None
+    minimum_page_iou: float | None
+    stddev_iou: float | None
     failures: int
     evaluating: str
     last_improvement_seconds: float | None
@@ -38,22 +39,24 @@ class ProgressReporter:
     COLUMN_WIDTHS = {
         "elapsed": 8,
         "eta": 8,
-        "complete": 13,
-        "rate": 9,
-        "best": 13,
-        "worst": 9,
-        "failures": 8,
-        "last_improvement": 16,
+        "complete": 15,
+        "rate": 7,
+        "average": 7,
+        "minimum": 7,
+        "stddev": 6,
+        "failures": 4,
+        "improved_at": 11,
     }
     HEADER = (
         f"{'Elapsed':<{COLUMN_WIDTHS['elapsed']}}  "
         f"{'ETA':<{COLUMN_WIDTHS['eta']}}  "
         f"{'Complete':<{COLUMN_WIDTHS['complete']}}  "
-        f"{'Eval Rate':>{COLUMN_WIDTHS['rate']}}  "
-        f"{'Best Mean IoU':>{COLUMN_WIDTHS['best']}}  "
-        f"{'Worst IoU':>{COLUMN_WIDTHS['worst']}}  "
-        f"{'Failures':>{COLUMN_WIDTHS['failures']}}  "
-        f"{'Last Improvement':<{COLUMN_WIDTHS['last_improvement']}}  "
+        f"{'Rate':>{COLUMN_WIDTHS['rate']}}  "
+        f"{'Avg IoU':>{COLUMN_WIDTHS['average']}}  "
+        f"{'Min IoU':>{COLUMN_WIDTHS['minimum']}}  "
+        f"{'StdDev':>{COLUMN_WIDTHS['stddev']}}  "
+        f"{'Fail':>{COLUMN_WIDTHS['failures']}}  "
+        f"{'Improved At':<{COLUMN_WIDTHS['improved_at']}}  "
         "Evaluating"
     )
 
@@ -182,9 +185,9 @@ class ProgressReporter:
 
             milestones: list[str] = []
             if self.completed > 1 and new_best_mean:
-                milestones.append("New best mean IoU")
+                milestones.append("New best average page IoU")
             if self.completed > 1 and new_best_worst:
-                milestones.append("New worst-page IoU")
+                milestones.append("New minimum page IoU")
 
             if (
                 not self.baseline_surpassed
@@ -210,7 +213,6 @@ class ProgressReporter:
         # The estimate will naturally stabilize as additional profiles complete.
         eta = remaining / rate if rate else None
         mean_summary = self.best_mean_result.get("summary", {}) if self.best_mean_result else {}
-        worst_summary = self.best_worst_result.get("summary", {}) if self.best_worst_result else {}
         since_improvement = (
             max(0.0, now - self._last_improvement_at)
             if self._last_improvement_at is not None
@@ -230,9 +232,14 @@ class ProgressReporter:
             best_mean_iou=(
                 float(mean_summary["mean_iou"]) if "mean_iou" in mean_summary else None
             ),
-            worst_page_iou=(
-                float(worst_summary["minimum_iou"])
-                if "minimum_iou" in worst_summary
+            minimum_page_iou=(
+                float(mean_summary["minimum_iou"])
+                if "minimum_iou" in mean_summary
+                else None
+            ),
+            stddev_iou=(
+                float(mean_summary["stddev_iou"])
+                if "stddev_iou" in mean_summary
                 else None
             ),
             failures=self.failures,
@@ -253,11 +260,12 @@ class ProgressReporter:
         if not force and now - self.last_emit < self.interval_seconds:
             return False
         snap = self.snapshot()
-        complete = f"{snap.completed}/{snap.total} {self._percent(snap.completed, snap.total)}"
+        complete = f"{snap.completed}/{snap.total}  {self._percent(snap.completed, snap.total)}"
         widths = self.COLUMN_WIDTHS
-        rate = f"{snap.eval_rate:.2f}/s" if snap.eval_rate is not None else "--"
-        best = f"{snap.best_mean_iou:.4f}" if snap.best_mean_iou is not None else "--"
-        worst = f"{snap.worst_page_iou:.4f}" if snap.worst_page_iou is not None else "--"
+        rate = f"{snap.eval_rate:.3f}/s" if snap.eval_rate is not None else "--"
+        average = f"{snap.best_mean_iou:.4f}" if snap.best_mean_iou is not None else "--"
+        minimum = f"{snap.minimum_page_iou:.4f}" if snap.minimum_page_iou is not None else "--"
+        stddev = f"{snap.stddev_iou:.4f}" if snap.stddev_iou is not None else "--"
         eta = _duration(snap.eta_seconds) if snap.eta_seconds is not None else "TBD"
         last_improvement = (
             _duration(snap.last_improvement_elapsed_seconds)
@@ -269,10 +277,11 @@ class ProgressReporter:
             f"{eta:<{widths['eta']}}  "
             f"{complete:<{widths['complete']}}  "
             f"{rate:>{widths['rate']}}  "
-            f"{best:>{widths['best']}}  "
-            f"{worst:>{widths['worst']}}  "
+            f"{average:>{widths['average']}}  "
+            f"{minimum:>{widths['minimum']}}  "
+            f"{stddev:>{widths['stddev']}}  "
             f"{snap.failures:>{widths['failures']}d}  "
-            f"{last_improvement:<{widths['last_improvement']}}  "
+            f"{last_improvement:<{widths['improved_at']}}  "
             f"{snap.evaluating}",
             file=self.stream,
             flush=True,

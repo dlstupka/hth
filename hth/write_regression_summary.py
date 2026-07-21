@@ -97,15 +97,16 @@ def build_summary(run_dir: Path, run_url: str = "") -> str:
         "",
         "## Result",
         "",
-        "| Result | Profile | Parameter set | Mean IoU | Worst IoU | Failures | Evaluation time |",
-        "|---|---|---|---:|---:|---:|---:|",
-        f"| Winner | `{_profile(winner)}` | `{_parameter_id(winner)}` | {_number(winner_stats.get('mean_iou'))} | {_number(winner_stats.get('minimum_iou'))} | {winner_stats.get('failure_count', 'unknown')} | {_duration((winner_stats.get('elapsed_ms_total') or 0) / 1000 if winner_stats else None)} |",
+        "| Result | Profile | Parameter set | Avg IoU | Min IoU | StdDev | Failures | Evaluation time |",
+        "|---|---|---|---:|---:|---:|---:|---:|",
+        f"| Winner | `{_profile(winner)}` | `{_parameter_id(winner)}` | {_number(winner_stats.get('mean_iou'))} | {_number(winner_stats.get('minimum_iou'))} | {_number(winner_stats.get('stddev_iou'))} | {winner_stats.get('failure_count', 'unknown')} | {_duration((winner_stats.get('elapsed_ms_total') or 0) / 1000 if winner_stats else None)} |",
     ]
-    if baseline:
+    if baseline and _parameter_id(baseline) != _parameter_id(winner):
         lines.append(
             f"| Baseline | `{_profile(baseline)}` | `{_parameter_id(baseline)}` | "
             f"{_number(baseline_stats.get('mean_iou'))} | "
             f"{_number(baseline_stats.get('minimum_iou'))} | "
+            f"{_number(baseline_stats.get('stddev_iou'))} | "
             f"{baseline_stats.get('failure_count', 'unknown')} | "
             f"{_duration((baseline_stats.get('elapsed_ms_total') or 0) / 1000)} |"
         )

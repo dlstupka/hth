@@ -165,7 +165,7 @@ jobs:
 
       - name: Upload regression run
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4.6.2.6.2
+        uses: actions/upload-artifact@v6
         with:
           name: detector-regression-${{ github.run_id }}
           path: |

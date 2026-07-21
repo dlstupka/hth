@@ -25,30 +25,30 @@ class RegressionProgressTests(unittest.TestCase):
         header = next(line for line in lines if line.startswith("Elapsed"))
         initial = lines[-1]
         self.assertIn("TBD", initial)
-        self.assertIn("0/10 0.0%", initial)
+        self.assertIn("0/10  0.0%", initial)
         self.assertNotIn("estimating", initial)
 
         clock.value = 60
         reporter.begin_evaluation("baseline")
         reporter.observe({
             "parameter_set_id": "abcdef123456",
-            "summary": {"mean_iou": 0.8, "minimum_iou": 0.6, "failure_count": 0},
+            "summary": {"mean_iou": 0.8, "minimum_iou": 0.6, "stddev_iou": 0.061, "failure_count": 0},
         }, "baseline")
         reporter.emit(force=True)
         row = stream.getvalue().splitlines()[-1]
         self.assertIn("00:09:00", row)
-        self.assertIn("1/10 10.0%", row)
+        self.assertIn("1/10  10.0%", row)
         self.assertIn("00:01:00", row)  # actual elapsed timestamp of last improvement
 
         self.assertEqual(
             header,
-            "Elapsed   ETA       Complete       Eval Rate  Best Mean IoU  Worst IoU  "
-            "Failures  Last Improvement  Evaluating",
+            "Elapsed   ETA       Complete            Rate  Avg IoU  Min IoU  StdDev  "
+            "Fail  Improved At  Evaluating",
         )
         self.assertEqual(
             row,
-            "00:01:00  00:09:00  1/10 10.0%        0.02/s         0.8000     "
-            "0.6000         0  00:01:00          baseline",
+            "00:01:00  00:09:00  1/10  10.0%      0.017/s   0.8000   0.6000  "
+            "0.0610     0  00:01:00     baseline",
         )
 
     def test_milestones_and_final_row_clear_evaluating(self) -> None:
@@ -59,17 +59,17 @@ class RegressionProgressTests(unittest.TestCase):
         reporter.begin_evaluation("baseline")
         reporter.observe({
             "parameter_set_id": "aaaaaaaa",
-            "summary": {"mean_iou": 0.8, "minimum_iou": 0.5, "failure_count": 0},
+            "summary": {"mean_iou": 0.8, "minimum_iou": 0.5, "stddev_iou": 0.10, "failure_count": 0},
         }, "baseline")
         clock.value = 61
         reporter.begin_evaluation("ps:bbbbbbbb")
         reporter.observe({
             "parameter_set_id": "bbbbbbbb",
-            "summary": {"mean_iou": 0.9, "minimum_iou": 0.6, "failure_count": 0},
+            "summary": {"mean_iou": 0.9, "minimum_iou": 0.6, "stddev_iou": 0.08, "failure_count": 0},
         })
         text = stream.getvalue()
-        self.assertIn("00:01:01 >>> New best mean IoU ps:bbbbbbbb", text)
-        self.assertIn("00:01:01 >>> New worst-page IoU ps:bbbbbbbb", text)
+        self.assertIn("00:01:01 >>> New best average page IoU ps:bbbbbbbb", text)
+        self.assertIn("00:01:01 >>> New minimum page IoU ps:bbbbbbbb", text)
         self.assertIn("00:01:01 >>> Baseline surpassed ps:bbbbbbbb", text)
 
         reporter.finish()
@@ -83,18 +83,18 @@ class RegressionProgressTests(unittest.TestCase):
         reporter.start()
         reporter.observe({
             "parameter_set_id": "aaaaaaaa",
-            "summary": {"mean_iou": 0.9, "minimum_iou": 0.5, "failure_count": 0},
+            "summary": {"mean_iou": 0.9, "minimum_iou": 0.5, "stddev_iou": 0.12, "failure_count": 0},
         })
         clock.value = 1
         reporter.observe({
             "parameter_set_id": "bbbbbbbb",
-            "summary": {"mean_iou": 0.85, "minimum_iou": 0.6, "failure_count": 0},
+            "summary": {"mean_iou": 0.85, "minimum_iou": 0.6, "stddev_iou": 0.07, "failure_count": 0},
         })
         text = stream.getvalue()
-        self.assertIn("New worst-page IoU ps:bbbbbbbb", text)
-        self.assertNotIn("New best mean IoU ps:bbbbbbbb", text)
+        self.assertIn("New minimum page IoU ps:bbbbbbbb", text)
+        self.assertNotIn("New best average page IoU ps:bbbbbbbb", text)
         self.assertAlmostEqual(reporter.snapshot().best_mean_iou or 0, 0.9)
-        self.assertAlmostEqual(reporter.snapshot().worst_page_iou or 0, 0.6)
+        self.assertAlmostEqual(reporter.snapshot().minimum_page_iou or 0, 0.5)
 
 
 if __name__ == "__main__":

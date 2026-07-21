@@ -1,6 +1,6 @@
 """Execute a reproducible detector regression run."""
 from __future__ import annotations
-import argparse, json, os, time
+import argparse, json, os, statistics, time
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -99,7 +99,7 @@ def evaluate_set(detector:Any, parameters:dict[str,Any], pages:list[dict[str,Any
             elapsed=(time.perf_counter()-page_started)*1000
             page_results.append({"global_ordinal":page["global_ordinal"],"label":page["label"],"layout_type":page["layout_type"],"status":"error","iou":0.0,"edge_error_mean_px":None,"edge_error_maximum_px":None,"elapsed_ms":round(elapsed,3),"error":{"type":type(exc).__name__,"message":str(exc)}})
     successful=[r for r in page_results if r["status"]=="ok"]; ious=[float(r["iou"]) for r in page_results]; edges=[float(r["edge_error_mean_px"]) for r in successful]; elapsed=[float(r["elapsed_ms"]) for r in page_results]
-    return {"parameter_set_id":parameter_set_id(parameters),"parameters":parameters,"summary":{"page_count":len(page_results),"success_count":len(successful),"failure_count":len(page_results)-len(successful),"mean_iou":round(sum(ious)/len(ious),8),"minimum_iou":round(min(ious),8),"mean_edge_error_px":round(sum(edges)/len(edges),3) if edges else None,"elapsed_ms_total":round(sum(elapsed),3),"wall_ms":round((time.perf_counter()-started)*1000,3)},"pages":page_results}
+    return {"parameter_set_id":parameter_set_id(parameters),"parameters":parameters,"summary":{"page_count":len(page_results),"success_count":len(successful),"failure_count":len(page_results)-len(successful),"mean_iou":round(sum(ious)/len(ious),8),"minimum_iou":round(min(ious),8),"stddev_iou":round(statistics.pstdev(ious),8),"mean_edge_error_px":round(sum(edges)/len(edges),3) if edges else None,"elapsed_ms_total":round(sum(elapsed),3),"wall_ms":round((time.perf_counter()-started)*1000,3)},"pages":page_results}
 
 def run(args:argparse.Namespace)->Path:
     config=json.loads(args.detector_config.read_text(encoding="utf-8")); name=str(config["detector"])
@@ -140,7 +140,7 @@ def run(args:argparse.Namespace)->Path:
         baseline=next((r for r in ranked if r.get("profile")=="baseline"),None)
         raw=run_dir/"raw"/"results.csv"; rankings=run_dir/"reports"/"rankings.csv"; top=run_dir/"reports"/"top20.csv"
         write_raw_results(raw,ranked); write_rankings(rankings,ranked); write_rankings(top,ranked[:max(0,args.top)])
-        summary={"schema_version":"0.5","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"winner":ranked[0],"baseline":baseline,"runner":environment,"source_commit":source_commit,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.worst_page_iou,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
+        summary={"schema_version":"0.5","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"winner":ranked[0],"baseline":baseline,"runner":environment,"source_commit":source_commit,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.minimum_page_iou,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
         write_json(run_dir/"reports"/"summary.json",summary)
         finished=utc_now(); info={"schema_version":"0.2","run_id":run_id,"detector":name,"strategy":args.strategy,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"detector_config":str(args.detector_config),"source_commit":source_commit,**environment}
         write_json(run_dir/"RUN-INFO.json",info)
@@ -161,14 +161,15 @@ def run(args:argparse.Namespace)->Path:
         print(f"Successful parameter sets: {sum(1 for r in ranked if int(r['summary'].get('failure_count',0) or 0)==0)}")
         print(f"Failed page evaluations: {progress_snapshot.failures}")
         print(f"Winner: {winner_profile}")
-        print(f"Best Mean IoU: {winner_summary['mean_iou']:.4f}")
-        print(f"Worst-page IoU: {winner_summary['minimum_iou']:.4f}")
+        print(f"Average Page IoU: {winner_summary['mean_iou']:.4f}")
+        print(f"Minimum Page IoU: {winner_summary['minimum_iou']:.4f}")
+        print(f"Std Dev: {winner_summary['stddev_iou']:.4f}")
         if progress_snapshot.last_improvement_elapsed_seconds is not None:
             print(f"Last improvement at: {progress_snapshot.last_improvement_elapsed_seconds:.1f}s")
         if baseline_summary:
-            print(f"Baseline Mean IoU: {baseline_summary['mean_iou']:.4f}")
-            print(f"Mean IoU improvement: {winner_summary['mean_iou']-baseline_summary['mean_iou']:+.4f}")
-            print(f"Worst-page IoU improvement: {winner_summary['minimum_iou']-baseline_summary['minimum_iou']:+.4f}")
+            print(f"Baseline Average Page IoU: {baseline_summary['mean_iou']:.4f}")
+            print(f"Average Page IoU improvement: {winner_summary['mean_iou']-baseline_summary['mean_iou']:+.4f}")
+            print(f"Minimum Page IoU improvement: {winner_summary['minimum_iou']-baseline_summary['minimum_iou']:+.4f}")
         print(json.dumps({"run_id":run_id,"run_directory":str(run_dir),"winner":ranked[0],"baseline":baseline},indent=2))
         return run_dir
     except Exception as exc:
