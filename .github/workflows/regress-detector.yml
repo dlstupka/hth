@@ -145,7 +145,6 @@ jobs:
           mkdir -p regression-output
           export HTH_SOURCE_COMMIT="$(git -C results-repo rev-parse HEAD)"
 
-          echo "Regression mode: '${REGRESSION_MODE}'"
           echo "Configured limit: '${LIMIT:-}'"
 
           args=(
@@ -158,20 +157,9 @@ jobs:
             --max-dimension "$MAX_DIMENSION"
             --top "$TOP_COUNT"
           )
-          case "${REGRESSION_MODE}" in
-            smoke)
-              args+=(--limit 10)
-              ;;
-            full)
-              if [[ -n "${LIMIT:-}" ]]; then
-                args+=(--limit "$LIMIT")
-              fi
-              ;;
-            *)
-              echo "::error::Unexpected regression mode: '${REGRESSION_MODE}'"
-              exit 1
-              ;;
-          esac
+          if [[ -n "${LIMIT:-}" ]]; then
+            args+=(--limit "$LIMIT")
+          fi
       
           printf 'Regression command:'
           printf ' %q' "${args[@]}"
