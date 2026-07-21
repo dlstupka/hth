@@ -64,6 +64,14 @@ on:
         required: true
         default: "20"
         type: string
+      mode:
+        description: Regression mode
+        required: true
+        default: smoke
+        type: choice
+        options:
+          - smoke
+          - full
       runner:
         description: Execution runner
         required: true
@@ -137,6 +145,11 @@ jobs:
           mkdir -p regression-output
           export HTH_SOURCE_COMMIT="$(git -C results-repo rev-parse HEAD)"
 
+          EXTRA_ARGS=""
+          if [[ "${{ inputs.mode }}" == "smoke" ]]; then
+            EXTRA_ARGS="--limit 10"
+          fi
+                    
           args=(
             python -m hth.regress_detector
             --detector-config "hth-pipeline/$DETECTOR_CONFIG"
@@ -146,6 +159,7 @@ jobs:
             --strategy "$STRATEGY"
             --max-dimension "$MAX_DIMENSION"
             --top "$TOP_COUNT"
+            $EXTRA_ARGS
           )
           if [[ -n "$LIMIT" ]]; then
             args+=(--limit "$LIMIT")
