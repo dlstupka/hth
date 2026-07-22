@@ -132,6 +132,14 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Runner diagnostics
+        run: |
+          echo "runner.os=${{ runner.os }}"
+          echo "runner.arch=${{ runner.arch }}"
+          echo "runner.environment=${{ runner.environment }}"
+          echo "runner.name=${{ runner.name }}"
+          echo "runner.labels=${{ join(runner.labels, ', ') }}"
+      
       - name: Set up Python — GitHub-hosted Linux
         if: runner.os == 'Linux' && !contains(runner.labels, 'self-hosted')
         uses: actions/setup-python@v6
