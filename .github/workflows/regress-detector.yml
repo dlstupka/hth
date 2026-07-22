@@ -242,6 +242,14 @@ jobs:
           import platform
           import sys
 
+          echo
+          echo "Filesystem translation"
+          echo "----------------------"
+          pwd
+          pwd -W
+          cygpath -w .
+          cygpath -u "${GITHUB_WORKSPACE:-.}"
+
           print(f"sys.executable   : {sys.executable}")
           print(f"sys.version      : {sys.version.splitlines()[0]}")
           print(f"platform         : {platform.platform()}")
