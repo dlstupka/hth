@@ -1,5 +1,10 @@
 name: HTH detector regression
 
+run-name: >-
+  ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
+      && 'Regress detector against Golden Set'
+      || 'Smoke test detector against Golden Set' }}
+
 on:
   push:
     branches:
@@ -91,8 +96,11 @@ concurrency:
 
 jobs:
   regress:
-    name: ${{ github.event_name == 'workflow_dispatch' && 'Regress detector against Golden Set' || 'Detector Regression Smoke Test' }}
-    runs-on: ${{github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]') || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && fromJSON('["self-hosted","Linux","X64","hth"]') || 'ubuntu-latest'}}
+    name: >-
+      ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
+          && 'Regress detector against Golden Set'
+          || 'Smoke test detector against Golden Set' }}
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]') || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && fromJSON('["self-hosted","Linux","X64","hth"]') || 'ubuntu-latest'}}
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 360 || 30 }}
 
     env:
@@ -100,8 +108,9 @@ jobs:
       GOLDEN_SET: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_set || 'config/golden_set.json' }}
       RESULTS_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && inputs.results_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results' }}
       IMAGE_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_root || 'test/latest/raw' }}
+      REGRESSION_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'smoke' }}
       STRATEGY: ${{ github.event_name == 'workflow_dispatch' && inputs.strategy || 'exhaustive' }}
-      LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '10' }}
+      LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '' }}
       MAX_DIMENSION: ${{ github.event_name == 'workflow_dispatch' && inputs.max_dimension || '1800' }}
       TOP_COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.top || '10' }}
       HTH_RUNNER_LABELS: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && 'self-hosted,linux,x64,hth' || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && 'self-hosted,windows,x64' || 'ubuntu-latest' }}
@@ -187,29 +196,12 @@ jobs:
           & $pythonExe --version
           & $pythonExe -m pip --version
 
-      - name: Install dependencies — Linux
-        if: runner.os == 'Linux'
+      - name: Install dependencies
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
           python -m pip install --requirement hth-pipeline/requirements.txt
-
-      - name: Install dependencies — Windows
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          python -m pip install --upgrade pip
-          if ($LASTEXITCODE -ne 0) {
-            throw "pip upgrade failed with exit code $LASTEXITCODE"
-          }
-
-          python -m pip install `
-            --requirement hth-pipeline/requirements.txt
-          if ($LASTEXITCODE -ne 0) {
-            throw "Dependency installation failed with exit code $LASTEXITCODE"
-          }
 
       - name: Show toolchain environment
         shell: bash
@@ -218,27 +210,67 @@ jobs:
 
           echo "Toolchain Environment"
           echo "====================="
-          echo "Runner name     : ${RUNNER_NAME:-unknown}"
-          echo "Runner OS       : ${RUNNER_OS:-unknown}"
-          echo "Runner arch     : ${RUNNER_ARCH:-unknown}"
-          echo "Runner toolcache: ${RUNNER_TOOL_CACHE:-unknown}"
+          echo "Runner name      : ${RUNNER_NAME:-unknown}"
+          echo "Runner OS        : ${RUNNER_OS:-unknown}"
+          echo "Runner arch      : ${RUNNER_ARCH:-unknown}"
+          echo "Runner toolcache : ${RUNNER_TOOL_CACHE:-unknown}"
+          echo "SHELL            : ${SHELL:-unset}"
+          echo "MSYSTEM          : ${MSYSTEM:-unset}"
+          echo "OSTYPE           : ${OSTYPE:-unset}"
           echo
 
-          echo "bash executable : $(command -v bash)"
+          echo "Shell resolution"
+          echo "----------------"
+          echo "bash executable  : $(command -v bash)"
+          echo "sh executable    : $(command -v sh)"
+          type -a bash || true
+          type -a sh || true
           bash --version | head -n 1
-          echo "git executable  : $(command -v git)"
+          echo
+
+          echo "Tool resolution"
+          echo "---------------"
+          echo "git executable   : $(command -v git)"
+          type -a git || true
           git --version
           echo "python executable: $(command -v python)"
+          type -a python || true
           python --version
           python -m pip --version
+          python - <<'PY'
+          import os
+          import platform
+          import sys
+
+          print(f"sys.executable   : {sys.executable}")
+          print(f"sys.version      : {sys.version.splitlines()[0]}")
+          print(f"platform         : {platform.platform()}")
+          print(f"process arch     : {platform.machine()}")
+          print(f"PYTHONPATH       : {os.environ.get('PYTHONPATH', 'unset')}")
+          PY
 
           if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
             echo
-            echo "Windows executable resolution:"
+            echo "Windows executable resolution"
+            echo "-----------------------------"
             where.exe bash || true
+            where.exe sh || true
             where.exe git || true
             where.exe python || true
+            where.exe py || true
+
+            echo
+            echo "Git Bash path translation"
+            echo "-------------------------"
+            command -v cygpath || true
+            cygpath -w / 2>/dev/null || true
+            cygpath -u "${GITHUB_WORKSPACE:-.}" 2>/dev/null || true
           fi
+
+          echo
+          echo "PATH entries"
+          echo "------------"
+          tr ':' '\n' <<< "$PATH"
 
       - name: Show OpenCV build
         shell: bash
@@ -294,9 +326,8 @@ jobs:
           print(f"Average per iteration: {elapsed / 100:.6f} seconds")
           EOF
           
-      - name: Run detector regression — Linux
-        id: regression_linux
-        if: runner.os == 'Linux'
+      - name: Run detector regression
+        id: regression
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
@@ -306,7 +337,14 @@ jobs:
           mkdir -p regression-output
           export HTH_SOURCE_COMMIT="$(git -C results-repo rev-parse HEAD)"
 
+          effective_limit="${LIMIT:-}"
+          if [[ "$REGRESSION_MODE" == "smoke" && -z "$effective_limit" ]]; then
+            effective_limit="10"
+          fi
+
+          echo "Regression mode : $REGRESSION_MODE"
           echo "Configured limit: '${LIMIT:-}'"
+          echo "Effective limit : '${effective_limit:-}'"
 
           args=(
             python -m hth.regress_detector
@@ -318,8 +356,8 @@ jobs:
             --top "$TOP_COUNT"
           )
 
-          if [[ -n "${LIMIT:-}" ]]; then
-            args+=(--strategy exhaustive --limit "$LIMIT")
+          if [[ -n "${effective_limit:-}" ]]; then
+            args+=(--strategy exhaustive --limit "$effective_limit")
           else
             args+=(--strategy "$STRATEGY")
           fi
@@ -347,87 +385,6 @@ jobs:
 
           echo "run_dir=$RUN_DIR" >> "$GITHUB_OUTPUT"
 
-      - name: Run detector regression — Windows
-        id: regression_windows
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          PYTHONPATH: hth-pipeline
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          New-Item `
-            -ItemType Directory `
-            -Force `
-            -Path "regression-output" |
-            Out-Null
-
-          $env:HTH_SOURCE_COMMIT = (
-            git -C results-repo rev-parse HEAD
-          ).Trim()
-
-          Write-Host "Configured limit: '$env:LIMIT'"
-
-          $regressionArgs = @(
-            "-m", "hth.regress_detector",
-            "--detector-config", "hth-pipeline/$env:DETECTOR_CONFIG",
-            "--golden-set", "hth-pipeline/$env:GOLDEN_SET",
-            "--image-root", "results-repo/$env:IMAGE_ROOT",
-            "--output", "regression-output",
-            "--max-dimension", $env:MAX_DIMENSION,
-            "--top", $env:TOP_COUNT
-          )
-
-          if ($env:LIMIT) {
-            $regressionArgs += @(
-              "--strategy", "exhaustive",
-              "--limit", $env:LIMIT
-            )
-          }
-          else {
-            $regressionArgs += @(
-              "--strategy", $env:STRATEGY
-            )
-          }
-
-          Write-Host (
-            "Regression command: python " +
-            ($regressionArgs -join " ")
-          )
-
-          & python @regressionArgs 2>&1 |
-            Tee-Object `
-              -FilePath "regression-output/runner-output.json"
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "Detector regression failed with exit code $LASTEXITCODE"
-          }
-
-          $runDir = Get-ChildItem `
-              -Path "regression-output" `
-              -Directory `
-              -Recurse |
-            Where-Object {
-              $_.Name -like "run-*"
-            } |
-            Sort-Object FullName |
-            Select-Object -Last 1
-
-          if (-not $runDir) {
-            throw "Regression did not create a canonical run directory"
-          }
-
-          $relativeRunDir = [System.IO.Path]::GetRelativePath(
-            (Get-Location).Path,
-            $runDir.FullName
-          ).Replace('\', '/')
-
-          "run_dir=$relativeRunDir" |
-            Out-File `
-              -FilePath $env:GITHUB_OUTPUT `
-              -Encoding utf8 `
-              -Append
-              
       - name: Write Regression Manifest
         if: ${{ always() && steps.regression.outcome == 'success' }}
         shell: bash
@@ -436,7 +393,7 @@ jobs:
           HTH_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python hth-pipeline/hth/write_regression_summary.py \
-            --run-dir "${{ steps.regression_linux.outputs.run_dir || steps.regression_windows.outputs.run_dir }}" \
+            --run-dir "${{ steps.regression.outputs.run_dir }}" \
             --output regression-summary.md
           cat regression-summary.md >> "$GITHUB_STEP_SUMMARY"
 
