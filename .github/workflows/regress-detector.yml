@@ -141,7 +141,7 @@ jobs:
           echo "runner.labels=${{ join(runner.labels, ', ') }}"
       
       - name: Set up Python — GitHub-hosted Linux
-        if: runner.os == 'Linux' && !contains(runner.labels, 'self-hosted')
+        if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' }}
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -149,7 +149,7 @@ jobs:
           cache-dependency-path: hth-pipeline/requirements.txt
 
       - name: Verify Python — self-hosted Linux
-        if: runner.os == 'Linux' && contains(runner.labels, 'self-hosted')
+        if: ${{ runner.os == 'Linux' && runner.environment == 'self-hosted' }}
         shell: bash
         run: |
           set -euo pipefail
