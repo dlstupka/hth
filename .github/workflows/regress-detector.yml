@@ -132,14 +132,36 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Set up Python — hosted and Linux runners
-        if: runner.os != 'Windows'
+      - name: Set up Python — GitHub-hosted Linux
+        if: runner.os == 'Linux' && !contains(runner.labels, 'self-hosted')
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: hth-pipeline/requirements.txt
 
+      - name: Verify Python — self-hosted Linux
+        if: runner.os == 'Linux' && contains(runner.labels, 'self-hosted')
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "python: $(command -v python)"
+          python --version
+          python -m pip --version
+
+          python - <<'PY'
+          import sys
+
+          if sys.version_info[:2] != (3, 12):
+              raise SystemExit(
+                  f"Expected Python 3.12, got {sys.version} "
+                  f"from {sys.executable}"
+              )
+
+          print(f"Python executable: {sys.executable}")
+          PY
+          
       - name: Use repaired Python tool cache — Windows
         if: runner.os == 'Windows'
         shell: pwsh
