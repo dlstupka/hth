@@ -242,7 +242,11 @@ jobs:
           import os
           import platform
           import sys
+          import cv2
+          import numpy
 
+          print(f"OpenCV file      : {cv2.__file__}")
+          print(f"NumPy file       : {numpy.__file__}")
           print(f"sys.executable   : {sys.executable}")
           print(f"sys.version      : {sys.version.splitlines()[0]}")
           print(f"platform         : {platform.platform()}")
@@ -251,7 +255,7 @@ jobs:
           PY
 
           echo
-          echo "Filesystem translation"
+          echo "Filesystem"
           echo "----------------------"
           pwd
 
