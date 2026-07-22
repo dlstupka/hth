@@ -104,7 +104,7 @@ jobs:
       LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '10' }}
       MAX_DIMENSION: ${{ github.event_name == 'workflow_dispatch' && inputs.max_dimension || '1800' }}
       TOP_COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.top || '10' }}
-      HTH_RUNNER_LABELS: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && 'self-hosted,linux,x64,hth' || 'ubuntu-latest' }}
+      HTH_RUNNER_LABELS: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && 'self-hosted,linux,x64,hth' || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && 'self-hosted,windows,x64' || 'ubuntu-latest' }}
 
     steps:
       - name: Checkout HTH pipeline
@@ -210,6 +210,35 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Dependency installation failed with exit code $LASTEXITCODE"
           }
+
+      - name: Show toolchain environment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Toolchain Environment"
+          echo "====================="
+          echo "Runner name     : ${RUNNER_NAME:-unknown}"
+          echo "Runner OS       : ${RUNNER_OS:-unknown}"
+          echo "Runner arch     : ${RUNNER_ARCH:-unknown}"
+          echo "Runner toolcache: ${RUNNER_TOOL_CACHE:-unknown}"
+          echo
+
+          echo "bash executable : $(command -v bash)"
+          bash --version | head -n 1
+          echo "git executable  : $(command -v git)"
+          git --version
+          echo "python executable: $(command -v python)"
+          python --version
+          python -m pip --version
+
+          if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
+            echo
+            echo "Windows executable resolution:"
+            where.exe bash || true
+            where.exe git || true
+            where.exe python || true
+          fi
 
       - name: Show OpenCV build
         shell: bash

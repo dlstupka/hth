@@ -44,11 +44,27 @@ The `baseline` profile is treated as a named production reference, not a privile
 
 The manually dispatched **HTH detector regression** workflow checks out a results repository, runs the selected detector against the Golden Set, uploads the complete canonical run directory, and writes a **Regression Manifest** to the Actions job summary. The manifest records provenance, Golden Set pages, parameter-space size, winner and baseline metrics, and output validation.
 
-Manual dispatch supports two execution targets through the same job and the same regression command:
-
-- `github-hosted` (default): `ubuntu-latest`
-- `self-hosted-hth`: `[self-hosted, linux, x64, hth]`
-
-Push and pull-request smoke tests remain on GitHub-hosted runners. A local runner therefore cannot unexpectedly claim ordinary CI work; it is selected only during manual dispatch.
-
 The default image root is `test/latest/preprocessed` in the results repository. Override it at dispatch time when running against another published build.
+
+## Regression runner toolchains
+
+The workflow uses one regression engine on every runner, but Python provisioning differs by runner type:
+
+- GitHub-hosted and self-hosted Linux runners use `actions/setup-python@v6` with Python 3.12.
+- The self-hosted Windows runner uses a pre-provisioned Python 3.12.10 installation in the Actions tool cache. The expected interpreter is `$RUNNER_TOOL_CACHE/Python/3.12.10/x64/python.exe`, and `$RUNNER_TOOL_CACHE/Python/3.12.10/x64.complete` must exist. `pip` must also be available through `python -m pip`.
+
+The Windows runner should be started from a normal, non-elevated PowerShell session. The workflow intentionally avoids reinstalling Python on that runner because the downloaded Windows tool-cache installer performs protected machine-wide registry cleanup. Do not delete the runner's `_work/_tool` directory unless the Python tool cache will be rebuilt afterward.
+
+Bash-oriented steps run through `shell: bash` on both Linux and Windows. On Windows, Git Bash must resolve before the WSL launcher. A healthy command lookup begins with:
+
+```text
+C:\Program Files\Git\bin\bash.exe
+```
+
+Verify the ordering from PowerShell with:
+
+```powershell
+Get-Command bash -All
+```
+
+The **Show toolchain environment** step records the resolved Bash, Git, Python, and pip executables and versions in every regression log. On Windows it also prints `where.exe` results, making PATH-order regressions immediately visible. `HTH_RUNNER_LABELS` is set per selected runner so the detector banner reports GitHub-hosted versus self-hosted execution correctly.
