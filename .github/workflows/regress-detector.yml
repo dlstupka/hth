@@ -92,8 +92,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: detector-regression-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+  group: >-
+    ${{ github.workflow }}-${{ github.ref }}-${{
+      github.event_name == 'workflow_dispatch'
+      && inputs.runner
+      || 'automatic'
+    }}
+  cancel-in-progress: false
 
 jobs:
   regress:
