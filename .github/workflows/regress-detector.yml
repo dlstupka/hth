@@ -237,18 +237,11 @@ jobs:
           type -a python || true
           python --version
           python -m pip --version
+          
           python - <<'PY'
           import os
           import platform
           import sys
-
-          echo
-          echo "Filesystem translation"
-          echo "----------------------"
-          pwd
-          pwd -W
-          cygpath -w .
-          cygpath -u "${GITHUB_WORKSPACE:-.}"
 
           print(f"sys.executable   : {sys.executable}")
           print(f"sys.version      : {sys.version.splitlines()[0]}")
@@ -257,7 +250,16 @@ jobs:
           print(f"PYTHONPATH       : {os.environ.get('PYTHONPATH', 'unset')}")
           PY
 
+          echo
+          echo "Filesystem translation"
+          echo "----------------------"
+          pwd
+
           if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
+            echo "Native Windows cwd : $(pwd -W)"
+            echo "POSIX -> Windows   : $(cygpath -w .)"
+            echo "Workspace -> POSIX : $(cygpath -u "${GITHUB_WORKSPACE:-.}")"
+
             echo
             echo "Windows executable resolution"
             echo "-----------------------------"
@@ -270,9 +272,12 @@ jobs:
             echo
             echo "Git Bash path translation"
             echo "-------------------------"
-            command -v cygpath || true
-            cygpath -w / 2>/dev/null || true
-            cygpath -u "${GITHUB_WORKSPACE:-.}" 2>/dev/null || true
+            echo "cygpath executable : $(command -v cygpath)"
+            echo "POSIX root         : /"
+            echo "Windows root       : $(cygpath -w /)"
+          else
+            echo "Native POSIX filesystem; MSYS path translation not applicable."
+            echo "Workspace          : ${GITHUB_WORKSPACE:-unset}"
           fi
 
           echo
