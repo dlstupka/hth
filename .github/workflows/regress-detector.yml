@@ -87,6 +87,8 @@ on:
           - self-hosted-hth
           - self-hosted-windows
           - self-hosted-rhel8
+          - self-hosted-e7k
+          - self-hosted-e9k
   
 permissions:
   contents: read
