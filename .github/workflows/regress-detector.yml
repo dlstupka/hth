@@ -546,7 +546,6 @@ jobs:
           printf ' %q' "${args[@]}"
           printf '\n'
 
-          echo
           echo "Regression Invocation"
           echo "====================="
           printf '%-22s: %s\n' "Mode" "$REGRESSION_MODE"
