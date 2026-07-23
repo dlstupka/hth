@@ -119,7 +119,8 @@ jobs:
       LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '' }}
       MAX_DIMENSION: ${{ github.event_name == 'workflow_dispatch' && inputs.max_dimension || '1800' }}
       TOP_COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.top || '10' }}
-      HTH_RUNNER_LABELS: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && 'self-hosted,linux,x64,hth' || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && 'self-hosted,windows,x64' || 'ubuntu-latest' }}
+      PYTHONNOUSERSITE: "1"
+      HTH_RUNNER_LABELS: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && 'self-hosted,linux,x64,hth' || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-rhel8' && 'self-hosted,linux,x64,rhel8' || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && 'self-hosted,windows,x64' || 'ubuntu-latest' }}
 
     steps:
       - name: Checkout HTH pipeline
@@ -143,7 +144,6 @@ jobs:
           echo "runner.arch=${{ runner.arch }}"
           echo "runner.environment=${{ runner.environment }}"
           echo "runner.name=${{ runner.name }}"
-          echo "runner.labels=${{ join(runner.labels, ', ') }}"
       
       - name: Set up Python — GitHub-hosted Linux
         if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' }}
@@ -232,12 +232,85 @@ jobs:
           & $pythonExe --version
           & $pythonExe -m pip --version
 
+      - name: Create isolated Python environment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bootstrap_python="$(command -v python)"
+          venv_dir="$RUNNER_TEMP/hth-python-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          echo "Bootstrap Python: $bootstrap_python"
+          "$bootstrap_python" --version
+          "$bootstrap_python" -m pip --version
+
+          rm -rf "$venv_dir"
+          "$bootstrap_python" -m venv "$venv_dir"
+
+          if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
+            venv_bin="$venv_dir/Scripts"
+            venv_python="$venv_bin/python.exe"
+            github_path_entry="$(cygpath -w "$venv_bin")"
+          else
+            venv_bin="$venv_dir/bin"
+            venv_python="$venv_bin/python"
+            github_path_entry="$venv_bin"
+          fi
+
+          if [[ ! -x "$venv_python" ]]; then
+            echo "::error::Virtual-environment Python is missing: $venv_python"
+            exit 1
+          fi
+
+          echo "$github_path_entry" >> "$GITHUB_PATH"
+          echo "HTH_VENV=$venv_dir" >> "$GITHUB_ENV"
+          echo "HTH_BOOTSTRAP_PYTHON=$bootstrap_python" >> "$GITHUB_ENV"
+
+          "$venv_python" -m pip install --upgrade pip
+
+          "$venv_python" - <<'PY'
+          import site
+          import sys
+
+          print(f"Venv executable : {sys.executable}")
+          print(f"sys.prefix      : {sys.prefix}")
+          print(f"sys.base_prefix : {sys.base_prefix}")
+          print(f"User site       : {site.USER_SITE}")
+          print(f"User site active: {site.ENABLE_USER_SITE}")
+
+          if sys.prefix == sys.base_prefix:
+              raise SystemExit("Virtual environment is not active")
+          if site.ENABLE_USER_SITE:
+              raise SystemExit("User site-packages unexpectedly enabled")
+          PY
+
       - name: Install dependencies
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install --upgrade pip
+
+          echo "Active Python: $(command -v python)"
+          python --version
+          python -m pip --version
           python -m pip install --requirement hth-pipeline/requirements.txt
+          python -m pip check
+
+      - name: Verify Python dependency ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import sys
+          import cv2
+          import numpy
+          import skimage
+
+          print(f"Python       : {sys.executable}")
+          print(f"NumPy        : {numpy.__version__} ({numpy.__file__})")
+          print(f"scikit-image : {skimage.__version__} ({skimage.__file__})")
+          print(f"OpenCV       : {cv2.__version__} ({cv2.__file__})")
+          PY
 
       - name: Show toolchain environment
         shell: bash
@@ -269,7 +342,9 @@ jobs:
           echo "git executable   : $(command -v git)"
           type -a git || true
           git --version
-          echo "python executable: $(command -v python)"
+          echo "bootstrap Python : ${HTH_BOOTSTRAP_PYTHON:-unknown}"
+          echo "virtual env      : ${HTH_VENV:-unknown}"
+          echo "active Python    : $(command -v python)"
           type -a python || true
           python --version
           python -m pip --version
