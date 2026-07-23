@@ -17,6 +17,7 @@ BASELINE_PARAMETERS: dict[str, Any] = {
     "close_iterations": 0,
     "rectangularity_weight": 0.25,
     "bbox_padding_fraction": 0.0,
+    "merge_fragmented_contours": False,
 }
 
 
@@ -34,6 +35,7 @@ def _parameters(overrides: dict[str, Any] | None) -> dict[str, Any]:
     close_iterations = int(values["close_iterations"])
     rectangularity_weight = float(values["rectangularity_weight"])
     padding = float(values["bbox_padding_fraction"])
+    merge_fragmented = bool(values["merge_fragmented_contours"])
 
     if not 0.0 <= minimum_area <= 1.0:
         raise ValueError("minimum_contour_area_fraction must be between 0 and 1")
@@ -54,6 +56,7 @@ def _parameters(overrides: dict[str, Any] | None) -> dict[str, Any]:
     values["close_iterations"] = close_iterations
     values["rectangularity_weight"] = rectangularity_weight
     values["bbox_padding_fraction"] = padding
+    values["merge_fragmented_contours"] = merge_fragmented
     return values
 
 
@@ -128,19 +131,21 @@ def detect(
         np.ndarray,
         float,
         float,
+        str,
     ] | None = None
 
     minimum_area = image_area * values["minimum_contour_area_fraction"]
     rectangularity_weight = values["rectangularity_weight"]
 
-    for contour in contours:
+    def consider(contour: np.ndarray, source: str) -> None:
+        nonlocal best
         area = float(cv2.contourArea(contour))
         if area < minimum_area:
-            continue
+            return
 
         perimeter = float(cv2.arcLength(contour, True))
         if perimeter <= 0.0:
-            continue
+            return
 
         approx = cv2.approxPolyDP(
             contour,
@@ -171,7 +176,18 @@ def detect(
                 approx,
                 area,
                 rectangularity,
+                source,
             )
+
+    for contour in contours:
+        consider(contour, "external_contour")
+
+    # Sparse title/index sheets often contain many small disconnected foreground
+    # islands.  Optionally evaluate their convex hull as one document hypothesis.
+    if best is None and values["merge_fragmented_contours"] and contours:
+        points = np.concatenate(contours, axis=0)
+        if len(points) >= 3:
+            consider(cv2.convexHull(points), "merged_convex_hull")
 
     diagnostics = {
         "parameters": values,
@@ -184,7 +200,7 @@ def detect(
         diagnostics["reason"] = "no_plausible_contour"
         return Candidate(METHOD, None, None, 0.0, 0.0, diagnostics, status="no_candidate")
 
-    combined, contour, bbox, approx, area, rectangularity = best
+    combined, contour, bbox, approx, area, rectangularity, contour_source = best
     if len(approx) == 4:
         corners = [[float(point[0][0]), float(point[0][1])] for point in approx]
         corner_source = "approx_poly_dp"
@@ -200,6 +216,7 @@ def detect(
             "rectangularity": round(rectangularity, 8),
             "polygon_vertices": int(len(approx)),
             "corner_source": corner_source,
+            "contour_source": contour_source,
         }
     )
 

@@ -65,6 +65,26 @@ class ContourDetectorTests(unittest.TestCase):
         assert candidate.diagnostics["close_kernel_size"] > 0
 
 
+
+    def test_contour_can_merge_sparse_fragments_into_document_hull(self) -> None:
+        image = np.zeros((300, 500, 3), dtype=np.uint8)
+        mask = np.zeros((300, 500), dtype=np.uint8)
+        for x, y in ((60, 40), (420, 40), (60, 250), (420, 250)):
+            cv2.rectangle(mask, (x, y), (x + 12, y + 12), 255, -1)
+
+        candidate = detect(
+            image_bgr=image,
+            mask=mask,
+            parameters={
+                "minimum_contour_area_fraction": 0.20,
+                "merge_fragmented_contours": True,
+            },
+        )
+
+        self.assertEqual(candidate.status, "ok")
+        self.assertIsNotNone(candidate.bbox)
+        self.assertEqual(candidate.diagnostics["contour_source"], "merged_convex_hull")
+
     def test_contour_rejects_unknown_parameter(self) -> None:
         image = np.zeros((100, 100, 3), dtype=np.uint8)
         mask = np.zeros((100, 100), dtype=np.uint8)

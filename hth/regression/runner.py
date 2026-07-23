@@ -63,6 +63,12 @@ def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
     p.add_argument("--limit",type=int,default=None)
     p.add_argument("--top",type=int,default=20)
     p.add_argument("--run-id",default=None)
+    p.add_argument(
+        "--debug-artifacts",
+        choices=("none", "failures", "winner", "all"),
+        default=None,
+        help="Debug image policy; defaults to detector configuration or failures.",
+    )
     return p.parse_args(argv)
 
 def find_image(root:Path, ordinal:int)->Path:
@@ -103,8 +109,104 @@ def evaluate_set(detector:Any, parameters:dict[str,Any], pages:list[dict[str,Any
     successful=[r for r in page_results if r["status"]=="ok"]; ious=[float(r["iou"]) for r in page_results]; edges=[float(r["edge_error_mean_px"]) for r in successful]; elapsed=[float(r["elapsed_ms"]) for r in page_results]
     return {"parameter_set_id":parameter_set_id(parameters),"parameters":parameters,"summary":{"page_count":len(page_results),"success_count":len(successful),"failure_count":len(page_results)-len(successful),"mean_iou":round(sum(ious)/len(ious),8),"minimum_iou":round(min(ious),8),"stddev_iou":round(statistics.pstdev(ious),8),"mean_edge_error_px":round(sum(edges)/len(edges),3) if edges else None,"elapsed_ms_total":round(sum(elapsed),3),"wall_ms":round((time.perf_counter()-started)*1000,3)},"pages":page_results}
 
+def _safe_name(value: Any) -> str:
+    text = str(value or "unknown")
+    return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in text)
+
+
+def _write_debug_page(
+    root: Path,
+    *,
+    page: dict[str, Any],
+    result: dict[str, Any],
+    parameter_set_id_value: str,
+) -> None:
+    ordinal = int(page["global_ordinal"])
+    page_dir = root / _safe_name(parameter_set_id_value) / f"page-{ordinal:04d}"
+    page_dir.mkdir(parents=True, exist_ok=True)
+
+    original = cv2.imread(str(page["image_path"]), cv2.IMREAD_COLOR)
+    if original is None:
+        raise RuntimeError(f"Could not read debug image: {page['image_path']}")
+    overlay = original.copy()
+    approved = result.get("approved_bbox") or page.get("approved_bbox")
+    predicted = result.get("predicted_bbox")
+    if valid_bbox(approved):
+        x1, y1, x2, y2 = (int(v) for v in approved)
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 0), 4)
+    if valid_bbox(predicted):
+        x1, y1, x2, y2 = (int(v) for v in predicted)
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 255), 4)
+
+    cv2.imwrite(str(page_dir / "original.jpg"), original)
+    cv2.imwrite(str(page_dir / "input-mask.png"), page["mask"])
+    cv2.imwrite(str(page_dir / "overlay.jpg"), overlay)
+    write_json(
+        page_dir / "diagnostics.json",
+        {
+            "global_ordinal": ordinal,
+            "label": page.get("label"),
+            "layout_type": page.get("layout_type"),
+            "image_path": page.get("image_path"),
+            "parameter_set_id": parameter_set_id_value,
+            "result": result,
+            "overlay_legend": {"approved_bbox": "green", "predicted_bbox": "red"},
+        },
+    )
+
+
+def write_debug_artifacts(
+    run_dir: Path,
+    *,
+    policy: str,
+    ranked: list[dict[str, Any]],
+    pages: list[dict[str, Any]],
+) -> list[str]:
+    debug_root = run_dir / "debug"
+    page_by_ordinal = {int(page["global_ordinal"]): page for page in pages}
+    selected: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    if policy == "all":
+        selected = [(parameter_set, page_result) for parameter_set in ranked for page_result in parameter_set["pages"]]
+    elif policy in {"winner", "failures"}:
+        winner = ranked[0]
+        selected = [(winner, page_result) for page_result in winner["pages"]]
+        if policy == "failures":
+            selected = [item for item in selected if item[1].get("status") != "ok"]
+
+    for parameter_set, page_result in selected:
+        page = page_by_ordinal[int(page_result["global_ordinal"])]
+        _write_debug_page(
+            debug_root,
+            page=page,
+            result=page_result,
+            parameter_set_id_value=str(parameter_set["parameter_set_id"]),
+        )
+
+    readme = [
+        "HTH detector regression debug artifacts",
+        "",
+        f"Policy: {policy}",
+        f"Pages written: {len(selected)}",
+        "",
+        "Each page directory contains:",
+        "- original.jpg: source image",
+        "- input-mask.png: mask supplied to the detector",
+        "- overlay.jpg: approved bbox in green; predicted bbox in red",
+        "- diagnostics.json: complete page result and detector diagnostics",
+        "",
+    ]
+    (debug_root / "README.txt").write_text("\n".join(readme), encoding="utf-8")
+    outputs = ["debug/README.txt"]
+    outputs.extend(str(path.relative_to(run_dir)) for path in sorted(debug_root.rglob("*")) if path.is_file() and path.name != "README.txt")
+    return outputs
+
+
 def run(args:argparse.Namespace)->Path:
     config=json.loads(args.detector_config.read_text(encoding="utf-8")); name=str(config["detector"])
+    regression_config = config.get("regression", {}) if isinstance(config.get("regression"), dict) else {}
+    debug_policy = args.debug_artifacts or str(regression_config.get("debug_artifacts", "failures"))
+    if debug_policy not in {"none", "failures", "winner", "all"}:
+        raise ValueError(f"Unsupported debug artifact policy: {debug_policy}")
     if name not in DETECTORS: raise SystemExit(f"Unsupported detector: {name}")
     run_id,run_dir=create_run_directory(args.output,name,args.run_id); started=utc_now(); wall=time.perf_counter()
     environment=environment_info(repository_root(args.detector_config))
@@ -170,9 +272,12 @@ def run(args:argparse.Namespace)->Path:
         write_raw_results(raw,ranked); write_rankings(rankings,ranked); write_rankings(top,ranked[:max(0,args.top)])
         summary={"schema_version":"0.5","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"winner":ranked[0],"baseline":baseline,"runner":environment,"source_commit":source_commit,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.minimum_page_iou,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
         write_json(run_dir/"reports"/"summary.json",summary)
-        finished=utc_now(); info={"schema_version":"0.2","run_id":run_id,"detector":name,"strategy":args.strategy,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"detector_config":str(args.detector_config),"source_commit":source_commit,**environment}
+        debug_outputs = [] if debug_policy == "none" else write_debug_artifacts(
+            run_dir, policy=debug_policy, ranked=ranked, pages=pages
+        )
+        finished=utc_now(); info={"schema_version":"0.2","run_id":run_id,"detector":name,"strategy":args.strategy,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"detector_config":str(args.detector_config),"debug_artifacts":debug_policy,"source_commit":source_commit,**environment}
         write_json(run_dir/"RUN-INFO.json",info)
-        manifest.update({"status":"complete","finished_at_utc":finished,"outputs":["RUN-INFO.json","parameters.json","raw/results.csv","reports/summary.json","reports/rankings.csv","reports/top20.csv"]}); write_json(run_dir/"manifest.json",manifest)
+        manifest.update({"status":"complete","finished_at_utc":finished,"outputs":["RUN-INFO.json","parameters.json","raw/results.csv","reports/summary.json","reports/rankings.csv","reports/top20.csv",*debug_outputs]}); write_json(run_dir/"manifest.json",manifest)
         # Convenience report at detector root, refreshed on every completed run.
         write_rankings(run_dir.parent/f"{name}-regression-results.csv",ranked)
         winner_summary=ranked[0]["summary"]

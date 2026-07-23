@@ -75,3 +75,16 @@ The **Show toolchain environment** step records the resolved Bash, Git, Python, 
 - `contour` — `config/detectors/contour.json`
 
 Both use the identical black-box regression path and canonical output contract.
+
+## Debug artifacts
+
+Regression runs create a top-level `debug/` directory. The detector
+configuration may set `regression.debug_artifacts` to `none`, `failures`,
+`winner`, or `all`; the command-line `--debug-artifacts` option overrides it.
+`failures` writes failed pages from the winning parameter set and is the default.
+Each page directory contains the original image, detector input mask, bounding
+box overlay, and complete JSON diagnostics.
+
+Regression adapters execute detectors through the authoritative geometry
+registry, so serialized candidates include detector name, origin, foundation,
+authors, version, and repository provenance.

@@ -9,37 +9,72 @@
       "close_kernel_fraction": 0.0,
       "close_iterations": 0,
       "rectangularity_weight": 0.25,
-      "bbox_padding_fraction": 0.0
+      "bbox_padding_fraction": 0.0,
+      "merge_fragmented_contours": false
     }
   },
   "parameters": {
     "minimum_contour_area_fraction": {
       "type": "float",
-      "values": [0.06, 0.12, 0.20]
+      "values": [
+        0.06,
+        0.12,
+        0.2
+      ]
     },
     "polygon_epsilon_fraction": {
       "type": "float",
-      "values": [0.008, 0.018, 0.035]
+      "values": [
+        0.008,
+        0.018,
+        0.035
+      ]
     },
     "close_kernel_fraction": {
       "type": "float",
-      "values": [0.0, 0.008, 0.018]
+      "values": [
+        0.0,
+        0.008,
+        0.018
+      ]
     },
     "close_iterations": {
       "type": "integer",
-      "values": [0, 1, 2]
+      "values": [
+        0,
+        1,
+        2
+      ]
     },
     "rectangularity_weight": {
       "type": "float",
-      "values": [0.10, 0.25, 0.40]
+      "values": [
+        0.1,
+        0.25,
+        0.4
+      ]
     },
     "bbox_padding_fraction": {
       "type": "float",
-      "values": [0.0, 0.005, 0.015]
+      "values": [
+        0.0,
+        0.005,
+        0.015
+      ]
+    },
+    "merge_fragmented_contours": {
+      "type": "boolean",
+      "values": [
+        false,
+        true
+      ]
     }
   },
   "binary_refine": {
     "passes": 3,
     "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "failures"
   }
 }

@@ -32,7 +32,7 @@ def git_commit(path: Path) -> str | None:
 def create_run_directory(root: Path, detector: str, run_id: str | None = None) -> tuple[str, Path]:
     rid = run_id or datetime.now(timezone.utc).strftime("run-%Y%m%d-%H%M%S")
     run = root / detector / rid
-    for sub in ("raw", "reports", "logs"):
+    for sub in ("raw", "reports", "logs", "debug"):
         (run / sub).mkdir(parents=True, exist_ok=False)
     return rid, run
 

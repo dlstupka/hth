@@ -44,3 +44,36 @@ python -m hth.regress_detector \
 
 Contour is evaluated independently from GrabCut. Results should be compared by
 Golden Set metrics rather than by confidence scores across detector families.
+
+## Fragmented-contour fallback
+
+`merge_fragmented_contours` enables a sparse-page fallback. When no individual
+external contour satisfies the configured minimum area, the detector evaluates
+the convex hull of all foreground contours as one document hypothesis. The
+candidate diagnostics identify this path with:
+
+```json
+"contour_source": "merged_convex_hull"
+```
+
+The baseline remains `false`; regression evaluates both values.
+
+## Regression debug artifacts
+
+Contour regression defaults to `regression.debug_artifacts: failures`. Failed
+winner pages are written beneath the run's obvious `debug/` directory:
+
+```text
+debug/
+  README.txt
+  <parameter-set-id>/
+    page-0006/
+      original.jpg
+      input-mask.png
+      overlay.jpg
+      diagnostics.json
+```
+
+The overlay uses green for the approved bounding box and red for the predicted
+bounding box. Override the policy at the command line with
+`--debug-artifacts none|failures|winner|all`.

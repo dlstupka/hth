@@ -212,6 +212,31 @@ def _normalize_candidate(
     return _apply_spec(candidate, spec)
 
 
+
+def run_registered_detector(
+    method: str,
+    *,
+    image_bgr: np.ndarray,
+    mask: np.ndarray,
+    parameters: dict[str, Any] | None = None,
+) -> Candidate:
+    """Run one detector through the authoritative registry contract."""
+    spec = next((item for item in _REGISTRY if item.method == method), None)
+    if spec is None:
+        raise KeyError(f"Unknown detector: {method}")
+    started = time.perf_counter()
+    try:
+        candidate = spec.entrypoint(
+            image_bgr=image_bgr,
+            mask=mask,
+            parameters=parameters,
+        )
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        return _normalize_candidate(spec, candidate, elapsed_ms=elapsed_ms)
+    except Exception as exc:
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        return _failed_candidate(spec, exc, elapsed_ms=elapsed_ms)
+
 def run_registered_detectors(*, image_bgr: np.ndarray, mask: np.ndarray) -> list[Candidate]:
     """Run every registered detector independently with timing and isolation."""
     candidates: list[Candidate] = []
