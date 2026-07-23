@@ -52,7 +52,7 @@ def _parameter_id(result: dict[str, Any] | None) -> str:
     return str(result.get("parameter_set_id") or "unknown")
 
 
-def build_summary(run_dir: Path, run_url: str = "") -> str:
+def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = True) -> str:
     manifest = _read_json(run_dir / "manifest.json")
     info = _read_json(run_dir / "RUN-INFO.json")
     parameters = _read_json(run_dir / "parameters.json")
@@ -67,9 +67,10 @@ def build_summary(run_dir: Path, run_url: str = "") -> str:
     configuration = parameters.get("configuration", {}) if isinstance(parameters.get("configuration"), dict) else {}
     profiles = configuration.get("profiles", {}) if isinstance(configuration.get("profiles"), dict) else {}
 
-    lines = [
-        "# Regression Manifest",
-        "",
+    lines = []
+    if include_title:
+        lines.extend(["# Regression Manifest", ""])
+    lines.extend([
         f"**Status:** {manifest.get('status', 'unknown')}",
         "",
         "## Build provenance",
@@ -100,7 +101,7 @@ def build_summary(run_dir: Path, run_url: str = "") -> str:
         "| Result | Profile | Parameter set | Avg IoU | Min IoU | StdDev | Failures | Evaluation time |",
         "|---|---|---|---:|---:|---:|---:|---:|",
         f"| Winner | `{_profile(winner)}` | `{_parameter_id(winner)}` | {_number(winner_stats.get('mean_iou'))} | {_number(winner_stats.get('minimum_iou'))} | {_number(winner_stats.get('stddev_iou'))} | {winner_stats.get('failure_count', 'unknown')} | {_duration((winner_stats.get('elapsed_ms_total') or 0) / 1000 if winner_stats else None)} |",
-    ]
+    ])
     if baseline and _parameter_id(baseline) != _parameter_id(winner):
         lines.append(
             f"| Baseline | `{_profile(baseline)}` | `{_parameter_id(baseline)}` | "
@@ -124,9 +125,34 @@ def build_summary(run_dir: Path, run_url: str = "") -> str:
     return "\n".join(lines)
 
 
+def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
+    if not run_dirs:
+        raise ValueError("At least one regression run directory is required")
+    if len(run_dirs) == 1:
+        return build_summary(run_dirs[0], run_url)
+
+    lines = [
+        "# Detector Regression Manifest",
+        "",
+        f"**Detectors evaluated:** {len(run_dirs)}",
+        "",
+    ]
+    for index, run_dir in enumerate(run_dirs):
+        manifest = _read_json(run_dir / "manifest.json")
+        detector = str(manifest.get("detector", run_dir.parent.name))
+        lines.extend([f"## {detector}", ""])
+        lines.append(build_summary(run_dir, include_title=False).rstrip())
+        if index != len(run_dirs) - 1:
+            lines.extend(["", "---", ""])
+    if run_url:
+        lines.extend(["", f"[Open workflow run]({run_url})"])
+    lines.append("")
+    return "\n".join(lines)
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--run-dir", type=Path, required=True)
+    p.add_argument("--run-dir", type=Path, action="append", required=True)
     p.add_argument("--output", type=Path)
     p.add_argument("--run-url", default=os.environ.get("HTH_RUN_URL", ""))
     return p
@@ -134,7 +160,7 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    text = build_summary(args.run_dir, args.run_url)
+    text = build_combined_summary(args.run_dir, args.run_url)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(text, encoding="utf-8")

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.write_regression_summary import build_summary
+from hth.write_regression_summary import build_combined_summary, build_summary
 
 
 class RegressionSummaryTests(unittest.TestCase):
@@ -48,6 +48,42 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("`raw/results.csv` — present", text)
             self.assertIn("`reports/summary.json` — present", text)
             self.assertIn("[Open workflow run]", text)
+
+    def test_builds_combined_manifest_for_multiple_detectors(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run_dirs = []
+            for detector in ("grabcut", "contour"):
+                run = root / detector / "run-1"
+                (run / "reports").mkdir(parents=True)
+                (run / "manifest.json").write_text(json.dumps({
+                    "run_id": f"run-{detector}", "detector": detector,
+                    "strategy": "exhaustive", "status": "complete", "outputs": []
+                }), encoding="utf-8")
+                (run / "RUN-INFO.json").write_text(json.dumps({
+                    "pipeline_commit": "1234567890abcdef", "python_version": "3.12.0",
+                    "opencv_version": "5.0.0", "elapsed_seconds": 1.0,
+                    "golden_set": "config/golden_set.json"
+                }), encoding="utf-8")
+                (run / "parameters.json").write_text(json.dumps({
+                    "configuration": {"profiles": {"baseline": {}}}
+                }), encoding="utf-8")
+                result = {"profile": "baseline", "parameter_set_id": detector, "summary": {
+                    "mean_iou": .9, "minimum_iou": .8, "stddev_iou": .01,
+                    "failure_count": 0, "elapsed_ms_total": 100
+                }}
+                (run / "reports" / "summary.json").write_text(json.dumps({
+                    "page_ordinals": [1], "parameter_set_count": 1,
+                    "winner": result, "baseline": result
+                }), encoding="utf-8")
+                run_dirs.append(run)
+
+            text = build_combined_summary(run_dirs, "https://example.invalid/run")
+            self.assertIn("# Detector Regression Manifest", text)
+            self.assertIn("**Detectors evaluated:** 2", text)
+            self.assertIn("## grabcut", text)
+            self.assertIn("## contour", text)
+            self.assertEqual(text.count("[Open workflow run]"), 1)
 
 
 if __name__ == "__main__":

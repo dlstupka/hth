@@ -2,8 +2,8 @@ name: HTH detector regression
 
 run-name: >-
   ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
-      && 'Regress detector against Golden Set'
-      || 'Smoke test detector against Golden Set' }}
+      && 'Regress detectors against Golden Set'
+      || 'Smoke test detectors against Golden Set' }}
 
 on:
   push:
@@ -27,9 +27,9 @@ on:
   workflow_dispatch:
     inputs:
       detector_config:
-        description: Detector parameter-space configuration
+        description: Detector configuration path, comma-separated paths, or all
         required: true
-        default: config/detectors/grabcut.json
+        default: all
         type: string
       golden_set:
         description: Golden Set configuration
@@ -106,8 +106,8 @@ jobs:
   regress:
     name: >-
       ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
-          && 'Regress detector against Golden Set'
-          || 'Smoke test detector against Golden Set' }}
+          && 'Regress detectors against Golden Set'
+          || 'Smoke test detectors against Golden Set' }}
     runs-on: >-
       ${{    github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
@@ -118,7 +118,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 360 || 30 }}
 
     env:
-      DETECTOR_CONFIG: ${{ github.event_name == 'workflow_dispatch' && inputs.detector_config || 'config/detectors/grabcut.json' }}
+      DETECTOR_CONFIG: ${{ github.event_name == 'workflow_dispatch' && inputs.detector_config || 'all' }}
       GOLDEN_SET: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_set || 'config/golden_set.json' }}
       RESULTS_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && inputs.results_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results' }}
       IMAGE_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_root || 'test/latest/raw' }}
@@ -491,7 +491,7 @@ jobs:
                   stream.write(f"HTH_OPENCV_BENCHMARK_AVERAGE_SECONDS={average:.9f}\n")
           EOF
           
-      - name: Run detector regression
+      - name: Run detector regressions
         id: regression
         shell: bash
         env:
@@ -507,27 +507,50 @@ jobs:
             effective_limit="10"
           fi
 
-          echo "Regression mode : $REGRESSION_MODE"
-          echo "Configured limit: '${LIMIT:-}'"
-          echo "Effective limit : '${effective_limit:-}'"
-
-          args=(
-            python -m hth.regress_detector
-            --detector-config "hth-pipeline/$DETECTOR_CONFIG"
-            --golden-set "hth-pipeline/$GOLDEN_SET"
-            --image-root "results-repo/$IMAGE_ROOT"
-            --output regression-output
-            --max-dimension "$MAX_DIMENSION"
-            --top "$TOP_COUNT"
-          )
-
+          effective_strategy="$STRATEGY"
           if [[ -n "${effective_limit:-}" ]]; then
-            args+=(--strategy exhaustive --limit "$effective_limit")
-          else
-            args+=(--strategy "$STRATEGY")
+            effective_strategy="exhaustive"
           fi
 
-          detector_name="$(python - "hth-pipeline/$DETECTOR_CONFIG" <<'PY'
+          if [[ "${DETECTOR_CONFIG,,}" == "all" ]]; then
+            mapfile -t detector_configs < <(
+              find hth-pipeline/config/detectors \
+                -maxdepth 1 \
+                -type f \
+                -name '*.json' \
+                -print | sort
+            )
+          else
+            IFS=',' read -r -a requested_configs <<< "$DETECTOR_CONFIG"
+            detector_configs=()
+            for requested_config in "${requested_configs[@]}"; do
+              requested_config="${requested_config#"${requested_config%%[![:space:]]*}"}"
+              requested_config="${requested_config%"${requested_config##*[![:space:]]}"}"
+              [[ -n "$requested_config" ]] || continue
+              detector_configs+=("hth-pipeline/$requested_config")
+            done
+          fi
+
+          if (( ${#detector_configs[@]} == 0 )); then
+            echo "::error::No detector configurations were selected"
+            exit 1
+          fi
+
+          echo "Regression mode : $REGRESSION_MODE"
+          echo "Configured input: '$DETECTOR_CONFIG'"
+          echo "Effective limit : '${effective_limit:-none}'"
+          echo "Detectors       : ${#detector_configs[@]}"
+
+          : > regression-output/run-directories.txt
+          : > regression-output/runner-output.log
+
+          for detector_config in "${detector_configs[@]}"; do
+            if [[ ! -f "$detector_config" ]]; then
+              echo "::error::Detector configuration not found: $detector_config"
+              exit 1
+            fi
+
+            detector_name="$(python - "$detector_config" <<'PY'
           import json
           import sys
           from pathlib import Path
@@ -535,60 +558,71 @@ jobs:
           payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
           print(payload.get("detector", "unknown"))
           PY
-          )"
+            )"
 
-          effective_strategy="$STRATEGY"
-          if [[ -n "${effective_limit:-}" ]]; then
-            effective_strategy="exhaustive"
-          fi
+            args=(
+              python -m hth.regress_detector
+              --detector-config "$detector_config"
+              --golden-set "hth-pipeline/$GOLDEN_SET"
+              --image-root "results-repo/$IMAGE_ROOT"
+              --output regression-output
+              --max-dimension "$MAX_DIMENSION"
+              --top "$TOP_COUNT"
+            )
 
-          printf '\nRegression command:'
-          printf ' %q' "${args[@]}"
-          printf '\n'
+            if [[ -n "${effective_limit:-}" ]]; then
+              args+=(--strategy exhaustive --limit "$effective_limit")
+            else
+              args+=(--strategy "$STRATEGY")
+            fi
 
-          echo
-          echo "Regression Invocation"
-          echo "====================="
-          printf '%-22s: %s\n' "Mode" "$REGRESSION_MODE"
-          printf '%-22s: %s\n' "Detector" "$detector_name"
-          printf '%-22s: %s\n' "Detector config" "hth-pipeline/$DETECTOR_CONFIG"
-          printf '%-22s: %s\n' "Strategy" "$effective_strategy"
-          printf '%-22s: %s\n' "Golden Set" "hth-pipeline/$GOLDEN_SET"
-          printf '%-22s: %s\n' "Image root" "results-repo/$IMAGE_ROOT"
-          printf '%-22s: %s\n' "Output" "regression-output"
-          printf '%-22s: %s\n' "Maximum dimension" "$MAX_DIMENSION"
-          printf '%-22s: %s\n' "Top candidates" "$TOP_COUNT"
-          printf '%-22s: %s\n' "Parameter-set limit" "${effective_limit:-none}"
-          if [[ -n "${HTH_OPENCV_BENCHMARK_SECONDS:-}" ]]; then
-            printf '%-22s: %.3f s total; %.0f µs/iteration\n' \
-              "OpenCV benchmark" \
-              "$HTH_OPENCV_BENCHMARK_SECONDS" \
-              "$(python -c 'import os; print(float(os.environ["HTH_OPENCV_BENCHMARK_AVERAGE_SECONDS"])*1_000_000)')"
-          fi
-          echo
+            printf '\nRegression command:'
+            printf ' %q' "${args[@]}"
+            printf '\n'
 
-          # Keep the real hostname in generated metrics, but redact it from
-          # the human-facing Actions log. Runner names remain visible.
-          "${args[@]}" 2>&1 \
-            | sed -E 's/^(Machine[[:space:]]*:).*/\1 [obfuscated]/' \
-            | tee regression-output/runner-output.json
+            echo
+            echo "Regression Invocation"
+            echo "====================="
+            printf '%-22s: %s\n' "Mode" "$REGRESSION_MODE"
+            printf '%-22s: %s\n' "Detector" "$detector_name"
+            printf '%-22s: %s\n' "Detector config" "$detector_config"
+            printf '%-22s: %s\n' "Strategy" "$effective_strategy"
+            printf '%-22s: %s\n' "Golden Set" "hth-pipeline/$GOLDEN_SET"
+            printf '%-22s: %s\n' "Image root" "results-repo/$IMAGE_ROOT"
+            printf '%-22s: %s\n' "Output" "regression-output"
+            printf '%-22s: %s\n' "Maximum dimension" "$MAX_DIMENSION"
+            printf '%-22s: %s\n' "Top candidates" "$TOP_COUNT"
+            printf '%-22s: %s\n' "Parameter-set limit" "${effective_limit:-none}"
+            if [[ -n "${HTH_OPENCV_BENCHMARK_SECONDS:-}" ]]; then
+              printf '%-22s: %.3f s total; %.0f µs/iteration\n' \
+                "OpenCV benchmark" \
+                "$HTH_OPENCV_BENCHMARK_SECONDS" \
+                "$(python -c 'import os; print(float(os.environ["HTH_OPENCV_BENCHMARK_AVERAGE_SECONDS"])*1_000_000)')"
+            fi
+            echo
 
-          RUN_DIR="$(
-            find regression-output \
-              -mindepth 2 \
-              -maxdepth 2 \
-              -type d \
-              -name 'run-*' |
-            sort |
-            tail -n 1
-          )"
+            before_runs="$(find "regression-output/$detector_name" -mindepth 1 -maxdepth 1 -type d -name 'run-*' 2>/dev/null | sort || true)"
 
-          if [[ -z "$RUN_DIR" ]]; then
-            echo "::error::Regression did not create a canonical run directory"
-            exit 1
-          fi
+            "${args[@]}" 2>&1 \
+              | sed -E 's/^(Machine[[:space:]]*:).*/\1 [obfuscated]/' \
+              | tee -a regression-output/runner-output.log
 
-          echo "run_dir=$RUN_DIR" >> "$GITHUB_OUTPUT"
+            run_dir="$(
+              comm -13 \
+                <(printf '%s\n' "$before_runs" | sed '/^$/d' | sort) \
+                <(find "regression-output/$detector_name" -mindepth 1 -maxdepth 1 -type d -name 'run-*' | sort) \
+              | tail -n 1
+            )"
+
+            if [[ -z "$run_dir" ]]; then
+              echo "::error::$detector_name regression did not create a canonical run directory"
+              exit 1
+            fi
+
+            echo "$run_dir" >> regression-output/run-directories.txt
+          done
+
+          echo "run_dirs_file=regression-output/run-directories.txt" >> "$GITHUB_OUTPUT"
 
       - name: Write Regression Manifest
         if: ${{ always() && steps.regression.outcome == 'success' }}
@@ -597,25 +631,17 @@ jobs:
           PYTHONPATH: hth-pipeline
           HTH_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          set -euo pipefail
+
+          summary_args=()
+          while IFS= read -r run_dir; do
+            [[ -n "$run_dir" ]] || continue
+            summary_args+=(--run-dir "$run_dir")
+          done < "${{ steps.regression.outputs.run_dirs_file }}"
+
           python hth-pipeline/hth/write_regression_summary.py \
-            --run-dir "${{ steps.regression.outputs.run_dir }}" \
+            "${summary_args[@]}" \
             --output regression-summary.md
-
-          # Preserve the hostname in canonical run metrics while preventing it
-          # from appearing in the human-readable Markdown report.
-          python - <<'PY'
-          from pathlib import Path
-          import re
-
-          path = Path("regression-summary.md")
-          text = path.read_text(encoding="utf-8")
-          text = re.sub(
-              r"(?im)^(\s*(?:machine|machine name|host|hostname)\s*[:|])[^\n|]*(?=\n|\|)",
-              r"\1 [obfuscated]",
-              text,
-          )
-          path.write_text(text, encoding="utf-8")
-          PY
 
           cat regression-summary.md >> "$GITHUB_STEP_SUMMARY"
 
