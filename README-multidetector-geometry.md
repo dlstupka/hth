@@ -133,6 +133,7 @@ algorithm experimentation inexpensive without weakening production loading.
 
 ## Detector-specific documentation
 
+- [Contour](docs/README-detector-contour.md)
 - [Connected Components](docs/README-detector-components.md)
 - [Line Segment Detector](docs/README-detector-lsd.md)
 - [GrabCut](docs/README-detector-grabcut.md)

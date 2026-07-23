@@ -6,7 +6,7 @@ HTH regression is a black-box experiment framework. It knows parameter names and
 
 ```bash
 python -m hth.regress_detector \
-  --detector-config config/detectors/grabcut.json \
+  --detector-config config/detectors/grabcut.json  # or contour.json \
   --golden-set config/golden_set.json \
   --image-root path/to/preprocessed \
   --output build/regression \
@@ -18,7 +18,7 @@ For a development smoke test add `--limit 2` with the exhaustive strategy.
 ## Canonical run directory
 
 ```text
-build/regression/grabcut/run-YYYYMMDD-HHMMSS/
+build/regression/<detector>/run-YYYYMMDD-HHMMSS/
   manifest.json
   RUN-INFO.json
   parameters.json
@@ -29,7 +29,7 @@ build/regression/grabcut/run-YYYYMMDD-HHMMSS/
   logs/
 ```
 
-`raw/results.csv` is canonical: one row per parameter set × Golden Set page. Reports are derived and may be regenerated without rerunning the detector. The detector root also receives `grabcut-regression-results.csv` as a convenience copy of the latest full ranking.
+`raw/results.csv` is canonical: one row per parameter set × Golden Set page. Reports are derived and may be regenerated without rerunning the detector. The detector root also receives `<detector>-regression-results.csv` as a convenience copy of the latest full ranking.
 
 `RUN-INFO.json` records the Python, OpenCV, platform and Git commit available to the runner. `manifest.json` begins in `running` state and ends as `complete` or `failed`.
 
@@ -68,3 +68,10 @@ Get-Command bash -All
 ```
 
 The **Show toolchain environment** step records the resolved Bash, Git, Python, and pip executables and versions in every regression log. On Windows it also prints `where.exe` results, making PATH-order regressions immediately visible. `HTH_RUNNER_LABELS` is set per selected runner so the detector banner reports GitHub-hosted versus self-hosted execution correctly.
+
+## Supported detectors
+
+- `grabcut` — `config/detectors/grabcut.json`
+- `contour` — `config/detectors/contour.json`
+
+Both use the identical black-box regression path and canonical output contract.

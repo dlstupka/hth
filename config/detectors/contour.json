@@ -1,0 +1,45 @@
+{
+  "schema_version": "0.1",
+  "detector": "contour",
+  "description": "Black-box calibration space for the HTH external-contour geometry detector.",
+  "profiles": {
+    "baseline": {
+      "minimum_contour_area_fraction": 0.12,
+      "polygon_epsilon_fraction": 0.018,
+      "close_kernel_fraction": 0.0,
+      "close_iterations": 0,
+      "rectangularity_weight": 0.25,
+      "bbox_padding_fraction": 0.0
+    }
+  },
+  "parameters": {
+    "minimum_contour_area_fraction": {
+      "type": "float",
+      "values": [0.06, 0.12, 0.20]
+    },
+    "polygon_epsilon_fraction": {
+      "type": "float",
+      "values": [0.008, 0.018, 0.035]
+    },
+    "close_kernel_fraction": {
+      "type": "float",
+      "values": [0.0, 0.008, 0.018]
+    },
+    "close_iterations": {
+      "type": "integer",
+      "values": [0, 1, 2]
+    },
+    "rectangularity_weight": {
+      "type": "float",
+      "values": [0.10, 0.25, 0.40]
+    },
+    "bbox_padding_fraction": {
+      "type": "float",
+      "values": [0.0, 0.005, 0.015]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  }
+}

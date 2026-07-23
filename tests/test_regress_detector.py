@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from hth.regress_detector import bbox_iou, edge_errors, exhaustive_parameter_sets, parameter_set_id
+from hth.regression.runner import DETECTORS
 
 
 def test_bbox_iou() -> None:
@@ -35,3 +36,8 @@ def test_exhaustive_parameter_sets_is_cartesian() -> None:
 
 def test_parameter_set_id_is_order_independent() -> None:
     assert parameter_set_id({"a": 1, "b": 2}) == parameter_set_id({"b": 2, "a": 1})
+
+
+def test_initial_black_box_detectors_are_registered() -> None:
+    assert set(DETECTORS) >= {"grabcut", "contour"}
+    assert all(callable(DETECTORS[name]) for name in ("grabcut", "contour"))
