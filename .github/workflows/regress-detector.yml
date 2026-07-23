@@ -135,6 +135,16 @@ jobs:
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e9k' && 'self-hosted,linux,x64,e9k'
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && 'self-hosted,windows,x64'
           || 'ubuntu-latest' }}
+      HTH_EXECUTION_ENVIRONMENT: ${{ runner.environment }}
+      HTH_RUNNER_DISPLAY_NAME: >-
+        ${{ runner.environment == 'github-hosted' && 'github-hosted' || runner.name }}
+      HTH_RUNNER_LABEL: >-
+        ${{  github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && 'hth'
+          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-rhel8' && 'rhel8'
+          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e7k' && 'e7k'
+          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e9k' && 'e9k'
+          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && 'windows'
+          || 'ubuntu-latest' }}
 
     steps:
       - name: Checkout HTH pipeline
@@ -447,6 +457,7 @@ jobs:
         shell: bash
         run: |
           python - <<'EOF'
+          import os
           import time
           import cv2
           import numpy as np
@@ -464,8 +475,15 @@ jobs:
               cv2.GaussianBlur(image, (9, 9), 0)
           elapsed = time.perf_counter() - started
 
+          average = elapsed / 100
           print(f"GaussianBlur 100 iterations: {elapsed:.3f} seconds")
-          print(f"Average per iteration: {elapsed / 100:.6f} seconds")
+          print(f"Average per iteration: {average:.6f} seconds")
+
+          github_env = os.environ.get("GITHUB_ENV")
+          if github_env:
+              with open(github_env, "a", encoding="utf-8") as stream:
+                  stream.write(f"HTH_OPENCV_BENCHMARK_SECONDS={elapsed:.9f}\n")
+                  stream.write(f"HTH_OPENCV_BENCHMARK_AVERAGE_SECONDS={average:.9f}\n")
           EOF
           
       - name: Run detector regression
@@ -504,9 +522,45 @@ jobs:
             args+=(--strategy "$STRATEGY")
           fi
 
+          detector_name="$(python - "hth-pipeline/$DETECTOR_CONFIG" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          print(payload.get("detector", "unknown"))
+          PY
+          )"
+
+          effective_strategy="$STRATEGY"
+          if [[ -n "${effective_limit:-}" ]]; then
+            effective_strategy="exhaustive"
+          fi
+
+          echo
+          echo "Regression Invocation"
+          echo "====================="
+          printf '%-22s: %s\n' "Mode" "$REGRESSION_MODE"
+          printf '%-22s: %s\n' "Detector" "$detector_name"
+          printf '%-22s: %s\n' "Detector config" "hth-pipeline/$DETECTOR_CONFIG"
+          printf '%-22s: %s\n' "Strategy" "$effective_strategy"
+          printf '%-22s: %s\n' "Golden Set" "hth-pipeline/$GOLDEN_SET"
+          printf '%-22s: %s\n' "Image root" "results-repo/$IMAGE_ROOT"
+          printf '%-22s: %s\n' "Output" "regression-output"
+          printf '%-22s: %s\n' "Maximum dimension" "$MAX_DIMENSION"
+          printf '%-22s: %s\n' "Top candidates" "$TOP_COUNT"
+          printf '%-22s: %s\n' "Parameter-set limit" "${effective_limit:-none}"
+          if [[ -n "${HTH_OPENCV_BENCHMARK_SECONDS:-}" ]]; then
+            printf '%-22s: %.3f s total; %.0f µs/iteration\n' \
+              "OpenCV benchmark" \
+              "$HTH_OPENCV_BENCHMARK_SECONDS" \
+              "$(python -c 'import os; print(float(os.environ["HTH_OPENCV_BENCHMARK_AVERAGE_SECONDS"])*1_000_000)')"
+          fi
+          echo
+
           printf 'Regression command:'
           printf ' %q' "${args[@]}"
-          printf '\n'
+          printf '\n\n'
 
           "${args[@]}" | tee regression-output/runner-output.json
 
