@@ -106,7 +106,13 @@ jobs:
       ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
           && 'Regress detector against Golden Set'
           || 'Smoke test detector against Golden Set' }}
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]') || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && fromJSON('["self-hosted","Linux","X64","hth"]') || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-rhel8' && fromJSON('["self-hosted","Linux","X64","rhel8"]') || 'ubuntu-latest'}}
+    runs-on: >-
+      ${{    github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
+          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
+          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
+          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e9k'     && fromJSON('["self-hosted","Linux","X64","e9k"]')
+          || 'ubuntu-latest'}}
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 360 || 30 }}
 
     env:
@@ -120,7 +126,13 @@ jobs:
       MAX_DIMENSION: ${{ github.event_name == 'workflow_dispatch' && inputs.max_dimension || '1800' }}
       TOP_COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.top || '10' }}
       PYTHONNOUSERSITE: "1"
-      HTH_RUNNER_LABELS: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && 'self-hosted,linux,x64,hth' || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-rhel8' && 'self-hosted,linux,x64,rhel8' || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && 'self-hosted,windows,x64' || 'ubuntu-latest' }}
+      HTH_RUNNER_LABELS: >-
+        ${{  github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && 'self-hosted,linux,x64,hth'
+          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-rhel8' && 'self-hosted,linux,x64,rhel8'
+          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e7k' && 'self-hosted,linux,x64,e7k'
+          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e9k' && 'self-hosted,linux,x64,e9k'
+          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && 'self-hosted,windows,x64'
+          || 'ubuntu-latest' }}
 
     steps:
       - name: Checkout HTH pipeline
