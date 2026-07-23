@@ -135,9 +135,6 @@ jobs:
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e9k' && 'self-hosted,linux,x64,e9k'
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && 'self-hosted,windows,x64'
           || 'ubuntu-latest' }}
-      HTH_EXECUTION_ENVIRONMENT: ${{ runner.environment }}
-      HTH_RUNNER_DISPLAY_NAME: >-
-        ${{ runner.environment == 'github-hosted' && 'github-hosted' || runner.name }}
       HTH_RUNNER_LABEL: >-
         ${{  github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && 'hth'
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-rhel8' && 'rhel8'
@@ -163,11 +160,20 @@ jobs:
           persist-credentials: false
 
       - name: Runner diagnostics
+        shell: bash
         run: |
+          set -euo pipefail
+
           echo "runner.os=${{ runner.os }}"
           echo "runner.arch=${{ runner.arch }}"
           echo "runner.environment=${{ runner.environment }}"
           echo "runner.name=${{ runner.name }}"
+
+          # runner.* is available only after the job has been assigned to a
+          # runner. Export the report metadata here rather than in job-level
+          # env, where GitHub validates expressions before runner assignment.
+          echo "HTH_EXECUTION_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
+          echo "HTH_RUNNER_DISPLAY_NAME=${{ runner.name }}" >> "$GITHUB_ENV"
       
       - name: Set up Python — GitHub-hosted Linux
         if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' }}
@@ -562,7 +568,11 @@ jobs:
           printf ' %q' "${args[@]}"
           printf '\n\n'
 
-          "${args[@]}" | tee regression-output/runner-output.json
+          # Keep the real hostname in generated metrics, but redact it from
+          # the human-facing Actions log. Runner names remain visible.
+          "${args[@]}" 2>&1 \
+            | sed -E 's/^(Machine[[:space:]]*:).*/\1 [obfuscated]/' \
+            | tee regression-output/runner-output.json
 
           RUN_DIR="$(
             find regression-output \
@@ -591,6 +601,23 @@ jobs:
           python hth-pipeline/hth/write_regression_summary.py \
             --run-dir "${{ steps.regression.outputs.run_dir }}" \
             --output regression-summary.md
+
+          # Preserve the hostname in canonical run metrics while preventing it
+          # from appearing in the human-readable Markdown report.
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("regression-summary.md")
+          text = path.read_text(encoding="utf-8")
+          text = re.sub(
+              r"(?im)^(\s*(?:machine|machine name|host|hostname)\s*[:|])[^\n|]*(?=\n|\|)",
+              r"\1 [obfuscated]",
+              text,
+          )
+          path.write_text(text, encoding="utf-8")
+          PY
+
           cat regression-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload regression run
