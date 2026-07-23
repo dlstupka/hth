@@ -169,12 +169,11 @@ jobs:
           echo "runner.environment=${{ runner.environment }}"
           echo "runner.name=${{ runner.name }}"
 
-          # runner.* is available only after the job has been assigned to a
-          # runner. Export the report metadata here rather than in job-level
-          # env, where GitHub validates expressions before runner assignment.
+          # Export runtime metadata for later reporting.
           echo "HTH_EXECUTION_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
-          echo "HTH_RUNNER_DISPLAY_NAME=${{ runner.name }}" >> "$GITHUB_ENV"
-      
+          echo "HTH_RUNNER_NAME=${{ runner.name }}" >> "$GITHUB_ENV"
+          echo "HTH_RUNNER_LABEL=${{ inputs.execution_target }}" >> "$GITHUB_ENV"
+          
       - name: Set up Python — GitHub-hosted Linux
         if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' }}
         uses: actions/setup-python@v6
@@ -543,6 +542,10 @@ jobs:
             effective_strategy="exhaustive"
           fi
 
+          printf '\nRegression command:'
+          printf ' %q' "${args[@]}"
+          printf '\n'
+
           echo
           echo "Regression Invocation"
           echo "====================="
@@ -557,16 +560,12 @@ jobs:
           printf '%-22s: %s\n' "Top candidates" "$TOP_COUNT"
           printf '%-22s: %s\n' "Parameter-set limit" "${effective_limit:-none}"
           if [[ -n "${HTH_OPENCV_BENCHMARK_SECONDS:-}" ]]; then
-            printf '%-22s: %.3f s total; %.0f µs/iteration\n' \
+            printf '%-22s: %.3f s total; %.0f µs/iteration\n\n' \
               "OpenCV benchmark" \
               "$HTH_OPENCV_BENCHMARK_SECONDS" \
               "$(python -c 'import os; print(float(os.environ["HTH_OPENCV_BENCHMARK_AVERAGE_SECONDS"])*1_000_000)')"
           fi
           echo
-
-          printf 'Regression command:'
-          printf ' %q' "${args[@]}"
-          printf '\n\n'
 
           # Keep the real hostname in generated metrics, but redact it from
           # the human-facing Actions log. Runner names remain visible.
