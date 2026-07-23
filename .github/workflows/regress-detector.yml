@@ -546,6 +546,7 @@ jobs:
           printf ' %q' "${args[@]}"
           printf '\n'
 
+          echo
           echo "Regression Invocation"
           echo "====================="
           printf '%-22s: %s\n' "Mode" "$REGRESSION_MODE"
@@ -559,7 +560,7 @@ jobs:
           printf '%-22s: %s\n' "Top candidates" "$TOP_COUNT"
           printf '%-22s: %s\n' "Parameter-set limit" "${effective_limit:-none}"
           if [[ -n "${HTH_OPENCV_BENCHMARK_SECONDS:-}" ]]; then
-            printf '%-22s: %.3f s total; %.0f µs/iteration\n\n' \
+            printf '%-22s: %.3f s total; %.0f µs/iteration\n' \
               "OpenCV benchmark" \
               "$HTH_OPENCV_BENCHMARK_SECONDS" \
               "$(python -c 'import os; print(float(os.environ["HTH_OPENCV_BENCHMARK_AVERAGE_SECONDS"])*1_000_000)')"
