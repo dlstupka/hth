@@ -24,9 +24,12 @@ class ProgressSnapshot:
     elapsed_seconds: float
     eta_seconds: float | None
     eval_rate: float | None
+    current_mean_iou: float | None
     best_mean_iou: float | None
-    minimum_page_iou: float | None
-    stddev_iou: float | None
+    current_minimum_page_iou: float | None
+    best_minimum_page_iou: float | None
+    current_stddev_iou: float | None
+    best_stddev_iou: float | None
     failures: int
     evaluating: str
     last_improvement_seconds: float | None
@@ -43,8 +46,11 @@ class ProgressReporter:
         "percent": 6,
         "rate": 7,
         "average": 7,
+        "average_best": 7,
         "minimum": 7,
-        "stddev": 6,
+        "minimum_best": 7,
+        "stddev": 7,
+        "stddev_best": 7,
         "failures": 4,
         "improved": 8,
     }
@@ -55,11 +61,14 @@ class ProgressReporter:
         f"{'%':>{COLUMN_WIDTHS['percent']}}  "
         f"{'Rate':>{COLUMN_WIDTHS['rate']}}  "
         f"{'Avg IoU':>{COLUMN_WIDTHS['average']}}  "
+        f"{'Best':>{COLUMN_WIDTHS['average_best']}}  "
         f"{'Min IoU':>{COLUMN_WIDTHS['minimum']}}  "
+        f"{'Best':>{COLUMN_WIDTHS['minimum_best']}}  "
         f"{'StdDev':>{COLUMN_WIDTHS['stddev']}}  "
+        f"{'Best':>{COLUMN_WIDTHS['stddev_best']}}  "
         f"{'Fail':>{COLUMN_WIDTHS['failures']}}  "
         f"{'Improved':<{COLUMN_WIDTHS['improved']}}  "
-        "Profile"
+        "Parameter Set"
     )
 
     def __init__(
@@ -82,8 +91,10 @@ class ProgressReporter:
         self.last_emit = self.started
         self.completed = 0
         self.failures = 0
+        self.current_result: dict[str, Any] | None = None
         self.best_mean_result: dict[str, Any] | None = None
         self.best_worst_result: dict[str, Any] | None = None
+        self.best_stddev_result: dict[str, Any] | None = None
         self.baseline_mean_iou: float | None = None
         self.baseline_surpassed = False
         self.evaluating = "--"
@@ -172,8 +183,10 @@ class ProgressReporter:
         with self._lock:
             now = self.clock()
             summary = result.get("summary", {})
+            self.current_result = result
             self.best_mean_result = result
             self.best_worst_result = result
+            self.best_stddev_result = result
             self.baseline_mean_iou = float(summary.get("mean_iou", 0.0) or 0.0)
             self.failures += int(summary.get("failure_count", 0) or 0)
             self.evaluating = "baseline"
@@ -191,6 +204,8 @@ class ProgressReporter:
             self.failures += int(summary.get("failure_count", 0) or 0)
             mean_iou = float(summary.get("mean_iou", 0.0) or 0.0)
             worst_iou = float(summary.get("minimum_iou", 0.0) or 0.0)
+            stddev_iou = float(summary.get("stddev_iou", 0.0) or 0.0)
+            self.current_result = result
             profile_name = self._profile_name(result, profile)
 
             old_best_mean = (
@@ -205,13 +220,22 @@ class ProgressReporter:
             )
 
             new_best_mean = old_best_mean is None or mean_iou > old_best_mean
+            old_best_stddev = (
+                float(self.best_stddev_result.get("summary", {}).get("stddev_iou", 0.0) or 0.0)
+                if self.best_stddev_result is not None
+                else None
+            )
+
             new_best_worst = old_best_worst is None or worst_iou > old_best_worst
+            new_best_stddev = old_best_stddev is None or stddev_iou < old_best_stddev
 
             if new_best_mean:
                 self.best_mean_result = result
             if new_best_worst:
                 self.best_worst_result = result
-            if new_best_mean or new_best_worst:
+            if new_best_stddev:
+                self.best_stddev_result = result
+            if new_best_mean or new_best_worst or new_best_stddev:
                 self._last_improvement_at = now
 
             if profile == "baseline":
@@ -251,7 +275,10 @@ class ProgressReporter:
         # A first completed evaluation is enough for a useful operational estimate.
         # The estimate will naturally stabilize as additional profiles complete.
         eta = remaining / rate if rate else None
-        mean_summary = self.best_mean_result.get("summary", {}) if self.best_mean_result else {}
+        current_summary = self.current_result.get("summary", {}) if self.current_result else {}
+        best_mean_summary = self.best_mean_result.get("summary", {}) if self.best_mean_result else {}
+        best_worst_summary = self.best_worst_result.get("summary", {}) if self.best_worst_result else {}
+        best_stddev_summary = self.best_stddev_result.get("summary", {}) if self.best_stddev_result else {}
         since_improvement = (
             max(0.0, now - self._last_improvement_at)
             if self._last_improvement_at is not None
@@ -268,18 +295,23 @@ class ProgressReporter:
             elapsed_seconds=elapsed,
             eta_seconds=eta,
             eval_rate=rate,
+            current_mean_iou=(
+                float(current_summary["mean_iou"]) if "mean_iou" in current_summary else None
+            ),
             best_mean_iou=(
-                float(mean_summary["mean_iou"]) if "mean_iou" in mean_summary else None
+                float(best_mean_summary["mean_iou"]) if "mean_iou" in best_mean_summary else None
             ),
-            minimum_page_iou=(
-                float(mean_summary["minimum_iou"])
-                if "minimum_iou" in mean_summary
-                else None
+            current_minimum_page_iou=(
+                float(current_summary["minimum_iou"]) if "minimum_iou" in current_summary else None
             ),
-            stddev_iou=(
-                float(mean_summary["stddev_iou"])
-                if "stddev_iou" in mean_summary
-                else None
+            best_minimum_page_iou=(
+                float(best_worst_summary["minimum_iou"]) if "minimum_iou" in best_worst_summary else None
+            ),
+            current_stddev_iou=(
+                float(current_summary["stddev_iou"]) if "stddev_iou" in current_summary else None
+            ),
+            best_stddev_iou=(
+                float(best_stddev_summary["stddev_iou"]) if "stddev_iou" in best_stddev_summary else None
             ),
             failures=self.failures,
             evaluating=self.evaluating,
@@ -303,9 +335,12 @@ class ProgressReporter:
         percent = self._percent(snap.completed, snap.total)
         widths = self.COLUMN_WIDTHS
         rate = f"{snap.eval_rate:.3f}/s" if snap.eval_rate is not None else "--"
-        average = f"{snap.best_mean_iou:.4f}" if snap.best_mean_iou is not None else "--"
-        minimum = f"{snap.minimum_page_iou:.4f}" if snap.minimum_page_iou is not None else "--"
-        stddev = f"{snap.stddev_iou:.4f}" if snap.stddev_iou is not None else "--"
+        average = f"{snap.current_mean_iou:.4f}" if snap.current_mean_iou is not None else "--"
+        average_best = f"{snap.best_mean_iou:.4f}" if snap.best_mean_iou is not None else "--"
+        minimum = f"{snap.current_minimum_page_iou:.4f}" if snap.current_minimum_page_iou is not None else "--"
+        minimum_best = f"{snap.best_minimum_page_iou:.4f}" if snap.best_minimum_page_iou is not None else "--"
+        stddev = f"{snap.current_stddev_iou:.4f}" if snap.current_stddev_iou is not None else "--"
+        stddev_best = f"{snap.best_stddev_iou:.4f}" if snap.best_stddev_iou is not None else "--"
         eta = _duration(snap.eta_seconds) if snap.eta_seconds is not None else "TBD"
         last_improvement = (
             _duration(snap.last_improvement_elapsed_seconds)
@@ -319,8 +354,11 @@ class ProgressReporter:
             f"{percent:>{widths['percent']}}  "
             f"{rate:>{widths['rate']}}  "
             f"{average:>{widths['average']}}  "
+            f"{average_best:>{widths['average_best']}}  "
             f"{minimum:>{widths['minimum']}}  "
+            f"{minimum_best:>{widths['minimum_best']}}  "
             f"{stddev:>{widths['stddev']}}  "
+            f"{stddev_best:>{widths['stddev_best']}}  "
             f"{snap.failures:>{widths['failures']}d}  "
             f"{last_improvement:<{widths['improved']}}  "
             f"{snap.evaluating}",

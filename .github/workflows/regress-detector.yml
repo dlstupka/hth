@@ -26,11 +26,15 @@ on:
       - ".github/workflows/regress-detector.yml"
   workflow_dispatch:
     inputs:
-      detector_config:
-        description: Detector configuration path, comma-separated paths, or all
+      algorithm:
+        description: Detector algorithm to regress
         required: true
         default: all
-        type: string
+        type: choice
+        options:
+          - all
+          - contour
+          - grabcut
       golden_set:
         description: Golden Set configuration
         required: true
@@ -121,7 +125,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 360 || 30 }}
 
     env:
-      DETECTOR_CONFIG: ${{ github.event_name == 'workflow_dispatch' && inputs.detector_config || 'all' }}
+      DETECTOR_ALGORITHM: ${{ github.event_name == 'workflow_dispatch' && inputs.algorithm || 'all' }}
       GOLDEN_SET: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_set || 'config/golden_set.json' }}
       RESULTS_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && inputs.results_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results' }}
       IMAGE_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_root || 'test/latest/raw' }}
@@ -515,7 +519,7 @@ jobs:
             effective_strategy="exhaustive"
           fi
 
-          if [[ "${DETECTOR_CONFIG,,}" == "all" ]]; then
+          if [[ "${DETECTOR_ALGORITHM,,}" == "all" ]]; then
             mapfile -t detector_configs < <(
               find hth-pipeline/config/detectors \
                 -maxdepth 1 \
@@ -524,14 +528,7 @@ jobs:
                 -print | sort
             )
           else
-            IFS=',' read -r -a requested_configs <<< "$DETECTOR_CONFIG"
-            detector_configs=()
-            for requested_config in "${requested_configs[@]}"; do
-              requested_config="${requested_config#"${requested_config%%[![:space:]]*}"}"
-              requested_config="${requested_config%"${requested_config##*[![:space:]]}"}"
-              [[ -n "$requested_config" ]] || continue
-              detector_configs+=("hth-pipeline/$requested_config")
-            done
+            detector_configs=("hth-pipeline/config/detectors/${DETECTOR_ALGORITHM,,}.json")
           fi
 
           if (( ${#detector_configs[@]} == 0 )); then
@@ -540,7 +537,7 @@ jobs:
           fi
 
           echo "Regression mode : $REGRESSION_MODE"
-          echo "Configured input: '$DETECTOR_CONFIG'"
+          echo "Algorithm       : '$DETECTOR_ALGORITHM'"
           echo "Effective limit : '${effective_limit:-none}'"
           echo "Detectors       : ${#detector_configs[@]}"
 
@@ -579,7 +576,8 @@ jobs:
               args+=(--strategy "$STRATEGY")
             fi
 
-            printf '\nRegression command:'
+            echo " "
+            printf 'Regression command:'
             printf ' %q' "${args[@]}"
             printf '\n'
 
@@ -602,7 +600,7 @@ jobs:
                 "$HTH_OPENCV_BENCHMARK_SECONDS" \
                 "$(python -c 'import os; print(float(os.environ["HTH_OPENCV_BENCHMARK_AVERAGE_SECONDS"])*1_000_000)')"
             fi
-            echo
+            echo " "
 
             before_runs="$(find "regression-output/$detector_name" -mindepth 1 -maxdepth 1 -type d -name 'run-*' 2>/dev/null | sort || true)"
 

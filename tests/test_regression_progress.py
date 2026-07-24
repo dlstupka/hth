@@ -56,13 +56,13 @@ class RegressionProgressTests(unittest.TestCase):
 
         self.assertEqual(
             header,
-            "Elapsed   ETA       Progress       %     Rate  Avg IoU  Min IoU  StdDev  "
-            "Fail  Improved  Profile",
+            "Elapsed   ETA       Progress       %     Rate  Avg IoU     Best  Min IoU     Best   "
+            "StdDev     Best  Fail  Improved  Parameter Set",
         )
         self.assertEqual(
             row,
-            "00:02:00  00:09:00  1/10       10.0%  0.017/s   0.8000   0.6000  "
-            "0.0610     0  00:01:00  12345678",
+            "00:02:00  00:09:00  1/10       10.0%  0.017/s   0.7900   0.8000   "
+            "0.5900   0.6000   0.0620   0.0610     0  00:01:00  12345678",
         )
 
     def test_milestones_and_final_row_clear_evaluating(self) -> None:
@@ -108,7 +108,11 @@ class RegressionProgressTests(unittest.TestCase):
         self.assertIn("New minimum page IoU bbbbbbbb", text)
         self.assertNotIn("New best average page IoU bbbbbbbb", text)
         self.assertAlmostEqual(reporter.snapshot().best_mean_iou or 0, 0.9)
-        self.assertAlmostEqual(reporter.snapshot().minimum_page_iou or 0, 0.5)
+        snapshot = reporter.snapshot()
+        self.assertAlmostEqual(snapshot.current_minimum_page_iou or 0, 0.6)
+        self.assertAlmostEqual(snapshot.best_minimum_page_iou or 0, 0.6)
+        self.assertAlmostEqual(snapshot.current_mean_iou or 0, 0.85)
+        self.assertAlmostEqual(snapshot.best_stddev_iou or 0, 0.07)
 
 
 if __name__ == "__main__":

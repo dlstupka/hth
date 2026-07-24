@@ -199,9 +199,9 @@ def write_debug_artifacts(
         "",
     ]
     (debug_root / "README.txt").write_text("\n".join(readme), encoding="utf-8")
-    outputs = [str((debug_root / "README.txt").relative_to(regression_root))]
+    outputs = [(debug_root / "README.txt").relative_to(regression_root).as_posix()]
     outputs.extend(
-        str(path.relative_to(regression_root))
+        path.relative_to(regression_root).as_posix()
         for path in sorted(debug_root.rglob("*"))
         if path.is_file() and path.name != "README.txt"
     )
@@ -277,7 +277,7 @@ def run(args:argparse.Namespace)->Path:
         baseline=next((r for r in ranked if r.get("profile")=="baseline"),None)
         raw=run_dir/"raw"/"results.csv"; rankings=run_dir/"reports"/"rankings.csv"; top=run_dir/"reports"/"top20.csv"
         write_raw_results(raw,ranked); write_rankings(rankings,ranked); write_rankings(top,ranked[:max(0,args.top)])
-        summary={"schema_version":"0.5","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"winner":ranked[0],"baseline":baseline,"runner":environment,"source_commit":source_commit,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.minimum_page_iou,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
+        summary={"schema_version":"0.5","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"winner":ranked[0],"baseline":baseline,"runner":environment,"source_commit":source_commit,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
         write_json(run_dir/"reports"/"summary.json",summary)
         debug_outputs = [] if debug_policy == "none" else write_debug_artifacts(
             args.output, name, run_id, policy=debug_policy, ranked=ranked, pages=pages

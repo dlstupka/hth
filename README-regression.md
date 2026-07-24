@@ -48,6 +48,16 @@ The `baseline` profile is treated as a named production reference, not a privile
 
 The manually dispatched **HTH detector regression** workflow checks out a results repository, runs the selected detector against the Golden Set, uploads the complete canonical run directory, and writes a **Regression Manifest** to the Actions job summary. The manifest records provenance, Golden Set pages, parameter-space size, winner and baseline metrics, and output validation.
 
+For a manual run, the **Algorithm** input is a choice of `all`, `contour`, or `grabcut`. Automatic smoke runs continue to exercise all configured detector algorithms.
+
+Progress telemetry reports the metrics for the most recently completed parameter set alongside the best value seen so far for each metric:
+
+```text
+... | Avg IoU | Best | Min IoU | Best | StdDev | Best | ... | Parameter Set
+```
+
+For average and minimum IoU, higher is better. For standard deviation, lower is better.
+
 The default image root is `test/latest/preprocessed` in the results repository. Override it at dispatch time when running against another published build.
 
 ## Regression runner toolchains
