@@ -33,6 +33,8 @@ def _duration(seconds: Any) -> str:
         value = float(seconds)
     except (TypeError, ValueError):
         return "unknown"
+    if value < 1:
+        return f"{value * 1000:.1f}ms"
     if value < 60:
         return f"{value:.1f}s"
     minutes, secs = divmod(int(round(value)), 60)
@@ -40,10 +42,25 @@ def _duration(seconds: Any) -> str:
     return f"{hours}h {minutes}m {secs}s" if hours else f"{minutes}m {secs}s"
 
 
-def _profile(result: dict[str, Any] | None) -> str:
+def _parameter_set_name(result: dict[str, Any] | None) -> str:
     if not result:
-        return "unnamed"
-    return str(result.get("profile") or "unnamed")
+        return "unknown"
+    return str(result.get("profile") or _short(result.get("parameter_set_id"), 12))
+
+
+def _evaluation_seconds(result: dict[str, Any] | None) -> float | None:
+    if not result:
+        return None
+    summary = result.get("summary", {})
+    if not isinstance(summary, dict):
+        return None
+    milliseconds = summary.get("wall_ms")
+    if milliseconds is None:
+        milliseconds = summary.get("elapsed_ms_total")
+    try:
+        return float(milliseconds) / 1000.0
+    except (TypeError, ValueError):
+        return None
 
 
 def _parameter_id(result: dict[str, Any] | None) -> str:
@@ -98,18 +115,18 @@ def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = Tru
         "",
         "## Result",
         "",
-        "| Result | Profile | Parameter set | Avg IoU | Min IoU | StdDev | Failures | Evaluation time |",
+        "| Result | Parameter set | Parameter set ID | Avg IoU | Min IoU | StdDev | Failures | Evaluation time |",
         "|---|---|---|---:|---:|---:|---:|---:|",
-        f"| Winner | `{_profile(winner)}` | `{_parameter_id(winner)}` | {_number(winner_stats.get('mean_iou'))} | {_number(winner_stats.get('minimum_iou'))} | {_number(winner_stats.get('stddev_iou'))} | {winner_stats.get('failure_count', 'unknown')} | {_duration((winner_stats.get('elapsed_ms_total') or 0) / 1000 if winner_stats else None)} |",
+        f"| Winner | `{_parameter_set_name(winner)}` | `{_parameter_id(winner)}` | {_number(winner_stats.get('mean_iou'))} | {_number(winner_stats.get('minimum_iou'))} | {_number(winner_stats.get('stddev_iou'))} | {winner_stats.get('failure_count', 'unknown')} | {_duration(_evaluation_seconds(winner))} |",
     ])
     if baseline and _parameter_id(baseline) != _parameter_id(winner):
         lines.append(
-            f"| Baseline | `{_profile(baseline)}` | `{_parameter_id(baseline)}` | "
+            f"| Baseline | `{_parameter_set_name(baseline)}` | `{_parameter_id(baseline)}` | "
             f"{_number(baseline_stats.get('mean_iou'))} | "
             f"{_number(baseline_stats.get('minimum_iou'))} | "
             f"{_number(baseline_stats.get('stddev_iou'))} | "
             f"{baseline_stats.get('failure_count', 'unknown')} | "
-            f"{_duration((baseline_stats.get('elapsed_ms_total') or 0) / 1000)} |"
+            f"{_duration(_evaluation_seconds(baseline))} |"
         )
 
     if outputs:

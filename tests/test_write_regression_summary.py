@@ -26,10 +26,10 @@ class RegressionSummaryTests(unittest.TestCase):
                 "configuration": {"profiles": {"baseline": {}}}
             }), encoding="utf-8")
             winner = {"profile": None, "parameter_set_id": "winner", "summary": {
-                "mean_iou": .97, "minimum_iou": .91, "failure_count": 0, "elapsed_ms_total": 1200
+                "mean_iou": .97, "minimum_iou": .91, "failure_count": 0, "elapsed_ms_total": 12.3, "wall_ms": 18.7
             }}
             baseline = {"profile": "baseline", "parameter_set_id": "base", "summary": {
-                "mean_iou": .90, "minimum_iou": .80, "failure_count": 1, "elapsed_ms_total": 1500
+                "mean_iou": .90, "minimum_iou": .80, "failure_count": 1, "elapsed_ms_total": 15.0, "wall_ms": 21.4
             }}
             (run / "reports" / "summary.json").write_text(json.dumps({
                 "page_ordinals": [1, 5, 6, 9, 10], "parameter_set_count": 42,
@@ -41,10 +41,13 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("`grabcut`", text)
             self.assertIn("`binary-refine`", text)
             self.assertIn("`1234567890ab`", text)
-            self.assertIn("| Winner | `unnamed` | `winner` | 0.9700", text)
+            self.assertIn("| Result | Parameter set | Parameter set ID |", text)
+            self.assertIn("| Winner | `winner` | `winner` | 0.9700", text)
+            self.assertIn("18.7ms", text)
             self.assertIn("Configured named profiles: `baseline`", text)
             self.assertIn("Evaluation time", text)
             self.assertIn("| Baseline | `baseline` | `base` | 0.9000", text)
+            self.assertIn("21.4ms", text)
             self.assertIn("`raw/results.csv` — present", text)
             self.assertIn("`reports/summary.json` — present", text)
             self.assertIn("[Open workflow run]", text)

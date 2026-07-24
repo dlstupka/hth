@@ -82,6 +82,8 @@ class RegressionProgressTests(unittest.TestCase):
             "summary": {"mean_iou": 0.9, "minimum_iou": 0.6, "stddev_iou": 0.08, "failure_count": 0},
         })
         text = stream.getvalue()
+        self.assertNotIn("\n\n00:01:01 >>>", text)
+        self.assertNotIn("bbbbbbbb\n\n", text)
         self.assertIn("00:01:01 >>> New best average page IoU bbbbbbbb", text)
         self.assertIn("00:01:01 >>> New minimum page IoU bbbbbbbb", text)
         self.assertIn("00:01:01 >>> Baseline surpassed bbbbbbbb", text)
