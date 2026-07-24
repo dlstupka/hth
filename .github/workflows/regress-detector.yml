@@ -53,7 +53,7 @@ on:
       strategy:
         description: Regression search strategy
         required: true
-        default: binary-refine
+        default: exhaustive
         type: choice
         options:
           - binary-refine
@@ -119,10 +119,15 @@ jobs:
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e9k'     && fromJSON('["self-hosted","Linux","X64","e9k"]')
           || 'ubuntu-latest'}}
-    # GitHub-hosted jobs are limited to 6 hours. Self-hosted jobs may run
-    # longer, but the same ceiling prevents a stalled regression from holding
-    # an outside runner indefinitely. Automatic smoke tests retain 30 minutes.
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 360 || 30 }}
+    # Automatic and manually dispatched smoke tests retain a 30-minute guard.
+    # GitHub-hosted full regressions are limited to 6 hours by GitHub Actions.
+    # Self-hosted full regressions may run for up to 5 days (7200 minutes),
+    # while still protecting an outside runner from a permanently stalled job.
+    timeout-minutes: >-
+      ${{ github.event_name != 'workflow_dispatch' && 30
+          || inputs.mode == 'smoke' && 30
+          || inputs.runner == 'github-hosted' && 360
+          || 7200 }}
 
     env:
       DETECTOR_ALGORITHM: ${{ github.event_name == 'workflow_dispatch' && inputs.algorithm || 'all' }}
@@ -510,8 +515,13 @@ jobs:
           export HTH_SOURCE_COMMIT="$(git -C results-repo rev-parse HEAD)"
 
           effective_limit="${LIMIT:-}"
-          if [[ "$REGRESSION_MODE" == "smoke" && -z "$effective_limit" ]]; then
+          if [[ -n "$effective_limit" ]]; then
+            effective_limit_source="user specified"
+          elif [[ "$REGRESSION_MODE" == "smoke" ]]; then
             effective_limit="10"
+            effective_limit_source="smoke default"
+          else
+            effective_limit_source="unlimited"
           fi
 
           effective_strategy="$STRATEGY"
@@ -538,7 +548,7 @@ jobs:
 
           echo "Regression mode : $REGRESSION_MODE"
           echo "Algorithm       : '$DETECTOR_ALGORITHM'"
-          echo "Effective limit : '${effective_limit:-none}'"
+          echo "Effective limit : '${effective_limit:-unlimited}' ($effective_limit_source)"
           echo "Detectors       : ${#detector_configs[@]}"
 
           : > regression-output/run-directories.txt
@@ -593,7 +603,12 @@ jobs:
             printf '%-22s: %s\n' "Output" "regression-output"
             printf '%-22s: %s\n' "Maximum dimension" "$MAX_DIMENSION"
             printf '%-22s: %s\n' "Top candidates" "$TOP_COUNT"
-            printf '%-22s: %s\n' "Parameter-set limit" "${effective_limit:-none}"
+            if [[ -n "$effective_limit" ]]; then
+              printf '%-22s: %s (%s)\n' \
+                "Parameter-set limit" "$effective_limit" "$effective_limit_source"
+            else
+              printf '%-22s: %s\n' "Parameter-set limit" "unlimited"
+            fi
             if [[ -n "${HTH_OPENCV_BENCHMARK_SECONDS:-}" ]]; then
               printf '%-22s: %.3f s total; %.0f µs/iteration\n' \
                 "OpenCV benchmark" \

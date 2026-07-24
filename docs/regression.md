@@ -50,6 +50,21 @@ The manually dispatched **HTH detector regression** workflow checks out a result
 
 For a manual run, the **Algorithm** input is a choice of `all`, `contour`, or `grabcut`. Automatic smoke runs continue to exercise all configured detector algorithms.
 
+Manual runs default to the `exhaustive` strategy. Limit handling is explicit:
+
+- Smoke mode with a blank limit evaluates 10 parameter sets (`smoke default`).
+- Any numeric limit is treated as a user-specified exhaustive cap.
+- Full mode with a blank limit is unlimited; with `exhaustive`, it evaluates the complete configured Cartesian space.
+- Full mode with `binary-refine` remains optimizer-directed rather than exhaustive.
+
+The invocation table reports the effective limit as `10 (smoke default)`, `<n> (user specified)`, or `unlimited`, so a capped run cannot be mistaken for a complete regression.
+
+Timeout policy is mode- and runner-specific:
+
+- Automatic and manually dispatched smoke regressions: 30 minutes.
+- GitHub-hosted full regressions: 360 minutes (6 hours).
+- Self-hosted full regressions: 7200 minutes (5 days).
+
 Progress telemetry reports the metrics for the most recently completed parameter set alongside the best value seen so far for each metric:
 
 The heartbeat uses a two-row header so current and best-so-far values stay aligned:
