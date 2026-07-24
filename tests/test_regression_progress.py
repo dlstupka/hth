@@ -58,9 +58,11 @@ class RegressionProgressTests(unittest.TestCase):
         self.assertEqual(header_top, ProgressReporter.HEADER_TOP)
         self.assertEqual(header_bottom, ProgressReporter.HEADER_BOTTOM)
         self.assertEqual(len(header_top), len(header_bottom))
+        self.assertEqual(ProgressReporter.COLUMN_WIDTHS["rate"], 9)
+        self.assertIn("SD", header_top)
         self.assertEqual(
             row,
-            "00:02:00  00:09:00  1/10       10.0%  0.017/s   0.7900   0.8000   "
+            "00:02:00  00:09:00  1/10       10.0%    0.017/s   0.7900   0.8000   "
             "0.5900   0.6000   0.0620   0.0610     0     18.7ms  12345678",
         )
 

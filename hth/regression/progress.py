@@ -74,7 +74,7 @@ class ProgressReporter:
         "eta": 8,
         "progress": 8,
         "percent": 6,
-        "rate": 7,
+        "rate": 9,
         "average": 7,
         "average_best": 7,
         "minimum": 7,
@@ -95,7 +95,7 @@ class ProgressReporter:
         f"{'Best':>{COLUMN_WIDTHS['average_best']}}  "
         f"{'Min':>{COLUMN_WIDTHS['minimum']}}  "
         f"{'Best':>{COLUMN_WIDTHS['minimum_best']}}  "
-        f"{'':>{COLUMN_WIDTHS['stddev']}}  "
+        f"{'SD':>{COLUMN_WIDTHS['stddev']}}  "
         f"{'Best':>{COLUMN_WIDTHS['stddev_best']}}  "
         f"{'Fail':>{COLUMN_WIDTHS['failures']}}  "
         f"{'Eval':>{COLUMN_WIDTHS['time']}}  "
@@ -111,7 +111,7 @@ class ProgressReporter:
         f"{'IoU':>{COLUMN_WIDTHS['average_best']}}  "
         f"{'IoU':>{COLUMN_WIDTHS['minimum']}}  "
         f"{'IoU':>{COLUMN_WIDTHS['minimum_best']}}  "
-        f"{'SD':>{COLUMN_WIDTHS['stddev']}}  "
+        f"{'':>{COLUMN_WIDTHS['stddev']}}  "
         f"{'SD':>{COLUMN_WIDTHS['stddev_best']}}  "
         f"{'':>{COLUMN_WIDTHS['failures']}}  "
         f"{'Time':>{COLUMN_WIDTHS['time']}}  "
