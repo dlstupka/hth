@@ -13,6 +13,7 @@ def test_run_directory_schema():
         rid,path=create_run_directory(Path(td),"grabcut","run-test")
         assert rid=="run-test"
         assert (path/"raw").is_dir() and (path/"reports").is_dir() and (path/"logs").is_dir()
+        assert not (path/"debug").exists()
 
 def test_reports_preserve_per_page_observations():
     with TemporaryDirectory() as td:

@@ -156,13 +156,16 @@ def _write_debug_page(
 
 
 def write_debug_artifacts(
-    run_dir: Path,
+    regression_root: Path,
+    detector: str,
+    run_id: str,
     *,
     policy: str,
     ranked: list[dict[str, Any]],
     pages: list[dict[str, Any]],
 ) -> list[str]:
-    debug_root = run_dir / "debug"
+    debug_root = regression_root / "debug" / _safe_name(detector) / _safe_name(run_id)
+    debug_root.mkdir(parents=True, exist_ok=False)
     page_by_ordinal = {int(page["global_ordinal"]): page for page in pages}
     selected: list[tuple[dict[str, Any], dict[str, Any]]] = []
     if policy == "all":
@@ -196,8 +199,12 @@ def write_debug_artifacts(
         "",
     ]
     (debug_root / "README.txt").write_text("\n".join(readme), encoding="utf-8")
-    outputs = ["debug/README.txt"]
-    outputs.extend(str(path.relative_to(run_dir)) for path in sorted(debug_root.rglob("*")) if path.is_file() and path.name != "README.txt")
+    outputs = [str((debug_root / "README.txt").relative_to(regression_root))]
+    outputs.extend(
+        str(path.relative_to(regression_root))
+        for path in sorted(debug_root.rglob("*"))
+        if path.is_file() and path.name != "README.txt"
+    )
     return outputs
 
 
@@ -273,11 +280,23 @@ def run(args:argparse.Namespace)->Path:
         summary={"schema_version":"0.5","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"winner":ranked[0],"baseline":baseline,"runner":environment,"source_commit":source_commit,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.minimum_page_iou,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
         write_json(run_dir/"reports"/"summary.json",summary)
         debug_outputs = [] if debug_policy == "none" else write_debug_artifacts(
-            run_dir, policy=debug_policy, ranked=ranked, pages=pages
+            args.output, name, run_id, policy=debug_policy, ranked=ranked, pages=pages
         )
         finished=utc_now(); info={"schema_version":"0.2","run_id":run_id,"detector":name,"strategy":args.strategy,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"detector_config":str(args.detector_config),"debug_artifacts":debug_policy,"source_commit":source_commit,**environment}
         write_json(run_dir/"RUN-INFO.json",info)
-        manifest.update({"status":"complete","finished_at_utc":finished,"outputs":["RUN-INFO.json","parameters.json","raw/results.csv","reports/summary.json","reports/rankings.csv","reports/top20.csv",*debug_outputs]}); write_json(run_dir/"manifest.json",manifest)
+        manifest.update({
+            "status": "complete",
+            "finished_at_utc": finished,
+            "outputs": [
+                "RUN-INFO.json",
+                "parameters.json",
+                "raw/results.csv",
+                "reports/summary.json",
+                "reports/rankings.csv",
+                "reports/top20.csv",
+            ],
+            "debug_outputs": debug_outputs,
+        }); write_json(run_dir/"manifest.json",manifest)
         # Convenience report at detector root, refreshed on every completed run.
         write_rankings(run_dir.parent/f"{name}-regression-results.csv",ranked)
         winner_summary=ranked[0]["summary"]

@@ -56,19 +56,22 @@ class RegressionDebugTests(unittest.TestCase):
 
             outputs = write_debug_artifacts(
                 root,
+                "contour",
+                "run-test",
                 policy="failures",
                 ranked=[result],
                 pages=[page],
             )
 
-            debug_page = root / "debug" / "baseline123" / "page-0006"
-            self.assertTrue((root / "debug" / "README.txt").is_file())
+            debug_root = root / "debug" / "contour" / "run-test"
+            debug_page = debug_root / "baseline123" / "page-0006"
+            self.assertTrue((debug_root / "README.txt").is_file())
             self.assertTrue((debug_page / "original.jpg").is_file())
             self.assertTrue((debug_page / "input-mask.png").is_file())
             self.assertTrue((debug_page / "overlay.jpg").is_file())
             diagnostics = json.loads((debug_page / "diagnostics.json").read_text())
             self.assertEqual(diagnostics["result"]["status"], "no_candidate")
-            self.assertIn("debug/README.txt", outputs)
+            self.assertIn("debug/contour/run-test/README.txt", outputs)
 
 
 if __name__ == "__main__":

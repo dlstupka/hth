@@ -27,6 +27,10 @@ build/regression/<detector>/run-YYYYMMDD-HHMMSS/
   reports/rankings.csv
   reports/top20.csv
   logs/
+
+build/regression/debug/<detector>/run-YYYYMMDD-HHMMSS/
+  README.txt
+  <parameter-set-id>/page-NNNN/
 ```
 
 `raw/results.csv` is canonical: one row per parameter set × Golden Set page. Reports are derived and may be regenerated without rerunning the detector. The detector root also receives `<detector>-regression-results.csv` as a convenience copy of the latest full ranking.
@@ -78,7 +82,7 @@ Both use the identical black-box regression path and canonical output contract.
 
 ## Debug artifacts
 
-Regression runs create a top-level `debug/` directory. The detector
+Regression runs create a first-class top-level `debug/` tree beside the detector run directories. Debug artifacts are grouped by detector and run ID, for example `build/regression/debug/contour/run-20260724-081500/`, so forensic evidence remains attributable without becoming part of the canonical run package. The detector
 configuration may set `regression.debug_artifacts` to `none`, `failures`,
 `winner`, or `all`; the command-line `--debug-artifacts` option overrides it.
 `failures` writes failed pages from the winning parameter set and is the default.

@@ -115,6 +115,9 @@ jobs:
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e9k'     && fromJSON('["self-hosted","Linux","X64","e9k"]')
           || 'ubuntu-latest'}}
+    # GitHub-hosted jobs are limited to 6 hours. Self-hosted jobs may run
+    # longer, but the same ceiling prevents a stalled regression from holding
+    # an outside runner indefinitely. Automatic smoke tests retain 30 minutes.
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 360 || 30 }}
 
     env:

@@ -65,6 +65,8 @@ winner pages are written beneath the run's obvious `debug/` directory:
 
 ```text
 debug/
+  contour/
+    run-YYYYMMDD-HHMMSS/
   README.txt
   <parameter-set-id>/
     page-0006/
