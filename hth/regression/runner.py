@@ -306,31 +306,43 @@ def run(args:argparse.Namespace)->Path:
         # Preserve one visible separator before the summary in GitHub Actions.
         print(" ")
         elapsed_seconds=time.perf_counter()-wall
-        print("Regression Summary")
-        print(f"Run: {run_id}")
-        print(f"Elapsed: {elapsed_seconds:.1f}s")
-        print(f"Average Eval Rate: {(len(ranked)/elapsed_seconds if elapsed_seconds else 0.0):.4f}/s")
-        print(f"Parameter sets evaluated: {len(ranked)}")
-        print(f"Page evaluations: {len(ranked)*len(pages)}")
-        print(f"Successful parameter sets: {sum(1 for r in ranked if int(r['summary'].get('failure_count',0) or 0)==0)}")
-        print(f"Failed page evaluations: {progress_snapshot.failures}")
-        print(f"Winner: {winner_profile}")
-        print(f"Average Page IoU: {winner_summary['mean_iou']:.4f}")
-        print(f"Minimum Page IoU: {winner_summary['minimum_iou']:.4f}")
-        print(f"Std Dev: {winner_summary['stddev_iou']:.4f}")
+        def print_key_value_section(title: str, rows: list[tuple[str, object]]) -> None:
+            label_width = max(len(label) for label, _ in rows)
+            print(title)
+            print("=" * len(title))
+            for label, value in rows:
+                print(f"{label:<{label_width}} : {value}")
+
+        summary_rows: list[tuple[str, object]] = [
+            ("Run", run_id),
+            ("Elapsed", f"{elapsed_seconds:.1f}s"),
+            ("Average Eval Rate", f"{(len(ranked)/elapsed_seconds if elapsed_seconds else 0.0):.4f}/s"),
+            ("Parameter sets evaluated", len(ranked)),
+            ("Page evaluations", len(ranked) * len(pages)),
+            ("Successful parameter sets", sum(1 for r in ranked if int(r['summary'].get('failure_count', 0) or 0) == 0)),
+            ("Failed page evaluations", progress_snapshot.failures),
+            ("Winner", winner_profile),
+            ("Average Page IoU", f"{winner_summary['mean_iou']:.4f}"),
+            ("Minimum Page IoU", f"{winner_summary['minimum_iou']:.4f}"),
+            ("Std Dev", f"{winner_summary['stddev_iou']:.4f}"),
+        ]
         if baseline_summary:
-            print(f"Baseline Average Page IoU: {baseline_summary['mean_iou']:.4f}")
-            print(f"Average Page IoU improvement: {winner_summary['mean_iou']-baseline_summary['mean_iou']:+.4f}")
-            print(f"Minimum Page IoU improvement: {winner_summary['minimum_iou']-baseline_summary['minimum_iou']:+.4f}")
+            summary_rows.extend([
+                ("Baseline Average Page IoU", f"{baseline_summary['mean_iou']:.4f}"),
+                ("Average Page IoU improvement", f"{winner_summary['mean_iou']-baseline_summary['mean_iou']:+.4f}"),
+                ("Minimum Page IoU improvement", f"{winner_summary['minimum_iou']-baseline_summary['minimum_iou']:+.4f}"),
+            ])
+        print_key_value_section("Regression Summary", summary_rows)
         print(" ")
-        print("Regression Statistics")
-        print(f"Mean IoU improvements: {progress_snapshot.mean_iou_improvements}")
-        print(f"Minimum IoU improvements: {progress_snapshot.minimum_iou_improvements}")
-        print(f"Std Dev improvements: {progress_snapshot.stddev_improvements}")
-        print(f"Total metric improvements: {progress_snapshot.mean_iou_improvements + progress_snapshot.minimum_iou_improvements + progress_snapshot.stddev_improvements}")
-        print(f"Parameter sets with improvements: {progress_snapshot.parameter_sets_with_improvements}")
-        print(f"Winner changes: {progress_snapshot.winner_changes}")
-        print(f"Baseline surpassed: {'yes' if progress.baseline_surpassed else 'no'}")
+        print_key_value_section("Regression Statistics", [
+            ("Mean IoU improvements", progress_snapshot.mean_iou_improvements),
+            ("Minimum IoU improvements", progress_snapshot.minimum_iou_improvements),
+            ("Std Dev improvements", progress_snapshot.stddev_improvements),
+            ("Total metric improvements", progress_snapshot.mean_iou_improvements + progress_snapshot.minimum_iou_improvements + progress_snapshot.stddev_improvements),
+            ("Parameter sets with improvements", progress_snapshot.parameter_sets_with_improvements),
+            ("Winner changes", progress_snapshot.winner_changes),
+            ("Baseline surpassed", "yes" if progress.baseline_surpassed else "no"),
+        ])
         print(json.dumps({"run_id":run_id,"run_directory":str(run_dir),"winner":ranked[0],"baseline":baseline},indent=2))
         return run_dir
     except Exception as exc:

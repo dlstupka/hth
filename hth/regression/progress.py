@@ -83,6 +83,7 @@ class ProgressReporter:
         "stddev_best": 7,
         "failures": 4,
         "time": 9,
+        "parameter": 12,
     }
     HEADER_TOP = (
         f"{'Elapsed':<{COLUMN_WIDTHS['elapsed']}}  "
@@ -98,7 +99,7 @@ class ProgressReporter:
         f"{'Best':>{COLUMN_WIDTHS['stddev_best']}}  "
         f"{'Fail':>{COLUMN_WIDTHS['failures']}}  "
         f"{'Eval':>{COLUMN_WIDTHS['time']}}  "
-        "Parameter"
+        f"{'Parameter':<{COLUMN_WIDTHS['parameter']}}"
     )
     HEADER_BOTTOM = (
         f"{'':<{COLUMN_WIDTHS['elapsed']}}  "
@@ -114,7 +115,7 @@ class ProgressReporter:
         f"{'SD':>{COLUMN_WIDTHS['stddev_best']}}  "
         f"{'':>{COLUMN_WIDTHS['failures']}}  "
         f"{'Time':>{COLUMN_WIDTHS['time']}}  "
-        "Set"
+        f"{'Set':<{COLUMN_WIDTHS['parameter']}}"
     )
     HEADER = HEADER_TOP + "\n" + HEADER_BOTTOM
 
