@@ -52,11 +52,16 @@ For a manual run, the **Algorithm** input is a choice of `all`, `contour`, or `g
 
 Progress telemetry reports the metrics for the most recently completed parameter set alongside the best value seen so far for each metric:
 
+The heartbeat uses a two-row header so current and best-so-far values stay aligned:
+
 ```text
-... | Avg IoU | Best | Min IoU | Best | StdDev | Best | ... | Parameter Set
+...  Avg   Best   Min   Best          Best  ...      Eval  Parameter
+     IoU    IoU   IoU    IoU    SD      SD           Time  Set
 ```
 
-For average and minimum IoU, higher is better. For standard deviation, lower is better.
+The current columns describe the most recently completed parameter set. Higher is better for average and minimum IoU; lower is better for standard deviation. `Eval Time` is the wall-clock time for that parameter set. Sparse `New best` notes remain outside the fixed-width table.
+
+After the normal result summary, regression statistics report record counts for average IoU, minimum IoU, and standard deviation; total metric improvements; parameter sets that improved at least one metric; overall winner changes; and whether the baseline was surpassed. These counts show whether a long search continued to produce useful gains or mostly traversed a plateau.
 
 The default image root is `test/latest/preprocessed` in the results repository. Override it at dispatch time when running against another published build.
 

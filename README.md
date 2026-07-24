@@ -60,10 +60,9 @@ hth/                     Python pipeline modules
 hth/geometry/            detector registry and detector implementations
 tests/                   unit tests
 tools/                   reference-collection review tools
-README-*.md               focused design and operating guides
-ARCHITECTURE.md           system boundaries and durable contracts
+docs/                   design, operating, and project documentation
+docs/README.md            documentation index
 CHANGELOG.md              framework release history
-PROJECT-STATUS.md         current collection and project status
 ```
 
 ## Run tests
@@ -88,17 +87,11 @@ Always review `git diff` before committing.
 
 ## Documentation
 
-- [Architecture](ARCHITECTURE.md)
-- [Workflow architecture](README-workflow-architecture.md)
-- [Publication and reporting](README-publication.md)
-- [Development and update workflow](README-development.md)
-- [Preprocessor](README-preprocessor.md)
-- [Physical page analysis](README-analyze-pages.md)
-- [Multi-detector geometry](README-multidetector-geometry.md)
-  - [Connected Components detector](docs/README-detector-components.md)
-  - [Line Segment Detector](docs/README-detector-lsd.md)
-  - [GrabCut detector](docs/README-detector-grabcut.md)
-- [Acquisition pipeline](README-acquisition-pipeline.md)
+- [Documentation index](docs/README.md)
+- [Architecture](docs/architecture.md)
+- [Project status](docs/project-status.md)
+- [Detector regression](docs/regression.md)
+- [Development and update workflow](docs/development.md)
 
 ## Acknowledgments
 
@@ -112,7 +105,7 @@ The detector registry is the single source of truth for those fields. Detector
 implementations return algorithm results and diagnostics only; the registry
 injects provenance, timing, validation, and exception isolation uniformly.
 Detailed field definitions and version policy are documented in
-[README-multidetector-geometry.md](README-multidetector-geometry.md).
+[multi-detector geometry documentation](docs/multidetector-geometry.md).
 
 ## Contact
 

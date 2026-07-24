@@ -22,7 +22,8 @@ class RegressionProgressTests(unittest.TestCase):
         reporter.start()
 
         lines = stream.getvalue().splitlines()
-        header = next(line for line in lines if line.startswith("Elapsed"))
+        header_top = next(line for line in lines if line.startswith("Elapsed"))
+        header_bottom = lines[lines.index(header_top) + 1]
         initial = lines[-1]
         self.assertIn("TBD", initial)
         self.assertIn("0/10", initial)
@@ -33,7 +34,7 @@ class RegressionProgressTests(unittest.TestCase):
         reporter.begin_evaluation("baseline")
         reporter.observe_baseline({
             "parameter_set_id": "abcdef123456",
-            "summary": {"mean_iou": 0.8, "minimum_iou": 0.6, "stddev_iou": 0.061, "failure_count": 0},
+            "summary": {"mean_iou": 0.8, "minimum_iou": 0.6, "stddev_iou": 0.061, "failure_count": 0, "wall_ms": 12.3},
         })
         baseline_row = stream.getvalue().splitlines()[-1]
         self.assertIn("TBD", baseline_row)
@@ -45,24 +46,21 @@ class RegressionProgressTests(unittest.TestCase):
         reporter.begin_evaluation("ps:12345678")
         reporter.observe({
             "parameter_set_id": "123456789abc",
-            "summary": {"mean_iou": 0.79, "minimum_iou": 0.59, "stddev_iou": 0.062, "failure_count": 0},
+            "summary": {"mean_iou": 0.79, "minimum_iou": 0.59, "stddev_iou": 0.062, "failure_count": 0, "wall_ms": 18.7},
         })
         reporter.emit(force=True)
         row = stream.getvalue().splitlines()[-1]
         self.assertIn("00:09:00", row)
         self.assertIn("1/10", row)
         self.assertIn("10.0%", row)
-        self.assertIn("00:01:00", row)  # baseline established best at elapsed minute one
+        self.assertIn("18.7ms", row)
 
-        self.assertEqual(
-            header,
-            "Elapsed   ETA       Progress       %     Rate  Avg IoU     Best  Min IoU     Best   "
-            "StdDev     Best  Fail  Improved  Parameter Set",
-        )
+        self.assertEqual(header_top, ProgressReporter.HEADER_TOP)
+        self.assertEqual(header_bottom, ProgressReporter.HEADER_BOTTOM)
         self.assertEqual(
             row,
             "00:02:00  00:09:00  1/10       10.0%  0.017/s   0.7900   0.8000   "
-            "0.5900   0.6000   0.0620   0.0610     0  00:01:00  12345678",
+            "0.5900   0.6000   0.0620   0.0610     0     18.7ms  12345678",
         )
 
     def test_milestones_and_final_row_clear_evaluating(self) -> None:
@@ -115,6 +113,11 @@ class RegressionProgressTests(unittest.TestCase):
         self.assertAlmostEqual(snapshot.best_minimum_page_iou or 0, 0.6)
         self.assertAlmostEqual(snapshot.current_mean_iou or 0, 0.85)
         self.assertAlmostEqual(snapshot.best_stddev_iou or 0, 0.07)
+        self.assertEqual(snapshot.mean_iou_improvements, 1)
+        self.assertEqual(snapshot.minimum_iou_improvements, 2)
+        self.assertEqual(snapshot.stddev_improvements, 2)
+        self.assertEqual(snapshot.total, 10)
+        self.assertEqual(snapshot.parameter_sets_with_improvements, 2)
 
 
 if __name__ == "__main__":

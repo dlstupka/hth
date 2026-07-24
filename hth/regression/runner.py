@@ -277,7 +277,7 @@ def run(args:argparse.Namespace)->Path:
         baseline=next((r for r in ranked if r.get("profile")=="baseline"),None)
         raw=run_dir/"raw"/"results.csv"; rankings=run_dir/"reports"/"rankings.csv"; top=run_dir/"reports"/"top20.csv"
         write_raw_results(raw,ranked); write_rankings(rankings,ranked); write_rankings(top,ranked[:max(0,args.top)])
-        summary={"schema_version":"0.5","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"winner":ranked[0],"baseline":baseline,"runner":environment,"source_commit":source_commit,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
+        summary={"schema_version":"0.6","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"winner":ranked[0],"baseline":baseline,"runner":environment,"source_commit":source_commit,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":progress.baseline_surpassed,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
         write_json(run_dir/"reports"/"summary.json",summary)
         debug_outputs = [] if debug_policy == "none" else write_debug_artifacts(
             args.output, name, run_id, policy=debug_policy, ranked=ranked, pages=pages
@@ -318,12 +318,19 @@ def run(args:argparse.Namespace)->Path:
         print(f"Average Page IoU: {winner_summary['mean_iou']:.4f}")
         print(f"Minimum Page IoU: {winner_summary['minimum_iou']:.4f}")
         print(f"Std Dev: {winner_summary['stddev_iou']:.4f}")
-        if progress_snapshot.last_improvement_elapsed_seconds is not None:
-            print(f"Last improvement at: {progress_snapshot.last_improvement_elapsed_seconds:.1f}s")
         if baseline_summary:
             print(f"Baseline Average Page IoU: {baseline_summary['mean_iou']:.4f}")
             print(f"Average Page IoU improvement: {winner_summary['mean_iou']-baseline_summary['mean_iou']:+.4f}")
             print(f"Minimum Page IoU improvement: {winner_summary['minimum_iou']-baseline_summary['minimum_iou']:+.4f}")
+        print(" ")
+        print("Regression Statistics")
+        print(f"Mean IoU improvements: {progress_snapshot.mean_iou_improvements}")
+        print(f"Minimum IoU improvements: {progress_snapshot.minimum_iou_improvements}")
+        print(f"Std Dev improvements: {progress_snapshot.stddev_improvements}")
+        print(f"Total metric improvements: {progress_snapshot.mean_iou_improvements + progress_snapshot.minimum_iou_improvements + progress_snapshot.stddev_improvements}")
+        print(f"Parameter sets with improvements: {progress_snapshot.parameter_sets_with_improvements}")
+        print(f"Winner changes: {progress_snapshot.winner_changes}")
+        print(f"Baseline surpassed: {'yes' if progress.baseline_surpassed else 'no'}")
         print(json.dumps({"run_id":run_id,"run_directory":str(run_dir),"winner":ranked[0],"baseline":baseline},indent=2))
         return run_dir
     except Exception as exc:

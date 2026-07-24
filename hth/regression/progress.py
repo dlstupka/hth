@@ -17,6 +17,30 @@ def _duration(seconds: float | None) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
+def _evaluation_time(milliseconds: Any) -> str:
+    try:
+        value = float(milliseconds)
+    except (TypeError, ValueError):
+        return "--"
+    if value < 1000:
+        return f"{value:.1f}ms"
+    seconds = value / 1000.0
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    return _duration(seconds)
+
+
+def _ranking_key(result: dict[str, Any]) -> tuple[float, float, int, float]:
+    summary = result.get("summary", {})
+    edge = summary.get("mean_edge_error_px")
+    return (
+        -float(summary.get("mean_iou", 0.0) or 0.0),
+        -float(summary.get("minimum_iou", 0.0) or 0.0),
+        int(summary.get("failure_count", 0) or 0),
+        float(edge) if edge is not None else float("inf"),
+    )
+
+
 @dataclass
 class ProgressSnapshot:
     completed: int
@@ -30,8 +54,14 @@ class ProgressSnapshot:
     best_minimum_page_iou: float | None
     current_stddev_iou: float | None
     best_stddev_iou: float | None
+    current_evaluation_ms: float | None
     failures: int
     evaluating: str
+    mean_iou_improvements: int
+    minimum_iou_improvements: int
+    stddev_improvements: int
+    winner_changes: int
+    parameter_sets_with_improvements: int
     last_improvement_seconds: float | None
     last_improvement_elapsed_seconds: float | None
 
@@ -52,24 +82,41 @@ class ProgressReporter:
         "stddev": 7,
         "stddev_best": 7,
         "failures": 4,
-        "improved": 8,
+        "time": 9,
     }
-    HEADER = (
+    HEADER_TOP = (
         f"{'Elapsed':<{COLUMN_WIDTHS['elapsed']}}  "
         f"{'ETA':<{COLUMN_WIDTHS['eta']}}  "
         f"{'Progress':<{COLUMN_WIDTHS['progress']}}  "
         f"{'%':>{COLUMN_WIDTHS['percent']}}  "
         f"{'Rate':>{COLUMN_WIDTHS['rate']}}  "
-        f"{'Avg IoU':>{COLUMN_WIDTHS['average']}}  "
+        f"{'Avg':>{COLUMN_WIDTHS['average']}}  "
         f"{'Best':>{COLUMN_WIDTHS['average_best']}}  "
-        f"{'Min IoU':>{COLUMN_WIDTHS['minimum']}}  "
+        f"{'Min':>{COLUMN_WIDTHS['minimum']}}  "
         f"{'Best':>{COLUMN_WIDTHS['minimum_best']}}  "
-        f"{'StdDev':>{COLUMN_WIDTHS['stddev']}}  "
+        f"{'':>{COLUMN_WIDTHS['stddev']}}  "
         f"{'Best':>{COLUMN_WIDTHS['stddev_best']}}  "
         f"{'Fail':>{COLUMN_WIDTHS['failures']}}  "
-        f"{'Improved':<{COLUMN_WIDTHS['improved']}}  "
-        "Parameter Set"
+        f"{'Eval':>{COLUMN_WIDTHS['time']}}  "
+        "Parameter"
     )
+    HEADER_BOTTOM = (
+        f"{'':<{COLUMN_WIDTHS['elapsed']}}  "
+        f"{'':<{COLUMN_WIDTHS['eta']}}  "
+        f"{'':<{COLUMN_WIDTHS['progress']}}  "
+        f"{'':>{COLUMN_WIDTHS['percent']}}  "
+        f"{'':>{COLUMN_WIDTHS['rate']}}  "
+        f"{'IoU':>{COLUMN_WIDTHS['average']}}  "
+        f"{'IoU':>{COLUMN_WIDTHS['average_best']}}  "
+        f"{'IoU':>{COLUMN_WIDTHS['minimum']}}  "
+        f"{'IoU':>{COLUMN_WIDTHS['minimum_best']}}  "
+        f"{'SD':>{COLUMN_WIDTHS['stddev']}}  "
+        f"{'SD':>{COLUMN_WIDTHS['stddev_best']}}  "
+        f"{'':>{COLUMN_WIDTHS['failures']}}  "
+        f"{'Time':>{COLUMN_WIDTHS['time']}}  "
+        "Set"
+    )
+    HEADER = HEADER_TOP + "\n" + HEADER_BOTTOM
 
     def __init__(
         self,
@@ -95,9 +142,15 @@ class ProgressReporter:
         self.best_mean_result: dict[str, Any] | None = None
         self.best_worst_result: dict[str, Any] | None = None
         self.best_stddev_result: dict[str, Any] | None = None
+        self.overall_best_result: dict[str, Any] | None = None
         self.baseline_mean_iou: float | None = None
         self.baseline_surpassed = False
         self.evaluating = "--"
+        self.mean_iou_improvements = 0
+        self.minimum_iou_improvements = 0
+        self.stddev_improvements = 0
+        self.winner_changes = 0
+        self.parameter_sets_with_improvements = 0
         self._last_improvement_at: float | None = None
         self._lock = threading.RLock()
         self._stop_event = threading.Event()
@@ -108,8 +161,9 @@ class ProgressReporter:
 
     def start(self) -> None:
         print("Regression Progress", file=self.stream)
-        print(self.HEADER, file=self.stream)
-        print("-" * len(self.HEADER), file=self.stream)
+        print(self.HEADER_TOP, file=self.stream)
+        print(self.HEADER_BOTTOM, file=self.stream)
+        print("-" * max(len(self.HEADER_TOP), len(self.HEADER_BOTTOM)), file=self.stream)
         self.emit(force=True)
         if self.interval_seconds > 0:
             self._thread = threading.Thread(
@@ -129,15 +183,13 @@ class ProgressReporter:
                     or now - self._last_stall_warning_at >= 2 * self.interval_seconds
                 ):
                     print(
-                        f"\n{_duration(now - self.started)} >>> No forward progress for "
+                        f"{_duration(now - self.started)} >>> No forward progress for "
                         f"{_duration(stalled_for)}; detector evaluation may be stalled",
                         file=self.stream,
                         flush=True,
                     )
                     self._last_stall_warning_at = now
                 self.emit(force=True)
-                if stalled_for >= 2 * self.interval_seconds:
-                    print(file=self.stream, flush=True)
 
     @staticmethod
     def _normalize_profile(profile: str) -> str:
@@ -155,7 +207,7 @@ class ProgressReporter:
         *,
         emit_status: bool = True,
     ) -> None:
-        """Emit one or more sparse milestone labels, optionally followed by status."""
+        """Emit sparse milestone notes without forcing them into table columns."""
         milestone_labels = [labels] if isinstance(labels, str) else list(labels)
         if not milestone_labels:
             return
@@ -167,18 +219,12 @@ class ProgressReporter:
             self.emit(force=True)
         self.stream.flush()
 
-
     def begin_evaluation(self, profile: str) -> None:
-        """Record the parameter set currently being evaluated for heartbeat telemetry."""
         with self._lock:
             self.evaluating = self._normalize_profile(profile)
 
     def observe_baseline(self, result: dict[str, Any]) -> None:
-        """Seed comparison metrics without counting baseline as a search iteration.
-
-        Baseline is iteration zero: it establishes best-so-far values and the start
-        of search timing, but it does not affect Complete, Rate, or ETA.
-        """
+        """Seed best-so-far values without counting baseline as an improvement."""
         with self._lock:
             now = self.clock()
             summary = result.get("summary", {})
@@ -186,10 +232,10 @@ class ProgressReporter:
             self.best_mean_result = result
             self.best_worst_result = result
             self.best_stddev_result = result
+            self.overall_best_result = result
             self.baseline_mean_iou = float(summary.get("mean_iou", 0.0) or 0.0)
             self.failures += int(summary.get("failure_count", 0) or 0)
             self.evaluating = "baseline"
-            self._last_improvement_at = now
             self._last_progress_at = now
             self._search_started_at = now
             self.emit(force=True)
@@ -207,45 +253,36 @@ class ProgressReporter:
             self.current_result = result
             profile_name = self._profile_name(result, profile)
 
-            old_best_mean = (
-                float(self.best_mean_result.get("summary", {}).get("mean_iou", 0.0) or 0.0)
-                if self.best_mean_result is not None
-                else None
-            )
-            old_best_worst = (
-                float(self.best_worst_result.get("summary", {}).get("minimum_iou", 0.0) or 0.0)
-                if self.best_worst_result is not None
-                else None
-            )
+            old_best_mean = float(self.best_mean_result.get("summary", {}).get("mean_iou", 0.0) or 0.0) if self.best_mean_result else None
+            old_best_worst = float(self.best_worst_result.get("summary", {}).get("minimum_iou", 0.0) or 0.0) if self.best_worst_result else None
+            old_best_stddev = float(self.best_stddev_result.get("summary", {}).get("stddev_iou", 0.0) or 0.0) if self.best_stddev_result else None
 
             new_best_mean = old_best_mean is None or mean_iou > old_best_mean
-            old_best_stddev = (
-                float(self.best_stddev_result.get("summary", {}).get("stddev_iou", 0.0) or 0.0)
-                if self.best_stddev_result is not None
-                else None
-            )
-
             new_best_worst = old_best_worst is None or worst_iou > old_best_worst
             new_best_stddev = old_best_stddev is None or stddev_iou < old_best_stddev
+            new_overall_winner = self.overall_best_result is None or _ranking_key(result) < _ranking_key(self.overall_best_result)
 
             if new_best_mean:
                 self.best_mean_result = result
+                self.mean_iou_improvements += 1
             if new_best_worst:
                 self.best_worst_result = result
+                self.minimum_iou_improvements += 1
             if new_best_stddev:
                 self.best_stddev_result = result
+                self.stddev_improvements += 1
+            if new_overall_winner:
+                self.overall_best_result = result
+                self.winner_changes += 1
             if new_best_mean or new_best_worst or new_best_stddev:
+                self.parameter_sets_with_improvements += 1
                 self._last_improvement_at = now
-
-            if profile == "baseline":
-                self.baseline_mean_iou = mean_iou
 
             milestones: list[str] = []
             if new_best_mean:
                 milestones.append("New best average page IoU")
             if new_best_worst:
                 milestones.append("New minimum page IoU")
-
             if (
                 not self.baseline_surpassed
                 and self.baseline_mean_iou is not None
@@ -264,56 +301,41 @@ class ProgressReporter:
     def snapshot(self) -> ProgressSnapshot:
         now = self.clock()
         elapsed = max(0.0, now - self.started)
-        search_elapsed = (
-            max(0.0, now - self._search_started_at)
-            if self._search_started_at is not None
-            else 0.0
-        )
+        search_elapsed = max(0.0, now - self._search_started_at) if self._search_started_at is not None else 0.0
         rate = self.completed / search_elapsed if search_elapsed > 0 and self.completed else None
         remaining = max(0, self.total - self.completed)
-        # A first completed evaluation is enough for a useful operational estimate.
-        # The estimate will naturally stabilize as additional profiles complete.
         eta = remaining / rate if rate else None
         current_summary = self.current_result.get("summary", {}) if self.current_result else {}
         best_mean_summary = self.best_mean_result.get("summary", {}) if self.best_mean_result else {}
         best_worst_summary = self.best_worst_result.get("summary", {}) if self.best_worst_result else {}
         best_stddev_summary = self.best_stddev_result.get("summary", {}) if self.best_stddev_result else {}
-        since_improvement = (
-            max(0.0, now - self._last_improvement_at)
-            if self._last_improvement_at is not None
-            else None
-        )
-        improvement_elapsed = (
-            max(0.0, self._last_improvement_at - self.started)
-            if self._last_improvement_at is not None
-            else None
-        )
+        since_improvement = max(0.0, now - self._last_improvement_at) if self._last_improvement_at is not None else None
+        improvement_elapsed = max(0.0, self._last_improvement_at - self.started) if self._last_improvement_at is not None else None
+        evaluation_ms = current_summary.get("wall_ms", current_summary.get("elapsed_ms_total"))
+        try:
+            current_evaluation_ms = float(evaluation_ms) if evaluation_ms is not None else None
+        except (TypeError, ValueError):
+            current_evaluation_ms = None
         return ProgressSnapshot(
             completed=self.completed,
             total=self.total,
             elapsed_seconds=elapsed,
             eta_seconds=eta,
             eval_rate=rate,
-            current_mean_iou=(
-                float(current_summary["mean_iou"]) if "mean_iou" in current_summary else None
-            ),
-            best_mean_iou=(
-                float(best_mean_summary["mean_iou"]) if "mean_iou" in best_mean_summary else None
-            ),
-            current_minimum_page_iou=(
-                float(current_summary["minimum_iou"]) if "minimum_iou" in current_summary else None
-            ),
-            best_minimum_page_iou=(
-                float(best_worst_summary["minimum_iou"]) if "minimum_iou" in best_worst_summary else None
-            ),
-            current_stddev_iou=(
-                float(current_summary["stddev_iou"]) if "stddev_iou" in current_summary else None
-            ),
-            best_stddev_iou=(
-                float(best_stddev_summary["stddev_iou"]) if "stddev_iou" in best_stddev_summary else None
-            ),
+            current_mean_iou=float(current_summary["mean_iou"]) if "mean_iou" in current_summary else None,
+            best_mean_iou=float(best_mean_summary["mean_iou"]) if "mean_iou" in best_mean_summary else None,
+            current_minimum_page_iou=float(current_summary["minimum_iou"]) if "minimum_iou" in current_summary else None,
+            best_minimum_page_iou=float(best_worst_summary["minimum_iou"]) if "minimum_iou" in best_worst_summary else None,
+            current_stddev_iou=float(current_summary["stddev_iou"]) if "stddev_iou" in current_summary else None,
+            best_stddev_iou=float(best_stddev_summary["stddev_iou"]) if "stddev_iou" in best_stddev_summary else None,
+            current_evaluation_ms=current_evaluation_ms,
             failures=self.failures,
             evaluating=self.evaluating,
+            mean_iou_improvements=self.mean_iou_improvements,
+            minimum_iou_improvements=self.minimum_iou_improvements,
+            stddev_improvements=self.stddev_improvements,
+            winner_changes=self.winner_changes,
+            parameter_sets_with_improvements=self.parameter_sets_with_improvements,
             last_improvement_seconds=since_improvement,
             last_improvement_elapsed_seconds=improvement_elapsed,
         )
@@ -341,11 +363,7 @@ class ProgressReporter:
         stddev = f"{snap.current_stddev_iou:.4f}" if snap.current_stddev_iou is not None else "--"
         stddev_best = f"{snap.best_stddev_iou:.4f}" if snap.best_stddev_iou is not None else "--"
         eta = _duration(snap.eta_seconds) if snap.eta_seconds is not None else "TBD"
-        last_improvement = (
-            _duration(snap.last_improvement_elapsed_seconds)
-            if snap.last_improvement_elapsed_seconds is not None
-            else "--"
-        )
+        evaluation_time = _evaluation_time(snap.current_evaluation_ms)
         print(
             f"{_duration(snap.elapsed_seconds):<{widths['elapsed']}}  "
             f"{eta:<{widths['eta']}}  "
@@ -359,7 +377,7 @@ class ProgressReporter:
             f"{stddev:>{widths['stddev']}}  "
             f"{stddev_best:>{widths['stddev_best']}}  "
             f"{snap.failures:>{widths['failures']}d}  "
-            f"{last_improvement:<{widths['improved']}}  "
+            f"{evaluation_time:>{widths['time']}}  "
             f"{snap.evaluating}",
             file=self.stream,
             flush=True,
@@ -372,5 +390,4 @@ class ProgressReporter:
         if self._thread is not None:
             self._thread.join(timeout=min(1.0, self.interval_seconds))
         with self._lock:
-            # Completion is announced separately; do not duplicate the final status row.
             return self.snapshot()

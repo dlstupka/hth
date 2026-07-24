@@ -80,6 +80,7 @@ def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = Tru
     winner_stats = winner.get("summary", {}) if winner else {}
     baseline_stats = baseline.get("summary", {}) if baseline else {}
     outputs = manifest.get("outputs", []) if isinstance(manifest.get("outputs"), list) else []
+    progress = summary.get("progress", {}) if isinstance(summary.get("progress"), dict) else {}
     page_ordinals = summary.get("page_ordinals", []) if isinstance(summary.get("page_ordinals"), list) else []
     configuration = parameters.get("configuration", {}) if isinstance(parameters.get("configuration"), dict) else {}
     profiles = configuration.get("profiles", {}) if isinstance(configuration.get("profiles"), dict) else {}
@@ -128,6 +129,21 @@ def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = Tru
             f"{baseline_stats.get('failure_count', 'unknown')} | "
             f"{_duration(_evaluation_seconds(baseline))} |"
         )
+
+    lines.extend([
+        "",
+        "## Regression statistics",
+        "",
+        "| Statistic | Count |",
+        "|---|---:|",
+        f"| Mean IoU improvements | {progress.get('mean_iou_improvements', 0)} |",
+        f"| Minimum IoU improvements | {progress.get('minimum_iou_improvements', 0)} |",
+        f"| StdDev improvements | {progress.get('stddev_improvements', 0)} |",
+        f"| Total metric improvements | {progress.get('total_metric_improvements', 0)} |",
+        f"| Parameter sets with improvements | {progress.get('parameter_sets_with_improvements', 0)} |",
+        f"| Winner changes | {progress.get('winner_changes', 0)} |",
+        f"| Baseline surpassed | {'yes' if progress.get('baseline_surpassed') else 'no'} |",
+    ])
 
     if outputs:
         lines.extend(["", "## Outputs", ""])
