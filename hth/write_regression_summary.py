@@ -158,18 +158,51 @@ def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = Tru
     return "\n".join(lines)
 
 
+
+def _combined_result_row(run_dir: Path) -> dict[str, Any]:
+    manifest = _read_json(run_dir / "manifest.json")
+    info = _read_json(run_dir / "RUN-INFO.json")
+    summary = _read_json(run_dir / "reports" / "summary.json")
+    winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else None
+    winner_stats = winner.get("summary", {}) if winner else {}
+    return {
+        "detector": str(manifest.get("detector", run_dir.parent.name)),
+        "status": str(manifest.get("status", "unknown")),
+        "winner": _parameter_set_name(winner),
+        "parameter_set_id": _parameter_id(winner),
+        "mean_iou": winner_stats.get("mean_iou"),
+        "minimum_iou": winner_stats.get("minimum_iou"),
+        "stddev_iou": winner_stats.get("stddev_iou"),
+        "failures": winner_stats.get("failure_count", "unknown"),
+        "parameter_sets": summary.get("parameter_set_count", "unknown"),
+        "elapsed_seconds": info.get("elapsed_seconds"),
+    }
+
 def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
     if not run_dirs:
         raise ValueError("At least one regression run directory is required")
     if len(run_dirs) == 1:
         return build_summary(run_dirs[0], run_url)
 
+    combined_rows = [_combined_result_row(run_dir) for run_dir in run_dirs]
     lines = [
         "# Detector Regression Manifest",
         "",
         f"**Detectors evaluated:** {len(run_dirs)}",
         "",
+        "## Coalesced detector results",
+        "",
+        "| Detector | Status | Winner | Parameter set ID | Avg IoU | Min IoU | StdDev | Failures | Parameter sets | Elapsed |",
+        "|---|---|---|---|---:|---:|---:|---:|---:|---:|",
     ]
+    for row in combined_rows:
+        lines.append(
+            f"| `{row['detector']}` | {row['status']} | `{row['winner']}` | "
+            f"`{row['parameter_set_id']}` | {_number(row['mean_iou'])} | "
+            f"{_number(row['minimum_iou'])} | {_number(row['stddev_iou'])} | "
+            f"{row['failures']} | {row['parameter_sets']} | {_duration(row['elapsed_seconds'])} |"
+        )
+    lines.append("")
     for index, run_dir in enumerate(run_dirs):
         manifest = _read_json(run_dir / "manifest.json")
         detector = str(manifest.get("detector", run_dir.parent.name))

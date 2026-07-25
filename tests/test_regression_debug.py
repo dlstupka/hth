@@ -67,10 +67,10 @@ class RegressionDebugTests(unittest.TestCase):
             debug_root = root / "debug" / "contour" / "run-test"
             debug_page = debug_root / "baseline123" / "page-0006"
             self.assertTrue((debug_root / "README.txt").is_file())
-            self.assertTrue((debug_page / "original.jpg").is_file())
-            self.assertTrue((debug_page / "input-mask.png").is_file())
-            self.assertTrue((debug_page / "overlay.jpg").is_file())
-            diagnostics = json.loads((debug_page / "diagnostics.json").read_text())
+            self.assertTrue((debug_page / "01-original.jpg").is_file())
+            self.assertTrue((debug_page / "02-input-mask.png").is_file())
+            self.assertTrue((debug_page / "03-overlay.jpg").is_file())
+            diagnostics = json.loads((debug_page / "04-diagnostics.json").read_text())
             self.assertEqual(diagnostics["result"]["status"], "no_candidate")
             self.assertIn("debug/contour/run-test/README.txt", outputs)
 
@@ -110,11 +110,15 @@ class RegressionDebugTests(unittest.TestCase):
             )
 
             debug_page = root / "debug" / "components" / "run-test" / "baseline123" / "page-0006"
-            self.assertTrue((debug_page / "after-morphology.png").is_file())
-            self.assertTrue((debug_page / "component-labels.png").is_file())
-            self.assertTrue((debug_page / "significant-components.png").is_file())
-            self.assertTrue((debug_page / "selected-components.png").is_file())
-            self.assertTrue((debug_page / "candidate-envelope.png").is_file())
+            self.assertTrue((debug_page / "01-original.jpg").is_file())
+            self.assertTrue((debug_page / "02-input-mask.png").is_file())
+            self.assertTrue((debug_page / "03-after-morphology.png").is_file())
+            self.assertTrue((debug_page / "04-component-labels.png").is_file())
+            self.assertTrue((debug_page / "05-significant-components.png").is_file())
+            self.assertTrue((debug_page / "06-selected-components.png").is_file())
+            self.assertTrue((debug_page / "07-candidate-envelope.png").is_file())
+            self.assertTrue((debug_page / "08-overlay.jpg").is_file())
+            self.assertTrue((debug_page / "09-diagnostics.json").is_file())
 
 
 if __name__ == "__main__":

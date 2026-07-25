@@ -105,26 +105,28 @@ commit remains recorded separately in every page-analysis record.
 
 ## Regression debug images
 
-Connected Components regression debug directories include the common source, input-mask, overlay, and diagnostics files plus two detector-specific intermediates:
+Regression debug files use numeric prefixes so every ZIP viewer and file browser preserves the detector's analysis sequence. Connected Components winner artifacts are:
 
-- `after-morphology.png` shows the mask after closing and dilation;
-- `component-labels.png` renders each resulting connected component in a deterministic distinct color.
+- `01-original.jpg` — source image;
+- `02-input-mask.png` — mask supplied to the detector;
+- `03-after-morphology.png` — mask after closing and dilation;
+- `04-component-labels.png` — every connected component in a deterministic distinct color;
+- `05-significant-components.png` — components surviving the configured area filter;
+- `06-selected-components.png` — components merged into the final candidate;
+- `07-candidate-envelope.png` — selected components with the analysis-space envelope;
+- `08-overlay.jpg` — approved bbox in green and predicted bbox in red;
+- `09-diagnostics.json` — complete page result and detector diagnostics.
 
-These images make it possible to distinguish thresholding problems from morphology, fragmentation, filtering, and envelope-merging failures.
+The ordered images distinguish thresholding problems from morphology, fragmentation, filtering, merging, and final-envelope errors without exposing implementation detail.
 
 ## Stage-aware regression reporting
 
-Connected Components contributes two ordered pre-regression research tables immediately after the detector environment table:
+Connected Components contributes ordered pre-regression research tables immediately after the detector environment table:
 
-- **Morphology Preprocessing Tuning** records the closing and dilation search values, operation order, scale basis, kernel shape, and number of morphology variants.
+- **Morphology Algorithm** records the fixed assumptions that define the experiment: operation order, scaling basis, kernel geometry and sizing, and iteration counts.
+- **Morphology Search Space** records the closing and dilation values actually varied and the resulting morphology variant count.
 - **Connected Components Candidate Tuning** records the component filtering, merging, envelope acceptance, and padding values that materially affect candidate production.
 
-These sections appear only for detectors that contribute meaningful configurable stages; Contour and GrabCut output remains unchanged.
+These sections appear only for detectors that contribute meaningful configurable or experiment-defining stages; Contour and GrabCut output remains unchanged.
 
-The default Connected Components debug policy is `winner`, ensuring a successful smoke run still produces a compact, interpretable visual record. In addition to the common source, mask, overlay, and diagnostics files, the winning parameter set writes:
-
-- `after-morphology.png`;
-- `component-labels.png`;
-- `significant-components.png` for components surviving the area filter;
-- `selected-components.png` for components merged into the candidate;
-- `candidate-envelope.png` showing the selected components and final analysis-space envelope.
+The default Connected Components debug policy is `winner`, ensuring a successful smoke run still produces a compact, interpretable visual record.

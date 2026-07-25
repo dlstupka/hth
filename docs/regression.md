@@ -48,6 +48,8 @@ The `baseline` profile is treated as a named production reference, not a privile
 
 The manually dispatched **HTH detector regression** workflow checks out a results repository, runs the selected detector against the Golden Set, uploads the complete canonical run directory, and writes a **Regression Manifest** to the Actions job summary. The manifest records provenance, Golden Set pages, parameter-space size, winner and baseline metrics, and output validation.
 
+When multiple detectors run together, the top-level **Detector Regression Manifest** begins with a coalesced results table. It places every detector's winner, IoU metrics, failure count, evaluated parameter-set count, and elapsed time side by side before the detailed per-detector manifests. The detail sections remain authoritative; the coalesced table intentionally duplicates their key results to support rapid comparison.
+
 For a manual run, the **Algorithm** input is a choice of `all`, `contour`, `components`, or `grabcut`. Automatic smoke runs continue to exercise all configured detector algorithms.
 
 Manual runs default to the `exhaustive` strategy. Limit handling is explicit:

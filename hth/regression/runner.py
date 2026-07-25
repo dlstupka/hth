@@ -158,22 +158,34 @@ def _write_debug_page(
         x1, y1, x2, y2 = (int(v) for v in predicted)
         cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 255), 4)
 
-    cv2.imwrite(str(page_dir / "original.jpg"), original)
-    cv2.imwrite(str(page_dir / "input-mask.png"), page["mask"])
+    cv2.imwrite(str(page_dir / "01-original.jpg"), original)
+    cv2.imwrite(str(page_dir / "02-input-mask.png"), page["mask"])
     candidate = result.get("candidate") if isinstance(result.get("candidate"), dict) else {}
     if candidate.get("method") == "components":
         diagnostics = candidate.get("diagnostics") if isinstance(candidate.get("diagnostics"), dict) else {}
         parameters = diagnostics.get("parameters") if isinstance(diagnostics.get("parameters"), dict) else None
+        numbered_component_images = {
+            "after-morphology.png": "03-after-morphology.png",
+            "component-labels.png": "04-component-labels.png",
+            "significant-components.png": "05-significant-components.png",
+            "selected-components.png": "06-selected-components.png",
+            "candidate-envelope.png": "07-candidate-envelope.png",
+        }
         for filename, debug_image in detector_components.debug_images(
             mask=page["mask"],
             parameters=parameters,
             diagnostics=diagnostics,
             candidate_bbox=candidate.get("bbox"),
         ).items():
-            cv2.imwrite(str(page_dir / filename), debug_image)
-    cv2.imwrite(str(page_dir / "overlay.jpg"), overlay)
+            cv2.imwrite(str(page_dir / numbered_component_images[filename]), debug_image)
+        overlay_name = "08-overlay.jpg"
+        diagnostics_name = "09-diagnostics.json"
+    else:
+        overlay_name = "03-overlay.jpg"
+        diagnostics_name = "04-diagnostics.json"
+    cv2.imwrite(str(page_dir / overlay_name), overlay)
     write_json(
-        page_dir / "diagnostics.json",
+        page_dir / diagnostics_name,
         {
             "global_ordinal": ordinal,
             "label": page.get("label"),
@@ -222,16 +234,19 @@ def write_debug_artifacts(
         f"Policy: {policy}",
         f"Pages written: {len(selected)}",
         "",
-        "Each page directory contains:",
-        "- original.jpg: source image",
-        "- input-mask.png: mask supplied to the detector",
-        "- after-morphology.png: Connected Components mask after closing and dilation",
-        "- component-labels.png: all Connected Components labels rendered in distinct colors",
-        "- significant-components.png: components surviving the configured area filter",
-        "- selected-components.png: components merged into the final candidate",
-        "- candidate-envelope.png: selected components with the analysis-space candidate envelope",
-        "- overlay.jpg: approved bbox in green; predicted bbox in red",
-        "- diagnostics.json: complete page result and detector diagnostics",
+        "Each page directory uses numeric prefixes to preserve analysis order.",
+        "Common files:",
+        "- 01-original.jpg: source image",
+        "- 02-input-mask.png: mask supplied to the detector",
+        "Connected Components stages:",
+        "- 03-after-morphology.png: mask after closing and dilation",
+        "- 04-component-labels.png: all connected-component labels in distinct colors",
+        "- 05-significant-components.png: components surviving the configured area filter",
+        "- 06-selected-components.png: components merged into the final candidate",
+        "- 07-candidate-envelope.png: selected components with the analysis-space envelope",
+        "- 08-overlay.jpg: approved bbox in green; predicted bbox in red",
+        "- 09-diagnostics.json: complete page result and detector diagnostics",
+        "Other detectors use 03-overlay.jpg and 04-diagnostics.json.",
         "",
     ]
     (debug_root / "README.txt").write_text("\n".join(readme), encoding="utf-8")

@@ -39,14 +39,22 @@ def pre_regression_report_sections(config: dict[str, Any]) -> list[dict[str, Any
 
     return [
         {
-            "title": "Morphology Preprocessing Tuning",
+            "title": "Morphology Algorithm",
             "rows": [
                 ("Operation sequence", "closing -> dilation"),
+                ("Kernel scaling basis", "minimum image dimension"),
+                ("Kernel shape", "rectangular"),
+                ("Kernel sizing", "scale-relative, rounded to odd pixels"),
+                ("Closing iterations", 1),
+                ("Dilation iterations", 1),
+            ],
+        },
+        {
+            "title": "Morphology Search Space",
+            "rows": [
                 ("Closing kernel fractions", ", ".join(map(str, close_values)) or "baseline only"),
                 ("Dilation kernel fractions", ", ".join(map(str, dilate_values)) or "baseline only"),
                 ("Morphology variants", morphology_variants),
-                ("Kernel scaling basis", "minimum image dimension"),
-                ("Kernel shape", "rectangular, odd-sized"),
             ],
         },
         {
