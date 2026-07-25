@@ -101,7 +101,7 @@ class RansacDetectorTests(unittest.TestCase):
                 "RANSAC Boundary Sampling Algorithm",
                 "RANSAC Boundary Sampling Search Space",
                 "RANSAC Line Fitting Search Space",
-                "RANSAC Candidate Tuning",
+                "RANSAC Detector Configuration",
             ],
         )
 

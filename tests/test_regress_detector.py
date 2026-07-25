@@ -63,9 +63,11 @@ def test_components_pre_regression_sections_are_ordered_and_research_focused() -
     }
     sections = pre_regression_report_sections(config)
     assert [section["title"] for section in sections] == [
-        "Morphology Preprocessing Tuning",
-        "Connected Components Candidate Tuning",
+        "Morphology Algorithm",
+        "Morphology Search Space",
+        "Connected Components Detector Configuration",
     ]
-    morphology = dict(sections[0]["rows"])
-    assert morphology["Morphology variants"] == 6
-    assert morphology["Operation sequence"] == "closing -> dilation"
+    algorithm = dict(sections[0]["rows"])
+    search_space = dict(sections[1]["rows"])
+    assert search_space["Morphology variants"] == 6
+    assert algorithm["Operation sequence"] == "closing -> dilation"

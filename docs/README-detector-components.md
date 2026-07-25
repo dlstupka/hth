@@ -125,7 +125,7 @@ Connected Components contributes ordered pre-regression research tables immediat
 
 - **Morphology Algorithm** records the fixed assumptions that define the experiment: operation order, scaling basis, kernel geometry and sizing, and iteration counts.
 - **Morphology Search Space** records the closing and dilation values actually varied and the resulting morphology variant count.
-- **Connected Components Candidate Tuning** records the component filtering, merging, envelope acceptance, and padding values that materially affect candidate production.
+- **Connected Components Detector Configuration** records the component filtering, merging, envelope acceptance, and padding values that materially affect candidate production.
 
 These sections appear only for detectors that contribute meaningful configurable or experiment-defining stages; Contour and GrabCut output remains unchanged.
 

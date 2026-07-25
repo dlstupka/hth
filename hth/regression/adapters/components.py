@@ -58,7 +58,7 @@ def pre_regression_report_sections(config: dict[str, Any]) -> list[dict[str, Any
             ],
         },
         {
-            "title": "Connected Components Candidate Tuning",
+            "title": "Connected Components Detector Configuration",
             "rows": [
                 ("Component area fractions", ", ".join(map(str, values("minimum_component_area_fraction")))),
                 ("Component pixel floors", ", ".join(map(str, values("minimum_component_area_px")))),

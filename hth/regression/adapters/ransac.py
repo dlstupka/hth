@@ -67,7 +67,7 @@ def pre_regression_report_sections(config: dict[str, Any]) -> list[dict[str, Any
             ],
         },
         {
-            "title": "RANSAC Candidate Tuning",
+            "title": "RANSAC Detector Configuration",
             "rows": [
                 ("Minimum envelope fractions", ", ".join(map(str, values("minimum_bbox_area_fraction")))),
                 ("Bounding-box padding fractions", ", ".join(map(str, values("bbox_padding_fraction")))),
