@@ -223,7 +223,7 @@ class ProgressReporter:
         now = self.clock()
         suffix = f" {profile}" if profile else ""
         for label in milestone_labels:
-            print(f"{_duration(now - self.started)} >>> {label}{suffix}", file=self.stream)
+            print(f"{_duration(now - self.started)} >>> {label}{suffix}", file=self.stream, flush=True)
         if emit_status:
             self.emit(force=True)
         self.stream.flush()
