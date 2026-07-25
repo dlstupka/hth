@@ -24,6 +24,7 @@ This directory contains the design, operating, and project-reference documentati
 - [Contour detector](README-detector-contour.md) — contour-based detector.
 - [GrabCut detector](README-detector-grabcut.md) — GrabCut-based detector.
 - [RANSAC detector](README-detector-ransac.md) — robust four-edge line-fitting detector.
+- [Hough Lines detector](README-detector-hough.md) — probabilistic Hough-transform detector.
 - [Line Segment Detector](README-detector-lsd.md) — LSD-based detector.
 
 ## Calibration and regression

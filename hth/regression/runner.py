@@ -14,6 +14,10 @@ from .adapters.components import (
 )
 from .adapters.contour import detect as contour_detect
 from .adapters.grabcut import detect as grabcut_detect
+from .adapters.hough import (
+    detect as hough_detect,
+    pre_regression_report_sections as hough_pre_regression_report_sections,
+)
 from .adapters.lsd import (
     detect as lsd_detect,
     pre_regression_report_sections as lsd_pre_regression_report_sections,
@@ -30,9 +34,10 @@ from .strategies.cartesian import generate as cartesian_generate
 from .strategies.binary_refine import search as binary_search
 from .progress import ProgressReporter
 
-DETECTORS={"components":components_detect,"contour":contour_detect,"grabcut":grabcut_detect,"lsd":lsd_detect,"ransac":ransac_detect}
+DETECTORS={"components":components_detect,"contour":contour_detect,"grabcut":grabcut_detect,"hough":hough_detect,"lsd":lsd_detect,"ransac":ransac_detect}
 PRE_REGRESSION_REPORTERS={
     "components":components_pre_regression_report_sections,
+    "hough":hough_pre_regression_report_sections,
     "lsd":lsd_pre_regression_report_sections,
     "ransac":ransac_pre_regression_report_sections,
 }

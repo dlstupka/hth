@@ -37,6 +37,7 @@ on:
           - components
           - ransac
           - grabcut
+          - hough
           - lsd
       golden_set:
         description: Golden Set configuration
