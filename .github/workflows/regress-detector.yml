@@ -35,6 +35,7 @@ on:
           - all
           - contour
           - components
+          - ransac
           - grabcut
       golden_set:
         description: Golden Set configuration

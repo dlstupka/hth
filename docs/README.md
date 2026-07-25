@@ -23,6 +23,7 @@ This directory contains the design, operating, and project-reference documentati
 - [Detector components](README-detector-components.md) — connected-components detector.
 - [Contour detector](README-detector-contour.md) — contour-based detector.
 - [GrabCut detector](README-detector-grabcut.md) — GrabCut-based detector.
+- [RANSAC detector](README-detector-ransac.md) — robust four-edge line-fitting detector.
 - [Line Segment Detector](README-detector-lsd.md) — LSD-based detector.
 
 ## Calibration and regression

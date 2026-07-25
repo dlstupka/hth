@@ -1,0 +1,32 @@
+{
+  "schema_version": "0.1",
+  "detector": "ransac",
+  "description": "Black-box calibration space for the HTH four-edge RANSAC document-envelope detector.",
+  "profiles": {
+    "baseline": {
+      "scan_samples": 220,
+      "minimum_scan_foreground_fraction": 0.0125,
+      "residual_threshold_fraction": 0.008,
+      "max_trials": 400,
+      "minimum_mean_inlier_ratio": 0.45,
+      "minimum_bbox_area_fraction": 0.18,
+      "bbox_padding_fraction": 0.0
+    }
+  },
+  "parameters": {
+    "scan_samples": {"type": "integer", "values": [140, 220, 320]},
+    "minimum_scan_foreground_fraction": {"type": "float", "values": [0.008, 0.0125, 0.02]},
+    "residual_threshold_fraction": {"type": "float", "values": [0.004, 0.008, 0.014]},
+    "max_trials": {"type": "integer", "values": [200, 400]},
+    "minimum_mean_inlier_ratio": {"type": "float", "values": [0.25, 0.45, 0.65]},
+    "minimum_bbox_area_fraction": {"type": "float", "values": [0.10, 0.18, 0.28]},
+    "bbox_padding_fraction": {"type": "float", "values": [0.0, 0.008, 0.016]}
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "winner"
+  }
+}

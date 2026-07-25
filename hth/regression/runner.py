@@ -7,13 +7,17 @@ from pathlib import Path
 from typing import Any
 import cv2
 from hth.geometry.common import document_mask, resize_for_analysis, scale_bbox, valid_bbox
-from hth.geometry import detector_components
+from hth.geometry import detector_components, detector_ransac
 from .adapters.components import (
     detect as components_detect,
     pre_regression_report_sections as components_pre_regression_report_sections,
 )
 from .adapters.contour import detect as contour_detect
 from .adapters.grabcut import detect as grabcut_detect
+from .adapters.ransac import (
+    detect as ransac_detect,
+    pre_regression_report_sections as ransac_pre_regression_report_sections,
+)
 from .io import create_run_directory, environment_info, utc_now, write_json
 from .metrics import bbox_iou, edge_errors
 from .parameter_space import canonical_parameters, parameter_set_id, exhaustive_parameter_sets
@@ -22,8 +26,11 @@ from .strategies.cartesian import generate as cartesian_generate
 from .strategies.binary_refine import search as binary_search
 from .progress import ProgressReporter
 
-DETECTORS={"components":components_detect,"contour":contour_detect,"grabcut":grabcut_detect}
-PRE_REGRESSION_REPORTERS={"components":components_pre_regression_report_sections}
+DETECTORS={"components":components_detect,"contour":contour_detect,"grabcut":grabcut_detect,"ransac":ransac_detect}
+PRE_REGRESSION_REPORTERS={
+    "components":components_pre_regression_report_sections,
+    "ransac":ransac_pre_regression_report_sections,
+}
 
 
 def repository_root(path: Path) -> Path:
@@ -180,6 +187,21 @@ def _write_debug_page(
             cv2.imwrite(str(page_dir / numbered_component_images[filename]), debug_image)
         overlay_name = "08-overlay.jpg"
         diagnostics_name = "09-diagnostics.json"
+    elif candidate.get("method") == "ransac":
+        diagnostics = candidate.get("diagnostics") if isinstance(candidate.get("diagnostics"), dict) else {}
+        parameters = diagnostics.get("parameters") if isinstance(diagnostics.get("parameters"), dict) else None
+        numbered_ransac_images = {
+            "boundary-samples.png": "03-boundary-samples.png",
+            "fitted-edge-models.png": "04-fitted-edge-models.png",
+            "ransac-inliers.png": "05-ransac-inliers.png",
+            "candidate-quadrilateral.png": "06-candidate-quadrilateral.png",
+        }
+        for filename, debug_image in detector_ransac.debug_images(
+            mask=page["mask"], parameters=parameters
+        ).items():
+            cv2.imwrite(str(page_dir / numbered_ransac_images[filename]), debug_image)
+        overlay_name = "07-overlay.jpg"
+        diagnostics_name = "08-diagnostics.json"
     else:
         overlay_name = "03-overlay.jpg"
         diagnostics_name = "04-diagnostics.json"
@@ -246,6 +268,13 @@ def write_debug_artifacts(
         "- 07-candidate-envelope.png: selected components with the analysis-space envelope",
         "- 08-overlay.jpg: approved bbox in green; predicted bbox in red",
         "- 09-diagnostics.json: complete page result and detector diagnostics",
+        "RANSAC stages:",
+        "- 03-boundary-samples.png: left/right/top/bottom observations sampled from the mask",
+        "- 04-fitted-edge-models.png: robust line models fitted to each edge family",
+        "- 05-ransac-inliers.png: observations accepted by each fitted edge model",
+        "- 06-candidate-quadrilateral.png: line intersections and derived candidate envelope",
+        "- 07-overlay.jpg: approved bbox in green; predicted bbox in red",
+        "- 08-diagnostics.json: complete page result and detector diagnostics",
         "Other detectors use 03-overlay.jpg and 04-diagnostics.json.",
         "",
     ]
