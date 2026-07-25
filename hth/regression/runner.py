@@ -1,6 +1,6 @@
 """Execute a reproducible detector regression run."""
 from __future__ import annotations
-import argparse, json, os, statistics, time
+import argparse, hashlib, json, os, statistics, time
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,7 +53,16 @@ def repository_root(path: Path) -> Path:
     return Path.cwd()
 
 
-def print_environment_banner(*, environment: dict[str, Any], detector: str, golden_set: Path, source_commit: str | None = None) -> None:
+def file_sha256(path: Path) -> str:
+    """Return the SHA-256 digest of a file as lowercase hexadecimal."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def print_environment_banner(*, environment: dict[str, Any], detector: str, golden_set: Path, golden_set_sha256: str, source_commit: str | None = None) -> None:
     """Print the execution environment once before a long regression begins."""
     print("Detector Regression Environment")
     print("=" * 31)
@@ -69,7 +78,8 @@ def print_environment_banner(*, environment: dict[str, Any], detector: str, gold
     print(f"NumPy                 : {environment.get('numpy_version') or '--'}")
     print(f"Pipeline Commit       : {environment.get('pipeline_commit') or '--'}")
     print(f"Source Commit         : {source_commit or '--'}")
-    print(f"Golden Set            : {golden_set}")
+    print(f"Golden Set            : {golden_set.as_posix()}")
+    print(f"Golden Set SHA-256    : {golden_set_sha256}")
     print(f"Detector              : {detector}")
     # GitHub Actions can visually collapse truly empty log records. A single
     # space preserves the intended blank separator in both Actions and terminals.
@@ -308,7 +318,8 @@ def run(args:argparse.Namespace)->Path:
     run_id,run_dir=create_run_directory(args.output,name,args.run_id); started=utc_now(); wall=time.perf_counter()
     environment=environment_info(repository_root(args.detector_config))
     source_commit=os.environ.get("HTH_SOURCE_COMMIT")
-    write_json(run_dir/"parameters.json",{"schema_version":"0.2","detector":name,"strategy":args.strategy,"detector_config":str(args.detector_config),"golden_set":str(args.golden_set),"image_root":str(args.image_root),"max_dimension":args.max_dimension,"limit":args.limit,"configuration":config})
+    golden_set_sha256=file_sha256(args.golden_set)
+    write_json(run_dir/"parameters.json",{"schema_version":"0.3","detector":name,"strategy":args.strategy,"detector_config":str(args.detector_config),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"image_root":str(args.image_root),"max_dimension":args.max_dimension,"limit":args.limit,"configuration":config})
     manifest={"schema_version":"0.1","run_id":run_id,"detector":name,"strategy":args.strategy,"status":"running","started_at_utc":started,"outputs":[]}
     write_json(run_dir/"manifest.json",manifest)
     try:
@@ -336,7 +347,7 @@ def run(args:argparse.Namespace)->Path:
             else max(0,len(exhaustive_parameter_sets(config))-1)
         )
 
-        print_environment_banner(environment=environment,detector=name,golden_set=args.golden_set,source_commit=source_commit)
+        print_environment_banner(environment=environment,detector=name,golden_set=args.golden_set,golden_set_sha256=golden_set_sha256,source_commit=source_commit)
         reporter = PRE_REGRESSION_REPORTERS.get(name)
         if reporter is not None:
             print_report_sections(reporter(config))
@@ -370,12 +381,12 @@ def run(args:argparse.Namespace)->Path:
         baseline=next((r for r in ranked if r.get("profile")=="baseline"),None)
         raw=run_dir/"raw"/"results.csv"; rankings=run_dir/"reports"/"rankings.csv"; top=run_dir/"reports"/"top20.csv"
         write_raw_results(raw,ranked); write_rankings(rankings,ranked); write_rankings(top,ranked[:max(0,args.top)])
-        summary={"schema_version":"0.6","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"winner":ranked[0],"baseline":baseline,"runner":environment,"source_commit":source_commit,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":progress.baseline_surpassed,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
+        summary={"schema_version":"0.7","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"winner":ranked[0],"baseline":baseline,"runner":environment,"source_commit":source_commit,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":progress.baseline_surpassed,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
         write_json(run_dir/"reports"/"summary.json",summary)
         debug_outputs = [] if debug_policy == "none" else write_debug_artifacts(
             args.output, name, run_id, policy=debug_policy, ranked=ranked, pages=pages
         )
-        finished=utc_now(); info={"schema_version":"0.2","run_id":run_id,"detector":name,"strategy":args.strategy,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"detector_config":str(args.detector_config),"debug_artifacts":debug_policy,"source_commit":source_commit,**environment}
+        finished=utc_now(); info={"schema_version":"0.3","run_id":run_id,"detector":name,"strategy":args.strategy,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"detector_config":str(args.detector_config),"debug_artifacts":debug_policy,"source_commit":source_commit,**environment}
         write_json(run_dir/"RUN-INFO.json",info)
         manifest.update({
             "status": "complete",
@@ -416,7 +427,7 @@ def run(args:argparse.Namespace)->Path:
             ("Average Eval Rate", f"{(len(ranked)/elapsed_seconds if elapsed_seconds else 0.0):.4f}/s"),
             None,
             ("Parameter sets evaluated", len(ranked)),
-            ("Successful parameter sets", sum(1 for r in ranked if int(r['summary'].get('failure_count', 0) or 0) == 0)),
+            ("Fully successful parameter sets", summary["fully_successful_parameter_set_count"]),
             None,
             ("Page evaluations", len(ranked) * len(pages)),
             ("Successful page evaluations", len(ranked) * len(pages) - progress_snapshot.failures),

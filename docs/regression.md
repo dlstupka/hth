@@ -130,3 +130,9 @@ box overlay, and complete JSON diagnostics.
 Regression adapters execute detectors through the authoritative geometry
 registry, so serialized candidates include detector name, origin, foundation,
 authors, version, and repository provenance.
+
+## Golden Set provenance
+
+Each regression records the SHA-256 digest of the exact Golden Set configuration file in `parameters.json`, `RUN-INFO.json`, `reports/summary.json`, the console environment banner, and the GitHub Actions job summary. This distinguishes runs that used the same configuration path after the file changed.
+
+The console summary reports **Fully successful parameter sets**. A parameter set is fully successful only when every selected Golden Set page produced a valid candidate. A value of zero can therefore coexist with a ranked winner when every parameter set missed at least one page; individual successful and failed page-evaluation counts are reported separately.

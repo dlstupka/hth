@@ -20,7 +20,8 @@ class RegressionSummaryTests(unittest.TestCase):
             (run / "RUN-INFO.json").write_text(json.dumps({
                 "pipeline_commit": "1234567890abcdef", "python_version": "3.12.0",
                 "opencv_version": "5.0.0", "started_at_utc": "start", "finished_at_utc": "finish",
-                "elapsed_seconds": 61.2, "golden_set": "config/golden_set.json"
+                "elapsed_seconds": 61.2, "golden_set": "config/golden_set.json",
+                "golden_set_sha256": "abc123"
             }), encoding="utf-8")
             (run / "parameters.json").write_text(json.dumps({
                 "configuration": {"profiles": {"baseline": {}}}
@@ -53,6 +54,7 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("| Result | Parameter set | Parameter set ID |", text)
             self.assertIn("| Winner | `winner` | `winner` | 0.9700", text)
             self.assertIn("18.7ms", text)
+            self.assertIn("SHA-256: `abc123`", text)
             self.assertIn("Configured named profiles: `baseline`", text)
             self.assertIn("Evaluation time", text)
             self.assertIn("## Regression statistics", text)

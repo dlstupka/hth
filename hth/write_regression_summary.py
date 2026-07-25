@@ -183,6 +183,7 @@ def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = Tru
         "## Golden Set",
         "",
         f"- Configuration: `{info.get('golden_set', parameters.get('golden_set', 'unknown'))}`",
+        f"- SHA-256: `{info.get('golden_set_sha256', parameters.get('golden_set_sha256', summary.get('golden_set_sha256', 'unknown')))}`",
         f"- Pages: `{len(page_ordinals)}`",
         f"- Ordinals: `{', '.join(str(v) for v in page_ordinals) if page_ordinals else 'unknown'}`",
         "",
