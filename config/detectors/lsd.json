@@ -1,0 +1,53 @@
+{
+  "schema_version": "0.1",
+  "detector": "lsd",
+  "description": "Black-box calibration space for the OpenCV Line Segment Detector document-envelope detector.",
+  "profiles": {
+    "baseline": {
+      "refine_mode": "std",
+      "scale": 0.8,
+      "minimum_length_fraction": 0.14,
+      "axis_angle_tolerance_degrees": 18.0,
+      "outer_percentile": 10.0,
+      "minimum_bbox_area_fraction": 0.10,
+      "bbox_padding_fraction": 0.0
+    }
+  },
+  "parameters": {
+    "refine_mode": {
+      "type": "string",
+      "values": ["none", "std", "adv"]
+    },
+    "scale": {
+      "type": "float",
+      "values": [0.6, 0.8, 1.0]
+    },
+    "minimum_length_fraction": {
+      "type": "float",
+      "values": [0.08, 0.14, 0.22]
+    },
+    "axis_angle_tolerance_degrees": {
+      "type": "float",
+      "values": [10.0, 18.0, 28.0]
+    },
+    "outer_percentile": {
+      "type": "float",
+      "values": [5.0, 10.0, 20.0]
+    },
+    "minimum_bbox_area_fraction": {
+      "type": "float",
+      "values": [0.08, 0.10, 0.15]
+    },
+    "bbox_padding_fraction": {
+      "type": "float",
+      "values": [0.0, 0.005, 0.015]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "failures"
+  }
+}

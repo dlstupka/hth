@@ -37,6 +37,7 @@ on:
           - components
           - ransac
           - grabcut
+          - lsd
       golden_set:
         description: Golden Set configuration
         required: true
