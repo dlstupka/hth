@@ -389,22 +389,29 @@ def run(args:argparse.Namespace)->Path:
         # Preserve one visible separator before the summary in GitHub Actions.
         print(" ")
         elapsed_seconds=time.perf_counter()-wall
-        def print_key_value_section(title: str, rows: list[tuple[str, object]]) -> None:
-            label_width = max(len(label) for label, _ in rows)
+        def print_key_value_section(title: str, rows: list[tuple[str, object] | None]) -> None:
+            label_width = max(len(row[0]) for row in rows if row is not None)
             print(title)
             print("=" * len(title))
-            for label, value in rows:
+            for row in rows:
+                if row is None:
+                    print()
+                    continue
+                label, value = row
                 print(f"{label:<{label_width}} : {value}")
 
-        summary_rows: list[tuple[str, object]] = [
+        summary_rows: list[tuple[str, object] | None] = [
             ("Run", run_id),
             ("Elapsed", f"{elapsed_seconds:.1f}s"),
             ("Average Eval Rate", f"{(len(ranked)/elapsed_seconds if elapsed_seconds else 0.0):.4f}/s"),
+            None,
             ("Parameter sets evaluated", len(ranked)),
             ("Successful parameter sets", sum(1 for r in ranked if int(r['summary'].get('failure_count', 0) or 0) == 0)),
+            None,
             ("Page evaluations", len(ranked) * len(pages)),
             ("Successful page evaluations", len(ranked) * len(pages) - progress_snapshot.failures),
             ("Failed page evaluations", progress_snapshot.failures),
+            None,
             ("Winner", winner_profile),
             ("Average Page IoU", f"{winner_summary['mean_iou']:.4f}"),
             ("Minimum Page IoU", f"{winner_summary['minimum_iou']:.4f}"),
