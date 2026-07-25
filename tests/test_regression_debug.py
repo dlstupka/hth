@@ -8,6 +8,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from hth.regression.adapters.components import detect as components_detect
 from hth.regression.adapters.contour import detect as contour_detect
 from hth.regression.runner import write_debug_artifacts
 
@@ -72,6 +73,45 @@ class RegressionDebugTests(unittest.TestCase):
             diagnostics = json.loads((debug_page / "diagnostics.json").read_text())
             self.assertEqual(diagnostics["result"]["status"], "no_candidate")
             self.assertIn("debug/contour/run-test/README.txt", outputs)
+
+    def test_components_debug_writes_detector_intermediate_images(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image_path = root / "source.jpg"
+            image = np.zeros((120, 180, 3), dtype=np.uint8)
+            mask = np.zeros((120, 180), dtype=np.uint8)
+            mask[25:95, 30:150] = 255
+            cv2.imwrite(str(image_path), image)
+            candidate = components_detect(image_bgr=image, mask=mask)
+            page = {
+                "global_ordinal": 6,
+                "label": "title_or_index_sheet",
+                "layout_type": "single_page",
+                "image_path": str(image_path),
+                "image": image,
+                "mask": mask,
+                "approved_bbox": [10, 10, 170, 110],
+            }
+            result = {
+                "parameter_set_id": "baseline123",
+                "pages": [{
+                    "global_ordinal": 6,
+                    "label": page["label"],
+                    "layout_type": page["layout_type"],
+                    "status": "ok",
+                    "iou": 0.5,
+                    "candidate": candidate.__dict__,
+                }],
+            }
+
+            write_debug_artifacts(
+                root, "components", "run-test", policy="winner",
+                ranked=[result], pages=[page],
+            )
+
+            debug_page = root / "debug" / "components" / "run-test" / "baseline123" / "page-0006"
+            self.assertTrue((debug_page / "after-morphology.png").is_file())
+            self.assertTrue((debug_page / "component-labels.png").is_file())
 
 
 if __name__ == "__main__":

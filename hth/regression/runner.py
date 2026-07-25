@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 import cv2
 from hth.geometry.common import document_mask, resize_for_analysis, scale_bbox, valid_bbox
+from hth.geometry import detector_components
 from .adapters.components import detect as components_detect
 from .adapters.contour import detect as contour_detect
 from .adapters.grabcut import detect as grabcut_detect
@@ -141,6 +142,14 @@ def _write_debug_page(
 
     cv2.imwrite(str(page_dir / "original.jpg"), original)
     cv2.imwrite(str(page_dir / "input-mask.png"), page["mask"])
+    candidate = result.get("candidate") if isinstance(result.get("candidate"), dict) else {}
+    if candidate.get("method") == "components":
+        diagnostics = candidate.get("diagnostics") if isinstance(candidate.get("diagnostics"), dict) else {}
+        parameters = diagnostics.get("parameters") if isinstance(diagnostics.get("parameters"), dict) else None
+        for filename, debug_image in detector_components.debug_images(
+            mask=page["mask"], parameters=parameters
+        ).items():
+            cv2.imwrite(str(page_dir / filename), debug_image)
     cv2.imwrite(str(page_dir / "overlay.jpg"), overlay)
     write_json(
         page_dir / "diagnostics.json",
@@ -195,6 +204,8 @@ def write_debug_artifacts(
         "Each page directory contains:",
         "- original.jpg: source image",
         "- input-mask.png: mask supplied to the detector",
+        "- after-morphology.png: Connected Components mask after closing and dilation",
+        "- component-labels.png: Connected Components labels rendered in distinct colors",
         "- overlay.jpg: approved bbox in green; predicted bbox in red",
         "- diagnostics.json: complete page result and detector diagnostics",
         "",

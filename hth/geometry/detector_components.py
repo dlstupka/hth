@@ -18,6 +18,8 @@ BASELINE_PARAMETERS: dict[str, int | float] = {
     "minimum_bbox_area_fraction": 0.12,
     "minimum_selected_area_fraction": 0.04,
     "bbox_padding_fraction": 0.0,
+    "morphology_close_fraction": 0.008,
+    "morphology_dilate_fraction": 0.015,
 }
 
 
@@ -45,12 +47,76 @@ def _parameters(overrides: dict[str, Any] | None) -> dict[str, int | float]:
         raise ValueError("merge_area_ratio must be between 0 and 1")
     if not 0.0 <= float(values["merge_gap_fraction"]) <= 0.5:
         raise ValueError("merge_gap_fraction must be between 0 and 0.5")
-    for name in ("minimum_bbox_area_fraction", "minimum_selected_area_fraction"):
+    for name in (
+        "minimum_bbox_area_fraction",
+        "minimum_selected_area_fraction",
+        "morphology_close_fraction",
+        "morphology_dilate_fraction",
+    ):
         if not 0.0 <= float(values[name]) <= 1.0:
             raise ValueError(f"{name} must be between 0 and 1")
     if not 0.0 <= float(values["bbox_padding_fraction"]) <= 0.25:
         raise ValueError("bbox_padding_fraction must be between 0 and 0.25")
+    for name in ("morphology_close_fraction", "morphology_dilate_fraction"):
+        if not 0.0 <= float(values[name]) <= 0.10:
+            raise ValueError(f"{name} must be between 0 and 0.10")
     return values
+
+
+def _odd_kernel_size(fraction: float, width: int, height: int) -> int:
+    """Return a scale-relative odd morphology kernel size; zero disables it."""
+    if fraction <= 0.0:
+        return 0
+    size = max(1, int(round(min(width, height) * fraction)))
+    return size if size % 2 == 1 else size + 1
+
+
+def _morphology(mask: np.ndarray, values: dict[str, int | float]) -> tuple[np.ndarray, int, int]:
+    height, width = mask.shape[:2]
+    binary = (mask > 0).astype(np.uint8) * 255
+    close_size = _odd_kernel_size(
+        float(values["morphology_close_fraction"]), width, height
+    )
+    dilate_size = _odd_kernel_size(
+        float(values["morphology_dilate_fraction"]), width, height
+    )
+    processed = binary
+    if close_size > 1:
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (close_size, close_size))
+        processed = cv2.morphologyEx(processed, cv2.MORPH_CLOSE, kernel)
+    if dilate_size > 1:
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (dilate_size, dilate_size))
+        processed = cv2.dilate(processed, kernel, iterations=1)
+    return processed, close_size, dilate_size
+
+
+def _component_label_image(labels: np.ndarray) -> np.ndarray:
+    """Render deterministic colors for connected-component labels."""
+    output = np.zeros((*labels.shape, 3), dtype=np.uint8)
+    for label in range(1, int(labels.max()) + 1):
+        # Stable high-contrast pseudo-color without external plotting dependencies.
+        color = (
+            (37 * label + 53) % 256,
+            (97 * label + 101) % 256,
+            (193 * label + 29) % 256,
+        )
+        output[labels == label] = color
+    return output
+
+
+def debug_images(
+    *, mask: np.ndarray, parameters: dict[str, Any] | None = None
+) -> dict[str, np.ndarray]:
+    """Return Connected Components intermediate images for regression debugging."""
+    values = _parameters(parameters)
+    after_morphology, _, _ = _morphology(mask, values)
+    _, labels, _, _ = cv2.connectedComponentsWithStats(
+        (after_morphology > 0).astype(np.uint8), connectivity=8
+    )
+    return {
+        "after-morphology.png": after_morphology,
+        "component-labels.png": _component_label_image(labels),
+    }
 
 
 def _boxes_are_near(a: list[int], b: list[int], gap: int) -> bool:
@@ -105,7 +171,8 @@ def detect(
 
     height, width = mask.shape[:2]
     image_area = max(1, width * height)
-    binary = (mask > 0).astype(np.uint8)
+    after_morphology, close_kernel, dilate_kernel = _morphology(mask, values)
+    binary = (after_morphology > 0).astype(np.uint8)
 
     count, labels, stats, centroids = cv2.connectedComponentsWithStats(
         binary, connectivity=8
@@ -137,6 +204,8 @@ def detect(
         "parameters": values,
         "component_count": max(0, count - 1),
         "minimum_component_area": minimum_area,
+        "morphology_close_kernel_px": close_kernel,
+        "morphology_dilate_kernel_px": dilate_kernel,
     }
     if not components:
         return Candidate(
@@ -151,6 +220,7 @@ def detect(
 
     components.sort(key=lambda item: int(item["area"]), reverse=True)
     largest_area = int(components[0]["area"])
+    largest_component_fraction = largest_area / image_area
     merge_area_floor = max(
         minimum_area,
         round(largest_area * float(values["merge_area_ratio"])),
@@ -205,6 +275,8 @@ def detect(
     bbox_area_fraction = bbox_area / image_area
     component_area_fraction = selected_area / image_area
     fill_ratio = selected_area / max(1, bbox_area)
+    original_foreground = int(np.count_nonzero(mask[top:bottom, left:right]))
+    text_density = original_foreground / max(1, bbox_area)
 
     diagnostics = {
         **common_diagnostics,
@@ -216,6 +288,10 @@ def detect(
         "bbox_area_fraction": round(bbox_area_fraction, 6),
         "component_area_fraction": round(component_area_fraction, 6),
         "fill_ratio": round(fill_ratio, 6),
+        "largest_component_fraction": round(largest_component_fraction, 6),
+        "largest_merged_fraction": round(component_area_fraction, 6),
+        "envelope_fraction": round(bbox_area_fraction, 6),
+        "text_density": round(text_density, 6),
     }
 
     if (

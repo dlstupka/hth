@@ -15,12 +15,13 @@ The registry records its name, origin, installed OpenCV version, and upstream re
 ## Algorithm
 
 1. Build the shared binary document mask.
-2. Label 8-connected foreground components with OpenCV `connectedComponentsWithStats`.
-3. Remove components below a scale-relative area threshold.
-4. Seed the envelope with the largest meaningful component.
-5. Merge nearby, sufficiently large fragments.
-6. Reject implausibly small envelopes.
-7. Score the surviving envelope using mask coverage, fill ratio, and page-area coverage.
+2. Apply scale-relative morphological closing and dilation so nearby ink fragments can form meaningful regions.
+3. Label 8-connected foreground components with OpenCV `connectedComponentsWithStats`.
+4. Remove components below a scale-relative area threshold.
+5. Seed the envelope with the largest meaningful component.
+6. Merge nearby, sufficiently large fragments.
+7. Reject implausibly small envelopes.
+8. Score the surviving envelope using mask coverage, fill ratio, and page-area coverage.
 
 ## Regression calibration
 
@@ -36,9 +37,10 @@ The baseline preserves the detector's original behavior. Regression can tune:
 - the minimum area of fragments relative to the largest component;
 - the distance over which nearby fragments may merge;
 - minimum plausible envelope and selected-component area fractions;
-- conservative output bounding-box padding.
+- conservative output bounding-box padding;
+- scale-relative morphology closing and dilation kernels.
 
-The exhaustive calibration space contains 2,187 parameter sets. Smoke runs
+The exhaustive calibration space contains 19,683 parameter sets. Smoke runs
 retain the workflow's normal 10-set cap, while a full run with a blank limit
 evaluates the complete space.
 
@@ -60,7 +62,11 @@ A successful result includes both normalized plugin metadata and algorithm diagn
     "significant_components": 2,
     "merged_components": 2,
     "bbox_area_fraction": 0.61,
-    "fill_ratio": 0.73
+    "fill_ratio": 0.73,
+    "largest_component_fraction": 0.31,
+    "largest_merged_fraction": 0.44,
+    "envelope_fraction": 0.61,
+    "text_density": 0.08
   }
 }
 ```
@@ -96,3 +102,12 @@ Field meanings are documented in `README-multidetector-geometry.md`. In
 particular, `version` is the installed OpenCV version for this detector and
 `repository` is the canonical OpenCV source repository. The exact HTH pipeline
 commit remains recorded separately in every page-analysis record.
+
+## Regression debug images
+
+Connected Components regression debug directories include the common source, input-mask, overlay, and diagnostics files plus two detector-specific intermediates:
+
+- `after-morphology.png` shows the mask after closing and dilation;
+- `component-labels.png` renders each resulting connected component in a deterministic distinct color.
+
+These images make it possible to distinguish thresholding problems from morphology, fragmentation, filtering, and envelope-merging failures.
