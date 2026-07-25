@@ -111,3 +111,20 @@ Connected Components regression debug directories include the common source, inp
 - `component-labels.png` renders each resulting connected component in a deterministic distinct color.
 
 These images make it possible to distinguish thresholding problems from morphology, fragmentation, filtering, and envelope-merging failures.
+
+## Stage-aware regression reporting
+
+Connected Components contributes two ordered pre-regression research tables immediately after the detector environment table:
+
+- **Morphology Preprocessing Tuning** records the closing and dilation search values, operation order, scale basis, kernel shape, and number of morphology variants.
+- **Connected Components Candidate Tuning** records the component filtering, merging, envelope acceptance, and padding values that materially affect candidate production.
+
+These sections appear only for detectors that contribute meaningful configurable stages; Contour and GrabCut output remains unchanged.
+
+The default Connected Components debug policy is `winner`, ensuring a successful smoke run still produces a compact, interpretable visual record. In addition to the common source, mask, overlay, and diagnostics files, the winning parameter set writes:
+
+- `after-morphology.png`;
+- `component-labels.png`;
+- `significant-components.png` for components surviving the area filter;
+- `selected-components.png` for components merged into the candidate;
+- `candidate-envelope.png` showing the selected components and final analysis-space envelope.

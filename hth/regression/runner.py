@@ -8,7 +8,10 @@ from typing import Any
 import cv2
 from hth.geometry.common import document_mask, resize_for_analysis, scale_bbox, valid_bbox
 from hth.geometry import detector_components
-from .adapters.components import detect as components_detect
+from .adapters.components import (
+    detect as components_detect,
+    pre_regression_report_sections as components_pre_regression_report_sections,
+)
 from .adapters.contour import detect as contour_detect
 from .adapters.grabcut import detect as grabcut_detect
 from .io import create_run_directory, environment_info, utc_now, write_json
@@ -20,6 +23,7 @@ from .strategies.binary_refine import search as binary_search
 from .progress import ProgressReporter
 
 DETECTORS={"components":components_detect,"contour":contour_detect,"grabcut":grabcut_detect}
+PRE_REGRESSION_REPORTERS={"components":components_pre_regression_report_sections}
 
 
 def repository_root(path: Path) -> Path:
@@ -53,6 +57,20 @@ def print_environment_banner(*, environment: dict[str, Any], detector: str, gold
     # GitHub Actions can visually collapse truly empty log records. A single
     # space preserves the intended blank separator in both Actions and terminals.
     print(" ")
+
+def print_report_sections(sections: list[dict[str, Any]]) -> None:
+    """Print ordered optional research-tuning sections without implementation noise."""
+    for section in sections:
+        title = str(section.get("title") or "").strip()
+        rows = section.get("rows") or []
+        if not title or not rows:
+            continue
+        label_width = max(len(str(label)) for label, _ in rows)
+        print(title)
+        print("=" * len(title))
+        for label, value in rows:
+            print(f"{str(label):<{label_width}} : {value}")
+        print(" ")
 
 def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
     p=argparse.ArgumentParser()
@@ -147,7 +165,10 @@ def _write_debug_page(
         diagnostics = candidate.get("diagnostics") if isinstance(candidate.get("diagnostics"), dict) else {}
         parameters = diagnostics.get("parameters") if isinstance(diagnostics.get("parameters"), dict) else None
         for filename, debug_image in detector_components.debug_images(
-            mask=page["mask"], parameters=parameters
+            mask=page["mask"],
+            parameters=parameters,
+            diagnostics=diagnostics,
+            candidate_bbox=candidate.get("bbox"),
         ).items():
             cv2.imwrite(str(page_dir / filename), debug_image)
     cv2.imwrite(str(page_dir / "overlay.jpg"), overlay)
@@ -205,7 +226,10 @@ def write_debug_artifacts(
         "- original.jpg: source image",
         "- input-mask.png: mask supplied to the detector",
         "- after-morphology.png: Connected Components mask after closing and dilation",
-        "- component-labels.png: Connected Components labels rendered in distinct colors",
+        "- component-labels.png: all Connected Components labels rendered in distinct colors",
+        "- significant-components.png: components surviving the configured area filter",
+        "- selected-components.png: components merged into the final candidate",
+        "- candidate-envelope.png: selected components with the analysis-space candidate envelope",
         "- overlay.jpg: approved bbox in green; predicted bbox in red",
         "- diagnostics.json: complete page result and detector diagnostics",
         "",
@@ -259,6 +283,9 @@ def run(args:argparse.Namespace)->Path:
         )
 
         print_environment_banner(environment=environment,detector=name,golden_set=args.golden_set,source_commit=source_commit)
+        reporter = PRE_REGRESSION_REPORTERS.get(name)
+        if reporter is not None:
+            print_report_sections(reporter(config))
         progress=ProgressReporter(total=estimated_total,interval_seconds=60.0)
         progress.start()
 

@@ -112,6 +112,9 @@ class RegressionDebugTests(unittest.TestCase):
             debug_page = root / "debug" / "components" / "run-test" / "baseline123" / "page-0006"
             self.assertTrue((debug_page / "after-morphology.png").is_file())
             self.assertTrue((debug_page / "component-labels.png").is_file())
+            self.assertTrue((debug_page / "significant-components.png").is_file())
+            self.assertTrue((debug_page / "selected-components.png").is_file())
+            self.assertTrue((debug_page / "candidate-envelope.png").is_file())
 
 
 if __name__ == "__main__":

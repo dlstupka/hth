@@ -92,10 +92,20 @@ class ConnectedComponentsDetectorTests(unittest.TestCase):
         images = detector_components.debug_images(mask=mask)
 
         self.assertEqual(
-            set(images), {"after-morphology.png", "component-labels.png"}
+            set(images),
+            {
+                "after-morphology.png",
+                "component-labels.png",
+                "significant-components.png",
+                "selected-components.png",
+                "candidate-envelope.png",
+            },
         )
         self.assertEqual(images["after-morphology.png"].shape, mask.shape)
         self.assertEqual(images["component-labels.png"].shape, (*mask.shape, 3))
+        self.assertEqual(images["significant-components.png"].shape, (*mask.shape, 3))
+        self.assertEqual(images["selected-components.png"].shape, (*mask.shape, 3))
+        self.assertEqual(images["candidate-envelope.png"].shape, (*mask.shape, 3))
 
     def test_rejects_unknown_parameter(self) -> None:
         image = np.zeros((100, 100, 3), dtype=np.uint8)

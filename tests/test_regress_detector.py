@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from hth.regress_detector import bbox_iou, edge_errors, exhaustive_parameter_sets, parameter_set_id
+from hth.regression.adapters.components import pre_regression_report_sections
 from hth.regression.runner import DETECTORS
 
 
@@ -44,3 +45,27 @@ def test_initial_black_box_detectors_are_registered() -> None:
         callable(DETECTORS[name])
         for name in ("components", "grabcut", "contour")
     )
+
+
+def test_components_pre_regression_sections_are_ordered_and_research_focused() -> None:
+    config = {
+        "parameters": {
+            "morphology_close_fraction": {"values": [0.004, 0.008]},
+            "morphology_dilate_fraction": {"values": [0.01, 0.02, 0.03]},
+            "minimum_component_area_fraction": {"values": [0.001]},
+            "minimum_component_area_px": {"values": [25]},
+            "merge_area_ratio": {"values": [0.02]},
+            "merge_gap_fraction": {"values": [0.035]},
+            "minimum_bbox_area_fraction": {"values": [0.12]},
+            "minimum_selected_area_fraction": {"values": [0.04]},
+            "bbox_padding_fraction": {"values": [0.0]},
+        }
+    }
+    sections = pre_regression_report_sections(config)
+    assert [section["title"] for section in sections] == [
+        "Morphology Preprocessing Tuning",
+        "Connected Components Candidate Tuning",
+    ]
+    morphology = dict(sections[0]["rows"])
+    assert morphology["Morphology variants"] == 6
+    assert morphology["Operation sequence"] == "closing -> dilation"

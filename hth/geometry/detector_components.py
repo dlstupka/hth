@@ -105,17 +105,54 @@ def _component_label_image(labels: np.ndarray) -> np.ndarray:
 
 
 def debug_images(
-    *, mask: np.ndarray, parameters: dict[str, Any] | None = None
+    *,
+    mask: np.ndarray,
+    parameters: dict[str, Any] | None = None,
+    diagnostics: dict[str, Any] | None = None,
+    candidate_bbox: list[int] | None = None,
 ) -> dict[str, np.ndarray]:
-    """Return Connected Components intermediate images for regression debugging."""
+    """Return research-useful Connected Components intermediate images."""
     values = _parameters(parameters)
     after_morphology, _, _ = _morphology(mask, values)
-    _, labels, _, _ = cv2.connectedComponentsWithStats(
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(
         (after_morphology > 0).astype(np.uint8), connectivity=8
     )
+    height, width = mask.shape[:2]
+    image_area = max(1, width * height)
+    minimum_area = max(
+        int(values["minimum_component_area_px"]),
+        round(image_area * float(values["minimum_component_area_fraction"])),
+    )
+    significant_labels = {
+        label
+        for label in range(1, count)
+        if int(stats[label, cv2.CC_STAT_AREA]) >= minimum_area
+    }
+    selected_labels = set()
+    if isinstance(diagnostics, dict):
+        selected_labels = {
+            int(label) for label in diagnostics.get("selected_component_labels", [])
+        }
+
+    significant = np.zeros((*labels.shape, 3), dtype=np.uint8)
+    selected = np.zeros((*labels.shape, 3), dtype=np.uint8)
+    colored = _component_label_image(labels)
+    for label in significant_labels:
+        significant[labels == label] = colored[labels == label]
+    for label in selected_labels:
+        selected[labels == label] = colored[labels == label]
+
+    envelope = selected.copy()
+    if valid_bbox(candidate_bbox):
+        left, top, right, bottom = (int(value) for value in candidate_bbox)
+        cv2.rectangle(envelope, (left, top), (right, bottom), (255, 255, 255), 3)
+
     return {
         "after-morphology.png": after_morphology,
-        "component-labels.png": _component_label_image(labels),
+        "component-labels.png": colored,
+        "significant-components.png": significant,
+        "selected-components.png": selected,
+        "candidate-envelope.png": envelope,
     }
 
 
