@@ -1,0 +1,53 @@
+{
+  "schema_version": "0.1",
+  "detector": "components",
+  "description": "Black-box calibration space for the HTH connected-components geometry detector.",
+  "profiles": {
+    "baseline": {
+      "minimum_component_area_fraction": 0.0015,
+      "minimum_component_area_px": 25,
+      "merge_area_ratio": 0.02,
+      "merge_gap_fraction": 0.035,
+      "minimum_bbox_area_fraction": 0.12,
+      "minimum_selected_area_fraction": 0.04,
+      "bbox_padding_fraction": 0.0
+    }
+  },
+  "parameters": {
+    "minimum_component_area_fraction": {
+      "type": "float",
+      "values": [0.00075, 0.0015, 0.003]
+    },
+    "minimum_component_area_px": {
+      "type": "integer",
+      "values": [10, 25, 50]
+    },
+    "merge_area_ratio": {
+      "type": "float",
+      "values": [0.01, 0.02, 0.05]
+    },
+    "merge_gap_fraction": {
+      "type": "float",
+      "values": [0.02, 0.035, 0.06]
+    },
+    "minimum_bbox_area_fraction": {
+      "type": "float",
+      "values": [0.08, 0.12, 0.18]
+    },
+    "minimum_selected_area_fraction": {
+      "type": "float",
+      "values": [0.02, 0.04, 0.07]
+    },
+    "bbox_padding_fraction": {
+      "type": "float",
+      "values": [0.0, 0.005, 0.015]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "failures"
+  }
+}

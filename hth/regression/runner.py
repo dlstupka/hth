@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 import cv2
 from hth.geometry.common import document_mask, resize_for_analysis, scale_bbox, valid_bbox
+from .adapters.components import detect as components_detect
 from .adapters.contour import detect as contour_detect
 from .adapters.grabcut import detect as grabcut_detect
 from .io import create_run_directory, environment_info, utc_now, write_json
@@ -17,7 +18,7 @@ from .strategies.cartesian import generate as cartesian_generate
 from .strategies.binary_refine import search as binary_search
 from .progress import ProgressReporter
 
-DETECTORS={"contour":contour_detect,"grabcut":grabcut_detect}
+DETECTORS={"components":components_detect,"contour":contour_detect,"grabcut":grabcut_detect}
 
 
 def repository_root(path: Path) -> Path:

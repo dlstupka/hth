@@ -34,6 +34,7 @@ on:
         options:
           - all
           - contour
+          - components
           - grabcut
       golden_set:
         description: Golden Set configuration

@@ -6,7 +6,7 @@ HTH regression is a black-box experiment framework. It knows parameter names and
 
 ```bash
 python -m hth.regress_detector \
-  --detector-config config/detectors/grabcut.json  # or contour.json \
+  --detector-config config/detectors/components.json  # or contour.json / grabcut.json \
   --golden-set config/golden_set.json \
   --image-root path/to/preprocessed \
   --output build/regression \
@@ -48,7 +48,7 @@ The `baseline` profile is treated as a named production reference, not a privile
 
 The manually dispatched **HTH detector regression** workflow checks out a results repository, runs the selected detector against the Golden Set, uploads the complete canonical run directory, and writes a **Regression Manifest** to the Actions job summary. The manifest records provenance, Golden Set pages, parameter-space size, winner and baseline metrics, and output validation.
 
-For a manual run, the **Algorithm** input is a choice of `all`, `contour`, or `grabcut`. Automatic smoke runs continue to exercise all configured detector algorithms.
+For a manual run, the **Algorithm** input is a choice of `all`, `contour`, `components`, or `grabcut`. Automatic smoke runs continue to exercise all configured detector algorithms.
 
 Manual runs default to the `exhaustive` strategy. Limit handling is explicit:
 
@@ -105,10 +105,11 @@ The **Show toolchain environment** step records the resolved Bash, Git, Python, 
 
 ## Supported detectors
 
-- `grabcut` — `config/detectors/grabcut.json`
+- `components` — `config/detectors/components.json`
 - `contour` — `config/detectors/contour.json`
+- `grabcut` — `config/detectors/grabcut.json`
 
-Both use the identical black-box regression path and canonical output contract.
+All use the identical black-box regression path and canonical output contract.
 
 ## Debug artifacts
 

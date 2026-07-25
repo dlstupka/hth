@@ -39,5 +39,8 @@ def test_parameter_set_id_is_order_independent() -> None:
 
 
 def test_initial_black_box_detectors_are_registered() -> None:
-    assert set(DETECTORS) >= {"grabcut", "contour"}
-    assert all(callable(DETECTORS[name]) for name in ("grabcut", "contour"))
+    assert set(DETECTORS) >= {"components", "grabcut", "contour"}
+    assert all(
+        callable(DETECTORS[name])
+        for name in ("components", "grabcut", "contour")
+    )

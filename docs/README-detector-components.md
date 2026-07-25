@@ -22,6 +22,26 @@ The registry records its name, origin, installed OpenCV version, and upstream re
 6. Reject implausibly small envelopes.
 7. Score the surviving envelope using mask coverage, fill ratio, and page-area coverage.
 
+## Regression calibration
+
+Connected Components participates in the same detector-agnostic regression
+framework as Contour and GrabCut. Its calibration space is defined in
+`config/detectors/components.json`; it can be selected directly from the
+workflow **Algorithm** input as `components`, or included through `all`.
+
+The baseline preserves the detector's original behavior. Regression can tune:
+
+- minimum component area, expressed as both a scale-relative fraction and an
+  absolute pixel floor;
+- the minimum area of fragments relative to the largest component;
+- the distance over which nearby fragments may merge;
+- minimum plausible envelope and selected-component area fractions;
+- conservative output bounding-box padding.
+
+The exhaustive calibration space contains 2,187 parameter sets. Smoke runs
+retain the workflow's normal 10-set cap, while a full run with a blank limit
+evaluates the complete space.
+
 ## Candidate output
 
 A successful result includes both normalized plugin metadata and algorithm diagnostics:

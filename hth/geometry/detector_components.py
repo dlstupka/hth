@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import cv2
 import numpy as np
 
@@ -7,6 +9,48 @@ from .common import candidate_score, valid_bbox
 from .model import Candidate
 
 METHOD = "components"
+
+BASELINE_PARAMETERS: dict[str, int | float] = {
+    "minimum_component_area_fraction": 0.0015,
+    "minimum_component_area_px": 25,
+    "merge_area_ratio": 0.02,
+    "merge_gap_fraction": 0.035,
+    "minimum_bbox_area_fraction": 0.12,
+    "minimum_selected_area_fraction": 0.04,
+    "bbox_padding_fraction": 0.0,
+}
+
+
+def _parameters(overrides: dict[str, Any] | None) -> dict[str, int | float]:
+    values = dict(BASELINE_PARAMETERS)
+    if overrides:
+        unknown = sorted(set(overrides) - set(values))
+        if unknown:
+            raise ValueError(
+                f"Unknown Connected Components parameters: {', '.join(unknown)}"
+            )
+        values.update(overrides)
+
+    integer_names = {"minimum_component_area_px"}
+    for name, value in values.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TypeError(f"Connected Components parameter {name!r} must be numeric")
+        values[name] = int(value) if name in integer_names else float(value)
+
+    if not 0.0 <= float(values["minimum_component_area_fraction"]) <= 1.0:
+        raise ValueError("minimum_component_area_fraction must be between 0 and 1")
+    if int(values["minimum_component_area_px"]) < 1:
+        raise ValueError("minimum_component_area_px must be at least 1")
+    if not 0.0 <= float(values["merge_area_ratio"]) <= 1.0:
+        raise ValueError("merge_area_ratio must be between 0 and 1")
+    if not 0.0 <= float(values["merge_gap_fraction"]) <= 0.5:
+        raise ValueError("merge_gap_fraction must be between 0 and 0.5")
+    for name in ("minimum_bbox_area_fraction", "minimum_selected_area_fraction"):
+        if not 0.0 <= float(values[name]) <= 1.0:
+            raise ValueError(f"{name} must be between 0 and 1")
+    if not 0.0 <= float(values["bbox_padding_fraction"]) <= 0.25:
+        raise ValueError("bbox_padding_fraction must be between 0 and 0.25")
+    return values
 
 
 def _boxes_are_near(a: list[int], b: list[int], gap: int) -> bool:
@@ -23,15 +67,41 @@ def _union_box(a: list[int], b: list[int]) -> list[int]:
     return [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
 
 
-def detect(*, image_bgr: np.ndarray, mask: np.ndarray) -> Candidate:
+def _padded_bbox(
+    bbox: list[int],
+    padding_fraction: float,
+    width: int,
+    height: int,
+) -> list[int]:
+    padding = int(round(min(width, height) * padding_fraction))
+    return [
+        max(0, bbox[0] - padding),
+        max(0, bbox[1] - padding),
+        min(width, bbox[2] + padding),
+        min(height, bbox[3] + padding),
+    ]
+
+
+def detect(
+    *,
+    image_bgr: np.ndarray,
+    mask: np.ndarray,
+    parameters: dict[str, Any] | None = None,
+) -> Candidate:
     """Estimate a document envelope from connected foreground regions.
 
-    The detector intentionally uses the shared document mask rather than image
-    color directly. It starts with the largest meaningful connected component
-    and merges nearby components, allowing a fragmented page mask to produce a
-    single conservative page envelope.
+    The detector uses the shared document mask, seeds the envelope with the
+    largest meaningful component, and merges nearby components. All geometric
+    thresholds are exposed through the black-box regression parameter mapping;
+    omitting ``parameters`` preserves the original detector behavior.
     """
     del image_bgr
+    values = _parameters(parameters)
+
+    if mask.ndim != 2:
+        raise ValueError(
+            f"Connected Components detector expects a 2-D mask, got shape {mask.shape}"
+        )
 
     height, width = mask.shape[:2]
     image_area = max(1, width * height)
@@ -40,11 +110,12 @@ def detect(*, image_bgr: np.ndarray, mask: np.ndarray) -> Candidate:
     count, labels, stats, centroids = cv2.connectedComponentsWithStats(
         binary, connectivity=8
     )
-    del centroids
+    del labels, centroids
 
-    # Label zero is the background. Ignore tiny specks but retain fragments
-    # large enough to contribute to a page envelope.
-    minimum_area = max(25, round(image_area * 0.0015))
+    minimum_area = max(
+        int(values["minimum_component_area_px"]),
+        round(image_area * float(values["minimum_component_area_fraction"])),
+    )
     components: list[dict[str, object]] = []
     for label in range(1, count):
         x = int(stats[label, cv2.CC_STAT_LEFT])
@@ -62,6 +133,11 @@ def detect(*, image_bgr: np.ndarray, mask: np.ndarray) -> Candidate:
             }
         )
 
+    common_diagnostics = {
+        "parameters": values,
+        "component_count": max(0, count - 1),
+        "minimum_component_area": minimum_area,
+    }
     if not components:
         return Candidate(
             METHOD,
@@ -69,21 +145,20 @@ def detect(*, image_bgr: np.ndarray, mask: np.ndarray) -> Candidate:
             None,
             0.0,
             0.0,
-            {
-                "reason": "no_significant_components",
-                "component_count": max(0, count - 1),
-                "minimum_component_area": minimum_area,
-            },
+            {**common_diagnostics, "reason": "no_significant_components"},
+            status="no_candidate",
         )
 
     components.sort(key=lambda item: int(item["area"]), reverse=True)
     largest_area = int(components[0]["area"])
-
-    # Components much smaller than the seed are usually text/noise detached
-    # from the page body. Keep a modest floor so genuinely split page regions
-    # can still be merged.
-    merge_area_floor = max(minimum_area, round(largest_area * 0.02))
-    merge_gap = max(3, round(min(width, height) * 0.035))
+    merge_area_floor = max(
+        minimum_area,
+        round(largest_area * float(values["merge_area_ratio"])),
+    )
+    merge_gap = max(
+        0,
+        round(min(width, height) * float(values["merge_gap_fraction"])),
+    )
 
     selected = [components[0]]
     envelope = list(components[0]["box"])
@@ -107,6 +182,12 @@ def detect(*, image_bgr: np.ndarray, mask: np.ndarray) -> Candidate:
                 next_remaining.append(component)
         remaining = next_remaining
 
+    envelope = _padded_bbox(
+        envelope,
+        float(values["bbox_padding_fraction"]),
+        width,
+        height,
+    )
     if not valid_bbox(envelope):
         return Candidate(
             METHOD,
@@ -114,7 +195,8 @@ def detect(*, image_bgr: np.ndarray, mask: np.ndarray) -> Candidate:
             None,
             0.0,
             0.0,
-            {"reason": "invalid_component_envelope"},
+            {**common_diagnostics, "reason": "invalid_component_envelope"},
+            status="no_candidate",
         )
 
     left, top, right, bottom = envelope
@@ -124,23 +206,31 @@ def detect(*, image_bgr: np.ndarray, mask: np.ndarray) -> Candidate:
     component_area_fraction = selected_area / image_area
     fill_ratio = selected_area / max(1, bbox_area)
 
-    # Reject envelopes that are too small to plausibly describe a photographed
-    # page. This is a normal miss, not a detector error.
-    if bbox_area_fraction < 0.12 or component_area_fraction < 0.04:
+    diagnostics = {
+        **common_diagnostics,
+        "significant_components": len(components),
+        "merged_components": len(selected),
+        "merge_area_floor": merge_area_floor,
+        "merge_gap_px": merge_gap,
+        "selected_component_labels": [int(item["label"]) for item in selected],
+        "bbox_area_fraction": round(bbox_area_fraction, 6),
+        "component_area_fraction": round(component_area_fraction, 6),
+        "fill_ratio": round(fill_ratio, 6),
+    }
+
+    if (
+        bbox_area_fraction < float(values["minimum_bbox_area_fraction"])
+        or component_area_fraction
+        < float(values["minimum_selected_area_fraction"])
+    ):
         return Candidate(
             METHOD,
             None,
             None,
             0.0,
             0.0,
-            {
-                "reason": "component_envelope_too_small",
-                "component_count": max(0, count - 1),
-                "significant_components": len(components),
-                "merged_components": len(selected),
-                "bbox_area_fraction": round(bbox_area_fraction, 6),
-                "component_area_fraction": round(component_area_fraction, 6),
-            },
+            {**diagnostics, "reason": "component_envelope_too_small"},
+            status="no_candidate",
         )
 
     mask_score = candidate_score(mask, envelope)
@@ -155,25 +245,18 @@ def detect(*, image_bgr: np.ndarray, mask: np.ndarray) -> Candidate:
         [float(left), float(bottom)],
     ]
 
+    diagnostics.update(
+        {
+            "mask_score": round(mask_score, 6),
+            "fill_score": round(fill_score, 6),
+            "area_score": round(area_score, 6),
+        }
+    )
     return Candidate(
         METHOD,
         envelope,
         corners,
         round(combined, 6),
         round(combined, 6),
-        {
-            "component_count": max(0, count - 1),
-            "significant_components": len(components),
-            "merged_components": len(selected),
-            "minimum_component_area": minimum_area,
-            "merge_area_floor": merge_area_floor,
-            "merge_gap_px": merge_gap,
-            "selected_component_labels": [int(item["label"]) for item in selected],
-            "bbox_area_fraction": round(bbox_area_fraction, 6),
-            "component_area_fraction": round(component_area_fraction, 6),
-            "fill_ratio": round(fill_ratio, 6),
-            "mask_score": round(mask_score, 6),
-            "fill_score": round(fill_score, 6),
-            "area_score": round(area_score, 6),
-        },
+        diagnostics,
     )
