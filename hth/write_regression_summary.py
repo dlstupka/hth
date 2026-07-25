@@ -50,6 +50,7 @@ def _parameter_set_name(result: dict[str, Any] | None) -> str:
 
 
 def _evaluation_seconds(result: dict[str, Any] | None) -> float | None:
+    """Return parameter-set wall time for the detailed per-detector report."""
     if not result:
         return None
     summary = result.get("summary", {})
@@ -64,56 +65,79 @@ def _evaluation_seconds(result: dict[str, Any] | None) -> float | None:
         return None
 
 
-def _document_seconds(result: dict[str, Any] | None) -> float | None:
-    """Return summed detector time across all Golden Set documents/pages."""
+def _detector_seconds(result: dict[str, Any] | None) -> float | None:
+    """Return summed detector time across the evaluated Golden Set pages."""
     if not result:
         return None
     summary = result.get("summary", {})
     if not isinstance(summary, dict):
         return None
+    milliseconds = summary.get("elapsed_ms_total")
+    if milliseconds is None:
+        milliseconds = summary.get("wall_ms")
     try:
-        return float(summary.get("elapsed_ms_total")) / 1000.0
+        return float(milliseconds) / 1000.0
     except (TypeError, ValueError):
         return None
 
 
-def _source_documents(run_dir: Path, info: dict[str, Any], parameters: dict[str, Any]) -> list[str]:
-    """Recover source document names from explicit metadata or Golden Set provenance."""
-    values: list[str] = []
-    for container in (info, parameters):
-        for key in ("source_document", "source_file"):
-            value = container.get(key) if isinstance(container, dict) else None
-            if value:
-                values.append(str(value).strip())
+def _page_rate(result: dict[str, Any] | None, page_count: int) -> float | None:
+    seconds = _detector_seconds(result)
+    if seconds is None or seconds <= 0 or page_count <= 0:
+        return None
+    return page_count / seconds
 
+
+def _format_page_rate(value: Any) -> str:
+    try:
+        rate = float(value)
+    except (TypeError, ValueError):
+        return "unknown"
+    if rate >= 10:
+        return f"{rate:.2f} pg/s"
+    if rate >= 1:
+        return f"{rate:.3f} pg/s"
+    return f"{rate:.4f} pg/s"
+
+
+def _source_document_metadata(
+    run_dir: Path,
+    info: dict[str, Any],
+    parameters: dict[str, Any],
+) -> dict[str, Any]:
+    """Load source-document identity and image count from Golden Set metadata."""
     golden_set = info.get("golden_set") or parameters.get("golden_set")
-    if golden_set:
-        golden_path = Path(str(golden_set))
-        candidates = [golden_path]
-        if not golden_path.is_absolute():
-            candidates.extend([run_dir / golden_path, Path.cwd() / golden_path])
-        for candidate in candidates:
-            if not candidate.is_file():
-                continue
-            try:
-                payload = _read_json(candidate)
-            except (OSError, ValueError, json.JSONDecodeError):
-                continue
-            for page in payload.get("pages", []):
-                if not isinstance(page, dict):
-                    continue
-                provenance = page.get("review_provenance", {})
-                build = provenance.get("build") if isinstance(provenance, dict) else None
-                if isinstance(build, dict):
-                    source = build.get("source", {})
-                    if isinstance(source, dict) and source.get("file"):
-                        values.append(str(source["file"]).strip())
-                elif isinstance(build, str):
-                    match = re.search(r"(?m)^\s*file:\s*(.+?)\s*$", build)
-                    if match:
-                        values.append(match.group(1).strip())
-            break
-    return list(dict.fromkeys(value for value in values if value))
+    if not golden_set:
+        return {}
+    golden_path = Path(str(golden_set))
+    candidates = [golden_path]
+    if not golden_path.is_absolute():
+        candidates.extend([run_dir / golden_path, Path.cwd() / golden_path])
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        try:
+            payload = _read_json(candidate)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        source = payload.get("source_document", {})
+        if isinstance(source, dict):
+            return {
+                "title": str(source.get("title") or "").strip(),
+                "image_count": source.get("image_count"),
+            }
+    return {}
+
+
+def _estimated_document_seconds(page_rate: Any, image_count: Any) -> float | None:
+    try:
+        rate = float(page_rate)
+        count = int(image_count)
+    except (TypeError, ValueError):
+        return None
+    if rate <= 0 or count <= 0:
+        return None
+    return count / rate
 
 
 def _parameter_id(result: dict[str, Any] | None) -> str:
@@ -219,6 +243,9 @@ def _combined_result_row(run_dir: Path) -> dict[str, Any]:
     summary = _read_json(run_dir / "reports" / "summary.json")
     winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else None
     winner_stats = winner.get("summary", {}) if winner else {}
+    page_ordinals = summary.get("page_ordinals", []) if isinstance(summary.get("page_ordinals"), list) else []
+    source_document = _source_document_metadata(run_dir, info, parameters)
+    page_rate = _page_rate(winner, len(page_ordinals))
     return {
         "detector": str(manifest.get("detector", run_dir.parent.name)),
         "status": str(manifest.get("status", "unknown")),
@@ -230,9 +257,9 @@ def _combined_result_row(run_dir: Path) -> dict[str, Any]:
         "failures": winner_stats.get("failure_count", "unknown"),
         "parameter_sets": summary.get("parameter_set_count", "unknown"),
         "elapsed_seconds": info.get("elapsed_seconds"),
-        "evaluation_seconds": _evaluation_seconds(winner),
-        "document_seconds": _document_seconds(winner),
-        "source_documents": _source_documents(run_dir, info, parameters),
+        "page_rate": page_rate,
+        "document_seconds": _estimated_document_seconds(page_rate, source_document.get("image_count")),
+        "source_document": source_document,
     }
 
 
@@ -247,7 +274,7 @@ def _combined_ranking_key(row: dict[str, Any]) -> tuple[float, float, int, float
         -number(row.get("minimum_iou"), 0.0),
         int(number(row.get("failures"), 10**9)),
         number(row.get("stddev_iou"), float("inf")),
-        number(row.get("evaluation_seconds"), float("inf")),
+        -number(row.get("page_rate"), 0.0),
     )
 
 
@@ -261,11 +288,12 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
         (_combined_result_row(run_dir) for run_dir in run_dirs),
         key=_combined_ranking_key,
     )
-    source_documents = list(dict.fromkeys(
-        document
+    source_documents = [
+        row.get("source_document", {})
         for row in combined_rows
-        for document in row.get("source_documents", [])
-    ))
+        if row.get("source_document")
+    ]
+    source_document = source_documents[0] if source_documents else {}
     lines = [
         "# Detector Regression Manifest",
         "",
@@ -274,15 +302,17 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
         "## Source document",
         "",
     ]
-    if source_documents:
-        lines.extend(f"- `{document}`" for document in source_documents)
+    if source_document.get("title"):
+        lines.append(f"- **Document:** {source_document['title']}")
     else:
-        lines.append("- `unknown`")
+        lines.append("- **Document:** unknown")
+    if source_document.get("image_count"):
+        lines.append(f"- **Images:** {source_document['image_count']}")
     lines.extend([
         "",
         "## Ranked detector results",
         "",
-        "| Rank | Detector | Status | Winner | Parameter set ID | Avg IoU | Min IoU | StdDev | Failures | Parameter sets | Eval time | Doc time | Run elapsed |",
+        "| Rank | Detector | Status | Winner | Parameter set ID | Avg IoU | Min IoU | StdDev | Failures | Parameter sets | Eval rate | Doc time | Run elapsed |",
         "|---:|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ])
     for rank, row in enumerate(combined_rows, start=1):
@@ -291,7 +321,7 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
             f"`{row['parameter_set_id']}` | {_number(row['mean_iou'])} | "
             f"{_number(row['minimum_iou'])} | {_number(row['stddev_iou'])} | "
             f"{row['failures']} | {row['parameter_sets']} | "
-            f"{_duration(row['evaluation_seconds'])} | {_duration(row['document_seconds'])} | "
+            f"{_format_page_rate(row['page_rate'])} | {_duration(row['document_seconds'])} | "
             f"{_duration(row['elapsed_seconds'])} |"
         )
     lines.append("")

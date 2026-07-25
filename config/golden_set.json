@@ -478,5 +478,9 @@
       }
     ]
   },
-  "reference_collection_version": "0.6"
+  "reference_collection_version": "0.6",
+  "source_document": {
+    "title": "Baptisms: San Antonio. Baptism Records 1788–1824, 1858–1898",
+    "image_count": 929
+  }
 }

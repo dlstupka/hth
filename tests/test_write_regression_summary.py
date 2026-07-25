@@ -68,6 +68,12 @@ class RegressionSummaryTests(unittest.TestCase):
     def test_builds_combined_manifest_for_multiple_detectors(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
+            (root / "golden_set.json").write_text(json.dumps({
+                "source_document": {
+                    "title": "Baptisms: San Antonio. Baptism Records 1788–1824, 1858–1898",
+                    "image_count": 929,
+                }
+            }), encoding="utf-8")
             run_dirs = []
             for detector in ("grabcut", "contour"):
                 run = root / detector / "run-1"
@@ -79,9 +85,7 @@ class RegressionSummaryTests(unittest.TestCase):
                 (run / "RUN-INFO.json").write_text(json.dumps({
                     "pipeline_commit": "1234567890abcdef", "python_version": "3.12.0",
                     "opencv_version": "5.0.0", "elapsed_seconds": 1.0,
-                    "golden_set": "config/golden_set.json",
-                    "source_document": "Baptisms-San-Antonio_p91-100.docx",
-                "source_document": "Baptisms-San-Antonio_p91-100.docx"
+                    "golden_set": str(root / "golden_set.json")
                 }), encoding="utf-8")
                 (run / "parameters.json").write_text(json.dumps({
                     "configuration": {"profiles": {"baseline": {}}}
@@ -104,11 +108,13 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("# Detector Regression Manifest", text)
             self.assertIn("**Detectors evaluated:** 2", text)
             self.assertIn("## Source document", text)
-            self.assertIn("`Baptisms-San-Antonio_p91-100.docx`", text)
+            self.assertIn("**Document:** Baptisms: San Antonio. Baptism Records 1788–1824, 1858–1898", text)
+            self.assertIn("**Images:** 929", text)
             self.assertIn("## Ranked detector results", text)
             self.assertIn("| Rank | Detector | Status | Winner | Parameter set ID | Avg IoU |", text)
-            contour_row = "| 1 | `contour` | complete | `baseline` | `contour` | 0.9200 | 0.7800 | 0.0300 | 0 | 1 | 120.0ms | 100.0ms | 1.0s |"
-            grabcut_row = "| 2 | `grabcut` | complete | `baseline` | `grabcut` | 0.8800 | 0.8200 | 0.0200 | 0 | 1 | 300.0ms | 250.0ms | 1.0s |"
+            self.assertIn("| Eval rate | Doc time | Run elapsed |", text)
+            contour_row = "| 1 | `contour` | complete | `baseline` | `contour` | 0.9200 | 0.7800 | 0.0300 | 0 | 1 | 10.00 pg/s | 1m 33s | 1.0s |"
+            grabcut_row = "| 2 | `grabcut` | complete | `baseline` | `grabcut` | 0.8800 | 0.8200 | 0.0200 | 0 | 1 | 4.000 pg/s | 3m 52s | 1.0s |"
             self.assertIn(contour_row, text)
             self.assertIn(grabcut_row, text)
             self.assertLess(text.index(contour_row), text.index(grabcut_row))
