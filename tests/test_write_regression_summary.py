@@ -79,14 +79,20 @@ class RegressionSummaryTests(unittest.TestCase):
                 (run / "RUN-INFO.json").write_text(json.dumps({
                     "pipeline_commit": "1234567890abcdef", "python_version": "3.12.0",
                     "opencv_version": "5.0.0", "elapsed_seconds": 1.0,
-                    "golden_set": "config/golden_set.json"
+                    "golden_set": "config/golden_set.json",
+                    "source_document": "Baptisms-San-Antonio_p91-100.docx",
+                "source_document": "Baptisms-San-Antonio_p91-100.docx"
                 }), encoding="utf-8")
                 (run / "parameters.json").write_text(json.dumps({
                     "configuration": {"profiles": {"baseline": {}}}
                 }), encoding="utf-8")
+                metrics = {
+                    "grabcut": (.88, .82, .02, 250.0, 300.0),
+                    "contour": (.92, .78, .03, 100.0, 120.0),
+                }[detector]
                 result = {"profile": "baseline", "parameter_set_id": detector, "summary": {
-                    "mean_iou": .9, "minimum_iou": .8, "stddev_iou": .01,
-                    "failure_count": 0, "elapsed_ms_total": 100
+                    "mean_iou": metrics[0], "minimum_iou": metrics[1], "stddev_iou": metrics[2],
+                    "failure_count": 0, "elapsed_ms_total": metrics[3], "wall_ms": metrics[4]
                 }}
                 (run / "reports" / "summary.json").write_text(json.dumps({
                     "page_ordinals": [1], "parameter_set_count": 1,
@@ -97,10 +103,15 @@ class RegressionSummaryTests(unittest.TestCase):
             text = build_combined_summary(run_dirs, "https://example.invalid/run")
             self.assertIn("# Detector Regression Manifest", text)
             self.assertIn("**Detectors evaluated:** 2", text)
-            self.assertIn("## Coalesced detector results", text)
-            self.assertIn("| Detector | Status | Winner | Parameter set ID | Avg IoU |", text)
-            self.assertIn("| `grabcut` | complete | `baseline` | `grabcut` | 0.9000 | 0.8000 | 0.0100 | 0 | 1 | 1.0s |", text)
-            self.assertIn("| `contour` | complete | `baseline` | `contour` | 0.9000 | 0.8000 | 0.0100 | 0 | 1 | 1.0s |", text)
+            self.assertIn("## Source document", text)
+            self.assertIn("`Baptisms-San-Antonio_p91-100.docx`", text)
+            self.assertIn("## Ranked detector results", text)
+            self.assertIn("| Rank | Detector | Status | Winner | Parameter set ID | Avg IoU |", text)
+            contour_row = "| 1 | `contour` | complete | `baseline` | `contour` | 0.9200 | 0.7800 | 0.0300 | 0 | 1 | 120.0ms | 100.0ms | 1.0s |"
+            grabcut_row = "| 2 | `grabcut` | complete | `baseline` | `grabcut` | 0.8800 | 0.8200 | 0.0200 | 0 | 1 | 300.0ms | 250.0ms | 1.0s |"
+            self.assertIn(contour_row, text)
+            self.assertIn(grabcut_row, text)
+            self.assertLess(text.index(contour_row), text.index(grabcut_row))
             self.assertIn("## grabcut", text)
             self.assertIn("## contour", text)
             self.assertEqual(text.count("[Open workflow run]"), 1)

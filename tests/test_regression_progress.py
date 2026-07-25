@@ -66,6 +66,20 @@ class RegressionProgressTests(unittest.TestCase):
             "0.5900   0.6000   0.0620   0.0610     0     18.7ms  12345678",
         )
 
+    def test_repeats_header_after_fifty_data_rows(self) -> None:
+        clock = FakeClock()
+        stream = io.StringIO()
+        reporter = ProgressReporter(total=100, interval_seconds=60, stream=stream, clock=clock)
+        reporter.start()
+        for index in range(50):
+            clock.value = float(index + 1)
+            reporter.emit(force=True)
+
+        text = stream.getvalue()
+        self.assertEqual(text.count(ProgressReporter.HEADER_TOP), 2)
+        repeated = "\n\n" + ProgressReporter.HEADER_TOP + "\n" + ProgressReporter.HEADER_BOTTOM
+        self.assertIn(repeated, text)
+
     def test_milestones_and_final_row_clear_evaluating(self) -> None:
         clock = FakeClock()
         stream = io.StringIO()

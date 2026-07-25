@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +62,58 @@ def _evaluation_seconds(result: dict[str, Any] | None) -> float | None:
         return float(milliseconds) / 1000.0
     except (TypeError, ValueError):
         return None
+
+
+def _document_seconds(result: dict[str, Any] | None) -> float | None:
+    """Return summed detector time across all Golden Set documents/pages."""
+    if not result:
+        return None
+    summary = result.get("summary", {})
+    if not isinstance(summary, dict):
+        return None
+    try:
+        return float(summary.get("elapsed_ms_total")) / 1000.0
+    except (TypeError, ValueError):
+        return None
+
+
+def _source_documents(run_dir: Path, info: dict[str, Any], parameters: dict[str, Any]) -> list[str]:
+    """Recover source document names from explicit metadata or Golden Set provenance."""
+    values: list[str] = []
+    for container in (info, parameters):
+        for key in ("source_document", "source_file"):
+            value = container.get(key) if isinstance(container, dict) else None
+            if value:
+                values.append(str(value).strip())
+
+    golden_set = info.get("golden_set") or parameters.get("golden_set")
+    if golden_set:
+        golden_path = Path(str(golden_set))
+        candidates = [golden_path]
+        if not golden_path.is_absolute():
+            candidates.extend([run_dir / golden_path, Path.cwd() / golden_path])
+        for candidate in candidates:
+            if not candidate.is_file():
+                continue
+            try:
+                payload = _read_json(candidate)
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+            for page in payload.get("pages", []):
+                if not isinstance(page, dict):
+                    continue
+                provenance = page.get("review_provenance", {})
+                build = provenance.get("build") if isinstance(provenance, dict) else None
+                if isinstance(build, dict):
+                    source = build.get("source", {})
+                    if isinstance(source, dict) and source.get("file"):
+                        values.append(str(source["file"]).strip())
+                elif isinstance(build, str):
+                    match = re.search(r"(?m)^\s*file:\s*(.+?)\s*$", build)
+                    if match:
+                        values.append(match.group(1).strip())
+            break
+    return list(dict.fromkeys(value for value in values if value))
 
 
 def _parameter_id(result: dict[str, Any] | None) -> str:
@@ -162,6 +215,7 @@ def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = Tru
 def _combined_result_row(run_dir: Path) -> dict[str, Any]:
     manifest = _read_json(run_dir / "manifest.json")
     info = _read_json(run_dir / "RUN-INFO.json")
+    parameters = _read_json(run_dir / "parameters.json")
     summary = _read_json(run_dir / "reports" / "summary.json")
     winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else None
     winner_stats = winner.get("summary", {}) if winner else {}
@@ -176,7 +230,26 @@ def _combined_result_row(run_dir: Path) -> dict[str, Any]:
         "failures": winner_stats.get("failure_count", "unknown"),
         "parameter_sets": summary.get("parameter_set_count", "unknown"),
         "elapsed_seconds": info.get("elapsed_seconds"),
+        "evaluation_seconds": _evaluation_seconds(winner),
+        "document_seconds": _document_seconds(winner),
+        "source_documents": _source_documents(run_dir, info, parameters),
     }
+
+
+def _combined_ranking_key(row: dict[str, Any]) -> tuple[float, float, int, float, float]:
+    def number(value: Any, default: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+    return (
+        -number(row.get("mean_iou"), 0.0),
+        -number(row.get("minimum_iou"), 0.0),
+        int(number(row.get("failures"), 10**9)),
+        number(row.get("stddev_iou"), float("inf")),
+        number(row.get("evaluation_seconds"), float("inf")),
+    )
+
 
 def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
     if not run_dirs:
@@ -184,23 +257,42 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
     if len(run_dirs) == 1:
         return build_summary(run_dirs[0], run_url)
 
-    combined_rows = [_combined_result_row(run_dir) for run_dir in run_dirs]
+    combined_rows = sorted(
+        (_combined_result_row(run_dir) for run_dir in run_dirs),
+        key=_combined_ranking_key,
+    )
+    source_documents = list(dict.fromkeys(
+        document
+        for row in combined_rows
+        for document in row.get("source_documents", [])
+    ))
     lines = [
         "# Detector Regression Manifest",
         "",
         f"**Detectors evaluated:** {len(run_dirs)}",
         "",
-        "## Coalesced detector results",
+        "## Source document",
         "",
-        "| Detector | Status | Winner | Parameter set ID | Avg IoU | Min IoU | StdDev | Failures | Parameter sets | Elapsed |",
-        "|---|---|---|---|---:|---:|---:|---:|---:|---:|",
     ]
-    for row in combined_rows:
+    if source_documents:
+        lines.extend(f"- `{document}`" for document in source_documents)
+    else:
+        lines.append("- `unknown`")
+    lines.extend([
+        "",
+        "## Ranked detector results",
+        "",
+        "| Rank | Detector | Status | Winner | Parameter set ID | Avg IoU | Min IoU | StdDev | Failures | Parameter sets | Eval time | Doc time | Run elapsed |",
+        "|---:|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ])
+    for rank, row in enumerate(combined_rows, start=1):
         lines.append(
-            f"| `{row['detector']}` | {row['status']} | `{row['winner']}` | "
+            f"| {rank} | `{row['detector']}` | {row['status']} | `{row['winner']}` | "
             f"`{row['parameter_set_id']}` | {_number(row['mean_iou'])} | "
             f"{_number(row['minimum_iou'])} | {_number(row['stddev_iou'])} | "
-            f"{row['failures']} | {row['parameter_sets']} | {_duration(row['elapsed_seconds'])} |"
+            f"{row['failures']} | {row['parameter_sets']} | "
+            f"{_duration(row['evaluation_seconds'])} | {_duration(row['document_seconds'])} | "
+            f"{_duration(row['elapsed_seconds'])} |"
         )
     lines.append("")
     for index, run_dir in enumerate(run_dirs):

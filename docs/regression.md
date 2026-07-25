@@ -48,7 +48,7 @@ The `baseline` profile is treated as a named production reference, not a privile
 
 The manually dispatched **HTH detector regression** workflow checks out a results repository, runs the selected detector against the Golden Set, uploads the complete canonical run directory, and writes a **Regression Manifest** to the Actions job summary. The manifest records provenance, Golden Set pages, parameter-space size, winner and baseline metrics, and output validation.
 
-When multiple detectors run together, the top-level **Detector Regression Manifest** begins with a coalesced results table. It places every detector's winner, IoU metrics, failure count, evaluated parameter-set count, and elapsed time side by side before the detailed per-detector manifests. The detail sections remain authoritative; the coalesced table intentionally duplicates their key results to support rapid comparison.
+When multiple detectors run together, the top-level **Detector Regression Manifest** identifies the source document and begins with a ranked detector-results table. Detectors are sorted by the regression quality ordering: average IoU, minimum IoU, failures, standard deviation, and evaluation time. The table places every detector's winner, IoU metrics, failure count, evaluated parameter-set count, winner evaluation time, summed document-processing time, and complete run elapsed time side by side before the detailed per-detector manifests. The detail sections remain authoritative; the ranked table intentionally duplicates their key results to support rapid comparison.
 
 For a manual run, the **Algorithm** input is a choice of `all`, `contour`, `components`, or `grabcut`. Automatic smoke runs continue to exercise all configured detector algorithms.
 
@@ -76,7 +76,7 @@ The heartbeat uses a two-row header so current and best-so-far values stay align
      IoU    IoU   IoU    IoU    SD      SD           Time  Set
 ```
 
-The current columns describe the most recently completed parameter set. Higher is better for average and minimum IoU; lower is better for standard deviation. `Eval Time` is the wall-clock time for that parameter set. Sparse `New best` notes remain outside the fixed-width table.
+The current columns describe the most recently completed parameter set. Higher is better for average and minimum IoU; lower is better for standard deviation. `Eval Time` is the wall-clock time for that parameter set. Sparse `New best` notes remain outside the fixed-width table. For long regressions, the two-row header and separator are repeated after every 50 telemetry rows, with a blank line before the repeated header so the columns remain readable in a fixed-height GitHub log window.
 
 After the normal result summary, regression statistics report record counts for average IoU, minimum IoU, and standard deviation; total metric improvements; parameter sets that improved at least one metric; overall winner changes; and whether the baseline was surpassed. These counts show whether a long search continued to produce useful gains or mostly traversed a plateau.
 

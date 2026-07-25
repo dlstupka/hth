@@ -159,12 +159,20 @@ class ProgressReporter:
         self._last_progress_at = self.started
         self._search_started_at: float | None = None
         self._last_stall_warning_at: float | None = None
+        self._rows_since_header = 0
+        self.header_repeat_rows = 50
 
-    def start(self) -> None:
-        print("Regression Progress", file=self.stream)
+    def _print_header(self, *, blank_before: bool = False) -> None:
+        if blank_before:
+            print("", file=self.stream)
         print(self.HEADER_TOP, file=self.stream)
         print(self.HEADER_BOTTOM, file=self.stream)
         print("-" * max(len(self.HEADER_TOP), len(self.HEADER_BOTTOM)), file=self.stream)
+        self._rows_since_header = 0
+
+    def start(self) -> None:
+        print("Regression Progress", file=self.stream)
+        self._print_header()
         self.emit(force=True)
         if self.interval_seconds > 0:
             self._thread = threading.Thread(
@@ -365,6 +373,8 @@ class ProgressReporter:
         stddev_best = f"{snap.best_stddev_iou:.4f}" if snap.best_stddev_iou is not None else "--"
         eta = _duration(snap.eta_seconds) if snap.eta_seconds is not None else "TBD"
         evaluation_time = _evaluation_time(snap.current_evaluation_ms)
+        if self._rows_since_header >= self.header_repeat_rows:
+            self._print_header(blank_before=True)
         print(
             f"{_duration(snap.elapsed_seconds):<{widths['elapsed']}}  "
             f"{eta:<{widths['eta']}}  "
@@ -383,6 +393,7 @@ class ProgressReporter:
             file=self.stream,
             flush=True,
         )
+        self._rows_since_header += 1
         self.last_emit = now
         return True
 
