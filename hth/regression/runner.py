@@ -162,14 +162,14 @@ def build_winner_page_report(
     baseline: dict[str, Any] | None,
     *,
     poor_match_iou_below: float = 0.50,
-    regression_delta_below: float = -0.05,
+    regression_delta_below: float = -0.001,
 ) -> dict[str, Any]:
     """Build the canonical per-page analysis for the winning parameter set."""
     baseline_pages = {
         int(page["global_ordinal"]): page
         for page in (baseline or {}).get("pages", [])
     }
-    parameter_set = winner.get("profile") or str(winner.get("parameter_set_id", "unknown"))[:8]
+    parameter_set = winner.get("profile") or str(winner.get("parameter_set_id", "unknown"))[:12]
     rows: list[dict[str, Any]] = []
     counts = {
         "unprocessed_pages": 0,
@@ -202,10 +202,10 @@ def build_winner_page_report(
             counts["zero_overlap"] += 1
         elif baseline_iou == 0.0 and winner_iou > 0.0:
             status = "Recovered"
-        elif delta_iou > 0.001:
+        elif delta_iou > abs(regression_delta_below):
             status = "Improved"
-        elif delta_iou < -0.001:
-            status = "Regressed from baseline"
+        elif delta_iou < regression_delta_below:
+            status = "Regressed"
         else:
             status = "Unchanged"
 
@@ -213,7 +213,7 @@ def build_winner_page_report(
             reasons.append("Poor match")
             counts["poor_matches"] += 1
         if delta_iou < regression_delta_below:
-            reasons.append("Regressed from baseline")
+            reasons.append("Regressed")
             counts["regressions"] += 1
 
         rows.append({
@@ -236,7 +236,10 @@ def build_winner_page_report(
             "regression_delta_below": regression_delta_below,
         },
         "counts": counts,
-        "pages": rows,
+        "pages": sorted(
+            rows,
+            key=lambda row: (-float(row["winner_iou"]), int(row["golden_set_page"])),
+        ),
     }
 
 def _safe_name(value: Any) -> str:

@@ -136,3 +136,11 @@ authors, version, and repository provenance.
 Each regression records the SHA-256 digest of the exact Golden Set configuration file in `parameters.json`, `RUN-INFO.json`, `reports/summary.json`, the console environment banner, and the GitHub Actions job summary. This distinguishes runs that used the same configuration path after the file changed.
 
 The console summary reports **Fully successful parameter sets**. A parameter set is fully successful only when every selected Golden Set page produced a valid candidate. A value of zero can therefore coexist with a ranked winner when every parameter set missed at least one page; individual successful and failed page-evaluation counts are reported separately.
+
+## Human-readable winner analysis
+
+The GitHub Actions regression summary includes a top-five parameter-set ranking, a Golden Set Winner Summary, a status legend, and a Problem Pages section. Parameter-set and provenance hashes are displayed as consistent 12-character prefixes while the canonical JSON artifacts retain the complete values.
+
+Golden Set winner rows are ordered by winner IoU from best match to worst match, with Golden Set page number as the tie-breaker. The same regression threshold drives both the `Regressed` status and the Problem Pages regression count, so the summary cannot label pages as regressed while reporting zero regressed pages. Threshold values are printed directly in the legend and Problem Pages labels.
+
+GitHub Actions job summaries render static Markdown and sanitized HTML; they do not permit the JavaScript required for click-sortable table headers. Complete machine-readable page results remain available in `reports/winner-pages.json` for external sorting and analysis.

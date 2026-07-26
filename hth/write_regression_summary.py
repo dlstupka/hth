@@ -143,7 +143,7 @@ def _estimated_document_seconds(page_rate: Any, image_count: Any) -> float | Non
 def _parameter_id(result: dict[str, Any] | None) -> str:
     if not result:
         return "unknown"
-    return str(result.get("parameter_set_id") or "unknown")
+    return _short(result.get("parameter_set_id"), 12)
 
 
 def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = True) -> str:
@@ -183,7 +183,7 @@ def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = Tru
         "## Golden Set",
         "",
         f"- Configuration: `{info.get('golden_set', parameters.get('golden_set', 'unknown'))}`",
-        f"- SHA-256: `{info.get('golden_set_sha256', parameters.get('golden_set_sha256', summary.get('golden_set_sha256', 'unknown')))}`",
+        f"- SHA-256: `{_short(info.get('golden_set_sha256', parameters.get('golden_set_sha256', summary.get('golden_set_sha256', 'unknown'))), 12)}`",
         f"- Pages: `{len(page_ordinals)}`",
         f"- Ordinals: `{', '.join(str(v) for v in page_ordinals) if page_ordinals else 'unknown'}`",
         "",
@@ -215,7 +215,7 @@ def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = Tru
             "",
             "## Top parameter sets",
             "",
-            "| Rank | Parameter Set | Avg IoU | Δ from Winner | Failures |",
+            "| Rank | Parameter Set | Avg IoU | Δ Avg IoU | Failures |",
             "|---:|---|---:|---:|---:|",
         ])
         for result in top_parameter_sets[:5]:
@@ -230,6 +230,13 @@ def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = Tru
     winner_page_report = summary.get("winner_page_report", {})
     winner_pages = winner_page_report.get("pages", []) if isinstance(winner_page_report, dict) else []
     if isinstance(winner_pages, list) and winner_pages:
+        winner_pages = sorted(
+            winner_pages,
+            key=lambda page: (
+                -float(page.get("winner_iou", 0.0) or 0.0),
+                int(page.get("golden_set_page", 0) or 0),
+            ),
+        )
         lines.extend([
             "",
             "## Golden Set Winner Summary",
@@ -242,20 +249,34 @@ def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = Tru
                 f"| {page.get('golden_set_page', 'unknown')} | "
                 f"{_number(page.get('baseline_iou'))} | {_number(page.get('winner_iou'))} | "
                 f"{float(page.get('delta_iou', 0.0) or 0.0):+.4f} | "
-                f"{page.get('status', 'unknown')} | `{page.get('parameter_set', 'unknown')}` |"
+                f"{page.get('status', 'unknown')} | `{_short(page.get('parameter_set'), 12)}` |"
             )
 
+        thresholds = winner_page_report.get("thresholds", {})
+        poor_match_threshold = float(thresholds.get("poor_match_iou_below", 0.50) or 0.50)
+        regression_threshold = float(thresholds.get("regression_delta_below", -0.001) or -0.001)
         counts = winner_page_report.get("counts", {})
         problem_pages = [page for page in winner_pages if page.get("problem")]
         lines.extend([
+            "",
+            "### Status legend",
+            "",
+            "- **Recovered:** baseline IoU was zero and the winner found a matching polygon.",
+            f"- **Improved:** Δ IoU is greater than `{abs(regression_threshold):.4f}`.",
+            f"- **Unchanged:** Δ IoU is between `{regression_threshold:.4f}` and `{abs(regression_threshold):+.4f}`.",
+            f"- **Regressed:** Δ IoU is less than `{regression_threshold:.4f}`.",
+            f"- **Poor match:** winner IoU is greater than zero but below `{poor_match_threshold:.4f}`.",
+            "- **Zero overlap:** a polygon was returned, but its IoU is zero.",
+            "- **No polygon found:** the detector completed without returning a polygon.",
+            "- **Unprocessed:** evaluation raised an error.",
             "",
             "## Problem Pages",
             "",
             f"- Unprocessed pages: `{counts.get('unprocessed_pages', 0)}`",
             f"- No polygon found: `{counts.get('no_polygon_found', 0)}`",
             f"- Zero overlap: `{counts.get('zero_overlap', 0)}`",
-            f"- Poor matches: `{counts.get('poor_matches', 0)}`",
-            f"- Regressions: `{counts.get('regressions', 0)}`",
+            f"- Poor matches (winner IoU < {poor_match_threshold:.4f}): `{counts.get('poor_matches', 0)}`",
+            f"- Regressed pages (Δ IoU < {regression_threshold:.4f}): `{counts.get('regressions', 0)}`",
         ])
         if problem_pages:
             lines.extend([
@@ -268,7 +289,7 @@ def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = Tru
                 lines.append(
                     f"| {page.get('golden_set_page', 'unknown')} | "
                     f"{_number(page.get('winner_iou'))} | {reasons} | "
-                    f"`{page.get('parameter_set', 'unknown')}` |"
+                    f"`{_short(page.get('parameter_set'), 12)}` |"
                 )
         else:
             lines.extend(["", "No problem pages were identified."])

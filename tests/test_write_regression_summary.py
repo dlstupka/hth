@@ -63,10 +63,10 @@ class RegressionSummaryTests(unittest.TestCase):
                             "baseline_iou": 0.60,
                             "winner_iou": 0.40,
                             "delta_iou": -0.20,
-                            "status": "Regressed from baseline",
+                            "status": "Regressed",
                             "parameter_set": "winner",
                             "problem": True,
-                            "problem_reasons": ["Poor match", "Regressed from baseline"],
+                            "problem_reasons": ["Poor match", "Regressed"],
                         },
                     ],
                 },
@@ -93,13 +93,16 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("Configured named profiles: `baseline`", text)
             self.assertIn("Evaluation time", text)
             self.assertIn("## Top parameter sets", text)
+            self.assertIn("| Rank | Parameter Set | Avg IoU | Δ Avg IoU | Failures |", text)
             self.assertIn("| 1 | `winner` | 0.9700 | +0.0000 | 0 |", text)
             self.assertIn("## Golden Set Winner Summary", text)
             self.assertIn("| Golden Set Page | Baseline | Winner | Δ IoU | Status | Parameter Set |", text)
             self.assertIn("| 1 | 0.9000 | 0.9700 | +0.0700 | Improved | `winner` |", text)
             self.assertIn("## Problem Pages", text)
-            self.assertIn("- Poor matches: `1`", text)
-            self.assertIn("| 5 | 0.4000 | Poor match; Regressed from baseline | `winner` |", text)
+            self.assertIn("Poor matches (winner IoU < 0.5000): `1`", text)
+            self.assertIn("### Status legend", text)
+            self.assertIn("Regressed pages (Δ IoU < -0.0010): `1`", text)
+            self.assertIn("| 5 | 0.4000 | Poor match; Regressed | `winner` |", text)
             self.assertIn("## Regression statistics", text)
             self.assertIn("| Total metric improvements | 9 |", text)
             self.assertIn("| Winner changes | 2 |", text)
