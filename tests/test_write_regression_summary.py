@@ -35,6 +35,41 @@ class RegressionSummaryTests(unittest.TestCase):
             (run / "reports" / "summary.json").write_text(json.dumps({
                 "page_ordinals": [1, 5, 6, 9, 10], "parameter_set_count": 42,
                 "winner": winner, "baseline": baseline,
+                "top_parameter_sets": [
+                    {**winner, "rank": 1},
+                    {**baseline, "rank": 2},
+                ],
+                "winner_page_report": {
+                    "counts": {
+                        "unprocessed_pages": 0,
+                        "no_polygon_found": 0,
+                        "zero_overlap": 0,
+                        "poor_matches": 1,
+                        "regressions": 1,
+                    },
+                    "pages": [
+                        {
+                            "golden_set_page": 1,
+                            "baseline_iou": 0.90,
+                            "winner_iou": 0.97,
+                            "delta_iou": 0.07,
+                            "status": "Improved",
+                            "parameter_set": "winner",
+                            "problem": False,
+                            "problem_reasons": [],
+                        },
+                        {
+                            "golden_set_page": 5,
+                            "baseline_iou": 0.60,
+                            "winner_iou": 0.40,
+                            "delta_iou": -0.20,
+                            "status": "Regressed from baseline",
+                            "parameter_set": "winner",
+                            "problem": True,
+                            "problem_reasons": ["Poor match", "Regressed from baseline"],
+                        },
+                    ],
+                },
                 "progress": {
                     "mean_iou_improvements": 3,
                     "minimum_iou_improvements": 2,
@@ -57,6 +92,14 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("SHA-256: `abc123`", text)
             self.assertIn("Configured named profiles: `baseline`", text)
             self.assertIn("Evaluation time", text)
+            self.assertIn("## Top parameter sets", text)
+            self.assertIn("| 1 | `winner` | 0.9700 | +0.0000 | 0 |", text)
+            self.assertIn("## Golden Set Winner Summary", text)
+            self.assertIn("| Golden Set Page | Baseline | Winner | Δ IoU | Status | Parameter Set |", text)
+            self.assertIn("| 1 | 0.9000 | 0.9700 | +0.0700 | Improved | `winner` |", text)
+            self.assertIn("## Problem Pages", text)
+            self.assertIn("- Poor matches: `1`", text)
+            self.assertIn("| 5 | 0.4000 | Poor match; Regressed from baseline | `winner` |", text)
             self.assertIn("## Regression statistics", text)
             self.assertIn("| Total metric improvements | 9 |", text)
             self.assertIn("| Winner changes | 2 |", text)

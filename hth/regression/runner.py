@@ -156,6 +156,89 @@ def evaluate_set(detector:Any, parameters:dict[str,Any], pages:list[dict[str,Any
     successful=[r for r in page_results if r["status"]=="ok"]; ious=[float(r["iou"]) for r in page_results]; edges=[float(r["edge_error_mean_px"]) for r in successful]; elapsed=[float(r["elapsed_ms"]) for r in page_results]
     return {"parameter_set_id":parameter_set_id(parameters),"parameters":parameters,"summary":{"page_count":len(page_results),"success_count":len(successful),"failure_count":len(page_results)-len(successful),"mean_iou":round(sum(ious)/len(ious),8),"minimum_iou":round(min(ious),8),"stddev_iou":round(statistics.pstdev(ious),8),"mean_edge_error_px":round(sum(edges)/len(edges),3) if edges else None,"elapsed_ms_total":round(sum(elapsed),3),"wall_ms":round((time.perf_counter()-started)*1000,3)},"pages":page_results}
 
+
+def build_winner_page_report(
+    winner: dict[str, Any],
+    baseline: dict[str, Any] | None,
+    *,
+    poor_match_iou_below: float = 0.50,
+    regression_delta_below: float = -0.05,
+) -> dict[str, Any]:
+    """Build the canonical per-page analysis for the winning parameter set."""
+    baseline_pages = {
+        int(page["global_ordinal"]): page
+        for page in (baseline or {}).get("pages", [])
+    }
+    parameter_set = winner.get("profile") or str(winner.get("parameter_set_id", "unknown"))[:8]
+    rows: list[dict[str, Any]] = []
+    counts = {
+        "unprocessed_pages": 0,
+        "no_polygon_found": 0,
+        "zero_overlap": 0,
+        "poor_matches": 0,
+        "regressions": 0,
+    }
+
+    for page in winner.get("pages", []):
+        ordinal = int(page["global_ordinal"])
+        baseline_page = baseline_pages.get(ordinal, {})
+        baseline_iou = float(baseline_page.get("iou", 0.0) or 0.0)
+        winner_iou = float(page.get("iou", 0.0) or 0.0)
+        delta_iou = winner_iou - baseline_iou
+        winner_status = str(page.get("status", "unknown"))
+        reasons: list[str] = []
+
+        if winner_status == "error":
+            status = "Unprocessed"
+            reasons.append("Unprocessed")
+            counts["unprocessed_pages"] += 1
+        elif winner_status != "ok":
+            status = "No polygon found"
+            reasons.append("No polygon found")
+            counts["no_polygon_found"] += 1
+        elif winner_iou == 0.0:
+            status = "Zero overlap"
+            reasons.append("Zero overlap")
+            counts["zero_overlap"] += 1
+        elif baseline_iou == 0.0 and winner_iou > 0.0:
+            status = "Recovered"
+        elif delta_iou > 0.001:
+            status = "Improved"
+        elif delta_iou < -0.001:
+            status = "Regressed from baseline"
+        else:
+            status = "Unchanged"
+
+        if winner_status == "ok" and 0.0 < winner_iou < poor_match_iou_below:
+            reasons.append("Poor match")
+            counts["poor_matches"] += 1
+        if delta_iou < regression_delta_below:
+            reasons.append("Regressed from baseline")
+            counts["regressions"] += 1
+
+        rows.append({
+            "golden_set_page": ordinal,
+            "baseline_iou": round(baseline_iou, 8),
+            "winner_iou": round(winner_iou, 8),
+            "delta_iou": round(delta_iou, 8),
+            "status": status,
+            "parameter_set": parameter_set,
+            "parameter_set_id": winner.get("parameter_set_id"),
+            "problem": bool(reasons),
+            "problem_reasons": reasons,
+            "detector_status": winner_status,
+        })
+
+    return {
+        "schema_version": "0.1",
+        "thresholds": {
+            "poor_match_iou_below": poor_match_iou_below,
+            "regression_delta_below": regression_delta_below,
+        },
+        "counts": counts,
+        "pages": rows,
+    }
+
 def _safe_name(value: Any) -> str:
     text = str(value or "unknown")
     return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in text)
@@ -381,8 +464,10 @@ def run(args:argparse.Namespace)->Path:
         baseline=next((r for r in ranked if r.get("profile")=="baseline"),None)
         raw=run_dir/"raw"/"results.csv"; rankings=run_dir/"reports"/"rankings.csv"; top=run_dir/"reports"/"top20.csv"
         write_raw_results(raw,ranked); write_rankings(rankings,ranked); write_rankings(top,ranked[:max(0,args.top)])
-        summary={"schema_version":"0.7","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"winner":ranked[0],"baseline":baseline,"runner":environment,"source_commit":source_commit,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":progress.baseline_surpassed,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
+        winner_pages = build_winner_page_report(ranked[0], baseline)
+        summary={"schema_version":"0.8","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"winner":ranked[0],"baseline":baseline,"top_parameter_sets":ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":progress.baseline_surpassed,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
         write_json(run_dir/"reports"/"summary.json",summary)
+        write_json(run_dir/"reports"/"winner-pages.json",winner_pages)
         debug_outputs = [] if debug_policy == "none" else write_debug_artifacts(
             args.output, name, run_id, policy=debug_policy, ranked=ranked, pages=pages
         )
@@ -396,6 +481,7 @@ def run(args:argparse.Namespace)->Path:
                 "parameters.json",
                 "raw/results.csv",
                 "reports/summary.json",
+                "reports/winner-pages.json",
                 "reports/rankings.csv",
                 "reports/top20.csv",
             ],

@@ -208,6 +208,71 @@ def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = Tru
             f"{_duration(_evaluation_seconds(baseline))} |"
         )
 
+    top_parameter_sets = summary.get("top_parameter_sets", [])
+    if isinstance(top_parameter_sets, list) and top_parameter_sets:
+        winner_mean = float(winner_stats.get("mean_iou", 0.0) or 0.0)
+        lines.extend([
+            "",
+            "## Top parameter sets",
+            "",
+            "| Rank | Parameter Set | Avg IoU | Δ from Winner | Failures |",
+            "|---:|---|---:|---:|---:|",
+        ])
+        for result in top_parameter_sets[:5]:
+            stats = result.get("summary", {}) if isinstance(result, dict) else {}
+            mean_iou = float(stats.get("mean_iou", 0.0) or 0.0)
+            lines.append(
+                f"| {result.get('rank', 'unknown')} | `{_parameter_set_name(result)}` | "
+                f"{_number(mean_iou)} | {mean_iou - winner_mean:+.4f} | "
+                f"{stats.get('failure_count', 'unknown')} |"
+            )
+
+    winner_page_report = summary.get("winner_page_report", {})
+    winner_pages = winner_page_report.get("pages", []) if isinstance(winner_page_report, dict) else []
+    if isinstance(winner_pages, list) and winner_pages:
+        lines.extend([
+            "",
+            "## Golden Set Winner Summary",
+            "",
+            "| Golden Set Page | Baseline | Winner | Δ IoU | Status | Parameter Set |",
+            "|---:|---:|---:|---:|---|---|",
+        ])
+        for page in winner_pages:
+            lines.append(
+                f"| {page.get('golden_set_page', 'unknown')} | "
+                f"{_number(page.get('baseline_iou'))} | {_number(page.get('winner_iou'))} | "
+                f"{float(page.get('delta_iou', 0.0) or 0.0):+.4f} | "
+                f"{page.get('status', 'unknown')} | `{page.get('parameter_set', 'unknown')}` |"
+            )
+
+        counts = winner_page_report.get("counts", {})
+        problem_pages = [page for page in winner_pages if page.get("problem")]
+        lines.extend([
+            "",
+            "## Problem Pages",
+            "",
+            f"- Unprocessed pages: `{counts.get('unprocessed_pages', 0)}`",
+            f"- No polygon found: `{counts.get('no_polygon_found', 0)}`",
+            f"- Zero overlap: `{counts.get('zero_overlap', 0)}`",
+            f"- Poor matches: `{counts.get('poor_matches', 0)}`",
+            f"- Regressions: `{counts.get('regressions', 0)}`",
+        ])
+        if problem_pages:
+            lines.extend([
+                "",
+                "| Golden Set Page | Winner IoU | Problem | Parameter Set |",
+                "|---:|---:|---|---|",
+            ])
+            for page in problem_pages:
+                reasons = "; ".join(str(reason) for reason in page.get("problem_reasons", [])) or str(page.get("status", "unknown"))
+                lines.append(
+                    f"| {page.get('golden_set_page', 'unknown')} | "
+                    f"{_number(page.get('winner_iou'))} | {reasons} | "
+                    f"`{page.get('parameter_set', 'unknown')}` |"
+                )
+        else:
+            lines.extend(["", "No problem pages were identified."])
+
     lines.extend([
         "",
         "## Regression statistics",
