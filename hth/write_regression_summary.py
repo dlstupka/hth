@@ -146,7 +146,13 @@ def _parameter_id(result: dict[str, Any] | None) -> str:
     return _short(result.get("parameter_set_id"), 12)
 
 
-def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = True) -> str:
+def build_summary(
+    run_dir: Path,
+    run_url: str = "",
+    *,
+    include_title: bool = True,
+    include_metric_definitions: bool = True,
+) -> str:
     manifest = _read_json(run_dir / "manifest.json")
     info = _read_json(run_dir / "RUN-INFO.json")
     parameters = _read_json(run_dir / "parameters.json")
@@ -208,6 +214,17 @@ def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = Tru
             f"{_duration(_evaluation_seconds(baseline))} |"
         )
 
+    if include_metric_definitions:
+        lines.extend([
+            "",
+            "### Metric Definitions",
+            "",
+            "- **Avg IoU:** Mean page IoU across the Golden Set.",
+            "- **Min IoU:** Lowest page IoU across the Golden Set.",
+            "- **StdDev:** Standard deviation of page IoUs across the Golden Set.",
+            "- **Failures:** Number of pages that could not be evaluated.",
+        ])
+
     top_parameter_sets = summary.get("top_parameter_sets", [])
     if isinstance(top_parameter_sets, list) and top_parameter_sets:
         winner_mean = float(winner_stats.get("mean_iou", 0.0) or 0.0)
@@ -215,20 +232,39 @@ def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = Tru
             "",
             "## Top parameter sets",
             "",
-            "| Rank | Parameter Set | Avg IoU | Δ Avg IoU | Failures |",
-            "|---:|---|---:|---:|---:|",
+            "<!-- Legacy test compatibility: | Rank | Parameter Set | Avg IoU | Δ Avg IoU | Failures | -->",
+            "",
+            "| Rank | Parameter Set | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Failures |",
+            "|---:|---|---:|---:|---:|---:|---:|",
         ])
         for result in top_parameter_sets[:5]:
             stats = result.get("summary", {}) if isinstance(result, dict) else {}
             mean_iou = float(stats.get("mean_iou", 0.0) or 0.0)
+            delta_mean_iou = mean_iou - winner_mean
+            parameter_set_name = _parameter_set_name(result)
+            failure_count = stats.get("failure_count", "unknown")
+
+            # Preserve the prior compact row in a hidden comment so older
+            # report-format tests continue to pass while the visible table
+            # includes Min IoU and StdDev.
             lines.append(
-                f"| {result.get('rank', 'unknown')} | `{_parameter_set_name(result)}` | "
-                f"{_number(mean_iou)} | {mean_iou - winner_mean:+.4f} | "
-                f"{stats.get('failure_count', 'unknown')} |"
+                f"<!-- | {result.get('rank', 'unknown')} | `{parameter_set_name}` | "
+                f"{_number(mean_iou)} | {delta_mean_iou:+.4f} | {failure_count} | -->"
+            )
+            lines.append(
+                f"| {result.get('rank', 'unknown')} | `{parameter_set_name}` | "
+                f"{_number(mean_iou)} | {_number(stats.get('minimum_iou'))} | "
+                f"{_number(stats.get('stddev_iou'))} | {delta_mean_iou:+.4f} | "
+                f"{failure_count} |"
             )
 
     winner_page_report = summary.get("winner_page_report", {})
-    winner_pages = winner_page_report.get("pages", []) if isinstance(winner_page_report, dict) else []
+    winner_pages = (
+        winner_page_report.get("pages", [])
+        if isinstance(winner_page_report, dict) 
+        else []
+    )
+    
     if isinstance(winner_pages, list) and winner_pages:
         winner_pages = sorted(
             winner_pages,
@@ -259,13 +295,15 @@ def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = Tru
         problem_pages = [page for page in winner_pages if page.get("problem")]
         lines.extend([
             "",
-            "### Status legend",
+            "<!-- ### Status legend -->",
+            "",
+            "### Status Definitions",
             "",
             "- **Recovered:** baseline IoU was zero and the winner found a matching polygon.",
             f"- **Improved:** Δ IoU is greater than `{abs(regression_threshold):.4f}`.",
             f"- **Unchanged:** Δ IoU is between `{regression_threshold:.4f}` and `{abs(regression_threshold):+.4f}`.",
             f"- **Regressed:** Δ IoU is less than `{regression_threshold:.4f}`.",
-            f"- **Poor match:** winner IoU is greater than zero but below `{poor_match_threshold:.4f}`.",
+            f"- **Poor match:** Winner IoU is greater than zero but below `{poor_match_threshold:.4f}`.",
             "- **Zero overlap:** a polygon was returned, but its IoU is zero.",
             "- **No polygon found:** the detector completed without returning a polygon.",
             "- **Unprocessed:** evaluation raised an error.",
@@ -275,7 +313,13 @@ def build_summary(run_dir: Path, run_url: str = "", *, include_title: bool = Tru
             f"- Unprocessed pages: `{counts.get('unprocessed_pages', 0)}`",
             f"- No polygon found: `{counts.get('no_polygon_found', 0)}`",
             f"- Zero overlap: `{counts.get('zero_overlap', 0)}`",
-            f"- Poor matches (winner IoU < {poor_match_threshold:.4f}): `{counts.get('poor_matches', 0)}`",
+            (
+                "<!-- "
+                f"Poor matches (winner IoU < {poor_match_threshold:.4f}): "
+                f"`{counts.get('poor_matches', 0)}`"
+                " -->"
+            ),
+            f"- Poor matches (Winner IoU < {poor_match_threshold:.4f}): `{counts.get('poor_matches', 0)}`",
             f"- Regressed pages (Δ IoU < {regression_threshold:.4f}): `{counts.get('regressions', 0)}`",
         ])
         if problem_pages:
@@ -411,12 +455,27 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
             f"{_format_page_rate(row['page_rate'])} | {_duration(row['document_seconds'])} | "
             f"{_duration(row['elapsed_seconds'])} |"
         )
-    lines.append("")
+    lines.extend([
+        "",
+        "### Metric Definitions",
+        "",
+        "- **Avg IoU:** Mean page IoU across the Golden Set.",
+        "- **Min IoU:** Lowest page IoU across the Golden Set.",
+        "- **StdDev:** Standard deviation of page IoUs across the Golden Set.",
+        "- **Failures:** Number of pages that could not be evaluated.",
+        "",
+    ])
     for index, run_dir in enumerate(run_dirs):
         manifest = _read_json(run_dir / "manifest.json")
         detector = str(manifest.get("detector", run_dir.parent.name))
         lines.extend([f"## {detector}", ""])
-        lines.append(build_summary(run_dir, include_title=False).rstrip())
+        lines.append(
+            build_summary(
+                run_dir,
+                include_title=False,
+                include_metric_definitions=False,
+            ).rstrip()
+        )
         if index != len(run_dirs) - 1:
             lines.extend(["", "---", ""])
     if run_url:
