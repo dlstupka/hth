@@ -232,8 +232,6 @@ def build_summary(
             "",
             "## Top parameter sets",
             "",
-            "<!-- Legacy test compatibility: | Rank | Parameter Set | Avg IoU | Δ Avg IoU | Failures | -->",
-            "",
             "| Rank | Parameter Set | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Failures |",
             "|---:|---|---:|---:|---:|---:|---:|",
         ])
@@ -244,13 +242,6 @@ def build_summary(
             parameter_set_name = _parameter_set_name(result)
             failure_count = stats.get("failure_count", "unknown")
 
-            # Preserve the prior compact row in a hidden comment so older
-            # report-format tests continue to pass while the visible table
-            # includes Min IoU and StdDev.
-            lines.append(
-                f"<!-- | {result.get('rank', 'unknown')} | `{parameter_set_name}` | "
-                f"{_number(mean_iou)} | {delta_mean_iou:+.4f} | {failure_count} | -->"
-            )
             lines.append(
                 f"| {result.get('rank', 'unknown')} | `{parameter_set_name}` | "
                 f"{_number(mean_iou)} | {_number(stats.get('minimum_iou'))} | "
@@ -268,10 +259,7 @@ def build_summary(
     if isinstance(winner_pages, list) and winner_pages:
         winner_pages = sorted(
             winner_pages,
-            key=lambda page: (
-                -float(page.get("winner_iou", 0.0) or 0.0),
-                int(page.get("golden_set_page", 0) or 0),
-            ),
+            key=lambda page: int(page.get("golden_set_page", 0) or 0),
         )
         lines.extend([
             "",
@@ -295,8 +283,6 @@ def build_summary(
         problem_pages = [page for page in winner_pages if page.get("problem")]
         lines.extend([
             "",
-            "<!-- ### Status legend -->",
-            "",
             "### Status Definitions",
             "",
             "- **Recovered:** baseline IoU was zero and the winner found a matching polygon.",
@@ -313,17 +299,13 @@ def build_summary(
             f"- Unprocessed pages: `{counts.get('unprocessed_pages', 0)}`",
             f"- No polygon found: `{counts.get('no_polygon_found', 0)}`",
             f"- Zero overlap: `{counts.get('zero_overlap', 0)}`",
-            (
-                "<!-- "
-                f"Poor matches (winner IoU < {poor_match_threshold:.4f}): "
-                f"`{counts.get('poor_matches', 0)}`"
-                " -->"
-            ),
             f"- Poor matches (Winner IoU < {poor_match_threshold:.4f}): `{counts.get('poor_matches', 0)}`",
             f"- Regressed pages (Δ IoU < {regression_threshold:.4f}): `{counts.get('regressions', 0)}`",
         ])
         if problem_pages:
             lines.extend([
+                "",
+                "### Affected Pages",
                 "",
                 "| Golden Set Page | Winner IoU | Problem | Parameter Set |",
                 "|---:|---:|---|---|",
