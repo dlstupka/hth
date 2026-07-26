@@ -6,7 +6,7 @@ HTH regression is a black-box experiment framework. It knows parameter names and
 
 ```bash
 python -m hth.regress_detector \
-  --detector-config config/detectors/ransac.json  # or components.json / contour.json / grabcut.json / hough.json / lsd.json \
+  --detector-config config/detectors/ransac.json  # or components.json / contour.json / contour_quad.json / grabcut.json / hough.json / lsd.json \
   --golden-set config/golden_set.json \
   --image-root path/to/preprocessed \
   --output build/regression \
@@ -50,7 +50,7 @@ The manually dispatched **HTH detector regression** workflow checks out a result
 
 When multiple detectors run together, the top-level **Detector Regression Manifest** identifies the source document and begins with a ranked detector-results table. Detectors are sorted by the regression quality ordering: average IoU, minimum IoU, failures, standard deviation, and evaluation time. The table places every detector's winner, IoU metrics, failure count, evaluated parameter-set count, estimated winner page throughput, source-document processing time derived from the configured image count, and complete detector-tuning run elapsed time side by side before the detailed per-detector manifests. The detail sections remain authoritative; the ranked table intentionally duplicates their key results to support rapid comparison.
 
-For a manual run, the **Algorithm** input is a choice of `all`, `contour`, `components`, `ransac`, `grabcut`, `hough`, or `lsd`. Automatic smoke runs continue to exercise all configured detector algorithms.
+For a manual run, the **Algorithm** input is a choice of `all`, `contour`, `contour_quad`, `components`, `ransac`, `grabcut`, `hough`, or `lsd`. Automatic smoke runs continue to exercise all configured detector algorithms.
 
 Manual runs default to the `exhaustive` strategy. Limit handling is explicit:
 

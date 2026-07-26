@@ -20,14 +20,28 @@ An overlay must:
 
 - contain only files added or modified for the current task;
 - include all changed source files, tests, and documentation;
-- include a terse `COMMIT-*.md` note describing the completed change;
+- include a terse `COMMIT-MESSAGE.md` containing the recommended commit title and body;
 - omit unchanged files, generated artifacts, caches, and the repository root directory;
 - preserve the existing repository layout; and
 - extract directly over the repository root.
 
-The `COMMIT-*.md` file is part of the overlay, not a separate optional deliverable.
+The filename is always `COMMIT-MESSAGE.md`; do not create topic-specific or alternate commit-note filenames. The file is part of the overlay, not a separate optional deliverable.
 
 Do not move or rename existing files unless the task explicitly includes that change. File moves, renames, and repository reorganizations must be deliberate changes described in the associated commit note.
+
+## Established HTH Conventions
+
+HTH has established conventions that supersede common project defaults.
+
+Do not reintroduce legacy conventions from other projects.
+
+Examples include:
+
+- `unittest` (not `pytest`)
+- `COMMIT-MESSAGE.md` (not alternate commit filenames)
+- descriptive documentation filenames (not `README-*`)
+- actual repository layout (do not invent paths)
+- modify existing convention documents instead of creating parallel ones
 
 ## Repository Accuracy
 
@@ -48,6 +62,10 @@ Do not number pipeline stages in their names. Stage names must remain stable whe
 - Keep the regression framework detector-agnostic.
 - Keep detector-specific behavior behind the detector interface or adapter.
 - A detector should expose its polygon result, metadata, timing, and diagnostics through the common framework.
+
+## Configuration Boundaries
+
+Keep reusable pipeline and detector configuration separate from source-document configuration. Detector configuration may define algorithm defaults and calibration search spaces, but must not hard-code collection identity, page ordinals, or document-specific exceptions. Source-document configuration currently present in this repository must remain separable so it can move to a dedicated source repository later.
 
 ## Regression Report Conventions
 

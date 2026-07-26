@@ -78,6 +78,14 @@ class RegistryIsolationTests(unittest.TestCase):
         self.assertIn("RANSAC", catalog["ransac"]["foundation"])
         self.assertEqual(catalog["ransac"]["version"], HTH_VERSION)
         self.assertEqual(catalog["ransac"]["repository"], HTH_REPOSITORY)
+        self.assertEqual(catalog["contour_quad"]["origin"], "HTH")
+        self.assertEqual(catalog["contour_quad"]["authors"], ["OpenAI ChatGPT"])
+        self.assertEqual(
+            catalog["contour_quad"]["foundation"],
+            ["Contour geometry", "OpenCV"],
+        )
+        self.assertEqual(catalog["contour_quad"]["version"], HTH_VERSION)
+        self.assertEqual(catalog["contour_quad"]["repository"], HTH_REPOSITORY)
 
 
     def test_lsd_and_grabcut_are_registered_with_opencv_provenance(self) -> None:
