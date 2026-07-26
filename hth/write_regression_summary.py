@@ -43,10 +43,16 @@ def _duration(seconds: Any) -> str:
     return f"{hours}h {minutes}m {secs}s" if hours else f"{minutes}m {secs}s"
 
 
-def _parameter_set_name(result: dict[str, Any] | None) -> str:
+def _parameter_short_name(result: dict[str, Any] | None) -> str:
+    """Return the human-friendly parameter alias, falling back to its stable ID."""
     if not result:
         return "unknown"
-    return str(result.get("profile") or _short(result.get("parameter_set_id"), 12))
+    return str(
+        result.get("parameter_short_name")
+        or result.get("short_name")
+        or result.get("profile")
+        or _short(result.get("parameter_set_id"), 12)
+    )
 
 
 def _evaluation_seconds(result: dict[str, Any] | None) -> float | None:
@@ -174,7 +180,9 @@ def build_summary(
     lines.extend([
         f"**Status:** {manifest.get('status', 'unknown')}",
         "",
-        "## Build provenance",
+        "## Run Information",
+        "",
+        "### Build Provenance",
         "",
         f"- Run ID: `{manifest.get('run_id', 'unknown')}`",
         f"- Detector: `{manifest.get('detector', 'unknown')}`",
@@ -186,27 +194,39 @@ def build_summary(
         f"- Finished: `{info.get('finished_at_utc', manifest.get('finished_at_utc', 'unknown'))}`",
         f"- Elapsed: `{_duration(info.get('elapsed_seconds'))}`",
         "",
-        "## Golden Set",
+        "### Golden Set",
         "",
         f"- Configuration: `{info.get('golden_set', parameters.get('golden_set', 'unknown'))}`",
         f"- SHA-256: `{_short(info.get('golden_set_sha256', parameters.get('golden_set_sha256', summary.get('golden_set_sha256', 'unknown'))), 12)}`",
         f"- Pages: `{len(page_ordinals)}`",
         f"- Ordinals: `{', '.join(str(v) for v in page_ordinals) if page_ordinals else 'unknown'}`",
         "",
-        "## Parameter space",
+        "### Parameter Space",
         "",
         f"- Parameter sets evaluated: `{summary.get('parameter_set_count', 'unknown')}`",
         f"- Configured named profiles: `{', '.join(sorted(profiles)) if profiles else 'none'}`",
+    ])
+
+    if outputs:
+        lines.extend(["", "### Outputs", ""])
+        for output in outputs:
+            path = run_dir / str(output)
+            state = "present" if path.exists() else "missing"
+            lines.append(f"- `{output}` — {state}")
+
+    lines.extend([
         "",
-        "## Result",
+        "## Results",
         "",
-        "| Result | Parameter set | Parameter set ID | Avg IoU | Min IoU | StdDev | Failures | Evaluation time |",
+        "### Result",
+        "",
+        "| Result | Parameter Short Name | Parameter Set ID | Avg IoU | Min IoU | StdDev | Failures | Evaluation time |",
         "|---|---|---|---:|---:|---:|---:|---:|",
-        f"| Winner | `{_parameter_set_name(winner)}` | `{_parameter_id(winner)}` | {_number(winner_stats.get('mean_iou'))} | {_number(winner_stats.get('minimum_iou'))} | {_number(winner_stats.get('stddev_iou'))} | {winner_stats.get('failure_count', 'unknown')} | {_duration(_evaluation_seconds(winner))} |",
+        f"| Winner | `{_parameter_short_name(winner)}` | `{_parameter_id(winner)}` | {_number(winner_stats.get('mean_iou'))} | {_number(winner_stats.get('minimum_iou'))} | {_number(winner_stats.get('stddev_iou'))} | {winner_stats.get('failure_count', 'unknown')} | {_duration(_evaluation_seconds(winner))} |",
     ])
     if baseline and _parameter_id(baseline) != _parameter_id(winner):
         lines.append(
-            f"| Baseline | `{_parameter_set_name(baseline)}` | `{_parameter_id(baseline)}` | "
+            f"| Baseline | `{_parameter_short_name(baseline)}` | `{_parameter_id(baseline)}` | "
             f"{_number(baseline_stats.get('mean_iou'))} | "
             f"{_number(baseline_stats.get('minimum_iou'))} | "
             f"{_number(baseline_stats.get('stddev_iou'))} | "
@@ -225,21 +245,36 @@ def build_summary(
             "- **Failures:** Number of pages that could not be evaluated.",
         ])
 
+    lines.extend([
+        "",
+        "### Regression Statistics for Detector Calibration",
+        "",
+        "| Statistic | Count |",
+        "|---|---:|",
+        f"| Mean IoU improvements | {progress.get('mean_iou_improvements', 0)} |",
+        f"| Minimum IoU improvements | {progress.get('minimum_iou_improvements', 0)} |",
+        f"| StdDev improvements | {progress.get('stddev_improvements', 0)} |",
+        f"| Total metric improvements | {progress.get('total_metric_improvements', 0)} |",
+        f"| Parameter sets with improvements | {progress.get('parameter_sets_with_improvements', 0)} |",
+        f"| Winner changes | {progress.get('winner_changes', 0)} |",
+        f"| Baseline surpassed | {'yes' if progress.get('baseline_surpassed') else 'no'} |",
+    ])
+
     top_parameter_sets = summary.get("top_parameter_sets", [])
     if isinstance(top_parameter_sets, list) and top_parameter_sets:
         winner_mean = float(winner_stats.get("mean_iou", 0.0) or 0.0)
         lines.extend([
             "",
-            "## Top parameter sets",
+            "### Top Parameter Sets",
             "",
-            "| Rank | Parameter Set | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Failures |",
+            "| Rank | Parameter Short Name | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Failures |",
             "|---:|---|---:|---:|---:|---:|---:|",
         ])
         for result in top_parameter_sets[:5]:
             stats = result.get("summary", {}) if isinstance(result, dict) else {}
             mean_iou = float(stats.get("mean_iou", 0.0) or 0.0)
             delta_mean_iou = mean_iou - winner_mean
-            parameter_set_name = _parameter_set_name(result)
+            parameter_set_name = _parameter_short_name(result)
             failure_count = stats.get("failure_count", "unknown")
 
             lines.append(
@@ -263,7 +298,9 @@ def build_summary(
         )
         lines.extend([
             "",
-            "## Golden Set Winner Summary",
+            "## Page Analysis",
+            "",
+            "### Golden Set Winner Summary",
             "",
             "| Golden Set Page | Baseline | Winner | Δ IoU | Status | Parameter Set |",
             "|---:|---:|---:|---:|---|---|",
@@ -294,7 +331,7 @@ def build_summary(
             "- **No polygon found:** the detector completed without returning a polygon.",
             "- **Unprocessed:** evaluation raised an error.",
             "",
-            "## Problem Pages",
+            "### Problem Pages",
             "",
             f"- Unprocessed pages: `{counts.get('unprocessed_pages', 0)}`",
             f"- No polygon found: `{counts.get('no_polygon_found', 0)}`",
@@ -305,7 +342,7 @@ def build_summary(
         if problem_pages:
             lines.extend([
                 "",
-                "### Affected Pages",
+                "#### Affected Pages",
                 "",
                 "| Golden Set Page | Winner IoU | Problem | Parameter Set |",
                 "|---:|---:|---|---|",
@@ -319,28 +356,6 @@ def build_summary(
                 )
         else:
             lines.extend(["", "No problem pages were identified."])
-
-    lines.extend([
-        "",
-        "## Regression statistics",
-        "",
-        "| Statistic | Count |",
-        "|---|---:|",
-        f"| Mean IoU improvements | {progress.get('mean_iou_improvements', 0)} |",
-        f"| Minimum IoU improvements | {progress.get('minimum_iou_improvements', 0)} |",
-        f"| StdDev improvements | {progress.get('stddev_improvements', 0)} |",
-        f"| Total metric improvements | {progress.get('total_metric_improvements', 0)} |",
-        f"| Parameter sets with improvements | {progress.get('parameter_sets_with_improvements', 0)} |",
-        f"| Winner changes | {progress.get('winner_changes', 0)} |",
-        f"| Baseline surpassed | {'yes' if progress.get('baseline_surpassed') else 'no'} |",
-    ])
-
-    if outputs:
-        lines.extend(["", "## Outputs", ""])
-        for output in outputs:
-            path = run_dir / str(output)
-            state = "present" if path.exists() else "missing"
-            lines.append(f"- `{output}` — {state}")
 
     if run_url:
         lines.extend(["", f"[Open workflow run]({run_url})"])
@@ -362,7 +377,7 @@ def _combined_result_row(run_dir: Path) -> dict[str, Any]:
     return {
         "detector": str(manifest.get("detector", run_dir.parent.name)),
         "status": str(manifest.get("status", "unknown")),
-        "winner": _parameter_set_name(winner),
+        "parameter_short_name": _parameter_short_name(winner),
         "parameter_set_id": _parameter_id(winner),
         "mean_iou": winner_stats.get("mean_iou"),
         "minimum_iou": winner_stats.get("minimum_iou"),
@@ -425,12 +440,12 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
         "",
         "## Ranked detector results",
         "",
-        "| Rank | Detector | Status | Winner | Parameter set ID | Avg IoU | Min IoU | StdDev | Failures | Parameter sets | Eval rate | Doc time | Run elapsed |",
+        "| Rank | Detector | Status | Parameter Short Name | Parameter Set ID | Avg IoU | Min IoU | StdDev | Failures | Parameter sets | Eval rate | Doc time | Run elapsed |",
         "|---:|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ])
     for rank, row in enumerate(combined_rows, start=1):
         lines.append(
-            f"| {rank} | `{row['detector']}` | {row['status']} | `{row['winner']}` | "
+            f"| {rank} | `{row['detector']}` | {row['status']} | `{row['parameter_short_name']}` | "
             f"`{row['parameter_set_id']}` | {_number(row['mean_iou'])} | "
             f"{_number(row['minimum_iou'])} | {_number(row['stddev_iou'])} | "
             f"{row['failures']} | {row['parameter_sets']} | "

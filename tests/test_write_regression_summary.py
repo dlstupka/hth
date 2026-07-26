@@ -26,7 +26,7 @@ class RegressionSummaryTests(unittest.TestCase):
             (run / "parameters.json").write_text(json.dumps({
                 "configuration": {"profiles": {"baseline": {}}}
             }), encoding="utf-8")
-            winner = {"profile": None, "parameter_set_id": "winner", "summary": {
+            winner = {"profile": None, "parameter_short_name": "calibrated-winner", "parameter_set_id": "winner", "summary": {
                 "mean_iou": .97, "minimum_iou": .91, "failure_count": 0, "elapsed_ms_total": 12.3, "wall_ms": 18.7
             }}
             baseline = {"profile": "baseline", "parameter_set_id": "base", "summary": {
@@ -86,30 +86,36 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("`grabcut`", text)
             self.assertIn("`binary-refine`", text)
             self.assertIn("`1234567890ab`", text)
-            self.assertIn("| Result | Parameter set | Parameter set ID |", text)
-            self.assertIn("| Winner | `winner` | `winner` | 0.9700", text)
+            self.assertIn("| Result | Parameter Short Name | Parameter Set ID |", text)
+            self.assertIn("| Winner | `calibrated-winner` | `winner` | 0.9700", text)
             self.assertIn("18.7ms", text)
             self.assertIn("SHA-256: `abc123`", text)
             self.assertIn("Configured named profiles: `baseline`", text)
             self.assertIn("Evaluation time", text)
-            self.assertIn("## Top parameter sets", text)
-            self.assertIn("| Rank | Parameter Set | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Failures |", text)
-            self.assertIn("| 1 | `winner` | 0.9700 | 0.9100 | unknown | +0.0000 | 0 |", text)
-            self.assertIn("## Golden Set Winner Summary", text)
+            self.assertIn("### Top Parameter Sets", text)
+            self.assertIn("| Rank | Parameter Short Name | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Failures |", text)
+            self.assertIn("| 1 | `calibrated-winner` | 0.9700 | 0.9100 | unknown | +0.0000 | 0 |", text)
+            self.assertIn("### Golden Set Winner Summary", text)
             self.assertIn("| Golden Set Page | Baseline | Winner | Δ IoU | Status | Parameter Set |", text)
             self.assertIn("| 1 | 0.9000 | 0.9700 | +0.0700 | Improved | `winner` |", text)
-            self.assertIn("## Problem Pages", text)
+            self.assertIn("### Problem Pages", text)
             self.assertIn("Poor matches (Winner IoU < 0.5000): `1`", text)
             self.assertIn("### Status Definitions", text)
             self.assertIn("Regressed pages (Δ IoU < -0.0010): `1`", text)
-            self.assertIn("### Affected Pages", text)
+            self.assertIn("#### Affected Pages", text)
             self.assertIn("| 5 | 0.4000 | Poor match; Regressed | `winner` |", text)
-            self.assertIn("## Regression statistics", text)
+            self.assertIn("### Regression Statistics for Detector Calibration", text)
             self.assertIn("| Total metric improvements | 9 |", text)
             self.assertIn("| Winner changes | 2 |", text)
             self.assertIn("| Baseline surpassed | yes |", text)
             self.assertIn("| Baseline | `baseline` | `base` | 0.9000", text)
             self.assertIn("21.4ms", text)
+            self.assertLess(text.index("## Run Information"), text.index("## Results"))
+            self.assertLess(text.index("## Results"), text.index("## Page Analysis"))
+            self.assertLess(
+                text.index("### Regression Statistics for Detector Calibration"),
+                text.index("### Top Parameter Sets"),
+            )
             self.assertIn("`raw/results.csv` — present", text)
             self.assertIn("`reports/summary.json` — present", text)
             self.assertIn("[Open workflow run]", text)
@@ -160,7 +166,7 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("**Document:** Baptisms: San Antonio. Baptism Records 1788–1824, 1858–1898", text)
             self.assertIn("**Images:** 929", text)
             self.assertIn("## Ranked detector results", text)
-            self.assertIn("| Rank | Detector | Status | Winner | Parameter set ID | Avg IoU |", text)
+            self.assertIn("| Rank | Detector | Status | Parameter Short Name | Parameter Set ID | Avg IoU |", text)
             self.assertIn("| Eval rate | Doc time | Run elapsed |", text)
             contour_row = "| 1 | `contour` | complete | `baseline` | `contour` | 0.9200 | 0.7800 | 0.0300 | 0 | 1 | 10.00 pg/s | 1m 33s | 1.0s |"
             grabcut_row = "| 2 | `grabcut` | complete | `baseline` | `grabcut` | 0.8800 | 0.8200 | 0.0200 | 0 | 1 | 4.000 pg/s | 3m 52s | 1.0s |"

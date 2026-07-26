@@ -19,11 +19,15 @@ overlay.zip
 An overlay must:
 
 - contain only files added or modified for the current task;
+- include all changed source files, tests, and documentation;
+- include a terse `COMMIT-*.md` note describing the completed change;
 - omit unchanged files, generated artifacts, caches, and the repository root directory;
 - preserve the existing repository layout; and
 - extract directly over the repository root.
 
-Do not move or rename existing files unless the task explicitly includes that change.
+The `COMMIT-*.md` file is part of the overlay, not a separate optional deliverable.
+
+Do not move or rename existing files unless the task explicitly includes that change. File moves, renames, and repository reorganizations must be deliberate changes described in the associated commit note.
 
 ## Repository Accuracy
 
@@ -50,22 +54,31 @@ Do not number pipeline stages in their names. Stage names must remain stable whe
 Use this section order:
 
 ```text
+Run Information
+    Build Provenance
+    Golden Set
+    Parameter Space
+    Outputs
+
 Results
     Result
     Metric Definitions
-    Regression Statistics
+    Regression Statistics for Detector Calibration
     Top Parameter Sets
 
 Page Analysis
     Golden Set Winner Summary
-    Problem Pages
     Status Definitions
+    Problem Pages
 ```
 
 Additional conventions:
 
+- The Result table uses `Parameter Short Name` and `Parameter Set ID` as separate columns.
+- A Parameter Short Name is a human-assigned alias. When none exists, display the Parameter Set ID as the short name.
+- Do not generate short names from rank, run date, or other unstable run metadata.
 - Rank Top Parameter Sets by Avg IoU.
-- Top Parameter Sets columns are: Rank, Parameter Set, Avg IoU, Min IoU, StdDev, Δ Avg IoU, and Failures.
+- Top Parameter Sets columns are: Rank, Parameter Short Name, Avg IoU, Min IoU, StdDev, Δ Avg IoU, and Failures.
 - The Golden Set Winner Summary omits StdDev.
 - Sort page-oriented tables by Golden Set page number unless a report explicitly requires another order.
 - Keep Metric Definitions with Results.
