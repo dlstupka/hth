@@ -143,6 +143,121 @@ def _edge_support(image_bgr: np.ndarray, working: np.ndarray, corners: np.ndarra
     return float(np.count_nonzero(cv2.bitwise_and(evidence, polygon_edge))) / expected
 
 
+def debug_images(
+    *,
+    image_bgr: np.ndarray,
+    mask: np.ndarray,
+    parameters: dict[str, Any] | None = None,
+    candidate_corners: list[list[float]] | None = None,
+) -> dict[str, np.ndarray]:
+    """Render the contour, quadrilateral, edge-evidence, and selected-candidate stages."""
+    values = _parameters(parameters)
+    working = np.where(mask > 0, 255, 0).astype(np.uint8)
+    height, width = working.shape
+    close_kernel_size = _odd_kernel_size(values["close_kernel_fraction"], width, height)
+    if close_kernel_size and values["close_iterations"]:
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_RECT, (close_kernel_size, close_kernel_size)
+        )
+        working = cv2.morphologyEx(
+            working,
+            cv2.MORPH_CLOSE,
+            kernel,
+            iterations=values["close_iterations"],
+        )
+
+    contours, _ = cv2.findContours(working, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contour_hypotheses: list[np.ndarray] = list(contours)
+    if values["merge_fragmented_contours"] and contours:
+        points = np.concatenate(contours, axis=0)
+        if len(points) >= 3:
+            contour_hypotheses.append(cv2.convexHull(points))
+
+    contour_image = cv2.cvtColor(working, cv2.COLOR_GRAY2BGR)
+    cv2.drawContours(contour_image, contours, -1, (0, 255, 255), 2)
+    if len(contour_hypotheses) > len(contours):
+        cv2.drawContours(contour_image, [contour_hypotheses[-1]], -1, (255, 0, 255), 3)
+
+    quadrilateral_image = cv2.cvtColor(working, cv2.COLOR_GRAY2BGR)
+    image_area = float(width * height)
+    minimum_area = image_area * values["minimum_contour_area_fraction"]
+    epsilons = np.linspace(
+        values["epsilon_min_fraction"],
+        values["epsilon_max_fraction"],
+        values["epsilon_steps"],
+    )
+    for contour in contour_hypotheses:
+        contour_area = float(cv2.contourArea(contour))
+        if contour_area < minimum_area:
+            continue
+        perimeter = float(cv2.arcLength(contour, True))
+        if perimeter <= 0.0:
+            continue
+        for epsilon_fraction in epsilons:
+            approx = cv2.approxPolyDP(contour, float(epsilon_fraction) * perimeter, True)
+            if len(approx) != 4 or not cv2.isContourConvex(approx):
+                continue
+            corners = _order_corners(approx.reshape(4, 2))
+            quad_area = abs(float(cv2.contourArea(corners.reshape(-1, 1, 2))))
+            if quad_area <= 0.0:
+                continue
+            rectangularity = min(1.0, contour_area / quad_area)
+            if rectangularity < values["minimum_rectangularity"]:
+                continue
+            cv2.polylines(
+                quadrilateral_image,
+                [np.rint(corners).astype(np.int32).reshape(-1, 1, 2)],
+                True,
+                (0, 255, 255),
+                2,
+                cv2.LINE_AA,
+            )
+
+    if image_bgr.ndim == 3:
+        gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = image_bgr
+    image_edges = cv2.Canny(gray, 50, 150)
+    mask_edges = cv2.Canny(working, 50, 150)
+    evidence = cv2.bitwise_or(image_edges, mask_edges)
+    dilation = _odd_kernel_size(values["edge_support_dilation_fraction"], width, height)
+    if dilation > 1:
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (dilation, dilation))
+        evidence = cv2.dilate(evidence, kernel, iterations=1)
+
+    candidate_image = image_bgr.copy() if image_bgr.ndim == 3 else cv2.cvtColor(image_bgr, cv2.COLOR_GRAY2BGR)
+    if candidate_corners is not None:
+        corners = np.asarray(candidate_corners, dtype=np.float32).reshape(4, 2)
+        cv2.polylines(
+            candidate_image,
+            [np.rint(corners).astype(np.int32).reshape(-1, 1, 2)],
+            True,
+            (0, 0, 255),
+            4,
+            cv2.LINE_AA,
+        )
+        for index, point in enumerate(np.rint(corners).astype(np.int32)):
+            cv2.circle(candidate_image, tuple(point), 7, (255, 255, 0), -1)
+            cv2.putText(
+                candidate_image,
+                str(index + 1),
+                tuple(point + np.array([8, -8])),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 255, 0),
+                2,
+                cv2.LINE_AA,
+            )
+
+    return {
+        "after-morphology.png": working,
+        "contour-hypotheses.png": contour_image,
+        "quadrilateral-hypotheses.png": quadrilateral_image,
+        "edge-evidence.png": evidence,
+        "selected-quadrilateral.png": candidate_image,
+    }
+
+
 def detect(
     *,
     image_bgr: np.ndarray,
@@ -288,3 +403,6 @@ def detect(
     )
     score = round(best["score"], 6)
     return Candidate(METHOD, best["bbox"], best["corners"], score, score, diagnostics)
+
+
+__all__ = ["BASELINE_PARAMETERS", "METHOD", "debug_images", "detect"]

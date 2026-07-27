@@ -164,6 +164,7 @@ jobs:
       TOP_COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.top || '10' }}
       THREADS: ${{ github.event_name == 'workflow_dispatch' && inputs.threads || '1' }}
       PYTHONNOUSERSITE: "1"
+      PYTHONUNBUFFERED: "1"
       HTH_RUNNER_LABELS: >-
         ${{  github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && 'self-hosted,linux,x64,hth'
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-rhel8' && 'self-hosted,linux,x64,rhel8'
@@ -646,7 +647,7 @@ jobs:
             before_runs="$(find "regression-output/$detector_name" -mindepth 1 -maxdepth 1 -type d -name 'run-*' 2>/dev/null | sort || true)"
 
             "${args[@]}" 2>&1 \
-              | sed -E 's/^(Machine[[:space:]]*:).*/\1 [obfuscated]/' \
+              | sed -u -E 's/^(Machine[[:space:]]*:).*/\1 [obfuscated]/' \
               | tee -a regression-output/runner-output.log
 
             run_dir="$(

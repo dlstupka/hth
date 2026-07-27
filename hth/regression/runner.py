@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 import cv2
 from hth.geometry.common import document_mask, resize_for_analysis, scale_bbox, valid_bbox
-from hth.geometry import detector_components, detector_ransac
+from hth.geometry import detector_components, detector_contour_quad, detector_ransac
 from .adapters.components import (
     detect as components_detect,
     pre_regression_report_sections as components_pre_regression_report_sections,
@@ -304,6 +304,25 @@ def _write_debug_page(
             cv2.imwrite(str(page_dir / numbered_component_images[filename]), debug_image)
         overlay_name = "08-overlay.jpg"
         diagnostics_name = "09-diagnostics.json"
+    elif candidate.get("method") == "contour_quad":
+        diagnostics = candidate.get("diagnostics") if isinstance(candidate.get("diagnostics"), dict) else {}
+        parameters = diagnostics.get("parameters") if isinstance(diagnostics.get("parameters"), dict) else None
+        numbered_contour_quad_images = {
+            "after-morphology.png": "03-after-morphology.png",
+            "contour-hypotheses.png": "04-contour-hypotheses.png",
+            "quadrilateral-hypotheses.png": "05-quadrilateral-hypotheses.png",
+            "edge-evidence.png": "06-edge-evidence.png",
+            "selected-quadrilateral.png": "07-selected-quadrilateral.png",
+        }
+        for filename, debug_image in detector_contour_quad.debug_images(
+            image_bgr=original,
+            mask=page["mask"],
+            parameters=parameters,
+            candidate_corners=candidate.get("corners"),
+        ).items():
+            cv2.imwrite(str(page_dir / numbered_contour_quad_images[filename]), debug_image)
+        overlay_name = "08-overlay.jpg"
+        diagnostics_name = "09-diagnostics.json"
     elif candidate.get("method") == "ransac":
         diagnostics = candidate.get("diagnostics") if isinstance(candidate.get("diagnostics"), dict) else {}
         parameters = diagnostics.get("parameters") if isinstance(diagnostics.get("parameters"), dict) else None
@@ -383,6 +402,14 @@ def write_debug_artifacts(
         "- 05-significant-components.png: components surviving the configured area filter",
         "- 06-selected-components.png: components merged into the final candidate",
         "- 07-candidate-envelope.png: selected components with the analysis-space envelope",
+        "- 08-overlay.jpg: approved bbox in green; predicted bbox in red",
+        "- 09-diagnostics.json: complete page result and detector diagnostics",
+        "Contour Quadrilateral stages:",
+        "- 03-after-morphology.png: mask after configured contour-closing morphology",
+        "- 04-contour-hypotheses.png: external contours and optional merged hull",
+        "- 05-quadrilateral-hypotheses.png: plausible convex quadrilateral approximations",
+        "- 06-edge-evidence.png: combined image and mask edge-support evidence",
+        "- 07-selected-quadrilateral.png: winning quadrilateral and ordered corners",
         "- 08-overlay.jpg: approved bbox in green; predicted bbox in red",
         "- 09-diagnostics.json: complete page result and detector diagnostics",
         "RANSAC stages:",

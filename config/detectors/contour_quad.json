@@ -35,5 +35,5 @@
     "merge_fragmented_contours": {"type": "boolean", "values": [false, true]}
   },
   "binary_refine": {"passes": 3, "local_exhaustive_radius": 1},
-  "regression": {"debug_artifacts": "failures"}
+  "regression": {"debug_artifacts": "winner"}
 }

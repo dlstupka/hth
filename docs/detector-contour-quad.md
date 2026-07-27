@@ -28,3 +28,21 @@ python -m hth.regress_detector \
   --image-root /path/to/preprocessed/images \
   --output regression-output
 ```
+
+## Debug artifacts
+
+Contour Quadrilateral regression uses the `winner` debug policy so every completed
+run preserves comparable evidence for every Golden Set page in the winning
+parameter set. Each page directory contains:
+
+- the original page and detector input mask;
+- the post-morphology mask;
+- external-contour and merged-hull hypotheses;
+- plausible convex quadrilateral hypotheses;
+- combined source-image and mask edge evidence;
+- the selected ordered quadrilateral;
+- the approved-versus-predicted overlay; and
+- complete detector diagnostics in JSON.
+
+These artifacts support troubleshooting, cross-detector comparison, regression
+reproducibility, and preservation of the experimental record.
