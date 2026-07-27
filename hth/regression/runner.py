@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 import cv2
 from hth.geometry.common import document_mask, resize_for_analysis, scale_bbox, valid_bbox
-from hth.geometry import detector_components, detector_consensus_quad, detector_contour_quad, detector_ransac
+from hth.geometry import detector_components, detector_consensus_quad, detector_contour_projection, detector_contour_quad, detector_ransac
 from .adapters.components import (
     detect as components_detect,
     pre_regression_report_sections as components_pre_regression_report_sections,
@@ -16,6 +16,7 @@ from .adapters.components import (
 from .adapters.contour import detect as contour_detect
 from .adapters.contour_quad import detect as contour_quad_detect
 from .adapters.consensus_quad import detect as consensus_quad_detect
+from .adapters.contour_projection import detect as contour_projection_detect
 from .adapters.edge_contour import detect as edge_contour_detect
 from .adapters.grabcut import detect as grabcut_detect
 from .adapters.hough import (
@@ -39,7 +40,7 @@ from .strategies.binary_refine import search as binary_search
 from .progress import ProgressReporter
 from .performance import PerformanceSampler, peak_rss_bytes
 
-DETECTORS={"components":components_detect,"contour":contour_detect,"contour_quad":contour_quad_detect,"consensus_quad":consensus_quad_detect,"edge_contour":edge_contour_detect,"grabcut":grabcut_detect,"hough":hough_detect,"lsd":lsd_detect,"ransac":ransac_detect}
+DETECTORS={"components":components_detect,"contour":contour_detect,"contour_quad":contour_quad_detect,"contour_projection":contour_projection_detect,"consensus_quad":consensus_quad_detect,"edge_contour":edge_contour_detect,"grabcut":grabcut_detect,"hough":hough_detect,"lsd":lsd_detect,"ransac":ransac_detect}
 ALLOWED_THREAD_COUNTS=(1,2,4,8,16,32,64,128,256,512,1024)
 
 PRE_REGRESSION_REPORTERS={
@@ -322,6 +323,23 @@ def _write_debug_page(
             candidate_corners=candidate.get("corners"),
         ).items():
             cv2.imwrite(str(page_dir / numbered_contour_quad_images[filename]), debug_image)
+        overlay_name = "08-overlay.jpg"
+        diagnostics_name = "09-diagnostics.json"
+    elif candidate.get("method") == "contour_projection":
+        diagnostics = candidate.get("diagnostics") if isinstance(candidate.get("diagnostics"), dict) else {}
+        parameters = diagnostics.get("parameters") if isinstance(diagnostics.get("parameters"), dict) else None
+        numbered_projection_images = {
+            "contour-hypotheses.png": "03-contour-hypotheses.png",
+            "warped-candidate.png": "04-warped-candidate.png",
+            "projection-binary.png": "05-projection-binary.png",
+            "horizontal-projection.png": "06-horizontal-projection.png",
+            "selected-quadrilateral.png": "07-selected-quadrilateral.png",
+        }
+        for filename, debug_image in detector_contour_projection.debug_images(
+            image_bgr=original, mask=page["mask"], parameters=parameters,
+            candidate_corners=candidate.get("corners"),
+        ).items():
+            cv2.imwrite(str(page_dir / numbered_projection_images[filename]), debug_image)
         overlay_name = "08-overlay.jpg"
         diagnostics_name = "09-diagnostics.json"
     elif candidate.get("method") == "consensus_quad":

@@ -80,6 +80,8 @@ class RegistryIsolationTests(unittest.TestCase):
         self.assertEqual(catalog["ransac"]["repository"], HTH_REPOSITORY)
         self.assertEqual(catalog["contour_quad"]["origin"], "HTH")
         self.assertEqual(catalog["consensus_quad"]["origin"], "HTH")
+        self.assertEqual(catalog["contour_projection"]["origin"], "HTH")
+        self.assertIn("Projection profiles", catalog["contour_projection"]["foundation"])
         self.assertEqual(catalog["contour_quad"]["authors"], ["OpenAI ChatGPT"])
         self.assertEqual(
             catalog["contour_quad"]["foundation"],

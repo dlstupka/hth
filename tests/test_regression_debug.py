@@ -12,6 +12,7 @@ from hth.regression.adapters.components import detect as components_detect
 from hth.regression.adapters.contour import detect as contour_detect
 from hth.regression.adapters.contour_quad import detect as contour_quad_detect
 from hth.regression.adapters.consensus_quad import detect as consensus_quad_detect
+from hth.regression.adapters.contour_projection import detect as contour_projection_detect
 from hth.regression.adapters.ransac import detect as ransac_detect
 from hth.regression.runner import write_debug_artifacts
 
@@ -170,6 +171,42 @@ class RegressionDebugTests(unittest.TestCase):
                 "06-edge-evidence.png",
                 "07-selected-quadrilateral.png",
                 "08-overlay.jpg",
+                "09-diagnostics.json",
+            ):
+                self.assertTrue((debug_page / filename).is_file(), filename)
+
+    def test_contour_projection_debug_writes_comparable_research_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image_path = root / "source.jpg"
+            image = np.full((240, 360, 3), 30, dtype=np.uint8)
+            mask = np.zeros((240, 360), dtype=np.uint8)
+            cv2.rectangle(mask, (40, 30), (320, 210), 255, -1)
+            cv2.rectangle(image, (40, 30), (320, 210), (235, 235, 235), -1)
+            for y in range(60, 195, 18):
+                cv2.line(image, (70, y), (290, y), (30, 30, 30), 3)
+            cv2.imwrite(str(image_path), image)
+            candidate = contour_projection_detect(image_bgr=image, mask=mask)
+            page = {
+                "global_ordinal": 6, "label": "title_or_index_sheet",
+                "layout_type": "single_page", "image_path": str(image_path),
+                "image": image, "mask": mask, "approved_bbox": [35, 25, 325, 215],
+            }
+            result = {
+                "parameter_set_id": "baseline123",
+                "pages": [{
+                    "global_ordinal": 6, "label": page["label"],
+                    "layout_type": page["layout_type"], "status": candidate.status,
+                    "iou": 0.8, "candidate": candidate.__dict__,
+                }],
+            }
+            write_debug_artifacts(root, "contour_projection", "run-test", policy="winner", ranked=[result], pages=[page])
+            debug_page = root / "debug" / "contour_projection" / "run-test" / "baseline123" / "page-0006"
+            for filename in (
+                "01-original.jpg", "02-input-mask.png",
+                "03-contour-hypotheses.png", "04-warped-candidate.png",
+                "05-projection-binary.png", "06-horizontal-projection.png",
+                "07-selected-quadrilateral.png", "08-overlay.jpg",
                 "09-diagnostics.json",
             ):
                 self.assertTrue((debug_page / filename).is_file(), filename)
