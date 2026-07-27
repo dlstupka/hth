@@ -35,6 +35,7 @@ on:
           - all
           - contour
           - contour_quad
+          - edge_contour
           - components
           - ransac
           - grabcut

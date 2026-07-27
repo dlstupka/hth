@@ -15,6 +15,7 @@ from .adapters.components import (
 )
 from .adapters.contour import detect as contour_detect
 from .adapters.contour_quad import detect as contour_quad_detect
+from .adapters.edge_contour import detect as edge_contour_detect
 from .adapters.grabcut import detect as grabcut_detect
 from .adapters.hough import (
     detect as hough_detect,
@@ -37,7 +38,7 @@ from .strategies.binary_refine import search as binary_search
 from .progress import ProgressReporter
 from .performance import PerformanceSampler, peak_rss_bytes
 
-DETECTORS={"components":components_detect,"contour":contour_detect,"contour_quad":contour_quad_detect,"grabcut":grabcut_detect,"hough":hough_detect,"lsd":lsd_detect,"ransac":ransac_detect}
+DETECTORS={"components":components_detect,"contour":contour_detect,"contour_quad":contour_quad_detect,"edge_contour":edge_contour_detect,"grabcut":grabcut_detect,"hough":hough_detect,"lsd":lsd_detect,"ransac":ransac_detect}
 ALLOWED_THREAD_COUNTS=(1,2,4,8,16,32,64,128,256,512,1024)
 
 PRE_REGRESSION_REPORTERS={

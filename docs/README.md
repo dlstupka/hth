@@ -25,13 +25,25 @@ Failure to do so invalidates the implementation.
 # HTH Project Rulebook
 =========================================================================
 
-This document records established HTH project conventions. It is the source of truth for recurring decisions that affect how the repository is changed, packaged, documented, and discussed.
+This document is the single authoritative HTH development standard and documentation entry point. It records established project conventions. It is the source of truth for recurring decisions that affect how the repository is changed, packaged, documented, and discussed.
 
 Only agreed conventions belong here. Proposals, unresolved questions, and temporary plans belong elsewhere.
 
 ## Engineering Principle
 
 Prefer maintainable, explicit, and reproducible designs over clever shortcuts.
+
+## Execution Contract
+
+Imperative implementation requests are executable commands. When the user says `create the overlay`, `implement`, `add`, `update`, or `fix`, inspect the repository and analogous implementations, perform the work, validate it, and deliver the completed overlay. Do not substitute a plan, proposal, design note, or description of intended work.
+
+Interrupt execution only when a material requirement is genuinely ambiguous, required source material is missing, the request conflicts with this standard or the repository, or the proposed change is technically unsound. State the issue plainly rather than agreeing for the sake of agreement.
+
+## Standing Commands
+
+- `create the overlay` means implement, test, document, package `overlay.zip`, and include `COMMIT-MESSAGE.md`.
+- `review the overlay` means inspect and report; do not modify unless requested.
+- `critique this idea` means evaluate critically and identify weak assumptions or unnecessary complexity.
 
 ## Overlay Policy
 
@@ -129,6 +141,12 @@ Additional conventions:
 
 ## Documentation and Commit Notes
 
+- Documentation filenames are lowercase except established special files such as `README.md` and `COMMIT-MESSAGE.md`.
+- Update existing documentation before creating a new document.
+- `docs/README.md` is the authoritative documentation entry point and development standard.
+- New documents must describe a distinct, implemented concern; do not create speculative design packages or Word documents.
+- Documentation must describe the current implementation, not an implementation that has not been made.
+
 Commit notes should be terse. Explain why a change was made when the reason is not obvious; do not narrate obvious edits.
 
 ## Updating This Rulebook
@@ -170,12 +188,14 @@ This directory contains the design, operating, and project-reference documentati
 
 - [Multi-detector geometry](multidetector-geometry.md) — detector registry and geometry pipeline.
 - [Physical geometry evaluation](physical-geometry-evaluation.md) — geometry validation and evaluation rules.
-- [Detector components](README-detector-components.md) — connected-components detector.
-- [Contour detector](README-detector-contour.md) — contour-based detector.
-- [GrabCut detector](README-detector-grabcut.md) — GrabCut-based detector.
-- [RANSAC detector](README-detector-ransac.md) — robust four-edge line-fitting detector.
-- [Hough Lines detector](README-detector-hough.md) — probabilistic Hough-transform detector.
-- [Line Segment Detector](README-detector-lsd.md) — LSD-based detector.
+- [Detector components](detector-components.md) — connected-components detector.
+- [Contour detector](detector-contour.md) — contour-based detector.
+- [Contour quadrilateral detector](detector-contour-quad.md) — contour-derived quadrilateral detector with edge scoring.
+- [Edge-Contour Hybrid detector](detector-edge-contour.md) — contour hypotheses verified by independent line-segment evidence.
+- [GrabCut detector](detector-grabcut.md) — GrabCut-based detector.
+- [RANSAC detector](detector-ransac.md) — robust four-edge line-fitting detector.
+- [Hough Lines detector](detector-hough.md) — probabilistic Hough-transform detector.
+- [Line Segment Detector](detector-lsd.md) — LSD-based detector.
 
 ## Calibration and regression
 

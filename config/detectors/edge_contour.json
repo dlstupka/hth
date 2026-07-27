@@ -1,0 +1,106 @@
+{
+  "schema_version": "0.1",
+  "detector": "edge_contour",
+  "description": "Calibration space for the HTH Edge-Contour Hybrid detector.",
+  "profiles": {
+    "baseline": {
+      "minimum_contour_area_fraction": 0.12,
+      "close_kernel_fraction": 0.008,
+      "close_iterations": 1,
+      "epsilon_min_fraction": 0.008,
+      "epsilon_max_fraction": 0.04,
+      "epsilon_steps": 9,
+      "minimum_rectangularity": 0.55,
+      "lsd_refine_mode": "std",
+      "lsd_scale": 0.8,
+      "minimum_segment_length_fraction": 0.06,
+      "edge_support_dilation_fraction": 0.006,
+      "minimum_edge_support": 0.12,
+      "area_weight": 0.25,
+      "rectangularity_weight": 0.25,
+      "angle_weight": 0.2,
+      "edge_support_weight": 0.3,
+      "merge_fragmented_contours": true
+    }
+  },
+  "parameters": {
+    "minimum_contour_area_fraction": {
+      "type": "float",
+      "values": [
+        0.08,
+        0.12,
+        0.18
+      ]
+    },
+    "epsilon_max_fraction": {
+      "type": "float",
+      "values": [
+        0.03,
+        0.04,
+        0.06
+      ]
+    },
+    "minimum_rectangularity": {
+      "type": "float",
+      "values": [
+        0.45,
+        0.55,
+        0.7
+      ]
+    },
+    "lsd_refine_mode": {
+      "type": "string",
+      "values": [
+        "none",
+        "std"
+      ]
+    },
+    "lsd_scale": {
+      "type": "float",
+      "values": [
+        0.6,
+        0.8,
+        1.0
+      ]
+    },
+    "minimum_segment_length_fraction": {
+      "type": "float",
+      "values": [
+        0.03,
+        0.06,
+        0.1
+      ]
+    },
+    "edge_support_dilation_fraction": {
+      "type": "float",
+      "values": [
+        0.003,
+        0.006,
+        0.01
+      ]
+    },
+    "minimum_edge_support": {
+      "type": "float",
+      "values": [
+        0.05,
+        0.12,
+        0.2
+      ]
+    },
+    "edge_support_weight": {
+      "type": "float",
+      "values": [
+        0.2,
+        0.3,
+        0.4
+      ]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "failures"
+  }
+}
