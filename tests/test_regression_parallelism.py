@@ -42,11 +42,14 @@ class RegressionParallelismTests(unittest.TestCase):
                 threads=32,
                 limit=10,
             )
-        text = stream.getvalue()
-        self.assertIn("Possible Parameter Sets: 212576", text)
-        self.assertIn("Planned Parameter Sets : 11", text)
-        self.assertIn("Planned Page Evaluations: 55", text)
-        self.assertIn("Threads                : 32", text)
+        lines = stream.getvalue().splitlines()
+        scope_rows = lines[2:9]
+        separators = {line.index(":") for line in scope_rows}
+        self.assertEqual(separators, {25})
+        self.assertIn("Possible Parameter Sets  : 212576", scope_rows)
+        self.assertIn("Planned Parameter Sets   : 11", scope_rows)
+        self.assertIn("Planned Page Evaluations : 55", scope_rows)
+        self.assertIn("Threads                  : 32", scope_rows)
 
     def test_performance_sampler_writes_thread_and_throughput_sample(self) -> None:
         wall = FakeClock()

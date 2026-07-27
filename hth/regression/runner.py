@@ -435,14 +435,21 @@ def write_debug_artifacts(
 def print_parameter_scope(*, strategy: str, possible_sets: int, planned_sets: int | None, golden_pages: int, threads: int, limit: int | None) -> None:
     print("Regression Scope")
     print("=" * 16)
-    print(f"Search Strategy       : {strategy}")
-    print(f"Possible Parameter Sets: {possible_sets}")
-    print(f"Planned Parameter Sets : {planned_sets if planned_sets is not None else 'adaptive / unknown'}")
-    print(f"Golden Set Pages       : {golden_pages}")
-    planned_evaluations = planned_sets * golden_pages if planned_sets is not None else None
-    print(f"Planned Page Evaluations: {planned_evaluations if planned_evaluations is not None else 'adaptive / unknown'}")
-    print(f"Parameter-set Limit    : {limit if limit is not None else 'unlimited'}")
-    print(f"Threads                : {threads}")
+    rows = [
+        ("Search Strategy", strategy),
+        ("Possible Parameter Sets", possible_sets),
+        ("Planned Parameter Sets", planned_sets if planned_sets is not None else "adaptive / unknown"),
+        ("Golden Set Pages", golden_pages),
+        (
+            "Planned Page Evaluations",
+            planned_sets * golden_pages if planned_sets is not None else "adaptive / unknown",
+        ),
+        ("Parameter-set Limit", limit if limit is not None else "unlimited"),
+        ("Threads", threads),
+    ]
+    label_width = max(len(label) for label, _ in rows)
+    for label, value in rows:
+        print(f"{label:<{label_width}} : {value}")
     print(" ")
 
 
