@@ -13,6 +13,8 @@ from typing import Any
 import cv2
 import numpy as np
 
+from .performance import available_cpu_count, physical_core_count
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -69,7 +71,14 @@ def environment_info(repo_root: Path) -> dict[str, Any]:
         "runner_arch": os.environ.get("RUNNER_ARCH") or platform.machine(),
         "machine_name": socket.gethostname(),
         "cpu_model": _cpu_model(),
+        "physical_core_count": physical_core_count(),
         "logical_cpu_count": os.cpu_count(),
+        "available_cpu_count": available_cpu_count(),
+        "smt_enabled": (
+            physical_core_count() is not None
+            and os.cpu_count() is not None
+            and os.cpu_count() > physical_core_count()
+        ),
         "memory_bytes": memory_bytes,
         "memory_gib": round(memory_bytes / (1024 ** 3), 2) if memory_bytes else None,
         "python_version": platform.python_version(),

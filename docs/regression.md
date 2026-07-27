@@ -144,3 +144,59 @@ The GitHub Actions regression summary includes a top-five parameter-set ranking,
 Golden Set winner rows are ordered by winner IoU from best match to worst match, with Golden Set page number as the tie-breaker. The same regression threshold drives both the `Regressed` status and the Problem Pages regression count, so the summary cannot label pages as regressed while reporting zero regressed pages. Threshold values are printed directly in the legend and Problem Pages labels.
 
 GitHub Actions job summaries render static Markdown and sanitized HTML; they do not permit the JavaScript required for click-sortable table headers. Complete machine-readable page results remain available in `reports/winner-pages.json` for external sorting and analysis.
+
+## Parallel exhaustive regression
+
+Detector regression accepts:
+
+```text
+--threads 1|2|4|8|16|32|64|128|256|512|1024
+```
+
+The default is `--threads 1`, preserving the existing serial behavior. Exhaustive
+search evaluates parameter sets concurrently when the value is greater than one.
+Result ordering and ranking remain deterministic: parallelism changes runtime, not
+the parameter space, metrics, or report ordering.
+
+Adaptive strategies retain their own evaluation order. The current
+`binary-refine` strategy is sequential because each step depends on earlier
+observations; `--threads` is still recorded as run configuration but does not
+change that dependency.
+
+A single aggregate heartbeat remains responsible for progress output. Individual
+threads do not write independent progress lines.
+
+## Up-front regression scope
+
+Before evaluation begins, the runner reports:
+
+- search strategy;
+- possible parameter-set count;
+- planned parameter-set count, or `adaptive / unknown`;
+- Golden Set page count;
+- planned page-evaluation count;
+- parameter-set limit; and
+- configured thread count.
+
+For exhaustive search, the planned count is exact. Smoke runs are exhaustive runs
+with a parameter-set limit. For adaptive strategies, the actual count is recorded
+when the run finishes.
+
+## Runner performance telemetry
+
+Every regression writes periodic machine-readable samples to:
+
+```text
+logs/runner-performance.jsonl
+```
+
+Samples include elapsed time, completed parameter sets and page evaluations,
+parameter-set and page-evaluation throughput, configured and active threads,
+process CPU utilization, process CPU time, and peak resident memory. The final
+summary and `RUN-INFO.json` also record runner CPU topology, configured threads,
+parameter-space scope, sample count, and peak memory.
+
+Exhaustive results preserve every evaluated parameter set and its page-level
+metrics. These runs therefore provide both calibration results and the evidence
+needed to compare future non-exhaustive search strategies against the known
+exhaustive outcome.

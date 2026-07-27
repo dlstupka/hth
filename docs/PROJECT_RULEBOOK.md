@@ -109,3 +109,12 @@ Commit notes should be terse. Explain why a change was made when the reason is n
 ## Updating This Rulebook
 
 Update this file when the project adopts a recurring convention expressed as “always,” “never,” “from now on,” or “we decided.” Do not add a rule until it has actually been agreed.
+
+## Regression Parallelism and Telemetry
+
+- Detector calibration and regression operate against the Golden Set.
+- `--threads` defaults to `1`; supported explicit values are powers of two from `1` through `1024`.
+- Parallelism must not change parameter generation, result metrics, deterministic ranking, or report ordering.
+- Keep one aggregate heartbeat; do not emit independent heartbeat streams from evaluation threads.
+- Report search strategy and parameter-space scope before evaluation begins.
+- Preserve runner CPU, thread, throughput, memory, and workload telemetry for every regression so exhaustive runs can guide future automatic thread selection and non-exhaustive search design.

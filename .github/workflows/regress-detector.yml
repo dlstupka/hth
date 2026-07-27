@@ -73,6 +73,23 @@ on:
         required: true
         default: "1800"
         type: string
+      threads:
+        description: Parallel regression threads
+        required: true
+        default: "1"
+        type: choice
+        options:
+          - "1"
+          - "2"
+          - "4"
+          - "8"
+          - "16"
+          - "32"
+          - "64"
+          - "128"
+          - "256"
+          - "512"
+          - "1024"
       top:
         description: Number of ranked parameter sets in top20.csv
         required: true
@@ -144,6 +161,7 @@ jobs:
       LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '' }}
       MAX_DIMENSION: ${{ github.event_name == 'workflow_dispatch' && inputs.max_dimension || '1800' }}
       TOP_COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.top || '10' }}
+      THREADS: ${{ github.event_name == 'workflow_dispatch' && inputs.threads || '1' }}
       PYTHONNOUSERSITE: "1"
       HTH_RUNNER_LABELS: >-
         ${{  github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && 'self-hosted,linux,x64,hth'
@@ -583,6 +601,7 @@ jobs:
               --output regression-output
               --max-dimension "$MAX_DIMENSION"
               --top "$TOP_COUNT"
+              --threads "$THREADS"
             )
 
             if [[ -n "${effective_limit:-}" ]]; then
@@ -608,6 +627,7 @@ jobs:
             printf '%-22s: %s\n' "Output" "regression-output"
             printf '%-22s: %s\n' "Maximum dimension" "$MAX_DIMENSION"
             printf '%-22s: %s\n' "Top candidates" "$TOP_COUNT"
+            printf '%-22s: %s\n' "Threads" "$THREADS"
             if [[ -n "$effective_limit" ]]; then
               printf '%-22s: %s (%s)\n' \
                 "Parameter-set limit" "$effective_limit" "$effective_limit_source"

@@ -1,6 +1,7 @@
 """Execute a reproducible detector regression run."""
 from __future__ import annotations
-import argparse, hashlib, json, os, statistics, time
+import argparse, hashlib, json, os, statistics, threading, time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,8 +35,11 @@ from .reports import ranking_key, write_rankings, write_raw_results
 from .strategies.cartesian import generate as cartesian_generate
 from .strategies.binary_refine import search as binary_search
 from .progress import ProgressReporter
+from .performance import PerformanceSampler, peak_rss_bytes
 
 DETECTORS={"components":components_detect,"contour":contour_detect,"contour_quad":contour_quad_detect,"grabcut":grabcut_detect,"hough":hough_detect,"lsd":lsd_detect,"ransac":ransac_detect}
+ALLOWED_THREAD_COUNTS=(1,2,4,8,16,32,64,128,256,512,1024)
+
 PRE_REGRESSION_REPORTERS={
     "components":components_pre_regression_report_sections,
     "hough":hough_pre_regression_report_sections,
@@ -70,7 +74,11 @@ def print_environment_banner(*, environment: dict[str, Any], detector: str, gold
     print(f"Execution Environment : {environment.get('execution_target') or '--'}")
     print(f"Runner                : {environment.get('runner_name') or '--'} ({environment.get('runner_environment') or '--'})")
     print(f"CPU                   : {environment.get('cpu_model') or '--'}")
+    print(f"Physical Cores        : {environment.get('physical_core_count') or '--'}")
     print(f"Logical CPUs          : {environment.get('logical_cpu_count') or '--'}")
+    print(f"Available CPUs        : {environment.get('available_cpu_count') or '--'}")
+    smt = environment.get("smt_enabled")
+    print(f"SMT Enabled           : {'yes' if smt is True else 'no' if smt is False else '--'}")
     memory = environment.get('memory_gib')
     print(f"Memory                : {memory:.2f} GiB" if isinstance(memory, (int, float)) else "Memory           : --")
     print(f"OS / Architecture     : {environment.get('platform') or '--'} / {environment.get('runner_arch') or '--'}")
@@ -110,6 +118,7 @@ def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
     p.add_argument("--max-dimension",type=int,default=1800)
     p.add_argument("--limit",type=int,default=None)
     p.add_argument("--top",type=int,default=20)
+    p.add_argument("--threads",type=int,choices=ALLOWED_THREAD_COUNTS,default=1,help="Parallel exhaustive-search threads; default: 1.")
     p.add_argument("--run-id",default=None)
     p.add_argument(
         "--debug-artifacts",
@@ -395,6 +404,20 @@ def write_debug_artifacts(
     return outputs
 
 
+def print_parameter_scope(*, strategy: str, possible_sets: int, planned_sets: int | None, golden_pages: int, threads: int, limit: int | None) -> None:
+    print("Regression Scope")
+    print("=" * 16)
+    print(f"Search Strategy       : {strategy}")
+    print(f"Possible Parameter Sets: {possible_sets}")
+    print(f"Planned Parameter Sets : {planned_sets if planned_sets is not None else 'adaptive / unknown'}")
+    print(f"Golden Set Pages       : {golden_pages}")
+    planned_evaluations = planned_sets * golden_pages if planned_sets is not None else None
+    print(f"Planned Page Evaluations: {planned_evaluations if planned_evaluations is not None else 'adaptive / unknown'}")
+    print(f"Parameter-set Limit    : {limit if limit is not None else 'unlimited'}")
+    print(f"Threads                : {threads}")
+    print(" ")
+
+
 def run(args:argparse.Namespace)->Path:
     config=json.loads(args.detector_config.read_text(encoding="utf-8")); name=str(config["detector"])
     regression_config = config.get("regression", {}) if isinstance(config.get("regression"), dict) else {}
@@ -406,7 +429,7 @@ def run(args:argparse.Namespace)->Path:
     environment=environment_info(repository_root(args.detector_config))
     source_commit=os.environ.get("HTH_SOURCE_COMMIT")
     golden_set_sha256=file_sha256(args.golden_set)
-    write_json(run_dir/"parameters.json",{"schema_version":"0.3","detector":name,"strategy":args.strategy,"detector_config":str(args.detector_config),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"image_root":str(args.image_root),"max_dimension":args.max_dimension,"limit":args.limit,"configuration":config})
+    write_json(run_dir/"parameters.json",{"schema_version":"0.3","detector":name,"strategy":args.strategy,"detector_config":str(args.detector_config),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"image_root":str(args.image_root),"max_dimension":args.max_dimension,"limit":args.limit,"threads":args.threads,"configuration":config})
     manifest={"schema_version":"0.1","run_id":run_id,"detector":name,"strategy":args.strategy,"status":"running","started_at_utc":started,"outputs":[]}
     write_json(run_dir/"manifest.json",manifest)
     try:
@@ -422,19 +445,28 @@ def run(args:argparse.Namespace)->Path:
             raise ValueError("Detector configuration must define profiles.baseline")
         baseline_key=canonical_parameters(baseline_parameters)
 
+        all_parameter_sets=cartesian_generate(config)
+        possible_parameter_set_count=len(all_parameter_sets)
         exhaustive_candidates=[
-            parameters for parameters in cartesian_generate(config)
+            parameters for parameters in all_parameter_sets
             if canonical_parameters(parameters) != baseline_key
         ]
         if args.limit is not None:
             exhaustive_candidates=exhaustive_candidates[:args.limit]
-        estimated_total=(
-            len(exhaustive_candidates)
-            if args.strategy=="exhaustive"
-            else max(0,len(exhaustive_parameter_sets(config))-1)
+        planned_parameter_set_count=(
+            1 + len(exhaustive_candidates) if args.strategy=="exhaustive" else None
         )
+        estimated_total=len(exhaustive_candidates) if args.strategy=="exhaustive" else max(0,possible_parameter_set_count-1)
 
         print_environment_banner(environment=environment,detector=name,golden_set=args.golden_set,golden_set_sha256=golden_set_sha256,source_commit=source_commit)
+        print_parameter_scope(
+            strategy=args.strategy,
+            possible_sets=possible_parameter_set_count,
+            planned_sets=planned_parameter_set_count,
+            golden_pages=len(pages),
+            threads=args.threads,
+            limit=args.limit,
+        )
         reporter = PRE_REGRESSION_REPORTERS.get(name)
         if reporter is not None:
             print_report_sections(reporter(config))
@@ -445,23 +477,65 @@ def run(args:argparse.Namespace)->Path:
         baseline_result=evaluate_set(detector,dict(baseline_parameters),pages)
         progress.observe_baseline(baseline_result)
 
-        def evaluate(parameters:dict[str,Any])->dict[str,Any]:
+        active_lock=threading.Lock()
+        active_evaluations=0
+
+        def telemetry_snapshot() -> dict[str, Any]:
+            snap=progress.snapshot()
+            with active_lock:
+                active=active_evaluations
+            return {
+                "completed_parameter_sets": snap.completed,
+                "planned_parameter_sets": snap.total,
+                "parameter_sets_per_second": round(snap.eval_rate, 6) if snap.eval_rate is not None else None,
+                "completed_page_evaluations": snap.completed * len(pages),
+                "page_evaluations_per_second": round(snap.eval_rate * len(pages), 6) if snap.eval_rate is not None else None,
+                "active_threads": active,
+                "configured_threads": args.threads,
+            }
+
+        performance=PerformanceSampler(run_dir/"logs"/"runner-performance.jsonl",snapshot=telemetry_snapshot,interval_seconds=60.0)
+        performance.start()
+
+        def evaluate(parameters:dict[str,Any], *, observe: bool=True)->dict[str,Any]:
+            nonlocal active_evaluations
             canonical=canonical_parameters(parameters)
             if canonical == baseline_key:
                 return baseline_result
             profile=profiles.get(canonical)
             profile_name=profile or parameter_set_id(parameters)[:8]
             progress.begin_evaluation(profile_name)
-            result=evaluate_set(detector,parameters,pages)
-            progress.observe(result,profile)
+            with active_lock:
+                active_evaluations += 1
+            try:
+                result=evaluate_set(detector,parameters,pages)
+            finally:
+                with active_lock:
+                    active_evaluations -= 1
+            if observe:
+                progress.observe(result,profile)
             return result
         if args.strategy=="exhaustive":
-            results=[baseline_result,*[evaluate(p) for p in exhaustive_candidates]]
+            if args.threads == 1:
+                candidate_results=[evaluate(p) for p in exhaustive_candidates]
+            else:
+                indexed_results: list[dict[str,Any] | None]=[None] * len(exhaustive_candidates)
+                with ThreadPoolExecutor(max_workers=args.threads,thread_name_prefix="regression") as executor:
+                    futures={executor.submit(evaluate,parameters,observe=False): index for index,parameters in enumerate(exhaustive_candidates)}
+                    for future in as_completed(futures):
+                        index=futures[future]
+                        result=future.result()
+                        indexed_results[index]=result
+                        profile=profiles.get(canonical_parameters(result["parameters"]))
+                        progress.observe(result,profile)
+                candidate_results=[result for result in indexed_results if result is not None]
+            results=[baseline_result,*candidate_results]
         else:
             results=binary_search(config,evaluate,ranking_key)
             if not any(canonical_parameters(r["parameters"]) == baseline_key for r in results):
                 results.insert(0,baseline_result)
         progress_snapshot=progress.finish()
+        performance_samples=performance.finish()
         for r in results: r["profile"]=profiles.get(canonical_parameters(r["parameters"])); r["run_id"]=run_id
         ranked=sorted(results,key=ranking_key)
         for rank,r in enumerate(ranked,1): r["rank"]=rank
@@ -469,13 +543,13 @@ def run(args:argparse.Namespace)->Path:
         raw=run_dir/"raw"/"results.csv"; rankings=run_dir/"reports"/"rankings.csv"; top=run_dir/"reports"/"top20.csv"
         write_raw_results(raw,ranked); write_rankings(rankings,ranked); write_rankings(top,ranked[:max(0,args.top)])
         winner_pages = build_winner_page_report(ranked[0], baseline)
-        summary={"schema_version":"0.8","run_id":run_id,"detector":name,"strategy":args.strategy,"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"winner":ranked[0],"baseline":baseline,"top_parameter_sets":ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":progress.baseline_surpassed,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
+        summary={"schema_version":"0.8","run_id":run_id,"detector":name,"strategy":args.strategy,"threads":args.threads,"parameter_space":{"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ranked)*len(pages)},"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"winner":ranked[0],"baseline":baseline,"top_parameter_sets":ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,"performance":{"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl"},"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":progress.baseline_surpassed,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
         write_json(run_dir/"reports"/"summary.json",summary)
         write_json(run_dir/"reports"/"winner-pages.json",winner_pages)
         debug_outputs = [] if debug_policy == "none" else write_debug_artifacts(
             args.output, name, run_id, policy=debug_policy, ranked=ranked, pages=pages
         )
-        finished=utc_now(); info={"schema_version":"0.3","run_id":run_id,"detector":name,"strategy":args.strategy,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"detector_config":str(args.detector_config),"debug_artifacts":debug_policy,"source_commit":source_commit,**environment}
+        finished=utc_now(); info={"schema_version":"0.3","run_id":run_id,"detector":name,"strategy":args.strategy,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"detector_config":str(args.detector_config),"debug_artifacts":debug_policy,"source_commit":source_commit,"threads":args.threads,"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"performance_samples":len(performance_samples),"peak_rss_bytes":peak_rss_bytes(),**environment}
         write_json(run_dir/"RUN-INFO.json",info)
         manifest.update({
             "status": "complete",
@@ -484,6 +558,7 @@ def run(args:argparse.Namespace)->Path:
                 "RUN-INFO.json",
                 "parameters.json",
                 "raw/results.csv",
+                "logs/runner-performance.jsonl",
                 "reports/summary.json",
                 "reports/winner-pages.json",
                 "reports/rankings.csv",
@@ -515,6 +590,10 @@ def run(args:argparse.Namespace)->Path:
             ("Run", run_id),
             ("Elapsed", f"{elapsed_seconds:.1f}s"),
             ("Average Eval Rate", f"{(len(ranked)/elapsed_seconds if elapsed_seconds else 0.0):.4f}/s"),
+            ("Search Strategy", args.strategy),
+            ("Threads", args.threads),
+            ("Possible parameter sets", possible_parameter_set_count),
+            ("Planned parameter sets", planned_parameter_set_count if planned_parameter_set_count is not None else "adaptive / unknown"),
             None,
             ("Parameter sets evaluated", len(ranked)),
             ("Fully successful parameter sets", summary["fully_successful_parameter_set_count"]),
