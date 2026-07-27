@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import cv2
@@ -15,6 +17,12 @@ class ConsensusQuadDetectorTests(unittest.TestCase):
         self.image = np.zeros((240, 360, 3), dtype=np.uint8)
         self.mask = np.zeros((240, 360), dtype=np.uint8)
         cv2.rectangle(self.mask, (40, 30), (320, 210), 255, -1)
+
+    def test_regression_config_defines_profiles_baseline(self) -> None:
+        config_path = Path(__file__).resolve().parents[1] / "config" / "detectors" / "consensus_quad.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        self.assertIsInstance(config.get("profiles", {}).get("baseline"), dict)
+        self.assertTrue(config["profiles"]["baseline"])
 
     def test_returns_consensus_for_agreeing_quad_voters(self) -> None:
         first = Candidate("contour_quad", [40, 30, 320, 210], [[40,30],[320,30],[320,210],[40,210]], .9, .9, {})

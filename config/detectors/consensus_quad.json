@@ -1,20 +1,63 @@
 {
   "schema_version": "0.1",
   "detector": "consensus_quad",
-  "baseline": {
-    "minimum_polygon_iou": 0.90,
-    "maximum_mean_corner_distance_fraction": 0.025,
-    "contour_quad_weight": 0.50,
-    "edge_contour_weight": 0.50,
-    "minimum_consensus_confidence": 0.20
+  "description": "Calibration space for the HTH Consensus Quad detector.",
+  "profiles": {
+    "baseline": {
+      "minimum_polygon_iou": 0.9,
+      "maximum_mean_corner_distance_fraction": 0.025,
+      "contour_quad_weight": 0.5,
+      "edge_contour_weight": 0.5,
+      "minimum_consensus_confidence": 0.2
+    }
   },
   "parameters": {
-    "minimum_polygon_iou": {"type": "float", "values": [0.80, 0.90, 0.95]},
-    "maximum_mean_corner_distance_fraction": {"type": "float", "values": [0.015, 0.025, 0.04]},
-    "contour_quad_weight": {"type": "float", "values": [0.25, 0.5, 0.75]},
-    "edge_contour_weight": {"type": "float", "values": [0.25, 0.5, 0.75]},
-    "minimum_consensus_confidence": {"type": "float", "values": [0.1, 0.2, 0.35]}
+    "minimum_polygon_iou": {
+      "type": "float",
+      "values": [
+        0.8,
+        0.9,
+        0.95
+      ]
+    },
+    "maximum_mean_corner_distance_fraction": {
+      "type": "float",
+      "values": [
+        0.015,
+        0.025,
+        0.04
+      ]
+    },
+    "contour_quad_weight": {
+      "type": "float",
+      "values": [
+        0.25,
+        0.5,
+        0.75
+      ]
+    },
+    "edge_contour_weight": {
+      "type": "float",
+      "values": [
+        0.25,
+        0.5,
+        0.75
+      ]
+    },
+    "minimum_consensus_confidence": {
+      "type": "float",
+      "values": [
+        0.1,
+        0.2,
+        0.35
+      ]
+    }
   },
-  "binary_refine": {"passes": 3, "local_exhaustive_radius": 1},
-  "regression": {"debug_artifacts": "winner"}
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "winner"
+  }
 }
