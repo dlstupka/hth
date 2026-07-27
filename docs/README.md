@@ -100,6 +100,25 @@ Do not number pipeline stages in their names. Stage names must remain stable whe
 - Keep detector-specific behavior behind the detector interface or adapter.
 - A detector should expose its polygon result, metadata, timing, and diagnostics through the common framework.
 
+### Detector Debug Standard
+
+Every detector participating in regression shall produce a comparable
+debug artifact for the winning parameter set.
+
+The purpose of debug artifacts is not only troubleshooting but also
+cross-detector analysis, regression reproducibility, and research.
+
+Each detector should produce:
+
+- original page
+- detector-specific intermediate images
+- final overlay
+- detector diagnostics (JSON)
+- detector metadata
+
+The exact intermediate artifacts are detector-specific, but the overall
+structure and availability shall be consistent across all detectors.
+
 ## Configuration Boundaries
 
 Keep reusable pipeline and detector configuration separate from source-document configuration. Detector configuration may define algorithm defaults and calibration search spaces, but must not hard-code collection identity, page ordinals, or document-specific exceptions. Source-document configuration currently present in this repository must remain separable so it can move to a dedicated source repository later.
