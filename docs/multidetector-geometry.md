@@ -1,14 +1,16 @@
 # HTH Multi-Detector Geometry Trial
 
-The geometry trial runs seven registered candidates independently:
+The geometry trial runs nine registered candidates:
 
 1. **Contour**
 2. **Contour-based quadrilateral hybrid**
-3. **Connected Components envelope**
-4. **RANSAC four-edge fitting**
-5. **Hough-line envelope**
-6. **OpenCV Line Segment Detector (LSD)**
-7. **OpenCV GrabCut segmentation**
+3. **Consensus Quad**
+4. **Edge-Contour Hybrid**
+5. **Connected Components envelope**
+6. **RANSAC four-edge fitting**
+7. **Hough-line envelope**
+8. **OpenCV Line Segment Detector (LSD)**
+9. **OpenCV GrabCut segmentation**
 
 Every candidate is retained with diagnostics and provenance. Existing workbench overlays remain backward compatible; UI support for additional overlays may be added separately.
 

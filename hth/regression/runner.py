@@ -8,13 +8,14 @@ from pathlib import Path
 from typing import Any
 import cv2
 from hth.geometry.common import document_mask, resize_for_analysis, scale_bbox, valid_bbox
-from hth.geometry import detector_components, detector_contour_quad, detector_ransac
+from hth.geometry import detector_components, detector_consensus_quad, detector_contour_quad, detector_ransac
 from .adapters.components import (
     detect as components_detect,
     pre_regression_report_sections as components_pre_regression_report_sections,
 )
 from .adapters.contour import detect as contour_detect
 from .adapters.contour_quad import detect as contour_quad_detect
+from .adapters.consensus_quad import detect as consensus_quad_detect
 from .adapters.edge_contour import detect as edge_contour_detect
 from .adapters.grabcut import detect as grabcut_detect
 from .adapters.hough import (
@@ -38,7 +39,7 @@ from .strategies.binary_refine import search as binary_search
 from .progress import ProgressReporter
 from .performance import PerformanceSampler, peak_rss_bytes
 
-DETECTORS={"components":components_detect,"contour":contour_detect,"contour_quad":contour_quad_detect,"edge_contour":edge_contour_detect,"grabcut":grabcut_detect,"hough":hough_detect,"lsd":lsd_detect,"ransac":ransac_detect}
+DETECTORS={"components":components_detect,"contour":contour_detect,"contour_quad":contour_quad_detect,"consensus_quad":consensus_quad_detect,"edge_contour":edge_contour_detect,"grabcut":grabcut_detect,"hough":hough_detect,"lsd":lsd_detect,"ransac":ransac_detect}
 ALLOWED_THREAD_COUNTS=(1,2,4,8,16,32,64,128,256,512,1024)
 
 PRE_REGRESSION_REPORTERS={
@@ -323,6 +324,22 @@ def _write_debug_page(
             cv2.imwrite(str(page_dir / numbered_contour_quad_images[filename]), debug_image)
         overlay_name = "08-overlay.jpg"
         diagnostics_name = "09-diagnostics.json"
+    elif candidate.get("method") == "consensus_quad":
+        diagnostics = candidate.get("diagnostics") if isinstance(candidate.get("diagnostics"), dict) else {}
+        numbered_consensus_images = {
+            "contour-quad-vote.png": "03-contour-quad-vote.png",
+            "edge-contour-vote.png": "04-edge-contour-vote.png",
+            "agreement-overlay.png": "05-agreement-overlay.png",
+            "selected-consensus.png": "06-selected-consensus.png",
+        }
+        for filename, debug_image in detector_consensus_quad.debug_images(
+            image_bgr=original,
+            diagnostics=diagnostics,
+            candidate_corners=candidate.get("corners"),
+        ).items():
+            cv2.imwrite(str(page_dir / numbered_consensus_images[filename]), debug_image)
+        overlay_name = "07-overlay.jpg"
+        diagnostics_name = "08-diagnostics.json"
     elif candidate.get("method") == "ransac":
         diagnostics = candidate.get("diagnostics") if isinstance(candidate.get("diagnostics"), dict) else {}
         parameters = diagnostics.get("parameters") if isinstance(diagnostics.get("parameters"), dict) else None
@@ -412,6 +429,13 @@ def write_debug_artifacts(
         "- 07-selected-quadrilateral.png: winning quadrilateral and ordered corners",
         "- 08-overlay.jpg: approved bbox in green; predicted bbox in red",
         "- 09-diagnostics.json: complete page result and detector diagnostics",
+        "Consensus Quad stages:",
+        "- 03-contour-quad-vote.png: Contour Quadrilateral voter result",
+        "- 04-edge-contour-vote.png: Edge-Contour voter result",
+        "- 05-agreement-overlay.png: both voter polygons overlaid for comparison",
+        "- 06-selected-consensus.png: confidence-weighted consensus quadrilateral",
+        "- 07-overlay.jpg: approved bbox in green; predicted bbox in red",
+        "- 08-diagnostics.json: complete page result, voter evidence, and consensus diagnostics",
         "RANSAC stages:",
         "- 03-boundary-samples.png: left/right/top/bottom observations sampled from the mask",
         "- 04-fitted-edge-models.png: robust line models fitted to each edge family",

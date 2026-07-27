@@ -11,6 +11,7 @@ import numpy as np
 from hth.regression.adapters.components import detect as components_detect
 from hth.regression.adapters.contour import detect as contour_detect
 from hth.regression.adapters.contour_quad import detect as contour_quad_detect
+from hth.regression.adapters.consensus_quad import detect as consensus_quad_detect
 from hth.regression.adapters.ransac import detect as ransac_detect
 from hth.regression.runner import write_debug_artifacts
 
@@ -170,6 +171,39 @@ class RegressionDebugTests(unittest.TestCase):
                 "07-selected-quadrilateral.png",
                 "08-overlay.jpg",
                 "09-diagnostics.json",
+            ):
+                self.assertTrue((debug_page / filename).is_file(), filename)
+
+    def test_consensus_quad_debug_writes_comparable_research_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image_path = root / "source.jpg"
+            image = np.zeros((240, 360, 3), dtype=np.uint8)
+            mask = np.zeros((240, 360), dtype=np.uint8)
+            cv2.rectangle(mask, (40, 30), (320, 210), 255, -1)
+            cv2.rectangle(image, (40, 30), (320, 210), (255, 255, 255), 3)
+            cv2.imwrite(str(image_path), image)
+            candidate = consensus_quad_detect(image_bgr=image, mask=mask)
+            page = {
+                "global_ordinal": 6, "label": "title_or_index_sheet",
+                "layout_type": "single_page", "image_path": str(image_path),
+                "image": image, "mask": mask, "approved_bbox": [35, 25, 325, 215],
+            }
+            result = {
+                "parameter_set_id": "baseline123",
+                "pages": [{
+                    "global_ordinal": 6, "label": page["label"],
+                    "layout_type": page["layout_type"], "status": candidate.status,
+                    "iou": 0.8, "candidate": candidate.__dict__,
+                }],
+            }
+            write_debug_artifacts(root, "consensus_quad", "run-test", policy="winner", ranked=[result], pages=[page])
+            debug_page = root / "debug" / "consensus_quad" / "run-test" / "baseline123" / "page-0006"
+            for filename in (
+                "01-original.jpg", "02-input-mask.png",
+                "03-contour-quad-vote.png", "04-edge-contour-vote.png",
+                "05-agreement-overlay.png", "06-selected-consensus.png",
+                "07-overlay.jpg", "08-diagnostics.json",
             ):
                 self.assertTrue((debug_page / filename).is_file(), filename)
 

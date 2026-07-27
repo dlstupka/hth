@@ -210,6 +210,7 @@ This directory contains the design, operating, and project-reference documentati
 - [Detector components](detector-components.md) — connected-components detector.
 - [Contour detector](detector-contour.md) — contour-based detector.
 - [Contour quadrilateral detector](detector-contour-quad.md) — contour-derived quadrilateral detector with edge scoring.
+- [Consensus Quad detector](detector-consensus-quad.md) — agreement and confidence fusion across contour quadrilateral voters.
 - [Edge-Contour Hybrid detector](detector-edge-contour.md) — contour hypotheses verified by independent line-segment evidence.
 - [GrabCut detector](detector-grabcut.md) — GrabCut-based detector.
 - [RANSAC detector](detector-ransac.md) — robust four-edge line-fitting detector.
