@@ -125,7 +125,7 @@ Keep reusable pipeline and detector configuration separate from source-document 
 
 ## Regression Report Conventions
 
-Use this section order:
+Use this section order for individual detector reports:
 
 ```text
 Run Information
@@ -145,6 +145,8 @@ Page Analysis
     Status Definitions
     Problem Pages
 ```
+
+The top-level multi-detector `Detector Regression Manifest` places `Detector Calibration Report` immediately after the top-level Metric Definitions and before the individual detector report sections. The calibration report must characterize the evaluated search landscape without claiming behavior beyond the current Golden Set and configured parameter grid.
 
 Additional conventions:
 

@@ -80,6 +80,25 @@ The current columns describe the most recently completed parameter set. Higher i
 
 After the normal result summary, regression statistics report record counts for average IoU, minimum IoU, and standard deviation; total metric improvements; parameter sets that improved at least one metric; overall winner changes; and whether the baseline was surpassed. These counts show whether a long search continued to produce useful gains or mostly traversed a plateau.
 
+## Detector calibration intelligence
+
+Every completed detector regression writes `reports/calibration-intelligence.json`. The top-level multi-detector `Detector Regression Manifest` renders this evidence in a `Detector Calibration Report` immediately after the top-level Metric Definitions and before the individual detector sections.
+
+The report includes:
+
+- search coverage and fully-successful parameter-set rate;
+- best, median, percentile, and worst calibration-landscape metrics;
+- equivalent-winner and near-best basin size;
+- one-way parameter influence using eta-squared association with average IoU;
+- parameter classifications (`Critical`, `Important`, `Moderate`, `Low`, and `Dormant`);
+- near-best value coverage and the best observed values for each parameter;
+- exploratory pairwise interaction estimates from a deterministic bounded sample;
+- per-page mean, minimum, maximum, standard deviation, and success rate;
+- dormant-parameter recommendations for reducing future searches; and
+- a calibration-confidence rating based on search completeness, success rate, basin width, and sample size.
+
+All calibration-intelligence conclusions are explicitly limited to the evaluated Golden Set and configured parameter grid. A parameter classified as dormant may be omitted from future calibration for the same corpus, but it remains part of detector configuration and must be re-evaluated whenever the Golden Set changes. Interaction estimates are exploratory associations rather than causal claims.
+
 The default image root is `test/latest/preprocessed` in the results repository. Override it at dispatch time when running against another published build.
 
 ## Regression runner toolchains

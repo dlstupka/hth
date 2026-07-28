@@ -364,6 +364,178 @@ def build_summary(
 
 
 
+
+def _percent(value: Any, digits: int = 1) -> str:
+    try:
+        return f"{float(value) * 100:.{digits}f}%"
+    except (TypeError, ValueError):
+        return "unknown"
+
+
+def _calibration_payload(run_dir: Path) -> dict[str, Any] | None:
+    path = run_dir / "reports" / "calibration-intelligence.json"
+    if not path.is_file():
+        return None
+    try:
+        payload = _read_json(path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    return payload if payload.get("available") else None
+
+
+def _render_detector_calibration(detector: str, payload: dict[str, Any]) -> list[str]:
+    search = payload.get("search", {}) if isinstance(payload.get("search"), dict) else {}
+    landscape = payload.get("landscape", {}) if isinstance(payload.get("landscape"), dict) else {}
+    confidence = payload.get("calibration_confidence", {}) if isinstance(payload.get("calibration_confidence"), dict) else {}
+    parameters = payload.get("parameter_influence", []) if isinstance(payload.get("parameter_influence"), list) else []
+    interactions = payload.get("interactions", []) if isinstance(payload.get("interactions"), list) else []
+    pages = payload.get("page_sensitivity", []) if isinstance(payload.get("page_sensitivity"), list) else []
+    recommendations = payload.get("recommendations", {}) if isinstance(payload.get("recommendations"), dict) else {}
+
+    lines = [
+        f"### {detector}",
+        "",
+        str(payload.get("scope_note") or "Conclusions are specific to this run's Golden Set and parameter grid."),
+        "",
+        "#### Calibration Landscape",
+        "",
+        "| Measure | Value |",
+        "|---|---:|",
+        f"| Search coverage | {'complete exhaustive' if search.get('exhaustive_complete') else 'partial / adaptive'} |",
+        f"| Parameter sets evaluated | {search.get('parameter_sets', 'unknown')} |",
+        f"| Fully successful parameter sets | {search.get('fully_successful_parameter_sets', 'unknown')} ({_percent(search.get('fully_successful_rate'))}) |",
+        f"| Best Avg IoU | {_number(landscape.get('best_mean_iou'))} |",
+        f"| Median Avg IoU | {_number(landscape.get('median_mean_iou'))} |",
+        f"| 95th-percentile Avg IoU | {_number(landscape.get('p95_mean_iou'))} |",
+        f"| Near-best basin (within {float(landscape.get('near_best_tolerance', 0.001) or 0.001):.4f}) | {landscape.get('near_best_count', 'unknown')} ({_percent(landscape.get('near_best_share'))}) |",
+        f"| Equivalent-winner basin (within {float(landscape.get('equivalent_tolerance', 0.0001) or 0.0001):.4f}) | {landscape.get('equivalent_winner_count', 'unknown')} ({_percent(landscape.get('equivalent_winner_share'))}) |",
+        f"| Calibration confidence | {confidence.get('rating', 'unknown')} |",
+    ]
+    reasons = confidence.get("reasons", []) if isinstance(confidence.get("reasons"), list) else []
+    if reasons:
+        lines.extend(["", f"Confidence basis: {', '.join(str(reason) for reason in reasons)}."])
+
+    if parameters:
+        lines.extend([
+            "",
+            "#### Parameter Influence",
+            "",
+            "Influence uses one-way η² over Avg IoU. It measures association within this configured grid; it does not establish causation.",
+            "",
+            "| Parameter | Classification | η² | Mean-IoU range | Near-best value coverage | Best observed values |",
+            "|---|---|---:|---:|---:|---|",
+        ])
+        for item in parameters[:12]:
+            best_values = item.get("best_values", []) if isinstance(item.get("best_values"), list) else []
+            rendered_values = ", ".join(
+                f"`{entry.get('value')}` ({_number(entry.get('mean_iou'))})"
+                for entry in best_values[:3]
+                if isinstance(entry, dict)
+            ) or "unknown"
+            lines.append(
+                f"| `{item.get('parameter', 'unknown')}` | {item.get('classification', 'unknown')} | "
+                f"{_number(item.get('eta_squared'))} | {_number(item.get('mean_iou_range'))} | "
+                f"{_percent(item.get('near_best_value_coverage'))} | {rendered_values} |"
+            )
+
+    dormant = recommendations.get("dormant_parameters", []) if isinstance(recommendations.get("dormant_parameters"), list) else []
+    if dormant:
+        lines.extend([
+            "",
+            "#### Dormant Parameters",
+            "",
+            "These parameters had no material measured effect on Avg IoU for this Golden Set and grid:",
+            "",
+            ", ".join(f"`{name}`" for name in dormant) + ".",
+            "",
+            str(recommendations.get("note") or "Re-evaluate dormant parameters whenever the Golden Set changes."),
+        ])
+
+    meaningful_interactions = [
+        item for item in interactions
+        if isinstance(item, dict) and float(item.get("incremental_importance", 0.0) or 0.0) >= 0.001
+    ]
+    if meaningful_interactions:
+        lines.extend([
+            "",
+            "#### Parameter Interactions",
+            "",
+            "Pairwise interaction importance is exploratory and estimated from a deterministic sample.",
+            "",
+            "| Parameters | Pair η² | Incremental importance | Sample size |",
+            "|---|---:|---:|---:|",
+        ])
+        for item in meaningful_interactions[:5]:
+            pair = item.get("parameters", [])
+            pair_name = " × ".join(f"`{name}`" for name in pair) if isinstance(pair, list) else "unknown"
+            lines.append(
+                f"| {pair_name} | {_number(item.get('eta_squared'))} | "
+                f"{_number(item.get('incremental_importance'))} | {item.get('sample_size', 'unknown')} |"
+            )
+
+    if pages:
+        lines.extend([
+            "",
+            "#### Page Sensitivity",
+            "",
+            "| Golden Set Page | Mean IoU | Min IoU | Max IoU | StdDev | Success rate |",
+            "|---:|---:|---:|---:|---:|---:|",
+        ])
+        for page in pages:
+            lines.append(
+                f"| {page.get('global_ordinal', 'unknown')} | {_number(page.get('mean_iou'))} | "
+                f"{_number(page.get('minimum_iou'))} | {_number(page.get('maximum_iou'))} | "
+                f"{_number(page.get('stddev_iou'))} | {_percent(page.get('success_rate'))} |"
+            )
+
+    return lines
+
+
+def _render_calibration_report(run_dirs: list[Path]) -> list[str]:
+    available: list[tuple[str, dict[str, Any]]] = []
+    missing: list[str] = []
+    for run_dir in run_dirs:
+        manifest = _read_json(run_dir / "manifest.json")
+        detector = str(manifest.get("detector", run_dir.parent.name))
+        payload = _calibration_payload(run_dir)
+        if payload is None:
+            missing.append(detector)
+        else:
+            available.append((detector, payload))
+
+    lines = [
+        "## Detector Calibration Report",
+        "",
+        "This section characterizes the evaluated calibration landscapes, parameter influence, interactions, optimum-basin width, page sensitivity, and opportunities to reduce future search cost. All findings are corpus- and grid-specific and must be revalidated when the Golden Set or parameter space changes.",
+        "",
+    ]
+    if not available:
+        lines.append("Calibration intelligence was not available for these runs.")
+        return lines
+
+    lines.extend([
+        "### Calibration Overview",
+        "",
+        "| Detector | Coverage | Parameter sets | Successful | Best Avg IoU | Median Avg IoU | Near-best basin | Equivalent winners | Confidence |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---|",
+    ])
+    for detector, payload in available:
+        search = payload.get("search", {}) if isinstance(payload.get("search"), dict) else {}
+        landscape = payload.get("landscape", {}) if isinstance(payload.get("landscape"), dict) else {}
+        confidence = payload.get("calibration_confidence", {}) if isinstance(payload.get("calibration_confidence"), dict) else {}
+        lines.append(
+            f"| `{detector}` | {'complete' if search.get('exhaustive_complete') else 'partial'} | "
+            f"{search.get('parameter_sets', 'unknown')} | {_percent(search.get('fully_successful_rate'))} | "
+            f"{_number(landscape.get('best_mean_iou'))} | {_number(landscape.get('median_mean_iou'))} | "
+            f"{_percent(landscape.get('near_best_share'))} | {_percent(landscape.get('equivalent_winner_share'))} | "
+            f"{confidence.get('rating', 'unknown')} |"
+        )
+    if missing:
+        lines.extend(["", "Calibration intelligence unavailable for: " + ", ".join(f"`{name}`" for name in missing) + "."])
+    for detector, payload in available:
+        lines.extend(["", *_render_detector_calibration(detector, payload)])
+    return lines
+
 def _combined_result_row(run_dir: Path) -> dict[str, Any]:
     manifest = _read_json(run_dir / "manifest.json")
     info = _read_json(run_dir / "RUN-INFO.json")
@@ -462,6 +634,8 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
         "- **Failures:** Number of pages that could not be evaluated.",
         "",
     ])
+    lines.extend(_render_calibration_report(run_dirs))
+    lines.append("")
     for index, run_dir in enumerate(run_dirs):
         manifest = _read_json(run_dir / "manifest.json")
         detector = str(manifest.get("detector", run_dir.parent.name))

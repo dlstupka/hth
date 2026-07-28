@@ -157,6 +157,52 @@ class RegressionSummaryTests(unittest.TestCase):
                     "page_ordinals": [1], "parameter_set_count": 1,
                     "winner": result, "baseline": result
                 }), encoding="utf-8")
+                (run / "reports" / "calibration-intelligence.json").write_text(json.dumps({
+                    "available": True,
+                    "scope_note": "Scoped to the fixture Golden Set.",
+                    "search": {
+                        "exhaustive_complete": True,
+                        "parameter_sets": 1,
+                        "fully_successful_parameter_sets": 1,
+                        "fully_successful_rate": 1.0,
+                    },
+                    "landscape": {
+                        "best_mean_iou": metrics[0],
+                        "median_mean_iou": metrics[0],
+                        "p95_mean_iou": metrics[0],
+                        "near_best_tolerance": 0.001,
+                        "near_best_count": 1,
+                        "near_best_share": 1.0,
+                        "equivalent_tolerance": 0.0001,
+                        "equivalent_winner_count": 1,
+                        "equivalent_winner_share": 1.0,
+                    },
+                    "parameter_influence": [{
+                        "parameter": "threshold",
+                        "classification": "Dormant",
+                        "eta_squared": 0.0,
+                        "mean_iou_range": 0.0,
+                        "near_best_value_coverage": 1.0,
+                        "best_values": [{"value": "1", "mean_iou": metrics[0], "count": 1}],
+                    }],
+                    "interactions": [],
+                    "page_sensitivity": [{
+                        "global_ordinal": 1,
+                        "mean_iou": metrics[0],
+                        "minimum_iou": metrics[0],
+                        "maximum_iou": metrics[0],
+                        "stddev_iou": 0.0,
+                        "success_rate": 1.0,
+                    }],
+                    "recommendations": {
+                        "dormant_parameters": ["threshold"],
+                        "note": "Re-evaluate when the Golden Set changes.",
+                    },
+                    "calibration_confidence": {
+                        "rating": "Medium",
+                        "reasons": ["complete exhaustive coverage"],
+                    },
+                }), encoding="utf-8")
                 run_dirs.append(run)
 
             text = build_combined_summary(run_dirs, "https://example.invalid/run")
@@ -166,6 +212,13 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("**Document:** Baptisms: San Antonio. Baptism Records 1788–1824, 1858–1898", text)
             self.assertIn("**Images:** 929", text)
             self.assertIn("## Ranked detector results", text)
+            self.assertIn("## Detector Calibration Report", text)
+            self.assertIn("### Calibration Overview", text)
+            self.assertIn("#### Parameter Influence", text)
+            self.assertIn("#### Dormant Parameters", text)
+            self.assertIn("#### Page Sensitivity", text)
+            self.assertLess(text.index("### Metric Definitions"), text.index("## Detector Calibration Report"))
+            self.assertLess(text.index("## Detector Calibration Report"), text.index("## grabcut"))
             self.assertIn("| Rank | Detector | Status | Parameter Short Name | Parameter Set ID | Avg IoU |", text)
             self.assertIn("| Eval rate | Doc time | Run elapsed |", text)
             contour_row = "| 1 | `contour` | complete | `baseline` | `contour` | 0.9200 | 0.7800 | 0.0300 | 0 | 1 | 10.00 pg/s | 1m 33s | 1.0s |"
