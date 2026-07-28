@@ -210,6 +210,7 @@ This directory contains the design, operating, and project-reference documentati
 - [Detector components](detector-components.md) — connected-components detector.
 - [Contour detector](detector-contour.md) — contour-based detector.
 - [Contour quadrilateral detector](detector-contour-quad.md) — contour-derived quadrilateral detector with edge scoring.
+- [Contour + Components detector](detector-contour-components.md) — contour hypotheses ranked with connected-component envelope evidence.
 - [Contour + Projection detector](detector-contour-projection.md) — contour hypotheses ranked with perspective-normalized text projection evidence.
 - [Consensus Quad detector](detector-consensus-quad.md) — agreement and confidence fusion across contour quadrilateral voters.
 - [Edge-Contour Hybrid detector](detector-edge-contour.md) — contour hypotheses verified by independent line-segment evidence.
