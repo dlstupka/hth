@@ -64,6 +64,8 @@ class ProgressSnapshot:
     parameter_sets_with_improvements: int
     last_improvement_seconds: float | None
     last_improvement_elapsed_seconds: float | None
+    winner_first_changed_elapsed_seconds: float | None
+    winner_last_changed_elapsed_seconds: float | None
 
 
 class ProgressReporter:
@@ -153,6 +155,8 @@ class ProgressReporter:
         self.winner_changes = 0
         self.parameter_sets_with_improvements = 0
         self._last_improvement_at: float | None = None
+        self._winner_first_changed_at: float | None = None
+        self._winner_last_changed_at: float | None = None
         self._lock = threading.RLock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -283,6 +287,9 @@ class ProgressReporter:
             if new_overall_winner:
                 self.overall_best_result = result
                 self.winner_changes += 1
+                if self._winner_first_changed_at is None:
+                    self._winner_first_changed_at = now
+                self._winner_last_changed_at = now
             if new_best_mean or new_best_worst or new_best_stddev:
                 self.parameter_sets_with_improvements += 1
                 self._last_improvement_at = now
@@ -347,6 +354,14 @@ class ProgressReporter:
             parameter_sets_with_improvements=self.parameter_sets_with_improvements,
             last_improvement_seconds=since_improvement,
             last_improvement_elapsed_seconds=improvement_elapsed,
+            winner_first_changed_elapsed_seconds=(
+                max(0.0, self._winner_first_changed_at - self.started)
+                if self._winner_first_changed_at is not None else None
+            ),
+            winner_last_changed_elapsed_seconds=(
+                max(0.0, self._winner_last_changed_at - self.started)
+                if self._winner_last_changed_at is not None else None
+            ),
         )
 
     @staticmethod

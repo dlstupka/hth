@@ -86,16 +86,21 @@ Every completed detector regression writes `reports/calibration-intelligence.jso
 
 The report includes:
 
+- a ranked calibration overview with detector role, winner Avg IoU, Min IoU, StdDev, and change from each detector's named baseline;
+- generator, validator, and hybrid role definitions plus an evidence-source legend;
 - search coverage and fully-successful parameter-set rate;
-- best, median, percentile, and worst calibration-landscape metrics;
-- equivalent-winner and near-best basin size;
+- best, minimum, standard-deviation, percentile, equivalent-winner, and near-best-basin calibration-landscape metrics;
+- plain-English detector summaries and source-specific evidence-of-ROI recommendations;
 - one-way parameter influence using eta-squared association with average IoU;
 - parameter classifications (`Critical`, `Important`, `Moderate`, `Low`, and `Dormant`);
 - near-best value coverage and the best observed values for each parameter;
 - exploratory pairwise interaction estimates from a deterministic bounded sample;
 - per-page mean, minimum, maximum, standard deviation, and success rate;
-- dormant-parameter recommendations for reducing future searches; and
-- a calibration-confidence rating based on search completeness, success rate, basin width, and sample size.
+- dormant-parameter recommendations for reducing future searches;
+- Calibration Characterization Confidence based on search completeness, success rate, basin width, and sample size; and
+- a corpus recommendation naming the highest-ranked detector and the evidence supporting a source-specific freeze-or-continue decision.
+
+Each individual detector result also includes an evidence table describing the visual evidence it generates or validates. The Golden Set Winner Summary records winner-change count, first and last winner-change times, and search completion time.
 
 All calibration-intelligence conclusions are explicitly limited to the evaluated Golden Set and configured parameter grid. A parameter classified as dormant may be omitted from future calibration for the same corpus, but it remains part of detector configuration and must be re-evaluated whenever the Golden Set changes. Interaction estimates are exploratory associations rather than causal claims.
 

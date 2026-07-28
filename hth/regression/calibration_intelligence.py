@@ -265,6 +265,7 @@ def build_calibration_intelligence(
             "best_mean_iou": best_score,
             "mean_mean_iou": overall_mean,
             "minimum_mean_iou": scores[-1],
+            "stddev_mean_iou": math.sqrt(total_ss / count) if count else 0.0,
             "median_mean_iou": _quantile_desc(scores, 0.50),
             "p90_mean_iou": _quantile_desc(scores, 0.90),
             "p95_mean_iou": _quantile_desc(scores, 0.95),
