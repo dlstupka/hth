@@ -100,6 +100,163 @@ def _duration(seconds: Any) -> str:
     return f"{hours}h {minutes}m {secs}s" if hours else f"{minutes}m {secs}s"
 
 
+
+def _compact_duration(seconds: Any) -> str:
+    """Format stabilization time compactly for the calibration landscape."""
+    try:
+        value = float(seconds)
+    except (TypeError, ValueError):
+        return "unknown"
+    if value < 1:
+        return f"{round(value * 1000):.0f} ms"
+    if value < 60:
+        return f"{value:.1f} s".replace(".0 s", " s")
+    return _duration(value)
+
+
+def _compact_percent(value: Any) -> str:
+    """Format a fraction as a whole-number search percentage."""
+    try:
+        return f"{float(value) * 100:.0f}%"
+    except (TypeError, ValueError):
+        return "unknown"
+
+
+def _pluralized_parameter_sets(value: Any) -> str:
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        return "unknown parameter sets"
+    noun = "parameter set" if count == 1 else "parameter sets"
+    return f"{count} {noun}"
+
+
+def _full_search_metrics(search: dict[str, Any], elapsed_seconds: Any) -> tuple[str, str, str]:
+    evaluated = search.get("parameter_sets")
+    possible = search.get("possible_parameter_sets")
+    try:
+        evaluated_count = int(evaluated)
+        possible_count = int(possible)
+    except (TypeError, ValueError):
+        return str(possible or "unknown"), "unknown", "unknown"
+    if possible_count <= 0:
+        return str(possible_count), "unknown", "unknown"
+    evaluated_share = min(1.0, evaluated_count / possible_count)
+    try:
+        elapsed = float(elapsed_seconds)
+    except (TypeError, ValueError):
+        elapsed = 0.0
+    if evaluated_count <= 0 or elapsed <= 0:
+        eta = "unknown"
+    elif evaluated_count >= possible_count:
+        eta = "complete"
+    else:
+        eta = _duration((possible_count - evaluated_count) * (elapsed / evaluated_count))
+    return str(possible_count), _percent(evaluated_share), eta
+
+
+def _stabilization_interpretation(observation: dict[str, Any]) -> str:
+    value = observation.get("search_space_fraction")
+    if value is None:
+        value = observation.get("search_fraction")
+    try:
+        fraction = float(value)
+    except (TypeError, ValueError):
+        text = _search_space_percent(observation)
+        try:
+            fraction = float(str(text).rstrip("%")) / 100.0
+        except (TypeError, ValueError):
+            return "Unavailable because the completed-search fraction was not recorded."
+    if fraction < 0.10:
+        return "Early convergence — the final winner emerged within the first 10% of the evaluated search."
+    if fraction <= 0.40:
+        return "Moderate exploration — the final winner emerged after 10–40% of the evaluated search."
+    if fraction <= 0.80:
+        return "Late convergence — the final winner emerged after 40–80% of the evaluated search."
+    return "No stable optimum — the final winner did not emerge until more than 80% of the evaluated search."
+
+
+def _engineering_recommendation(detector: str, payload: dict[str, Any] | None, combined_rows: list[dict[str, Any]]) -> str:
+    if not payload:
+        return "Calibration evidence is unavailable; retain the current winner provisionally and rerun calibration before making additional detector-development decisions."
+    search = payload.get("search", {}) if isinstance(payload.get("search"), dict) else {}
+    landscape = payload.get("landscape", {}) if isinstance(payload.get("landscape"), dict) else {}
+    near_best = float(landscape.get("near_best_share", 0.0) or 0.0)
+    exhaustive = bool(search.get("exhaustive_complete"))
+    evaluated = int(search.get("parameter_sets", 0) or 0)
+    possible = int(search.get("possible_parameter_sets", 0) or 0)
+    coverage = evaluated / possible if possible else 0.0
+    rank = next((index for index, row in enumerate(combined_rows, start=1) if str(row.get("detector")) == detector), 1)
+    if rank > 1:
+        return "Further tuning is not currently justified for selection purposes; stronger detectors exist for this Golden Set. Preserve this detector when its evidence is complementary enough to support future fusion."
+    if near_best >= 0.50 and (exhaustive or coverage >= 0.50):
+        return "Detector appears well calibrated for this Golden Set; broad near-best coverage and mature search evidence make material gains from additional parameter tuning unlikely."
+    if near_best <= 0.05 and not exhaustive and coverage < 0.50:
+        return "Continue detector calibration; the observed optimum is narrow and parameter-space coverage is still limited, so additional exploration may produce a materially better configuration."
+    return "Retain this detector as the current Golden Set recommendation. Additional tuning should be driven by unresolved page failures, late winner changes, or a plausible untested parameter region rather than by search expansion alone."
+
+
+def _slugify_heading(text: str) -> str:
+    value = re.sub(r"[`*_]", "", text).strip().lower()
+    value = re.sub(r"[^a-z0-9]+", "-", value).strip("-")
+    return value or "section"
+
+
+def _add_report_navigation(lines: list[str]) -> list[str]:
+    """Add a GitHub-compatible navigation pane and back links to major sections."""
+    headings: list[tuple[int, str, str]] = []
+    used: dict[str, int] = {}
+    for line in lines:
+        match = re.match(r"^(##|###) (.+)$", line)
+        if not match:
+            continue
+        level = len(match.group(1))
+        title = match.group(2).strip()
+        base = _slugify_heading(title)
+        used[base] = used.get(base, 0) + 1
+        slug = base if used[base] == 1 else f"{base}-{used[base]}"
+        headings.append((level, title, slug))
+
+    if not headings:
+        return lines
+
+    navigation = [
+        '<a id="table-of-contents"></a>',
+        "",
+        "<details open>",
+        "<summary><strong>Navigation</strong></summary>",
+        "",
+    ]
+    for level, title, slug in headings:
+        indent = "  " if level == 3 else ""
+        navigation.append(f"{indent}- [{title}](#{slug})")
+    navigation.extend(["", "</details>", ""])
+
+    result: list[str] = []
+    inserted_navigation = False
+    heading_index = 0
+    for index, line in enumerate(lines):
+        if not inserted_navigation and line.startswith("# "):
+            result.append(line)
+            result.extend(["", *navigation])
+            inserted_navigation = True
+            continue
+        match = re.match(r"^(##|###) (.+)$", line)
+        if match:
+            if result and result[-1] != "":
+                result.append("")
+            if heading_index > 0:
+                result.extend(["[↑ Back to Navigation](#table-of-contents)", ""])
+            _, title, slug = headings[heading_index]
+            result.extend([f'<a id="{slug}"></a>', line])
+            heading_index += 1
+        else:
+            result.append(line)
+    if heading_index:
+        result.extend(["", "[↑ Back to Navigation](#table-of-contents)"])
+    return result
+
+
 def _parameter_short_name(result: dict[str, Any] | None) -> str:
     """Return the human-friendly parameter alias, falling back to its stable ID."""
     if not result:
@@ -273,9 +430,9 @@ def build_summary(
         "",
         "### Parameter Space",
         "",
-        f"- Full parameter space: `{summary.get('parameter_space', {}).get('possible_parameter_sets', 'unknown')}`",
+        f"- All possible parameter sets: `{summary.get('parameter_space', {}).get('possible_parameter_sets', 'unknown')}`",
         f"- Parameter sets evaluated: `{summary.get('parameter_set_count', 'unknown')}`",
-        f"- Evaluated set: `{_percent((float(summary.get('parameter_set_count', 0) or 0) / float(summary.get('parameter_space', {}).get('possible_parameter_sets', 0) or 1)) if summary.get('parameter_space', {}).get('possible_parameter_sets') else None, 2)}`",
+        f"- Evaluated sets (% of all possible parameter sets): `{_percent((float(summary.get('parameter_set_count', 0) or 0) / float(summary.get('parameter_space', {}).get('possible_parameter_sets', 0) or 1)) if summary.get('parameter_space', {}).get('possible_parameter_sets') else None, 2)}`",
         f"- Configured named profiles: `{', '.join(sorted(profiles)) if profiles else 'none'}`",
     ])
 
@@ -390,15 +547,15 @@ def build_summary(
             "",
             "### Golden Set Winner Summary",
             "",
-            "| Golden Set Page | Baseline | Winner | Δ IoU | Status | Parameter Set |",
-            "|---:|---:|---:|---:|---|---|",
+            "| Golden Set Page | Parameter Set ID | Baseline | Winner | Δ IoU | Status |",
+            "|---:|---|---:|---:|---:|---|",
         ])
         for page in winner_pages:
             lines.append(
-                f"| {page.get('golden_set_page', 'unknown')} | "
+                f"| {page.get('golden_set_page', 'unknown')} | `{_short(page.get('parameter_set'), 12)}` | "
                 f"{_number(page.get('baseline_iou'))} | {_number(page.get('winner_iou'))} | "
                 f"{float(page.get('delta_iou', 0.0) or 0.0):+.4f} | "
-                f"{page.get('status', 'unknown')} | `{_short(page.get('parameter_set'), 12)}` |"
+                f"{page.get('status', 'unknown')} |"
             )
 
         winner_history = progress.get("winner_history", []) if isinstance(progress.get("winner_history"), list) else []
@@ -406,7 +563,7 @@ def build_summary(
             "",
             "#### Winner History",
             "",
-            "| # (final winner) | Parameter Set ID | Search Time | % Search |",
+            "| Discovery Order | Parameter Set ID | Search Time | % Search |",
             "|---:|---|---:|---:|",
         ])
         for event in winner_history[-5:]:
@@ -423,6 +580,8 @@ def build_summary(
             "",
             f"Total winner changes: **{progress.get('winner_changes', 0)}**.",
             f"Search completed in **{_duration(info.get('elapsed_seconds'))}**.",
+            "",
+            f"**Stabilization Interpretation:** {_stabilization_interpretation(winner_history[-1] if winner_history else {})}",
         ])
 
         thresholds = winner_page_report.get("thresholds", {})
@@ -511,9 +670,9 @@ def _detector_summary_and_roi(detector: str, payload: dict[str, Any]) -> tuple[l
     if near_best >= 0.90:
         findings.append("The evaluated calibration landscape is flat: nearly all tested parameter sets are equivalent or near-equivalent.")
     elif near_best <= 0.05:
-        findings.append("The near-best basin is narrow, so detector quality depends strongly on selecting a small part of the configured grid.")
+        findings.append("The near-best coverage (basin) is narrow, so detector quality depends strongly on selecting a small part of the configured grid.")
     else:
-        findings.append("The detector has a measurable but not singular near-best basin within the evaluated grid.")
+        findings.append("The detector has a measurable but not singular near-best coverage (basin) within the evaluated grid.")
     if parameter_count and dormant_count == parameter_count:
         findings.append("Every measured parameter was dormant for this Golden Set and grid.")
     elif dormant_count:
@@ -577,14 +736,17 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
         "|---|---:|",
         f"| Search coverage | {'complete exhaustive' if search.get('exhaustive_complete') else 'partial / adaptive'} |",
         f"| Parameter sets evaluated | {search.get('parameter_sets', 'unknown')} |",
+        f"| All possible parameter sets | {_full_search_metrics(search, summary.get('elapsed_seconds'))[0]} |",
+        f"| Evaluated sets (% of all parameter sets) | {_full_search_metrics(search, summary.get('elapsed_seconds'))[1]} |",
+        f"| ETA for full parameter set evaluation | {_full_search_metrics(search, summary.get('elapsed_seconds'))[2]} |",
         f"| Fully successful parameter sets | {search.get('fully_successful_parameter_sets', 'unknown')} ({_percent(search.get('fully_successful_rate'))}) |",
         f"| Best Avg IoU | {_number(landscape.get('best_mean_iou'))} |",
         f"| Minimum Avg IoU | {_number(landscape.get('minimum_mean_iou'))} |",
         f"| Avg IoU StdDev | {_number(landscape.get('stddev_mean_iou'))} |",
-        f"| Winner stabilized after | {winner_observation.get('parameter_set_number', 'unknown')} parameter sets |",
-        f"| Winner stabilized | {_duration(winner_observation.get('elapsed_seconds'))} ({_search_space_percent(winner_observation)} search complete) |",
-        f"| Near-best basin (within {float(landscape.get('near_best_tolerance', 0.001) or 0.001):.4f}) | {landscape.get('near_best_count', 'unknown')} ({_percent(landscape.get('near_best_share'))}) |",
-        f"| Equivalent-winner basin (within {float(landscape.get('equivalent_tolerance', 0.0001) or 0.0001):.4f}) | {landscape.get('equivalent_winner_count', 'unknown')} ({_percent(landscape.get('equivalent_winner_share'))}) |",
+        f"| Winner stabilized after | {_pluralized_parameter_sets(winner_observation.get('parameter_set_number'))} |",
+        f"| Winner stabilized | {_compact_duration(winner_observation.get('elapsed_seconds'))} ({_compact_percent(winner_observation.get('search_fraction'))} of search) |",
+        f"| Near-best coverage (basin; within {float(landscape.get('near_best_tolerance', 0.001) or 0.001):.4f}) | {landscape.get('near_best_count', 'unknown')} ({_percent(landscape.get('near_best_share'))}) |",
+        f"| Equivalent-best configurations (within {float(landscape.get('equivalent_tolerance', 0.0001) or 0.0001):.4f}) | {landscape.get('equivalent_winner_count', 'unknown')} ({_percent(landscape.get('equivalent_winner_share'))}) |",
         f"| Calibration Evidence | {confidence.get('rating', 'unknown')} |",
     ])
     reasons = confidence.get("reasons", []) if isinstance(confidence.get("reasons"), list) else []
@@ -679,7 +841,7 @@ def _render_calibration_report(run_dirs: list[Path], combined_rows: list[dict[st
 
     lines.extend([
         "### Calibration Overview", "",
-        "| Rank | Detector | Role | Coverage | Parameter sets | Successful | Best Avg IoU | Min IoU | StdDev | Δ Baseline Avg IoU | Near-best basin | Equivalent winners | Calibration Evidence |",
+        "| Rank | Detector | Role | Coverage | Parameter sets | Successful | Best Avg IoU | Min IoU | StdDev | Δ Baseline Avg IoU | Near-best coverage (basin) | Equivalent best configurations | Calibration Evidence |",
         "|---:|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ])
     for rank, row in enumerate(combined_rows, start=1):
@@ -706,8 +868,8 @@ def _render_calibration_report(run_dirs: list[Path], combined_rows: list[dict[st
         "- **Validator:** scores or confirms a hypothesis generated elsewhere without normally proposing a competing boundary.",
         "- **Hybrid (detectors):** combines the named generator and validator or fuses the named generators.",
         "- **Critical / Important / Moderate / Low / Dormant:** plain-English parameter-influence classes, from dominant measured association to no material measured effect in this grid.",
-        "- **Near-best basin:** share of tested parameter sets within the displayed tolerance of the best Avg IoU; broader basins indicate more forgiving calibration.",
-        "- **Equivalent winners:** share of tested sets effectively tied with the best result at the stricter displayed tolerance.",
+        "- **Near-best coverage (basin):** share of tested parameter sets within the displayed tolerance of the best Avg IoU; broader basins indicate more forgiving calibration.",
+        "- **Equivalent best configurations:** share of tested sets effectively tied with the best result at the stricter displayed tolerance.",
         "- **Calibration Evidence:** strength of evidence that this run adequately describes the tested landscape; it is not confidence that the detector generalizes beyond this Golden Set and grid.",
         "- **Evidence tables:** identify what each detector actually observes and whether that evidence generates, validates, filters, or scores a page hypothesis.",
     ])
@@ -816,6 +978,7 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
         f"- **Worst Golden Set page (Min IoU):** `{_number(best_row.get('minimum_iou'))}`",
         f"- **Page-to-page StdDev:** `{_number(best_row.get('stddev_iou'))}`",
         f"- **Role:** `{_detector_characterization(best_detector).get('role', 'Unknown')}`",
+        f"- **Engineering Recommendation:** {_engineering_recommendation(best_detector, best_payload, combined_rows)}",
     ])
     if recommendation_notes:
         lines.extend(["", "**Recommendation basis:**", ""] + [f"- {note}" for note in recommendation_notes])
@@ -867,7 +1030,7 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
     if run_url:
         lines.extend(["", f"[Open workflow run]({run_url})"])
     lines.append("")
-    return "\n".join(lines)
+    return "\n".join(_add_report_navigation(lines))
 
 
 def parser() -> argparse.ArgumentParser:
