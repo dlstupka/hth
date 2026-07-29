@@ -131,7 +131,13 @@ def _pluralized_parameter_sets(value: Any) -> str:
     return f"{count} {noun}"
 
 
-def _full_search_metrics(search: dict[str, Any], elapsed_seconds: Any) -> tuple[str, str, str]:
+def _full_search_metrics(
+    search: dict[str, Any],
+    elapsed_seconds: Any,
+    *,
+    page_rate: Any = None,
+    page_count: Any = None,
+) -> tuple[str, str, str]:
     evaluated = search.get("parameter_sets")
     possible = search.get("possible_parameter_sets")
     try:
@@ -141,17 +147,31 @@ def _full_search_metrics(search: dict[str, Any], elapsed_seconds: Any) -> tuple[
         return str(possible or "unknown"), "unknown", "unknown"
     if possible_count <= 0:
         return str(possible_count), "unknown", "unknown"
+
     evaluated_share = min(1.0, evaluated_count / possible_count)
+    if evaluated_count >= possible_count:
+        return str(possible_count), _percent(evaluated_share), "complete"
+
+    remaining_sets = possible_count - evaluated_count
     try:
-        elapsed = float(elapsed_seconds)
+        measured_page_rate = float(page_rate)
+        pages_per_set = int(page_count)
     except (TypeError, ValueError):
-        elapsed = 0.0
-    if evaluated_count <= 0 or elapsed <= 0:
-        eta = "unknown"
-    elif evaluated_count >= possible_count:
-        eta = "complete"
+        measured_page_rate = 0.0
+        pages_per_set = 0
+
+    if measured_page_rate > 0 and pages_per_set > 0:
+        eta = _duration(remaining_sets * pages_per_set / measured_page_rate)
     else:
-        eta = _duration((possible_count - evaluated_count) * (elapsed / evaluated_count))
+        try:
+            elapsed = float(elapsed_seconds)
+        except (TypeError, ValueError):
+            elapsed = 0.0
+        if evaluated_count <= 0 or elapsed <= 0:
+            eta = "unknown"
+        else:
+            eta = _duration(remaining_sets * (elapsed / evaluated_count))
+
     return str(possible_count), _percent(evaluated_share), eta
 
 
@@ -714,6 +734,15 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
     progress = summary.get("progress", {}) if isinstance(summary.get("progress"), dict) else {}
     winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else None
     winner_observation = _search_observation(winner)
+    page_ordinals = summary.get("page_ordinals", []) if isinstance(summary.get("page_ordinals"), list) else []
+    page_count = len(page_ordinals)
+    page_rate = _page_rate(winner, page_count)
+    full_search_metrics = _full_search_metrics(
+        search,
+        summary.get("elapsed_seconds"),
+        page_rate=page_rate,
+        page_count=page_count,
+    )
 
     lines = [
         f"### {detector}",
@@ -736,9 +765,9 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
         "|---|---:|",
         f"| Search coverage | {'complete exhaustive' if search.get('exhaustive_complete') else 'partial / adaptive'} |",
         f"| Parameter sets evaluated | {search.get('parameter_sets', 'unknown')} |",
-        f"| All possible parameter sets | {_full_search_metrics(search, summary.get('elapsed_seconds'))[0]} |",
-        f"| Evaluated sets (% of all parameter sets) | {_full_search_metrics(search, summary.get('elapsed_seconds'))[1]} |",
-        f"| ETA for full parameter set evaluation | {_full_search_metrics(search, summary.get('elapsed_seconds'))[2]} |",
+        f"| All possible parameter sets | {full_search_metrics[0]} |",
+        f"| Evaluated sets (% of all parameter sets) | {full_search_metrics[1]} |",
+        f"| ETA for full parameter set evaluation | {full_search_metrics[2]} |",
         f"| Fully successful parameter sets | {search.get('fully_successful_parameter_sets', 'unknown')} ({_percent(search.get('fully_successful_rate'))}) |",
         f"| Best Avg IoU | {_number(landscape.get('best_mean_iou'))} |",
         f"| Minimum Avg IoU | {_number(landscape.get('minimum_mean_iou'))} |",
@@ -748,6 +777,8 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
         f"| Near-best coverage (basin; within {float(landscape.get('near_best_tolerance', 0.001) or 0.001):.4f}) | {landscape.get('near_best_count', 'unknown')} ({_percent(landscape.get('near_best_share'))}) |",
         f"| Equivalent-best configurations (within {float(landscape.get('equivalent_tolerance', 0.0001) or 0.0001):.4f}) | {landscape.get('equivalent_winner_count', 'unknown')} ({_percent(landscape.get('equivalent_winner_share'))}) |",
         f"| Calibration Evidence | {confidence.get('rating', 'unknown')} |",
+        "",
+        "*ETA note: Long parameter-set regression ETAs assume a single-threaded serial run at the measured detector page rate. Actual wall time will vary with parallelization, worker count, scheduling overhead, and parameter-dependent runtime.*",
     ])
     reasons = confidence.get("reasons", []) if isinstance(confidence.get("reasons"), list) else []
     if reasons:
