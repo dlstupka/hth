@@ -27,7 +27,7 @@ class RegressionParallelismTests(unittest.TestCase):
             "--output", "output",
         ]
         self.assertEqual(parse_args(base).threads, 1)
-        self.assertEqual(ALLOWED_THREAD_COUNTS, (1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024))
+        self.assertEqual(ALLOWED_THREAD_COUNTS, (1, 2, 4, 8, 16, 32, 48, 64, 96, 128, 256, 512, 1024))
         self.assertEqual(parse_args([*base, "--threads", "256"]).threads, 256)
 
     def test_scope_reports_possible_planned_and_page_evaluations(self) -> None:

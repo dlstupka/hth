@@ -34,10 +34,11 @@ class RegressionSummaryTests(unittest.TestCase):
             }}
             (run / "reports" / "summary.json").write_text(json.dumps({
                 "page_ordinals": [1, 5, 6, 9, 10], "parameter_set_count": 42,
+                "parameter_space": {"possible_parameter_sets": 84},
                 "winner": winner, "baseline": baseline,
                 "top_parameter_sets": [
-                    {**winner, "rank": 1},
-                    {**baseline, "rank": 2},
+                    {**winner, "rank": 1, "search_observation": {"parameter_set_number": 4, "elapsed_seconds": 12.0, "search_fraction": 4/84}},
+                    {**baseline, "rank": 2, "search_observation": {"parameter_set_number": 1, "elapsed_seconds": 1.0, "search_fraction": 1/84}},
                 ],
                 "winner_page_report": {
                     "counts": {
@@ -77,6 +78,10 @@ class RegressionSummaryTests(unittest.TestCase):
                     "total_metric_improvements": 9,
                     "parameter_sets_with_improvements": 5,
                     "winner_changes": 2,
+                    "winner_history": [
+                        {"change_number": 1, "parameter_set_id": "older", "elapsed_seconds": 4.0, "search_fraction": 2/84},
+                        {"change_number": 2, "parameter_set_id": "winner", "elapsed_seconds": 12.0, "search_fraction": 4/84},
+                    ],
                     "baseline_surpassed": True,
                 }
             }), encoding="utf-8")
@@ -93,12 +98,12 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("Configured named profiles: `baseline`", text)
             self.assertIn("Evaluation time", text)
             self.assertIn("### Top Parameter Sets", text)
-            self.assertIn("| Rank | Parameter Short Name | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Failures |", text)
-            self.assertIn("| 1 | `calibrated-winner` | 0.9700 | 0.9100 | unknown | +0.0000 | 0 |", text)
+            self.assertIn("| Rank | Parameter Short Name | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Failures | Discovery Time | Search Space % |", text)
+            self.assertIn("| 1 | `calibrated-winner` | 0.9700 | 0.9100 | unknown | +0.0000 | 0 | 12.0s | 4.76% |", text)
             self.assertIn("### Golden Set Winner Summary", text)
             self.assertIn("| Golden Set Page | Baseline | Winner | Δ IoU | Status | Parameter Set |", text)
             self.assertIn("| 1 | 0.9000 | 0.9700 | +0.0700 | Improved | `winner` |", text)
-            self.assertIn("### Problem Pages", text)
+            self.assertIn("### Golden Set Page Issues", text)
             self.assertIn("Poor matches (Winner IoU < 0.5000): `1`", text)
             self.assertIn("### Status Definitions", text)
             self.assertIn("Regressed pages (Δ IoU < -0.0010): `1`", text)
@@ -213,9 +218,10 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("**Images:** 929", text)
             self.assertIn("## Ranked Detector Results", text)
             self.assertIn("## Detector Calibration Report", text)
-            self.assertIn("## Corpus Recommendation", text)
+            self.assertIn("## Detector Recommendation for this Golden Set", text)
             self.assertIn("### Calibration Report Legend", text)
             self.assertIn("### Calibration Overview", text)
+            self.assertLess(text.index("### Calibration Overview"), text.index("### Calibration Report Legend"))
             self.assertIn("| Rank | Detector | Role | Coverage |", text)
             self.assertIn("#### Detector Summary", text)
             self.assertIn("#### Evidence of ROI", text)

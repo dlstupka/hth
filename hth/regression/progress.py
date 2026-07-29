@@ -66,6 +66,7 @@ class ProgressSnapshot:
     last_improvement_elapsed_seconds: float | None
     winner_first_changed_elapsed_seconds: float | None
     winner_last_changed_elapsed_seconds: float | None
+    winner_history: list[dict[str, Any]]
 
 
 class ProgressReporter:
@@ -157,6 +158,7 @@ class ProgressReporter:
         self._last_improvement_at: float | None = None
         self._winner_first_changed_at: float | None = None
         self._winner_last_changed_at: float | None = None
+        self._winner_history: list[dict[str, Any]] = []
         self._lock = threading.RLock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -265,6 +267,12 @@ class ProgressReporter:
             stddev_iou = float(summary.get("stddev_iou", 0.0) or 0.0)
             self.current_result = result
             profile_name = self._profile_name(result, profile)
+            observation = {
+                "parameter_set_number": self.completed,
+                "elapsed_seconds": max(0.0, now - self.started),
+                "search_fraction": (self.completed / self.total) if self.total > 0 else None,
+            }
+            result["search_observation"] = observation
 
             old_best_mean = float(self.best_mean_result.get("summary", {}).get("mean_iou", 0.0) or 0.0) if self.best_mean_result else None
             old_best_worst = float(self.best_worst_result.get("summary", {}).get("minimum_iou", 0.0) or 0.0) if self.best_worst_result else None
@@ -290,6 +298,12 @@ class ProgressReporter:
                 if self._winner_first_changed_at is None:
                     self._winner_first_changed_at = now
                 self._winner_last_changed_at = now
+                self._winner_history.append({
+                    "change_number": self.winner_changes,
+                    "parameter_set_id": str(result.get("parameter_set_id", "unknown")),
+                    "parameter_short_name": profile_name,
+                    **observation,
+                })
             if new_best_mean or new_best_worst or new_best_stddev:
                 self.parameter_sets_with_improvements += 1
                 self._last_improvement_at = now
@@ -362,6 +376,7 @@ class ProgressReporter:
                 max(0.0, self._winner_last_changed_at - self.started)
                 if self._winner_last_changed_at is not None else None
             ),
+            winner_history=[dict(item) for item in self._winner_history],
         )
 
     @staticmethod

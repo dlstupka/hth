@@ -18,7 +18,7 @@ DETECTOR_CHARACTERIZATION: dict[str, dict[str, Any]] = {
         "evidence": [("Connected-component envelope", "Primary", "Generates a page-region hypothesis from grouped foreground components."), ("Morphological grouping", "Supporting", "Controls how fragmented marks are joined before envelope extraction.")],
     },
     "consensus_quad": {
-        "role": "Hybrid",
+        "role": "Hybrid (Contour Quad + Edge Contour)",
         "evidence": [("Contour Quad vote", "Primary", "Supplies one geometric quadrilateral hypothesis."), ("Edge Contour vote", "Primary", "Supplies an independently scored edge-supported hypothesis."), ("Polygon agreement", "Decision", "Requires sufficient IoU and corner agreement before fusion.")],
     },
     "contour": {
@@ -26,11 +26,11 @@ DETECTOR_CHARACTERIZATION: dict[str, dict[str, Any]] = {
         "evidence": [("Contour geometry", "Primary", "Generates page-region hypotheses from thresholded contours."), ("Fragment merging", "Supporting", "Attempts to recover page boundaries split across multiple contours.")],
     },
     "contour_components": {
-        "role": "Hybrid",
+        "role": "Hybrid (Contour Quad + Components)",
         "evidence": [("Contour quadrilateral", "Generator", "Produces candidate page quadrilaterals."), ("Component containment", "Validator", "Measures how well selected components fall within each candidate."), ("Component envelope overlap", "Validator", "Compares each contour candidate with the independent component envelope."), ("Component spread and density", "Validator", "Checks whether foreground evidence is distributed plausibly across the candidate.")],
     },
     "contour_projection": {
-        "role": "Hybrid",
+        "role": "Hybrid (Contour Quad + Projection)",
         "evidence": [("Contour quadrilateral", "Generator", "Produces candidate page quadrilaterals."), ("Horizontal projection profile", "Validator", "Scores text-band structure after candidate normalization."), ("Vertical coverage", "Validator", "Checks whether foreground structure spans the candidate height."), ("Ink density", "Validator", "Rejects implausibly empty or saturated candidate interiors.")],
     },
     "contour_quad": {
@@ -38,7 +38,7 @@ DETECTOR_CHARACTERIZATION: dict[str, dict[str, Any]] = {
         "evidence": [("Contour quadrilaterals", "Primary", "Generates multiple polygonal page hypotheses."), ("Area", "Scoring", "Rewards candidates occupying a plausible image fraction."), ("Rectangularity", "Scoring", "Rewards quadrilateral-like contour geometry."), ("Corner angles", "Scoring", "Rewards near-right-angle page geometry.")],
     },
     "edge_contour": {
-        "role": "Hybrid",
+        "role": "Hybrid (Contour Quad + LSD)",
         "evidence": [("Contour quadrilateral", "Generator", "Produces candidate page quadrilaterals."), ("LSD line segments", "Validator", "Independently detects line support near proposed borders."), ("Edge support", "Validator", "Measures border coverage after configurable dilation."), ("Geometry score", "Scoring", "Combines area, rectangularity, and angle quality.")],
     },
     "grabcut": {
@@ -209,6 +209,18 @@ def _parameter_id(result: dict[str, Any] | None) -> str:
     return _short(result.get("parameter_set_id"), 12)
 
 
+def _search_observation(result: dict[str, Any] | None) -> dict[str, Any]:
+    if not result:
+        return {}
+    observation = result.get("search_observation", {})
+    return observation if isinstance(observation, dict) else {}
+
+
+def _search_space_percent(observation: dict[str, Any]) -> str:
+    fraction = observation.get("search_fraction")
+    return _percent(fraction, 2) if fraction is not None else "unknown"
+
+
 def build_summary(
     run_dir: Path,
     run_url: str = "",
@@ -261,7 +273,9 @@ def build_summary(
         "",
         "### Parameter Space",
         "",
+        f"- Full parameter space: `{summary.get('parameter_space', {}).get('possible_parameter_sets', 'unknown')}`",
         f"- Parameter sets evaluated: `{summary.get('parameter_set_count', 'unknown')}`",
+        f"- Evaluated set: `{_percent((float(summary.get('parameter_set_count', 0) or 0) / float(summary.get('parameter_space', {}).get('possible_parameter_sets', 0) or 1)) if summary.get('parameter_space', {}).get('possible_parameter_sets') else None, 2)}`",
         f"- Configured named profiles: `{', '.join(sorted(profiles)) if profiles else 'none'}`",
     ])
 
@@ -339,8 +353,8 @@ def build_summary(
             "",
             "### Top Parameter Sets",
             "",
-            "| Rank | Parameter Short Name | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Failures |",
-            "|---:|---|---:|---:|---:|---:|---:|",
+            "| Rank | Parameter Short Name | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Failures | Discovery Time | Search Space % |",
+            "|---:|---|---:|---:|---:|---:|---:|---:|---:|",
         ])
         for result in top_parameter_sets[:5]:
             stats = result.get("summary", {}) if isinstance(result, dict) else {}
@@ -348,12 +362,14 @@ def build_summary(
             delta_mean_iou = mean_iou - winner_mean
             parameter_set_name = _parameter_short_name(result)
             failure_count = stats.get("failure_count", "unknown")
+            observation = _search_observation(result)
 
             lines.append(
                 f"| {result.get('rank', 'unknown')} | `{parameter_set_name}` | "
                 f"{_number(mean_iou)} | {_number(stats.get('minimum_iou'))} | "
                 f"{_number(stats.get('stddev_iou'))} | {delta_mean_iou:+.4f} | "
-                f"{failure_count} |"
+                f"{failure_count} | {_duration(observation.get('elapsed_seconds'))} | "
+                f"{_search_space_percent(observation)} |"
             )
 
     winner_page_report = summary.get("winner_page_report", {})
@@ -385,16 +401,28 @@ def build_summary(
                 f"{page.get('status', 'unknown')} | `{_short(page.get('parameter_set'), 12)}` |"
             )
 
+        winner_history = progress.get("winner_history", []) if isinstance(progress.get("winner_history"), list) else []
         lines.extend([
             "",
             "#### Winner History",
             "",
-            "| Measure | Value |",
-            "|---|---:|",
-            f"| Winner changes | {progress.get('winner_changes', 0)} |",
-            f"| Winner first changed | {_duration(progress.get('winner_first_changed_elapsed_seconds'))} |",
-            f"| Winner last changed | {_duration(progress.get('winner_last_changed_elapsed_seconds'))} |",
-            f"| Search completed | {_duration(info.get('elapsed_seconds'))} |",
+            "| # (final winner) | Parameter Set ID | Search Time | % Search |",
+            "|---:|---|---:|---:|",
+        ])
+        for event in winner_history[-5:]:
+            marker = f"{event.get('change_number', 'unknown')}"
+            if event is winner_history[-1]:
+                marker += " (final)"
+            lines.append(
+                f"| {marker} | `{_short(event.get('parameter_set_id'), 12)}` | "
+                f"{_duration(event.get('elapsed_seconds'))} | {_search_space_percent(event)} |"
+            )
+        if not winner_history:
+            lines.append("| — | unavailable | unknown | unknown |")
+        lines.extend([
+            "",
+            f"Total winner changes: **{progress.get('winner_changes', 0)}**.",
+            f"Search completed in **{_duration(info.get('elapsed_seconds'))}**.",
         ])
 
         thresholds = winner_page_report.get("thresholds", {})
@@ -415,7 +443,7 @@ def build_summary(
             "- **No polygon found:** the detector completed without returning a polygon.",
             "- **Unprocessed:** evaluation raised an error.",
             "",
-            "### Problem Pages",
+            "### Golden Set Page Issues",
             "",
             f"- Unprocessed pages: `{counts.get('unprocessed_pages', 0)}`",
             f"- No polygon found: `{counts.get('no_polygon_found', 0)}`",
@@ -493,7 +521,7 @@ def _detector_summary_and_roi(detector: str, payload: dict[str, Any]) -> tuple[l
     else:
         findings.append("No measured parameter was dormant in this calibration sample.")
     if success < 0.50 or page_success == 0.0:
-        findings.append("Frequent failed page evaluations indicate fragility on at least part of the Golden Set.")
+        findings.append(f"Detector failed on at least one Golden Set page for {max(0, int(search.get('parameter_sets', 0) or 0) - int(search.get('fully_successful_parameter_sets', 0) or 0))} of {int(search.get('parameter_sets', 0) or 0)} parameter configurations.")
     elif success >= 0.90:
         findings.append("Most parameter sets evaluated every Golden Set page successfully.")
     if spread >= 0.10:
@@ -514,7 +542,7 @@ def _detector_summary_and_roi(detector: str, payload: dict[str, Any]) -> tuple[l
     return findings, roi
 
 
-def _render_detector_calibration(detector: str, payload: dict[str, Any]) -> list[str]:
+def _render_detector_calibration(detector: str, payload: dict[str, Any], summary: dict[str, Any] | None = None) -> list[str]:
     search = payload.get("search", {}) if isinstance(payload.get("search"), dict) else {}
     landscape = payload.get("landscape", {}) if isinstance(payload.get("landscape"), dict) else {}
     confidence = payload.get("calibration_confidence", {}) if isinstance(payload.get("calibration_confidence"), dict) else {}
@@ -523,6 +551,10 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any]) -> list
     pages = payload.get("page_sensitivity", []) if isinstance(payload.get("page_sensitivity"), list) else []
     recommendations = payload.get("recommendations", {}) if isinstance(payload.get("recommendations"), dict) else {}
     findings, roi = _detector_summary_and_roi(detector, payload)
+    summary = summary or {}
+    progress = summary.get("progress", {}) if isinstance(summary.get("progress"), dict) else {}
+    winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else None
+    winner_observation = _search_observation(winner)
 
     lines = [
         f"### {detector}",
@@ -549,14 +581,15 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any]) -> list
         f"| Best Avg IoU | {_number(landscape.get('best_mean_iou'))} |",
         f"| Minimum Avg IoU | {_number(landscape.get('minimum_mean_iou'))} |",
         f"| Avg IoU StdDev | {_number(landscape.get('stddev_mean_iou'))} |",
-        f"| 95th-percentile Avg IoU | {_number(landscape.get('p95_mean_iou'))} |",
+        f"| Winner stabilized after | {winner_observation.get('parameter_set_number', 'unknown')} parameter sets |",
+        f"| Winner stabilized | {_duration(winner_observation.get('elapsed_seconds'))} ({_search_space_percent(winner_observation)} search complete) |",
         f"| Near-best basin (within {float(landscape.get('near_best_tolerance', 0.001) or 0.001):.4f}) | {landscape.get('near_best_count', 'unknown')} ({_percent(landscape.get('near_best_share'))}) |",
         f"| Equivalent-winner basin (within {float(landscape.get('equivalent_tolerance', 0.0001) or 0.0001):.4f}) | {landscape.get('equivalent_winner_count', 'unknown')} ({_percent(landscape.get('equivalent_winner_share'))}) |",
-        f"| Calibration Characterization Confidence | {confidence.get('rating', 'unknown')} |",
+        f"| Calibration Evidence | {confidence.get('rating', 'unknown')} |",
     ])
     reasons = confidence.get("reasons", []) if isinstance(confidence.get("reasons"), list) else []
     if reasons:
-        lines.extend(["", f"Confidence basis: {', '.join(str(reason) for reason in reasons)}."])
+        lines.extend(["", f"Calibration evidence basis: {', '.join(str(reason) for reason in reasons)}."])
 
     if parameters:
         lines.extend([
@@ -622,11 +655,15 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any]) -> list
 
 def _render_calibration_report(run_dirs: list[Path], combined_rows: list[dict[str, Any]]) -> list[str]:
     payload_by_detector: dict[str, dict[str, Any]] = {}
+    summary_by_detector: dict[str, dict[str, Any]] = {}
     missing: list[str] = []
     for run_dir in run_dirs:
         manifest = _read_json(run_dir / "manifest.json")
         detector = str(manifest.get("detector", run_dir.parent.name))
         payload = _calibration_payload(run_dir)
+        summary_path = run_dir / "reports" / "summary.json"
+        if summary_path.is_file():
+            summary_by_detector[detector] = _read_json(summary_path)
         if payload is None:
             missing.append(detector)
         else:
@@ -634,16 +671,7 @@ def _render_calibration_report(run_dirs: list[Path], combined_rows: list[dict[st
 
     lines = [
         "## Detector Calibration Report", "",
-        "This section characterizes the evaluated calibration landscapes, parameter influence, interactions, optimum-basin width, page sensitivity, and opportunities to reduce future search cost. All findings are corpus- and grid-specific and must be revalidated when the Golden Set or parameter space changes.", "",
-        "### Calibration Report Legend", "",
-        "- **Generator:** proposes an original page boundary from its primary visual evidence.",
-        "- **Validator:** scores or confirms a hypothesis generated elsewhere without normally proposing a competing boundary.",
-        "- **Hybrid:** combines a generator with one or more materially distinct validation signals, or fuses multiple generators.",
-        "- **Critical / Important / Moderate / Low / Dormant:** plain-English parameter-influence classes, from dominant measured association to no material measured effect in this grid.",
-        "- **Near-best basin:** share of tested parameter sets within the displayed tolerance of the best Avg IoU; broader basins indicate more forgiving calibration.",
-        "- **Equivalent winners:** share of tested sets effectively tied with the best result at the stricter displayed tolerance.",
-        "- **Calibration Characterization Confidence:** confidence that this run adequately describes the tested landscape, not confidence that the detector will generalize beyond this Golden Set and grid.",
-        "- **Evidence tables:** identify what each detector actually observes and whether that evidence generates, validates, filters, or scores a page hypothesis.", "",
+        "This section characterizes the evaluated calibration landscapes, parameter influence, interactions, optimum-basin width, page sensitivity, and opportunities to reduce future search cost. All findings are Golden Set- and grid-specific and must be revalidated when the Golden Set or parameter space changes.", "",
     ]
     if not payload_by_detector:
         lines.append("Calibration intelligence was not available for these runs.")
@@ -651,7 +679,7 @@ def _render_calibration_report(run_dirs: list[Path], combined_rows: list[dict[st
 
     lines.extend([
         "### Calibration Overview", "",
-        "| Rank | Detector | Role | Coverage | Parameter sets | Successful | Best Avg IoU | Min IoU | StdDev | Δ Baseline Avg IoU | Near-best basin | Equivalent winners | Characterization Confidence |",
+        "| Rank | Detector | Role | Coverage | Parameter sets | Successful | Best Avg IoU | Min IoU | StdDev | Δ Baseline Avg IoU | Near-best basin | Equivalent winners | Calibration Evidence |",
         "|---:|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ])
     for rank, row in enumerate(combined_rows, start=1):
@@ -672,13 +700,24 @@ def _render_calibration_report(run_dirs: list[Path], combined_rows: list[dict[st
             f"{delta_text} | {_percent(landscape.get('near_best_share'))} | "
             f"{_percent(landscape.get('equivalent_winner_share'))} | {confidence.get('rating', 'unknown')} |"
         )
+    lines.extend([
+        "", "### Calibration Report Legend", "",
+        "- **Generator:** proposes an original page boundary from its primary visual evidence.",
+        "- **Validator:** scores or confirms a hypothesis generated elsewhere without normally proposing a competing boundary.",
+        "- **Hybrid (detectors):** combines the named generator and validator or fuses the named generators.",
+        "- **Critical / Important / Moderate / Low / Dormant:** plain-English parameter-influence classes, from dominant measured association to no material measured effect in this grid.",
+        "- **Near-best basin:** share of tested parameter sets within the displayed tolerance of the best Avg IoU; broader basins indicate more forgiving calibration.",
+        "- **Equivalent winners:** share of tested sets effectively tied with the best result at the stricter displayed tolerance.",
+        "- **Calibration Evidence:** strength of evidence that this run adequately describes the tested landscape; it is not confidence that the detector generalizes beyond this Golden Set and grid.",
+        "- **Evidence tables:** identify what each detector actually observes and whether that evidence generates, validates, filters, or scores a page hypothesis.",
+    ])
     if missing:
         lines.extend(["", "Calibration intelligence unavailable for: " + ", ".join(f"`{name}`" for name in missing) + "."])
     for row in combined_rows:
         detector = str(row["detector"])
         payload = payload_by_detector.get(detector)
         if payload:
-            lines.extend(["", *_render_detector_calibration(detector, payload)])
+            lines.extend(["", *_render_detector_calibration(detector, payload, summary_by_detector.get(detector))])
     return lines
 
 def _combined_result_row(run_dir: Path) -> dict[str, Any]:
@@ -770,7 +809,7 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
         recommendation_notes.append(roi)
     lines.extend([
         "",
-        "## Corpus Recommendation",
+        "## Detector Recommendation for this Golden Set",
         "",
         f"- **Recommended detector:** `{best_detector}`",
         f"- **Best observed Avg IoU:** `{_number(best_row.get('mean_iou'))}`",
@@ -782,7 +821,7 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
         lines.extend(["", "**Recommendation basis:**", ""] + [f"- {note}" for note in recommendation_notes])
     lines.extend([
         "",
-        "This recommendation is source-specific and should be revisited when the Golden Set, parameter grid, or source document changes.",
+        "This recommendation is specific to the evaluated Golden Set and parameter grid and should be revisited when the Golden Set, parameter grid, or source document changes.",
         "",
         "## Ranked Detector Results",
         "",

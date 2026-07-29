@@ -97,7 +97,7 @@ The report includes:
 - exploratory pairwise interaction estimates from a deterministic bounded sample;
 - per-page mean, minimum, maximum, standard deviation, and success rate;
 - dormant-parameter recommendations for reducing future searches;
-- Calibration Characterization Confidence based on search completeness, success rate, basin width, and sample size; and
+- Calibration Evidence based on search completeness, success rate, basin width, and sample size; and
 - a corpus recommendation naming the highest-ranked detector and the evidence supporting a source-specific freeze-or-continue decision.
 
 Each individual detector result also includes an evidence table describing the visual evidence it generates or validates. The Golden Set Winner Summary records winner-change count, first and last winner-change times, and search completion time.
@@ -168,9 +168,9 @@ The console summary reports **Fully successful parameter sets**. A parameter set
 
 ## Human-readable winner analysis
 
-The GitHub Actions regression summary includes a top-five parameter-set ranking, a Golden Set Winner Summary, a status legend, and a Problem Pages section. Parameter-set and provenance hashes are displayed as consistent 12-character prefixes while the canonical JSON artifacts retain the complete values.
+The GitHub Actions regression summary includes a top-five parameter-set ranking, a Golden Set Winner Summary, a status legend, and a Golden Set Page Issues section. Parameter-set and provenance hashes are displayed as consistent 12-character prefixes while the canonical JSON artifacts retain the complete values.
 
-Golden Set winner rows are ordered by winner IoU from best match to worst match, with Golden Set page number as the tie-breaker. The same regression threshold drives both the `Regressed` status and the Problem Pages regression count, so the summary cannot label pages as regressed while reporting zero regressed pages. Threshold values are printed directly in the legend and Problem Pages labels.
+Golden Set winner rows are ordered by winner IoU from best match to worst match, with Golden Set page number as the tie-breaker. The same regression threshold drives both the `Regressed` status and the Golden Set Page Issues regression count, so the summary cannot label pages as regressed while reporting zero regressed pages. Threshold values are printed directly in the legend and Golden Set Page Issues labels.
 
 GitHub Actions job summaries render static Markdown and sanitized HTML; they do not permit the JavaScript required for click-sortable table headers. Complete machine-readable page results remain available in `reports/winner-pages.json` for external sorting and analysis.
 
@@ -179,7 +179,7 @@ GitHub Actions job summaries render static Markdown and sanitized HTML; they do 
 Detector regression accepts:
 
 ```text
---threads 1|2|4|8|16|32|64|128|256|512|1024
+--threads 1|2|4|8|16|32|64|96|128|256|512|1024|48
 ```
 
 The default is `--threads 1`, preserving the existing serial behavior. Exhaustive
