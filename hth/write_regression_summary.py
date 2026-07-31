@@ -718,6 +718,51 @@ def build_summary(
         else:
             lines.extend(["", "No problem pages were identified."])
 
+    calibration_payload = _calibration_payload(run_dir)
+    if calibration_payload is not None:
+        requested_strategy = manifest.get("requested_strategy", info.get("requested_strategy", manifest.get("strategy", "unknown")))
+        resolved_strategy = manifest.get("strategy", info.get("strategy", "unknown"))
+        fallback_reason = manifest.get("strategy_fallback_reason", info.get("strategy_fallback_reason"))
+        confidence = calibration_payload.get("calibration_confidence", {}) if isinstance(calibration_payload.get("calibration_confidence"), dict) else {}
+        recommendations = calibration_payload.get("recommendations", {}) if isinstance(calibration_payload.get("recommendations"), dict) else {}
+        domain_space = calibration_payload.get("domain_space", {}) if isinstance(calibration_payload.get("domain_space"), dict) else {}
+        lines.extend([
+            "",
+            "## Calibration Intelligence",
+            "",
+            "This run generated the same machine-readable calibration intelligence used by the multi-detector smoke regression. The conclusions remain specific to this Golden Set and configured parameter grid.",
+            "",
+            "### Calibration Identity",
+            "",
+            f"- Calibration run ID: `{manifest.get('run_id', 'unknown')}`",
+            f"- Calibration schema: `{calibration_payload.get('schema_version', 'unknown')}`",
+            f"- Detector: `{manifest.get('detector', 'unknown')}`",
+            f"- Detector configuration: `{info.get('detector_config', parameters.get('detector_config', 'unknown'))}`",
+            f"- Golden Set configuration: `{info.get('golden_set', parameters.get('golden_set', 'unknown'))}`",
+            f"- Golden Set SHA-256: `{info.get('golden_set_sha256', parameters.get('golden_set_sha256', summary.get('golden_set_sha256', 'unknown')))}`",
+            f"- Pipeline commit: `{info.get('pipeline_commit', 'unknown')}`",
+            f"- Source commit: `{info.get('source_commit', summary.get('source_commit', 'unknown'))}`",
+            f"- Requested search strategy: `{requested_strategy}`",
+            f"- Resolved search strategy: `{resolved_strategy}`",
+            f"- Strategy fallback: `{fallback_reason or 'none'}`",
+            f"- Configured threads: `{info.get('threads', summary.get('threads', parameters.get('threads', 'unknown')))}`",
+            "",
+            "### Detector-Selection Intelligence",
+            "",
+            f"- Recommended parameter set: `{_parameter_id(winner)}`",
+            f"- Recommended parameter short name: `{_parameter_short_name(winner)}`",
+            f"- Best observed Avg IoU: `{_number(winner_stats.get('mean_iou'))}`",
+            f"- Worst Golden Set page (Min IoU): `{_number(winner_stats.get('minimum_iou'))}`",
+            f"- Page-to-page StdDev: `{_number(winner_stats.get('stddev_iou'))}`",
+            f"- Calibration evidence: `{confidence.get('rating', 'unknown')}`",
+            f"- Dormant parameters: `{', '.join(str(v) for v in recommendations.get('dormant_parameters', [])) if isinstance(recommendations.get('dormant_parameters'), list) and recommendations.get('dormant_parameters') else 'none'}`",
+            f"- Available domain spaces: `{', '.join(str(key) for key, value in domain_space.items() if isinstance(value, dict) and int(value.get('parameter_set_count', 0) or 0) > 0) or 'none'}`",
+            "",
+            "### Calibration Analysis",
+            "",
+        ])
+        lines.extend(_render_detector_calibration(detector_name, calibration_payload, summary))
+
     if run_url:
         lines.extend(["", f"[Open workflow run]({run_url})"])
     lines.append("")

@@ -86,6 +86,65 @@ class RegressionSummaryTests(unittest.TestCase):
                 }
             }), encoding="utf-8")
 
+            (run / "reports" / "calibration-intelligence.json").write_text(json.dumps({
+                "schema_version": "1.0",
+                "detector": "grabcut",
+                "available": True,
+                "scope_note": "Golden Set-specific calibration.",
+                "search": {
+                    "strategy": "binary-refine",
+                    "parameter_sets": 42,
+                    "possible_parameter_sets": 84,
+                    "exhaustive_complete": False,
+                    "fully_successful_parameter_sets": 40,
+                    "fully_successful_rate": 40 / 42,
+                },
+                "landscape": {
+                    "best_mean_iou": .97,
+                    "minimum_mean_iou": .50,
+                    "stddev_mean_iou": .10,
+                    "near_best_count": 2,
+                    "near_best_share": 2 / 42,
+                    "equivalent_winner_count": 1,
+                    "equivalent_winner_share": 1 / 42,
+                    "near_best_tolerance": .001,
+                    "equivalent_tolerance": .0001,
+                },
+                "parameter_influence": [
+                    {
+                        "parameter": "iterations",
+                        "classification": "Important",
+                        "eta_squared": .25,
+                        "mean_iou_range": .15,
+                        "near_best_value_coverage": .5,
+                        "best_values": [{"value": 5, "mean_iou": .97}],
+                    },
+                    {
+                        "parameter": "margin",
+                        "classification": "Dormant",
+                        "eta_squared": 0,
+                        "mean_iou_range": 0,
+                        "near_best_value_coverage": 1,
+                        "best_values": [{"value": .05, "mean_iou": .90}],
+                    },
+                ],
+                "domain_space": {
+                    "exhaustive": {"parameter_set_count": 84},
+                    "non_dormant": {"parameter_set_count": 7},
+                    "important_plus": {"parameter_set_count": 3},
+                },
+                "interactions": [],
+                "page_sensitivity": [],
+                "recommendations": {
+                    "dormant_parameters": ["margin"],
+                    "note": "Revalidate when Golden Set changes.",
+                },
+                "calibration_confidence": {
+                    "rating": "Moderate",
+                    "reasons": ["partial search"],
+                },
+            }), encoding="utf-8")
+
             text = build_summary(run, "https://example.invalid/run")
             self.assertIn("# Regression Manifest", text)
             self.assertIn("`grabcut`", text)
@@ -123,6 +182,14 @@ class RegressionSummaryTests(unittest.TestCase):
             )
             self.assertIn("`raw/results.csv` — present", text)
             self.assertIn("`reports/summary.json` — present", text)
+            self.assertIn("## Calibration Intelligence", text)
+            self.assertIn("### Calibration Identity", text)
+            self.assertIn("### Detector-Selection Intelligence", text)
+            self.assertIn("### Calibration Analysis", text)
+            self.assertIn("#### Parameter Set Domain Space Reduction", text)
+            self.assertIn("#### Parameter Influence", text)
+            self.assertIn("Dormant parameters: `margin`", text)
+            self.assertIn("Available domain spaces: `exhaustive, non_dormant, important_plus`", text)
             self.assertIn("[Open workflow run]", text)
 
     def test_builds_combined_manifest_for_multiple_detectors(self):
