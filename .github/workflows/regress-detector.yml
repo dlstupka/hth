@@ -65,8 +65,13 @@ on:
         default: exhaustive
         type: choice
         options:
-          - binary-refine
           - exhaustive
+          - non-dormant
+          - low+
+          - moderate+
+          - important+
+          - critical
+          - binary-refine
       limit:
         description: Optional exhaustive parameter-set limit; blank means no limit
         required: false
@@ -615,6 +620,14 @@ jobs:
               args+=(--strategy exhaustive --limit "$effective_limit")
             else
               args+=(--strategy "$STRATEGY")
+              if [[ "$STRATEGY" =~ ^(non-dormant|low\+|moderate\+|important\+|critical)$ ]]; then
+                calibration_file="$(find results-repo -type f -path "*/$detector_name/*/reports/calibration-intelligence.json" -print 2>/dev/null | sort | tail -1 || true)"
+                if [[ -n "$calibration_file" ]]; then
+                  args+=(--calibration-intelligence "$calibration_file")
+                else
+                  echo "No prior calibration intelligence found for $detector_name; runner will fall back to exhaustive."
+                fi
+              fi
             fi
 
             echo " "

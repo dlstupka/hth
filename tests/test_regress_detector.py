@@ -71,3 +71,24 @@ def test_components_pre_regression_sections_are_ordered_and_research_focused() -
     search_space = dict(sections[1]["rows"])
     assert search_space["Morphology variants"] == 6
     assert algorithm["Operation sequence"] == "closing -> dilation"
+
+
+def test_effect_strategy_falls_back_to_next_larger_domain() -> None:
+    from hth.regression.runner import _resolve_effect_strategy
+    metadata = {"domain_space": {
+        "critical": {"parameter_set_count": 0},
+        "important_plus": {"parameter_set_count": 0},
+        "moderate_plus": {"parameter_set_count": 3},
+    }}
+    actual, domain, reason = _resolve_effect_strategy("critical", metadata)
+    assert actual == "moderate+"
+    assert domain["parameter_set_count"] == 3
+    assert "fell back" in reason
+
+
+def test_effect_strategy_defaults_to_exhaustive_without_metadata() -> None:
+    from hth.regression.runner import _resolve_effect_strategy
+    actual, domain, reason = _resolve_effect_strategy("non-dormant", None)
+    assert actual == "exhaustive"
+    assert domain is None
+    assert "exhaustive" in reason

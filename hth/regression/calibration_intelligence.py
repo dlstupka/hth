@@ -13,6 +13,49 @@ INTERACTION_SAMPLE_LIMIT = 50_000
 INTERACTION_PARAMETER_LIMIT = 6
 
 
+_EFFECT_GROUP_RANK = {
+    "Dormant": 0,
+    "Low": 1,
+    "Moderate": 2,
+    "Important": 3,
+    "Critical": 4,
+}
+
+
+def _domain_space(parameters_report: list[dict[str, Any]], winner_parameters: dict[str, Any], possible_parameter_sets: int | None) -> dict[str, Any]:
+    """Build executable cumulative effect-size parameter domains."""
+    exhaustive_count = int(possible_parameter_sets or 0)
+    domains: dict[str, Any] = {
+        "exhaustive": {
+            "parameter_set_count": exhaustive_count,
+            "included_parameters": [str(item.get("parameter")) for item in parameters_report],
+            "fixed_parameters": {},
+        }
+    }
+    specifications = (
+        ("non_dormant", 1),
+        ("low_plus", 1),
+        ("moderate_plus", 2),
+        ("important_plus", 3),
+        ("critical", 4),
+    )
+    for key, minimum_rank in specifications:
+        included = [
+            item for item in parameters_report
+            if _EFFECT_GROUP_RANK.get(str(item.get("classification")), 0) >= minimum_rank
+        ]
+        count = math.prod(max(1, int(item.get("value_count", 1) or 1)) for item in included) if included else 0
+        names = [str(item.get("parameter")) for item in included]
+        domains[key] = {
+            "parameter_set_count": count,
+            "included_parameters": names,
+            "fixed_parameters": {
+                name: value for name, value in winner_parameters.items() if name not in names
+            },
+        }
+    return domains
+
+
 def _value_key(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
@@ -247,6 +290,8 @@ def build_calibration_intelligence(
         set_count=count,
     )
     dormant = [item["parameter"] for item in parameters_report if item["classification"] == "Dormant"]
+    winner_parameters = ranked[0].get("parameters", {}) if isinstance(ranked[0].get("parameters"), dict) else {}
+    domain_space = _domain_space(parameters_report, winner_parameters, possible_parameter_sets)
 
     return {
         "schema_version": "1.0",
@@ -278,6 +323,7 @@ def build_calibration_intelligence(
             "near_best_tolerance": NEAR_BEST_ABSOLUTE_TOLERANCE,
         },
         "parameter_influence": parameters_report,
+        "domain_space": domain_space,
         "interactions": interactions[:10],
         "interaction_method": {
             "parameters_considered": interaction_parameters,

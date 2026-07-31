@@ -113,13 +113,57 @@ def print_report_sections(sections: list[dict[str, Any]]) -> None:
             print(f"{str(label):<{label_width}} : {value}")
         print(" ")
 
+EFFECT_STRATEGY_KEYS = {
+    "non-dormant": "non_dormant",
+    "low+": "low_plus",
+    "moderate+": "moderate_plus",
+    "important+": "important_plus",
+    "critical": "critical",
+}
+EFFECT_FALLBACK_ORDER = ["critical", "important+", "moderate+", "low+", "non-dormant", "exhaustive"]
+
+
+def _resolve_effect_strategy(requested: str, metadata: dict[str, Any] | None) -> tuple[str, dict[str, Any] | None, str | None]:
+    if requested not in EFFECT_STRATEGY_KEYS:
+        return requested, None, None
+    domains = metadata.get("domain_space", {}) if isinstance(metadata, dict) else {}
+    start = EFFECT_FALLBACK_ORDER.index(requested)
+    for candidate in EFFECT_FALLBACK_ORDER[start:]:
+        if candidate == "exhaustive":
+            return "exhaustive", None, f"No available parameter sets for {requested}; fell back to exhaustive."
+        domain = domains.get(EFFECT_STRATEGY_KEYS[candidate]) if isinstance(domains, dict) else None
+        if isinstance(domain, dict) and int(domain.get("parameter_set_count", 0) or 0) > 0:
+            reason = None if candidate == requested else f"No available parameter sets for {requested}; fell back to {candidate}."
+            return candidate, domain, reason
+    return "exhaustive", None, f"No available parameter sets for {requested}; fell back to exhaustive."
+
+
+def _filter_parameter_sets(parameter_sets: list[dict[str, Any]], domain: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not domain:
+        return parameter_sets
+    included = set(str(name) for name in domain.get("included_parameters", []))
+    fixed = domain.get("fixed_parameters", {}) if isinstance(domain.get("fixed_parameters"), dict) else {}
+    filtered: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for parameters in parameter_sets:
+        if any(parameters.get(name) != value for name, value in fixed.items()):
+            continue
+        reduced = {name: value for name, value in parameters.items() if name in included or name in fixed}
+        key = canonical_parameters(reduced)
+        if key not in seen:
+            seen.add(key)
+            filtered.append(parameters)
+    return filtered
+
+
 def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
     p=argparse.ArgumentParser()
     p.add_argument("--detector-config",type=Path,required=True)
     p.add_argument("--golden-set",type=Path,required=True)
     p.add_argument("--image-root",type=Path,required=True)
     p.add_argument("--output",type=Path,required=True,help="Regression root; a detector/run-* directory is created below it.")
-    p.add_argument("--strategy",choices=("exhaustive","binary-refine"),default="exhaustive")
+    p.add_argument("--strategy",choices=("exhaustive","binary-refine","non-dormant","low+","moderate+","important+","critical"),default="exhaustive")
+    p.add_argument("--calibration-intelligence",type=Path,default=None,help="Prior calibration-intelligence.json used for effect-size-domain strategies.")
     p.add_argument("--max-dimension",type=int,default=1800)
     p.add_argument("--limit",type=int,default=None)
     p.add_argument("--top",type=int,default=20)
@@ -529,8 +573,10 @@ def run(args:argparse.Namespace)->Path:
     environment=environment_info(repository_root(args.detector_config))
     source_commit=os.environ.get("HTH_SOURCE_COMMIT")
     golden_set_sha256=file_sha256(args.golden_set)
-    write_json(run_dir/"parameters.json",{"schema_version":"0.3","detector":name,"strategy":args.strategy,"detector_config":str(args.detector_config),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"image_root":str(args.image_root),"max_dimension":args.max_dimension,"limit":args.limit,"threads":args.threads,"configuration":config})
-    manifest={"schema_version":"0.1","run_id":run_id,"detector":name,"strategy":args.strategy,"status":"running","started_at_utc":started,"outputs":[]}
+    requested_strategy = args.strategy
+    effective_strategy = requested_strategy
+    strategy_fallback_reason = None
+    manifest={"schema_version":"0.1","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"status":"running","started_at_utc":started,"outputs":[]}
     write_json(run_dir/"manifest.json",manifest)
     try:
         pages=load_pages(args.golden_set,args.image_root,args.max_dimension); detector=DETECTORS[name]
@@ -547,6 +593,16 @@ def run(args:argparse.Namespace)->Path:
 
         all_parameter_sets=cartesian_generate(config)
         possible_parameter_set_count=len(all_parameter_sets)
+        calibration_metadata = None
+        if args.calibration_intelligence and args.calibration_intelligence.is_file():
+            calibration_metadata = json.loads(args.calibration_intelligence.read_text(encoding="utf-8"))
+        requested_strategy = args.strategy
+        effective_strategy, effect_domain, strategy_fallback_reason = _resolve_effect_strategy(requested_strategy, calibration_metadata)
+        if effect_domain is not None:
+            all_parameter_sets = _filter_parameter_sets(all_parameter_sets, effect_domain)
+        write_json(run_dir/"parameters.json",{"schema_version":"0.4","detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"detector_config":str(args.detector_config),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"image_root":str(args.image_root),"max_dimension":args.max_dimension,"limit":args.limit,"threads":args.threads,"configuration":config})
+        manifest.update({"strategy": effective_strategy, "requested_strategy": requested_strategy, "strategy_fallback_reason": strategy_fallback_reason})
+        write_json(run_dir/"manifest.json", manifest)
         exhaustive_candidates=[
             parameters for parameters in all_parameter_sets
             if canonical_parameters(parameters) != baseline_key
@@ -554,13 +610,13 @@ def run(args:argparse.Namespace)->Path:
         if args.limit is not None:
             exhaustive_candidates=exhaustive_candidates[:args.limit]
         planned_parameter_set_count=(
-            1 + len(exhaustive_candidates) if args.strategy=="exhaustive" else None
+            1 + len(exhaustive_candidates) if effective_strategy=="exhaustive" or effective_strategy in EFFECT_STRATEGY_KEYS else None
         )
-        estimated_total=len(exhaustive_candidates) if args.strategy=="exhaustive" else max(0,possible_parameter_set_count-1)
+        estimated_total=len(exhaustive_candidates) if effective_strategy=="exhaustive" or effective_strategy in EFFECT_STRATEGY_KEYS else max(0,possible_parameter_set_count-1)
 
         print_environment_banner(environment=environment,detector=name,golden_set=args.golden_set,golden_set_sha256=golden_set_sha256,source_commit=source_commit)
         print_parameter_scope(
-            strategy=args.strategy,
+            strategy=effective_strategy,
             possible_sets=possible_parameter_set_count,
             planned_sets=planned_parameter_set_count,
             golden_pages=len(pages),
@@ -615,7 +671,7 @@ def run(args:argparse.Namespace)->Path:
             if observe:
                 progress.observe(result,profile)
             return result
-        if args.strategy=="exhaustive":
+        if effective_strategy=="exhaustive" or effective_strategy in EFFECT_STRATEGY_KEYS:
             if args.threads == 1:
                 candidate_results=[evaluate(p) for p in exhaustive_candidates]
             else:
@@ -643,13 +699,13 @@ def run(args:argparse.Namespace)->Path:
         raw=run_dir/"raw"/"results.csv"; rankings=run_dir/"reports"/"rankings.csv"; top=run_dir/"reports"/"top20.csv"
         write_raw_results(raw,ranked); write_rankings(rankings,ranked); write_rankings(top,ranked[:max(0,args.top)])
         winner_pages = build_winner_page_report(ranked[0], baseline)
-        summary={"schema_version":"0.8","run_id":run_id,"detector":name,"strategy":args.strategy,"threads":args.threads,"parameter_space":{"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ranked)*len(pages)},"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"winner":ranked[0],"baseline":baseline,"top_parameter_sets":ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,"performance":{"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl"},"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":progress.baseline_surpassed,"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds,"winner_history":progress_snapshot.winner_history,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
+        summary={"schema_version":"0.8","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"threads":args.threads,"parameter_space":{"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ranked)*len(pages)},"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"winner":ranked[0],"baseline":baseline,"top_parameter_sets":ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,"performance":{"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl"},"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":progress.baseline_surpassed,"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds,"winner_history":progress_snapshot.winner_history,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
         write_json(run_dir/"reports"/"summary.json",summary)
         write_json(run_dir/"reports"/"winner-pages.json",winner_pages)
         calibration_intelligence = build_calibration_intelligence(
             ranked,
             detector=name,
-            strategy=args.strategy,
+            strategy=effective_strategy,
             possible_parameter_sets=possible_parameter_set_count,
         )
         write_json(
@@ -659,7 +715,7 @@ def run(args:argparse.Namespace)->Path:
         debug_outputs = [] if debug_policy == "none" else write_debug_artifacts(
             args.output, name, run_id, policy=debug_policy, ranked=ranked, pages=pages
         )
-        finished=utc_now(); info={"schema_version":"0.3","run_id":run_id,"detector":name,"strategy":args.strategy,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"detector_config":str(args.detector_config),"debug_artifacts":debug_policy,"source_commit":source_commit,"threads":args.threads,"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"performance_samples":len(performance_samples),"peak_rss_bytes":peak_rss_bytes(),**environment}
+        finished=utc_now(); info={"schema_version":"0.3","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"detector_config":str(args.detector_config),"debug_artifacts":debug_policy,"source_commit":source_commit,"threads":args.threads,"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"performance_samples":len(performance_samples),"peak_rss_bytes":peak_rss_bytes(),**environment}
         write_json(run_dir/"RUN-INFO.json",info)
         manifest.update({
             "status": "complete",
@@ -701,7 +757,7 @@ def run(args:argparse.Namespace)->Path:
             ("Run", run_id),
             ("Elapsed", f"{elapsed_seconds:.1f}s"),
             ("Average Eval Rate", f"{(len(ranked)/elapsed_seconds if elapsed_seconds else 0.0):.4f}/s"),
-            ("Search Strategy", args.strategy),
+            ("Search Strategy", effective_strategy),
             ("Threads", args.threads),
             ("Possible parameter sets", possible_parameter_set_count),
             ("Planned parameter sets", planned_parameter_set_count if planned_parameter_set_count is not None else "adaptive / unknown"),

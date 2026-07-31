@@ -676,15 +676,15 @@ def build_summary(
                 "",
                 "#### Affected Pages",
                 "",
-                "| Golden Set Page | Winner IoU | Problem | Parameter Set ID |",
-                "|---:|---:|---|---|",
+                "| Golden Set Page | Parameter Set ID | Winner IoU | Problem |",
+                "|---:|---|---:|---|",
             ])
             for page in problem_pages:
                 reasons = "; ".join(str(reason) for reason in page.get("problem_reasons", [])) or str(page.get("status", "unknown"))
                 lines.append(
                     f"| {page.get('golden_set_page', 'unknown')} | "
-                    f"{_number(page.get('winner_iou'))} | {reasons} | "
-                    f"`{_short(page.get('parameter_set'), 12)}` |"
+                    f"`{_short(page.get('parameter_set'), 12)}` | "
+                    f"{_number(page.get('winner_iou'))} | {reasons} |"
                 )
         else:
             lines.extend(["", "No problem pages were identified."])
@@ -786,8 +786,6 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
     )
 
     lines = [
-        f"### {_detector_heading(detector)}",
-        "",
         str(payload.get("scope_note") or "Conclusions are specific to this run's Golden Set and parameter grid."),
         "",
         "#### Detector Summary",
@@ -821,6 +819,30 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
         "",
         r"\* **ETA Note:** Long parameter-set regression ETAs assume a single-threaded serial run at the measured detector page rate. Actual wall time will vary with parallelization, worker count, scheduling overhead, and parameter-dependent runtime.",
     ])
+
+    domain_space = payload.get("domain_space", {}) if isinstance(payload.get("domain_space"), dict) else {}
+    if domain_space:
+        exhaustive_count = int((domain_space.get("exhaustive") or {}).get("parameter_set_count", 0) or 0)
+        exhaustive_time = full_search_metrics[2]
+        estimated_full_seconds = None
+        if exhaustive_count and page_rate and page_count:
+            estimated_full_seconds = exhaustive_count * page_count / page_rate
+        lines.extend([
+            "", "#### Parameter Set Domain Space Reduction", "",
+            "| Effect Size Group | Parameter Sets | % All Sets | New Time Est* | Set Reduction Factor |",
+            "|---|---:|---:|---:|---:|",
+        ])
+        for key, label in (("exhaustive", "Exhaustive"), ("non_dormant", "Non-dormant"), ("low_plus", "Low+"), ("moderate_plus", "Moderate+"), ("important_plus", "Important+"), ("critical", "Critical")):
+            entry = domain_space.get(key)
+            if not isinstance(entry, dict):
+                continue
+            count_value = int(entry.get("parameter_set_count", 0) or 0)
+            percent = count_value / exhaustive_count if exhaustive_count else 0.0
+            seconds = estimated_full_seconds * percent if estimated_full_seconds is not None else None
+            factor = exhaustive_count / count_value if count_value else None
+            factor_text = f"{factor:.1f}×" if factor is not None else "unavailable"
+            lines.append(f"| {label} | {count_value} | {_percent(percent)} | {_duration(seconds)} | {factor_text} |")
+        lines.extend(["", r"\* Uses the same serial measured-page-rate assumptions as the Calibration Landscape ETA."])
     reasons = confidence.get("reasons", []) if isinstance(confidence.get("reasons"), list) else []
     if reasons:
         lines.extend(["", f"Calibration evidence basis: {', '.join(str(reason) for reason in reasons)}."])
@@ -904,9 +926,8 @@ def _render_calibration_report(run_dirs: list[Path], combined_rows: list[dict[st
             payload_by_detector[detector] = payload
 
     lines = [
-        "## Detector Calibration Report", "",
         "<details open>",
-        "<summary><strong>Calibration Report Details</strong></summary>",
+        "<summary><h2>Detector Calibration Report</h2></summary>",
         "",
         "This section characterizes the evaluated calibration landscapes, parameter influence, interactions, near-best coverage width, page sensitivity, and opportunities to reduce future search cost. All findings are Golden Set- and grid-specific and must be revalidated when the Golden Set or parameter space changes.", "",
     ]
@@ -950,12 +971,15 @@ def _render_calibration_report(run_dirs: list[Path], combined_rows: list[dict[st
     ])
     if missing:
         lines.extend(["", "Calibration intelligence unavailable for: " + ", ".join(f"`{name}`" for name in missing) + "."])
+    lines.extend(["", "<details open>", "<summary><h3>Per-Detector Calibration Reports</h3></summary>", ""])
     for row in combined_rows:
         detector = str(row["detector"])
         payload = payload_by_detector.get(detector)
         if payload:
-            lines.extend(["", *_render_detector_calibration(detector, payload, summary_by_detector.get(detector))])
-    lines.extend(["", "</details>"])
+            lines.extend(["", "<details>", f"<summary><strong>{_detector_heading(detector)}</strong></summary>", ""])
+            lines.extend(_render_detector_calibration(detector, payload, summary_by_detector.get(detector)))
+            lines.extend(["", "</details>"])
+    lines.extend(["", "</details>", "", "</details>"])
     return lines
 
 def _combined_result_row(run_dir: Path) -> dict[str, Any]:
@@ -1104,10 +1128,8 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
     aggregate_elapsed = sum(float(row.get("elapsed_seconds", 0.0) or 0.0) for row in combined_rows)
     lines.extend([
         "",
-        "## Detector Regression Reports",
-        "",
         "<details open>",
-        "<summary><strong>Detector Regression Report Details</strong></summary>",
+        "<summary><h2>Detector Regression Reports</h2></summary>",
         "",
         "### Regression Completion Summary",
         "",
@@ -1120,11 +1142,15 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
         f"| Source-document images | {source_document.get('image_count', 'unknown')} |",
         "",
         "The reports below preserve the complete manifest, winner, baseline, calibration statistics, page analysis, and output inventory for each detector run.",
+        "",
+        "<details open>",
+        "<summary><h3>Per-Detector Regression Reports</h3></summary>",
+        "",
     ])
     for index, run_dir in enumerate(run_dirs):
         manifest = _read_json(run_dir / "manifest.json")
         detector = str(manifest.get("detector", run_dir.parent.name))
-        lines.extend(["", f"### {_detector_heading(detector)}", ""])
+        lines.extend(["", "<details>", f"<summary><strong>{_detector_heading(detector)}</strong></summary>", ""])
         lines.append(
             build_summary(
                 run_dir,
@@ -1132,9 +1158,10 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
                 include_metric_definitions=False,
             ).rstrip()
         )
+        lines.extend(["", "</details>"])
         if index != len(run_dirs) - 1:
-            lines.extend(["", "---", ""])
-    lines.extend(["", "</details>"])
+            lines.extend([""])
+    lines.extend(["", "</details>", "", "</details>"])
     if run_url:
         lines.extend(["", f"[Open workflow run]({run_url})"])
     lines.append("")
