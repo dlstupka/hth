@@ -263,16 +263,43 @@ def _slugify_heading(text: str) -> str:
     return value or "section"
 
 
+def _navigation_heading(line: str) -> tuple[int, str] | None:
+    """Return the visible report level and title for Markdown and details headings."""
+    markdown = re.match(r"^(##|###) (.+)$", line)
+    if markdown:
+        return len(markdown.group(1)), markdown.group(2).strip()
+
+    details_heading = re.fullmatch(
+        r"<summary><h([23])>(.+)</h\1></summary>", line.strip()
+    )
+    if details_heading:
+        return int(details_heading.group(1)), details_heading.group(2).strip()
+
+    detector_heading = re.fullmatch(
+        r"<summary><strong>(.+)</strong></summary>", line.strip()
+    )
+    if detector_heading:
+        return 4, detector_heading.group(1).strip()
+
+    return None
+
+
 def _add_report_navigation(lines: list[str]) -> list[str]:
-    """Add a GitHub-compatible navigation pane and back links to major sections."""
+    """Add a complete TOC while leaving the report body independently collapsible.
+
+    GitHub does not expose headings embedded in ``<summary>`` elements to the
+    normal Markdown table of contents.  HTH deliberately uses those summaries
+    for the calibration, regression, and per-detector nesting, so collect both
+    ordinary Markdown headings and details-summary headings here.  Explicit
+    anchors make every TOC entry stable even when its target is collapsed.
+    """
     headings: list[tuple[int, str, str]] = []
     used: dict[str, int] = {}
     for line in lines:
-        match = re.match(r"^(##|###) (.+)$", line)
-        if not match:
+        heading = _navigation_heading(line)
+        if heading is None:
             continue
-        level = len(match.group(1))
-        title = match.group(2).strip()
+        level, title = heading
         base = _slugify_heading(title)
         used[base] = used.get(base, 0) + 1
         slug = base if used[base] == 1 else f"{base}-{used[base]}"
@@ -289,30 +316,32 @@ def _add_report_navigation(lines: list[str]) -> list[str]:
         "",
     ]
     for level, title, slug in headings:
-        indent = "  " if level == 3 else ""
+        indent = "  " * max(0, level - 2)
         navigation.append(f"{indent}- [{title}](#{slug})")
     navigation.extend(["", "</details>", ""])
 
     result: list[str] = []
     inserted_navigation = False
     heading_index = 0
-    for index, line in enumerate(lines):
+    for line in lines:
         if not inserted_navigation and line.startswith("# "):
             result.append(line)
             result.extend(["", *navigation])
             inserted_navigation = True
             continue
-        match = re.match(r"^(##|###) (.+)$", line)
-        if match:
+
+        heading = _navigation_heading(line)
+        if heading is not None:
             if result and result[-1] != "":
                 result.append("")
             if heading_index > 0:
                 result.extend(["[↑ Back to Navigation](#table-of-contents)", ""])
-            _, title, slug = headings[heading_index]
+            _, _, slug = headings[heading_index]
             result.extend([f'<a id="{slug}"></a>', line])
             heading_index += 1
         else:
             result.append(line)
+
     if heading_index:
         result.extend(["", "[↑ Back to Navigation](#table-of-contents)"])
     return result
