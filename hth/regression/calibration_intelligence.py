@@ -22,6 +22,40 @@ _EFFECT_GROUP_RANK = {
 }
 
 
+_DETECTOR_EVIDENCE: dict[str, dict[str, Any]] = {
+    "components": {"friendly_name": "Connected Components", "short_name": "Components", "role": "Generator", "evidence": [("Connected-component envelope", "Primary", "Generates a page-region hypothesis from grouped foreground components."), ("Morphological grouping", "Supporting", "Controls how fragmented marks are joined before envelope extraction.")]},
+    "consensus_quad": {"friendly_name": "Consensus Quadrilateral", "short_name": "Consensus Quad", "role": "Hybrid (Contour Quad + Edge Contour)", "evidence": [("Contour Quad vote", "Primary", "Supplies one geometric quadrilateral hypothesis."), ("Edge Contour vote", "Primary", "Supplies an independently scored edge-supported hypothesis."), ("Polygon agreement", "Decision", "Requires sufficient IoU and corner agreement before fusion.")]},
+    "contour": {"friendly_name": "Contour Envelope", "short_name": "Contour", "role": "Generator", "evidence": [("Contour geometry", "Primary", "Generates page-region hypotheses from thresholded contours."), ("Fragment merging", "Supporting", "Attempts to recover page boundaries split across multiple contours.")]},
+    "contour_components": {"friendly_name": "Contour + Components", "short_name": "Contour Components", "role": "Hybrid (Contour Quad + Components)", "evidence": [("Contour quadrilateral", "Generator", "Produces candidate page quadrilaterals."), ("Component containment", "Validator", "Measures how well selected components fall within each candidate."), ("Component envelope overlap", "Validator", "Compares each contour candidate with the independent component envelope."), ("Component spread and density", "Validator", "Checks whether foreground evidence is distributed plausibly across the candidate.")]},
+    "contour_projection": {"friendly_name": "Contour + Projection", "short_name": "Contour Projection", "role": "Hybrid (Contour Quad + Projection)", "evidence": [("Contour quadrilateral", "Generator", "Produces candidate page quadrilaterals."), ("Horizontal projection profile", "Validator", "Scores text-band structure after candidate normalization."), ("Vertical coverage", "Validator", "Checks whether foreground structure spans the candidate height."), ("Ink density", "Validator", "Rejects implausibly empty or saturated candidate interiors.")]},
+    "contour_quad": {"friendly_name": "Contour Quadrilateral", "short_name": "Contour Quad", "role": "Generator", "evidence": [("Contour quadrilaterals", "Primary", "Generates multiple polygonal page hypotheses."), ("Area", "Scoring", "Rewards candidates occupying a plausible image fraction."), ("Rectangularity", "Scoring", "Rewards quadrilateral-like contour geometry."), ("Corner angles", "Scoring", "Rewards near-right-angle page geometry.")]},
+    "edge_contour": {"friendly_name": "Edge-Supported Contour", "short_name": "Edge Contour", "role": "Hybrid (Contour Quad + LSD)", "evidence": [("Contour quadrilateral", "Generator", "Produces candidate page quadrilaterals."), ("LSD line segments", "Validator", "Independently detects line support near proposed borders."), ("Edge support", "Validator", "Measures border coverage after configurable dilation."), ("Geometry score", "Scoring", "Combines area, rectangularity, and angle quality.")]},
+    "grabcut": {"friendly_name": "GrabCut Segmentation", "short_name": "GrabCut", "role": "Generator", "evidence": [("GrabCut foreground mask", "Primary", "Segments foreground pixels from a border-seeded background model."), ("Morphological cleanup", "Supporting", "Closes and erodes the segmentation before region extraction."), ("Foreground contour", "Geometry", "Converts the segmented region into a page polygon or bounding quadrilateral.")]},
+    "hough": {"friendly_name": "Hough Line Borders", "short_name": "Hough", "role": "Generator", "evidence": [("Hough lines", "Primary", "Generates axis-aligned border hypotheses from detected lines."), ("Outer-line percentile", "Scoring", "Selects outer line groups used to form a page box."), ("Axis-angle tolerance", "Filtering", "Restricts candidate lines to near-horizontal or near-vertical orientations.")]},
+    "lsd": {"friendly_name": "Line Segment Detector", "short_name": "LSD", "role": "Generator", "evidence": [("LSD segments", "Primary", "Generates border hypotheses directly from line segments."), ("Outer-line percentile", "Scoring", "Selects outer segment groups for page-boundary construction."), ("Axis-angle tolerance", "Filtering", "Limits segments to plausible page-border orientations.")]},
+    "ransac": {"friendly_name": "RANSAC Border Fit", "short_name": "RANSAC", "role": "Generator", "evidence": [("Scan foreground samples", "Primary", "Samples likely border evidence along image scans."), ("RANSAC line fitting", "Primary", "Fits robust page-border models while rejecting outliers."), ("Inlier ratio", "Validation", "Requires sufficient support for accepted line models.")]},
+}
+
+
+def _detector_evidence(detector: str) -> dict[str, Any]:
+    item = _DETECTOR_EVIDENCE.get(detector, {
+        "friendly_name": detector.replace("_", " ").title(),
+        "short_name": detector,
+        "role": "Unknown",
+        "evidence": [("Detector output", "Primary", "Evidence characterization has not yet been registered for this detector.")],
+    })
+    return {
+        "detector_id": detector,
+        "friendly_name": item["friendly_name"],
+        "short_name": item["short_name"],
+        "role": item["role"],
+        "evidence_sources": [
+            {"source": source, "function": function, "interpretation": interpretation}
+            for source, function, interpretation in item["evidence"]
+        ],
+    }
+
+
 def _domain_space(parameters_report: list[dict[str, Any]], winner_parameters: dict[str, Any], possible_parameter_sets: int | None) -> dict[str, Any]:
     """Build executable cumulative effect-size parameter domains."""
     exhaustive_count = int(possible_parameter_sets or 0)
@@ -140,6 +174,8 @@ def build_calibration_intelligence(
     detector: str,
     strategy: str,
     possible_parameter_sets: int | None,
+    calibration_context: dict[str, Any] | None = None,
+    regression_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a compact, machine-readable characterization of a calibration run.
 
@@ -292,9 +328,72 @@ def build_calibration_intelligence(
     dormant = [item["parameter"] for item in parameters_report if item["classification"] == "Dormant"]
     winner_parameters = ranked[0].get("parameters", {}) if isinstance(ranked[0].get("parameters"), dict) else {}
     domain_space = _domain_space(parameters_report, winner_parameters, possible_parameter_sets)
+    calibration_context = dict(calibration_context or {})
+    regression_context = dict(regression_context or {})
+    winner = ranked[0]
+    winner_summary = winner.get("summary", {}) if isinstance(winner.get("summary"), dict) else {}
+    winner_parameter_set_id = winner.get("parameter_set_id") or winner.get("parameter_short_name")
+    fallback_order = ["critical", "important_plus", "moderate_plus", "low_plus", "non_dormant", "exhaustive"]
+    available_domains = [
+        name for name, domain in domain_space.items()
+        if isinstance(domain, dict) and int(domain.get("parameter_set_count", 0) or 0) > 0
+    ]
+    parameter_intelligence = {
+        "effect_size_method": "one-way eta-squared over Avg IoU",
+        "classification_thresholds": {
+            "dormant": {"eta_squared_below": 0.001, "or_avg_iou_range_below": EQUIVALENT_ABSOLUTE_TOLERANCE},
+            "low": {"eta_squared_minimum": 0.001},
+            "moderate": {"eta_squared_minimum": 0.03},
+            "important": {"eta_squared_minimum": 0.10},
+            "critical": {"eta_squared_minimum": 0.25},
+        },
+        "parameters": parameters_report,
+        "dormant_parameters": dormant,
+        "active_parameters": [item["parameter"] for item in parameters_report if item["classification"] != "Dormant"],
+        "interactions": interactions[:10],
+        "interaction_method": {
+            "parameters_considered": interaction_parameters,
+            "sample_size": len(sample),
+            "sample_step": sample_step,
+            "note": "Pairwise interaction importance is estimated from a deterministic sample and is exploratory, not causal.",
+        },
+        "page_sensitivity": page_report,
+    }
+    domain_space_intelligence = {
+        "domains": domain_space,
+        "default_strategy": "exhaustive",
+        "fallback_order": fallback_order,
+        "available_domains": available_domains,
+        "scope": "Golden Set and detector configuration specific",
+    }
+    detector_selection_intelligence = {
+        "recommended_detector_id": detector,
+        "recommended_parameter_set_id": winner_parameter_set_id,
+        "recommended_parameters": winner_parameters,
+        "best_avg_iou": winner_summary.get("mean_iou"),
+        "minimum_iou": winner_summary.get("minimum_iou"),
+        "stddev_iou": winner_summary.get("stddev_iou"),
+        "failure_count": winner_summary.get("failure_count"),
+        "near_best_coverage": near_best_share,
+        "equivalent_best_coverage": equivalent_count / count,
+        "calibration_evidence": {"rating": confidence, "reasons": confidence_reasons},
+        "recommended_search_domains": available_domains,
+        "applicability": {
+            "source_document": calibration_context.get("source_document"),
+            "golden_set": calibration_context.get("golden_set"),
+            "detector_configuration": calibration_context.get("detector_configuration"),
+            "revalidate_when": ["source document changes", "Golden Set changes", "detector configuration changes", "effect-size policy changes"],
+        },
+    }
 
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
+        "calibration_identity": calibration_context,
+        "regression_metadata": regression_context,
+        "detector_evidence": _detector_evidence(detector),
+        "parameter_intelligence": parameter_intelligence,
+        "domain_space_intelligence": domain_space_intelligence,
+        "detector_selection_intelligence": detector_selection_intelligence,
         "detector": detector,
         "available": True,
         "scope_note": "All conclusions are specific to the evaluated Golden Set and configured parameter grid.",

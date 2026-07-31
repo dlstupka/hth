@@ -702,11 +702,59 @@ def run(args:argparse.Namespace)->Path:
         summary={"schema_version":"0.8","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"threads":args.threads,"parameter_space":{"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ranked)*len(pages)},"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"winner":ranked[0],"baseline":baseline,"top_parameter_sets":ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,"performance":{"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl"},"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":progress.baseline_surpassed,"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds,"winner_history":progress_snapshot.winner_history,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
         write_json(run_dir/"reports"/"summary.json",summary)
         write_json(run_dir/"reports"/"winner-pages.json",winner_pages)
+        try:
+            golden_set_payload = json.loads(args.golden_set.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            golden_set_payload = {}
+        source_document = golden_set_payload.get("source_document") if isinstance(golden_set_payload, dict) else None
+        golden_set_identity = {
+            "configuration": str(args.golden_set),
+            "sha256": golden_set_sha256,
+            "collection_id": golden_set_payload.get("collection_id") if isinstance(golden_set_payload, dict) else None,
+            "schema_version": golden_set_payload.get("schema_version") if isinstance(golden_set_payload, dict) else None,
+            "description": golden_set_payload.get("description") if isinstance(golden_set_payload, dict) else None,
+            "page_count": len(pages),
+            "page_ordinals": [page["global_ordinal"] for page in pages],
+        }
+        calibration_context = {
+            "calibration_run_id": run_id,
+            "calibration_schema_version": "1.1",
+            "created_at_utc": started,
+            "source_document": source_document,
+            "golden_set": golden_set_identity,
+            "detector_configuration": {
+                "detector_id": name,
+                "configuration": str(args.detector_config),
+                "sha256": file_sha256(args.detector_config),
+            },
+            "pipeline": {
+                "commit": environment.get("pipeline_commit"),
+                "source_commit": source_commit,
+                "python": environment.get("python_version"),
+                "opencv": environment.get("opencv_version"),
+            },
+        }
+        regression_context = {
+            "requested_strategy": requested_strategy,
+            "resolved_strategy": effective_strategy,
+            "strategy_fallback_reason": strategy_fallback_reason,
+            "configured_threads": args.threads,
+            "possible_parameter_sets": possible_parameter_set_count,
+            "planned_parameter_sets": planned_parameter_set_count,
+            "evaluated_parameter_sets": len(ranked),
+            "golden_set_pages": len(pages),
+            "page_evaluations": len(ranked) * len(pages),
+            "failed_page_evaluations": progress_snapshot.failures,
+            "average_eval_rate": progress_snapshot.eval_rate,
+            "execution_environment": environment,
+        }
         calibration_intelligence = build_calibration_intelligence(
             ranked,
             detector=name,
             strategy=effective_strategy,
             possible_parameter_sets=possible_parameter_set_count,
+            calibration_context=calibration_context,
+            regression_context=regression_context,
         )
         write_json(
             run_dir/"reports"/"calibration-intelligence.json",
