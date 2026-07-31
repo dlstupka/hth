@@ -332,12 +332,33 @@ def _add_report_navigation(lines: list[str]) -> list[str]:
 
         heading = _navigation_heading(line)
         if heading is not None:
+            _, _, slug = headings[heading_index]
+
+            # A <summary> must remain the first child of its <details> element.
+            # Injecting navigation anchors between ``<details>`` and ``<summary>``
+            # causes GitHub to render a stray generic "Details" disclosure and
+            # the intended heading outside it.  Move the opening details tag
+            # temporarily so the navigation link and anchor precede the entire
+            # disclosure block instead.
+            details_open = None
+            trailing_blank = False
+            if line.lstrip().startswith("<summary>"):
+                if result and result[-1] == "":
+                    result.pop()
+                    trailing_blank = True
+                if result and result[-1].strip().startswith("<details"):
+                    details_open = result.pop()
+
             if result and result[-1] != "":
                 result.append("")
             if heading_index > 0:
                 result.extend(["[↑ Back to Navigation](#table-of-contents)", ""])
-            _, _, slug = headings[heading_index]
-            result.extend([f'<a id="{slug}"></a>', line])
+            result.append(f'<a id="{slug}"></a>')
+            if details_open is not None:
+                result.append(details_open)
+            result.append(line)
+            if trailing_blank:
+                result.append("")
             heading_index += 1
         else:
             result.append(line)
@@ -584,7 +605,7 @@ def build_summary(
         "",
         "| Statistic | Count |",
         "|---|---:|",
-        f"| Mean IoU improvements | {progress.get('mean_iou_improvements', 0)} |",
+        f"| Avg IoU improvements | {progress.get('mean_iou_improvements', 0)} |",
         f"| Minimum IoU improvements | {progress.get('minimum_iou_improvements', 0)} |",
         f"| StdDev improvements | {progress.get('stddev_improvements', 0)} |",
         f"| Total metric improvements | {progress.get('total_metric_improvements', 0)} |",
@@ -925,7 +946,7 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
         lines.extend([
             "", "#### Parameter Influence", "",
             "Influence uses one-way η² over Avg IoU. It measures association within this configured grid; it does not establish causation.", "",
-            "| Parameter | Classification | η² | Mean-IoU range | Near-best value coverage | Best observed values |",
+            "| Parameter | Classification | η² | Avg-IoU range | Near-best value coverage | Best observed values |",
             "|---|---|---:|---:|---:|---|",
         ])
         for item in parameters[:12]:
@@ -971,7 +992,7 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
     if pages:
         lines.extend([
             "", "#### Page Sensitivity", "",
-            "| Golden Set Page | Mean IoU | Min IoU | Max IoU | StdDev | Success rate |",
+            "| Golden Set Page | Avg IoU | Min IoU | Max IoU | StdDev | Success rate |",
             "|---:|---:|---:|---:|---:|---:|",
         ])
         for page in pages:
