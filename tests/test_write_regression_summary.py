@@ -147,6 +147,14 @@ class RegressionSummaryTests(unittest.TestCase):
 
             text = build_summary(run, "https://example.invalid/run")
             self.assertIn("# Regression Manifest", text)
+            self.assertIn("<summary><strong>Navigation</strong></summary>", text)
+            self.assertIn("- [Run Information](#run-information)", text)
+            self.assertIn("- [Results](#results)", text)
+            self.assertIn("- [Page Analysis](#page-analysis)", text)
+            self.assertIn("- [Calibration Intelligence](#calibration-intelligence)", text)
+            self.assertIn("[↑ Back to Navigation](#table-of-contents)", text)
+            self.assertIn("## Engineering Continuous Improvement", text)
+            self.assertIn("### Runtime Intelligence Persistence", text)
             self.assertIn("`grabcut`", text)
             self.assertIn("`binary-refine`", text)
             self.assertIn("`1234567890ab`", text)
@@ -213,12 +221,36 @@ class RegressionSummaryTests(unittest.TestCase):
                     "run_id": f"run-{detector}", "detector": detector,
                     "strategy": "exhaustive", "status": "complete", "outputs": []
                 }), encoding="utf-8")
+                pipeline_number = 1 if detector == "grabcut" else 2
+                queue_position = 1 if detector == "grabcut" else 2
                 (run / "RUN-INFO.json").write_text(json.dumps({
                     "pipeline_commit": "1234567890abcdef", "python_version": "3.12.0",
                     "opencv_version": "5.0.0", "elapsed_seconds": 1.0,
+                    "started_at_utc": f"2026-08-01T00:00:0{queue_position}Z",
+                    "finished_at_utc": f"2026-08-01T00:00:0{queue_position + 1}Z",
+                    "threads": 4,
+                    "detector_pipeline": {
+                        "pipeline_count": 4,
+                        "pipeline_number": pipeline_number,
+                        "stagger_minutes": 0,
+                        "loading_strategy": "lpt",
+                        "runtime_estimate_seconds": 10.0 if detector == "grabcut" else 5.0,
+                        "runtime_estimate_source": "runtime-index:test",
+                        "queue_position": queue_position,
+                    },
                     "golden_set": str(root / "golden_set.json")
                 }), encoding="utf-8")
                 (run / "parameters.json").write_text(json.dumps({
+                    "threads": 4,
+                    "detector_pipeline": {
+                        "pipeline_count": 4,
+                        "pipeline_number": pipeline_number,
+                        "stagger_minutes": 0,
+                        "loading_strategy": "lpt",
+                        "runtime_estimate_seconds": 10.0 if detector == "grabcut" else 5.0,
+                        "runtime_estimate_source": "runtime-index:test",
+                        "queue_position": queue_position,
+                    },
                     "configuration": {"profiles": {"baseline": {}}}
                 }), encoding="utf-8")
                 metrics = {
@@ -252,6 +284,11 @@ class RegressionSummaryTests(unittest.TestCase):
                         "equivalent_tolerance": 0.0001,
                         "equivalent_winner_count": 1,
                         "equivalent_winner_share": 1.0,
+                    },
+                    "domain_space": {
+                        "exhaustive": {"parameter_set_count": 8},
+                        "non_dormant": {"parameter_set_count": 4},
+                        "critical": {"parameter_set_count": 2},
                     },
                     "parameter_influence": [{
                         "parameter": "threshold",
@@ -305,6 +342,22 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn('<a id="detector-calibration-report"></a>', text)
             self.assertIn('<a id="contour-envelope-contour-2"></a>', text)
             self.assertIn("### Regression Completion Summary", text)
+            self.assertIn("| Measure | Value | Notes |", text)
+            self.assertIn("| Aggregate detector runtime | 2s |", text)
+            self.assertIn("| Regression wall-clock span | 2s |", text)
+            self.assertIn("### Regression Execution and Detector Queueing", text)
+            self.assertIn("| Detector pipelines | 4 |", text)
+            self.assertIn("| Detector loading strategy | LPT |", text)
+            self.assertIn("| 1 | GrabCut Segmentation (`grabcut`) | 1 | 10s | runtime-index:test |", text)
+            self.assertIn("### Regression Recommendations Summary", text)
+            self.assertIn("#### Execution Configuration", text)
+            self.assertIn("#### Estimated Runtime", text)
+            self.assertIn("| Exhaustive |", text)
+            self.assertIn("| Non-dormant |", text)
+            self.assertIn("| Critical only |", text)
+            self.assertIn("## Engineering Continuous Improvement", text)
+            self.assertIn("### Calibration Intelligence Persistence", text)
+            self.assertIn("### Runtime Intelligence Persistence", text)
             self.assertIn("Detector short name", text)
             self.assertIn("## Detector Recommendation for this Golden Set", text)
             self.assertIn("### Calibration Report Legend", text)

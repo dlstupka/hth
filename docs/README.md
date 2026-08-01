@@ -160,6 +160,11 @@ Additional conventions:
 - Sort page-oriented tables by Golden Set page number unless a report explicitly requires another order.
 - Keep Metric Definitions with Results.
 - Keep Status Definitions with Page Analysis.
+- Multi-detector manifests retain the established nested navigation hierarchy.
+- Single, custom, and manual detector manifests use an always-visible flat navigation menu with Back to Navigation links after major sections.
+- Do not add nonfunctional Expand All / Collapse All controls to GitHub-rendered Markdown.
+- Multi-detector regression summaries place Regression Execution and Detector Queueing immediately after Regression Completion Summary.
+- Regression Recommendations use separate Execution Configuration and Estimated Runtime tables.
 
 ## Documentation and Commit Notes
 

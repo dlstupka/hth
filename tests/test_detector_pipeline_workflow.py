@@ -23,6 +23,8 @@ def test_detector_queue_is_dynamic_and_records_pipeline_metadata() -> None:
     assert 'HTH_DETECTOR_PIPELINES="$effective_pipelines"' in text
     assert 'HTH_DETECTOR_PIPELINE_NUMBER="$pipeline_number"' in text
     assert 'HTH_PIPELINE_STAGGER_MINUTES="$PIPELINE_STAGGER_MINUTES"' in text
+    assert 'HTH_DETECTOR_QUEUE_POSITION="$((task_index + 1))"' in text
+    assert 'HTH_DETECTOR_RANKED_QUALITY="$detector_ranked_quality"' in text
 
 
 def test_single_detector_runs_force_one_pipeline() -> None:

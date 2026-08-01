@@ -814,6 +814,8 @@ jobs:
               HTH_DETECTOR_LOADING_STRATEGY="$DETECTOR_LOADING_STRATEGY" \
               HTH_DETECTOR_RUNTIME_ESTIMATE_SECONDS="$detector_estimate" \
               HTH_DETECTOR_RUNTIME_ESTIMATE_SOURCE="$detector_estimate_source" \
+              HTH_DETECTOR_QUEUE_POSITION="$((task_index + 1))" \
+              HTH_DETECTOR_RANKED_QUALITY="$detector_ranked_quality" \
               "${args[@]}" 2>&1 \
                 | sed -u -E 's/^(Machine[[:space:]]*:).*/\1 [obfuscated]/' \
                 | sed -u "s/^/[pipeline $pipeline_number][$detector_name] /" \

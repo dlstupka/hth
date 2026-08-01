@@ -626,6 +626,8 @@ def run(args:argparse.Namespace)->Path:
         "loading_strategy": os.environ.get("HTH_DETECTOR_LOADING_STRATEGY", "fifo"),
         "runtime_estimate_seconds": os.environ.get("HTH_DETECTOR_RUNTIME_ESTIMATE_SECONDS"),
         "runtime_estimate_source": os.environ.get("HTH_DETECTOR_RUNTIME_ESTIMATE_SOURCE"),
+        "queue_position": os.environ.get("HTH_DETECTOR_QUEUE_POSITION"),
+        "ranked_quality": os.environ.get("HTH_DETECTOR_RANKED_QUALITY"),
     }
     write_json(run_dir/"manifest.json",manifest)
     try:

@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -803,10 +804,14 @@ def build_summary(
         ])
         lines.extend(_render_detector_calibration(detector_name, calibration_payload, summary))
 
+    if calibration_payload is not None and include_title:
+        lines.extend(["", *_engineering_continuous_improvement_lines()])
+
     if run_url:
         lines.extend(["", f"[Open workflow run]({run_url})"])
     lines.append("")
-    return "\n".join(lines)
+    rendered_lines = _add_report_navigation(lines) if include_title else lines
+    return "\n".join(rendered_lines)
 
 
 
@@ -1096,6 +1101,160 @@ def _render_calibration_report(run_dirs: list[Path], combined_rows: list[dict[st
     lines.extend(["", "</details>", "", "</details>"])
     return lines
 
+
+def _parse_utc_timestamp(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _pipeline_context(run_dir: Path) -> dict[str, Any]:
+    info = _read_json(run_dir / "RUN-INFO.json")
+    parameters = _read_json(run_dir / "parameters.json")
+    summary = _read_json(run_dir / "reports" / "summary.json")
+    for payload in (info, parameters, summary):
+        context = payload.get("detector_pipeline")
+        if isinstance(context, dict):
+            return context
+    return {}
+
+
+def _common_value(values: list[Any], default: Any = "unknown") -> Any:
+    filtered = [value for value in values if value not in (None, "", "unknown")]
+    if not filtered:
+        return default
+    first = filtered[0]
+    return first if all(value == first for value in filtered) else "mixed"
+
+
+def _lpt_makespan(durations: list[float], pipelines: int) -> float | None:
+    if not durations or pipelines <= 0:
+        return None
+    loads = [0.0] * min(pipelines, len(durations))
+    for duration in sorted((max(0.0, value) for value in durations), reverse=True):
+        index = min(range(len(loads)), key=loads.__getitem__)
+        loads[index] += duration
+    return max(loads)
+
+
+_EFFECT_SCOPE_FALLBACKS: dict[str, tuple[str, ...]] = {
+    "critical": ("critical", "important_plus", "moderate_plus", "low_plus", "non_dormant", "exhaustive"),
+    "non_dormant": ("non_dormant", "exhaustive"),
+    "exhaustive": ("exhaustive",),
+}
+
+
+def _scope_parameter_count(payload: dict[str, Any] | None, scope: str) -> int | None:
+    if not payload:
+        return None
+    domain_space = payload.get("domain_space")
+    if not isinstance(domain_space, dict):
+        return None
+    for key in _EFFECT_SCOPE_FALLBACKS[scope]:
+        entry = domain_space.get(key)
+        if not isinstance(entry, dict):
+            continue
+        count = int(entry.get("parameter_set_count", 0) or 0)
+        if count > 0:
+            return count
+    return None
+
+
+def _estimate_scope_makespan(
+    run_dirs: list[Path],
+    scope: str,
+    pipelines: int,
+) -> float | None:
+    estimates: list[float] = []
+    for run_dir in run_dirs:
+        info = _read_json(run_dir / "RUN-INFO.json")
+        summary = _read_json(run_dir / "reports" / "summary.json")
+        evaluated = int(summary.get("parameter_set_count", 0) or 0)
+        elapsed = float(info.get("elapsed_seconds", 0.0) or 0.0)
+        target_count = _scope_parameter_count(_calibration_payload(run_dir), scope)
+        if evaluated <= 0 or elapsed <= 0 or target_count is None:
+            return None
+        estimates.append(elapsed * target_count / evaluated)
+    return _lpt_makespan(estimates, pipelines)
+
+
+def _regression_execution_metadata(run_dirs: list[Path]) -> dict[str, Any]:
+    contexts = [_pipeline_context(run_dir) for run_dir in run_dirs]
+    infos = [_read_json(run_dir / "RUN-INFO.json") for run_dir in run_dirs]
+    starts = [
+        timestamp for timestamp in
+        (_parse_utc_timestamp(info.get("started_at_utc")) for info in infos)
+        if timestamp is not None
+    ]
+    finishes = [
+        timestamp for timestamp in
+        (_parse_utc_timestamp(info.get("finished_at_utc")) for info in infos)
+        if timestamp is not None
+    ]
+    span_seconds = None
+    if starts and finishes:
+        span_seconds = max(0.0, (max(finishes) - min(starts)).total_seconds())
+    return {
+        "pipeline_count": _common_value([context.get("pipeline_count") for context in contexts], 1),
+        "loading_strategy": _common_value([context.get("loading_strategy") for context in contexts], "fifo"),
+        "stagger_minutes": _common_value([context.get("stagger_minutes") for context in contexts], 0),
+        "threads": _common_value([info.get("threads") for info in infos], "unknown"),
+        "span_seconds": span_seconds,
+    }
+
+
+def _queue_rows(run_dirs: list[Path]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for run_dir in run_dirs:
+        manifest = _read_json(run_dir / "manifest.json")
+        info = _read_json(run_dir / "RUN-INFO.json")
+        context = _pipeline_context(run_dir)
+        rows.append({
+            "detector": str(manifest.get("detector", run_dir.parent.name)),
+            "queue_position": context.get("queue_position"),
+            "pipeline_number": context.get("pipeline_number"),
+            "estimate_seconds": context.get("runtime_estimate_seconds"),
+            "estimate_source": context.get("runtime_estimate_source") or "unknown",
+            "ranked_quality": context.get("ranked_quality"),
+            "started": _parse_utc_timestamp(info.get("started_at_utc")),
+        })
+    rows.sort(key=lambda row: (
+        int(row["queue_position"]) if str(row.get("queue_position", "")).isdigit() else 10**9,
+        row["started"].timestamp() if row.get("started") is not None else float("inf"),
+        row["detector"],
+    ))
+    return rows
+
+
+def _engineering_continuous_improvement_lines() -> list[str]:
+    return [
+        "## Engineering Continuous Improvement",
+        "",
+        "Every completed regression contributes reusable quality and runtime evidence so future document analysis and regression execution can begin from measured history rather than rediscovering prior results.",
+        "",
+        "### Calibration Intelligence Persistence",
+        "",
+        "- `calibration-index.json` retains detector quality, winner, parameter influence, domain-space, page-sensitivity, and calibration-evidence metadata.",
+        "- Compatible authoritative calibrations remain preferred over provisional smoke observations.",
+        "",
+        "### Runtime Intelligence Persistence",
+        "",
+        "- `runtime-index.json` retains detector wall-clock time, workload size, threads, pipeline placement, loading strategy, runner characteristics, and scheduler estimates.",
+        "- Runtime history supports LPT queueing, regression-duration estimates, and future evidence-based thread recommendations.",
+        "",
+        "### Engineering Notes",
+        "",
+        "- Runtime estimates are derived from historical detector measurements and improve as additional compatible regressions are collected.",
+        "- Multi-detector execution defaults to Longest Processing Time (LPT) scheduling to reduce the all-detector makespan.",
+        "- Detector and parameter-thread recommendations must remain grounded in measured runtime history rather than runner CPU count alone.",
+        "- Calibration recommendations evolve from accumulated quality evidence; runtime recommendations evolve independently from accumulated execution evidence.",
+        "- Estimates and recommendations are specific to the Golden Set, detector configuration, parameter grid, strategy, thread count, and runner characteristics represented by the stored observations.",
+    ]
+
+
 def _combined_result_row(run_dir: Path) -> dict[str, Any]:
     manifest = _read_json(run_dir / "manifest.json")
     info = _read_json(run_dir / "RUN-INFO.json")
@@ -1130,6 +1289,9 @@ def _combined_result_row(run_dir: Path) -> dict[str, Any]:
         "page_rate": page_rate,
         "document_seconds": _estimated_document_seconds(page_rate, source_document.get("image_count")),
         "source_document": source_document,
+        "started_at_utc": info.get("started_at_utc"),
+        "finished_at_utc": info.get("finished_at_utc"),
+        "detector_pipeline": _pipeline_context(run_dir),
     }
 
 
@@ -1240,6 +1402,19 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
         for row in combined_rows
     )
     aggregate_elapsed = sum(float(row.get("elapsed_seconds", 0.0) or 0.0) for row in combined_rows)
+    execution = _regression_execution_metadata(run_dirs)
+    pipeline_count = int(execution.get("pipeline_count", 1) or 1) if str(execution.get("pipeline_count", 1)).isdigit() else 1
+    regression_span = execution.get("span_seconds")
+    concurrency = (
+        aggregate_elapsed / float(regression_span)
+        if regression_span is not None and float(regression_span) > 0
+        else None
+    )
+    queue_rows = _queue_rows(run_dirs)
+    exhaustive_estimate = _estimate_scope_makespan(run_dirs, "exhaustive", pipeline_count)
+    non_dormant_estimate = _estimate_scope_makespan(run_dirs, "non_dormant", pipeline_count)
+    critical_estimate = _estimate_scope_makespan(run_dirs, "critical", pipeline_count)
+
     lines.extend([
         "",
         "<details open>",
@@ -1247,13 +1422,69 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
         "",
         "### Regression Completion Summary",
         "",
-        "| Measure | Value |",
+        "| Measure | Value | Notes |",
+        "|---|---:|---|",
+        f"| Detector runs completed | {completed_runs} of {len(combined_rows)} | Successful detector regressions completed out of those scheduled. |",
+        f"| Parameter sets evaluated | {total_parameter_sets} | Total detector parameter configurations evaluated across all runs. |",
+        f"| Golden Set page evaluations | {total_page_evaluations} | Parameter sets multiplied by evaluated Golden Set pages. |",
+        f"| Aggregate detector runtime | {_duration(aggregate_elapsed)} | Sum of detector wall-clock runtimes; this is not the elapsed time experienced by the user. |",
+        f"| Regression wall-clock span | {_duration(regression_span)} | Earliest detector start through latest detector finish. |",
+        f"| Effective detector concurrency | {f'{concurrency:.2f}×' if concurrency is not None else 'unknown'} | Aggregate detector runtime divided by regression wall-clock span. |",
+        f"| Detector pipelines | {execution.get('pipeline_count', 'unknown')} | Maximum concurrent detector regressions used by this build. |",
+        f"| Loading strategy | {str(execution.get('loading_strategy', 'unknown')).upper()} | Strategy used to order the shared detector queue. |",
+        f"| Pipeline stagger | {execution.get('stagger_minutes', 'unknown')}m | Delay between initial pipeline starts; replacement loads begin immediately. |",
+        f"| Source-document images | {source_document.get('image_count', 'unknown')} | Total images recorded for the source document. |",
+        "",
+        "### Regression Execution and Detector Queueing",
+        "",
+        "| Setting | Value |",
+        "|---|---|",
+        f"| Detector pipelines | {execution.get('pipeline_count', 'unknown')} |",
+        f"| Detector loading strategy | {str(execution.get('loading_strategy', 'unknown')).upper()} |",
+        f"| Threads per detector regression | {execution.get('threads', 'unknown')} |",
+        f"| Pipeline start stagger | {execution.get('stagger_minutes', 'unknown')}m |",
+        f"| Runtime intelligence | `runtime-index.json` |",
+        f"| Calibration intelligence | `calibration-index.json` |",
+        "",
+        "Detector pipelines pull continuously from one shared queue. Once a detector finishes, that pipeline immediately loads the next queued detector until the queue is empty.",
+        "",
+        "| Queue | Detector | Pipeline | Estimated Runtime | Scheduling Basis |",
+        "|---:|---|---:|---:|---|",
+    ])
+    for queue_index, row in enumerate(queue_rows, start=1):
+        position = row.get("queue_position")
+        queue_number = int(position) if str(position or "").isdigit() else queue_index
+        estimate = _duration(row.get("estimate_seconds"))
+        source = str(row.get("estimate_source") or "unknown")
+        lines.append(
+            f"| {queue_number} | {_detector_friendly_name(str(row['detector']))} (`{row['detector']}`) | "
+            f"{row.get('pipeline_number', 'unknown')} | {estimate} | {source} |"
+        )
+
+    lines.extend([
+        "",
+        "Queue order reflects the selected loading strategy. LPT schedules the longest estimated detector work first, FIFO preserves configured detector order, and Ranked uses historical detector quality.",
+        "",
+        "### Regression Recommendations Summary",
+        "",
+        "#### Execution Configuration",
+        "",
+        "| Setting | Recommended | Basis |",
+        "|---|---|---|",
+        "| Detector pipelines | 4 | Current HTH default for multi-detector regressions. |",
+        "| Detector loading | LPT | Reduces the slow-detector tail by loading historically longest regressions first. |",
+        f"| Threads per detector regression | {execution.get('threads', 'Auto')} | Preserve the current measured setting until runtime history supports a different thread recommendation. |",
+        "| Startup stagger | 0m | Avoids idle startup time unless runner contention requires a stagger. |",
+        "",
+        "#### Estimated Runtime",
+        "",
+        "| All-Detector Regression Scope | Estimated Wall Time* |",
         "|---|---:|",
-        f"| Detector runs completed | {completed_runs} of {len(combined_rows)} |",
-        f"| Parameter sets evaluated | {total_parameter_sets} |",
-        f"| Golden Set page evaluations | {total_page_evaluations} |",
-        f"| Aggregate detector-run elapsed time | {_duration(aggregate_elapsed)} |",
-        f"| Source-document images | {source_document.get('image_count', 'unknown')} |",
+        f"| Exhaustive | {_duration(exhaustive_estimate)} |",
+        f"| Non-dormant | {_duration(non_dormant_estimate)} |",
+        f"| Critical only | {_duration(critical_estimate)} |",
+        "",
+        r"\* Estimates scale each detector's measured runtime to the selected effect-size domain and simulate LPT placement across the recommended detector pipelines. Effect-group fallback remains active when a detector has no parameter sets in the requested group.",
         "",
         "The reports below preserve the complete manifest, winner, baseline, calibration statistics, page analysis, and output inventory for each detector run.",
         "",
@@ -1275,7 +1506,7 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
         lines.extend(["", "</details>"])
         if index != len(run_dirs) - 1:
             lines.extend([""])
-    lines.extend(["", "</details>", "", "</details>"])
+    lines.extend(["", "</details>", "", "</details>", "", *_engineering_continuous_improvement_lines()])
     if run_url:
         lines.extend(["", f"[Open workflow run]({run_url})"])
     lines.append("")

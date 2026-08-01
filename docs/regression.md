@@ -90,6 +90,18 @@ The current columns describe the most recently completed parameter set. Higher i
 
 After the normal result summary, regression statistics report record counts for average IoU, minimum IoU, and standard deviation; total metric improvements; parameter sets that improved at least one metric; overall winner changes; and whether the baseline was surpassed. These counts show whether a long search continued to produce useful gains or mostly traversed a plateau.
 
+## Regression manifest navigation and engineering guidance
+
+Multi-detector manifests retain the established nested report hierarchy. Single, custom, and manual detector manifests use an always-visible flat navigation menu with stable anchors and Back to Navigation links after major sections. GitHub job summaries do not allow the JavaScript required for a functional Expand All / Collapse All control, so HTH does not emit a misleading substitute.
+
+The multi-detector `Detector Regression Reports` section begins with:
+
+1. **Regression Completion Summary** — completed runs, evaluated parameter sets and pages, aggregate detector runtime, regression wall-clock span, effective detector concurrency, pipeline count, loading strategy, stagger, and source-document image count. The Notes column defines each measure and distinguishes aggregate detector work from user-observed elapsed time.
+2. **Regression Execution and Detector Queueing** — the pipeline count, loading strategy, per-detector threads, stagger, intelligence indexes, and the persisted detector queue. Queue position, pipeline assignment, runtime estimate, and estimate source are recorded with each detector run.
+3. **Regression Recommendations Summary** — separate Execution Configuration and Estimated Runtime tables. Runtime estimates cover all-detector exhaustive, non-dormant, and critical-only scopes. Estimates scale measured detector runtimes to the applicable effect-size domains, preserve the configured effect-group fallback rules, and simulate LPT placement across the recommended detector pipelines.
+
+Every report ends with **Engineering Continuous Improvement**, which explains how `calibration-index.json` and `runtime-index.json` preserve independent quality and execution evidence. Runtime and thread guidance must remain grounded in compatible historical measurements and is specific to the Golden Set, detector configuration, parameter grid, strategy, thread count, and runner characteristics represented by those observations.
+
 ## Detector calibration intelligence
 
 Every completed detector regression writes `reports/calibration-intelligence.json`. The top-level multi-detector `Detector Regression Manifest` renders this evidence in a `Detector Calibration Report` immediately after the top-level Metric Definitions and before the individual detector sections.
