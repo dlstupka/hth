@@ -105,6 +105,21 @@ on:
           - "256"
           - "512"
           - "1024"
+      detector_pipelines:
+        description: Concurrent detector pipelines used when Algorithm is all
+        required: true
+        default: "4"
+        type: choice
+        options:
+          - "1"
+          - "2"
+          - "4"
+          - "8"
+      pipeline_stagger_minutes:
+        description: Minutes between detector-pipeline starts; 0 starts all pipelines immediately
+        required: false
+        default: "0"
+        type: string
       top:
         description: Number of ranked parameter sets in top20.csv
         required: true
@@ -177,6 +192,8 @@ jobs:
       MAX_DIMENSION: ${{ github.event_name == 'workflow_dispatch' && inputs.max_dimension || '1800' }}
       TOP_COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.top || '10' }}
       THREADS: ${{ github.event_name == 'workflow_dispatch' && inputs.threads || '1' }}
+      DETECTOR_PIPELINES: ${{ github.event_name == 'workflow_dispatch' && inputs.detector_pipelines || '4' }}
+      PIPELINE_STAGGER_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.pipeline_stagger_minutes || '0' }}
       PYTHONNOUSERSITE: "1"
       PYTHONUNBUFFERED: "1"
       HTH_RUNNER_LABELS: >-
@@ -586,20 +603,49 @@ jobs:
             exit 1
           fi
 
-          echo "Regression mode : $REGRESSION_MODE"
-          echo "Algorithm       : '$DETECTOR_ALGORITHM'"
-          echo "Effective limit : '${effective_limit:-unlimited}' ($effective_limit_source)"
-          echo "Detectors       : ${#detector_configs[@]}"
+          if [[ ! "${DETECTOR_PIPELINES:-4}" =~ ^(1|2|4|8)$ ]]; then
+            echo "::error::Detector pipelines must be one of 1, 2, 4, or 8: ${DETECTOR_PIPELINES:-}"
+            exit 1
+          fi
+          if [[ ! "${PIPELINE_STAGGER_MINUTES:-0}" =~ ^[0-9]+$ ]]; then
+            echo "::error::Pipeline stagger must be a non-negative whole number of minutes: ${PIPELINE_STAGGER_MINUTES:-}"
+            exit 1
+          fi
 
+          requested_pipelines="$DETECTOR_PIPELINES"
+          if [[ "${DETECTOR_ALGORITHM,,}" != "all" ]]; then
+            effective_pipelines=1
+          elif (( requested_pipelines > ${#detector_configs[@]} )); then
+            effective_pipelines=${#detector_configs[@]}
+          else
+            effective_pipelines=$requested_pipelines
+          fi
+
+          echo "Regression mode    : $REGRESSION_MODE"
+          echo "Algorithm          : '$DETECTOR_ALGORITHM'"
+          echo "Effective limit    : '${effective_limit:-unlimited}' ($effective_limit_source)"
+          echo "Detectors          : ${#detector_configs[@]}"
+          echo "Detector pipelines : $effective_pipelines (requested $requested_pipelines)"
+          echo "Pipeline stagger   : ${PIPELINE_STAGGER_MINUTES} minute(s)"
+
+          queue_dir="regression-output/.detector-queue"
+          rm -rf "$queue_dir"
+          mkdir -p "$queue_dir/claims" "$queue_dir/done" "$queue_dir/failed" \
+            "$queue_dir/run-dirs" "$queue_dir/logs"
           : > regression-output/run-directories.txt
           : > regression-output/runner-output.log
 
-          for detector_config in "${detector_configs[@]}"; do
+          run_detector_config() {
+            local task_index="$1"
+            local pipeline_number="$2"
+            local detector_config="${detector_configs[$task_index]}"
+
             if [[ ! -f "$detector_config" ]]; then
               echo "::error::Detector configuration not found: $detector_config"
-              exit 1
+              return 1
             fi
 
+            local detector_name
             detector_name="$(python - "$detector_config" <<'PY'
           import json
           import sys
@@ -610,7 +656,7 @@ jobs:
           PY
             )"
 
-            args=(
+            local -a args=(
               python -m hth.regress_detector
               --detector-config "$detector_config"
               --golden-set "hth-pipeline/$GOLDEN_SET"
@@ -626,6 +672,7 @@ jobs:
             else
               args+=(--strategy "$STRATEGY")
               if [[ "$STRATEGY" =~ ^(non-dormant|low\+|moderate\+|important\+|critical)$ ]]; then
+                local golden_set_sha256 detector_config_sha256 calibration_file
                 golden_set_sha256="$(python - "hth-pipeline/$GOLDEN_SET" <<'PY'
           import hashlib
           import sys
@@ -649,51 +696,48 @@ jobs:
                     --detector-config-sha256 "$detector_config_sha256" 2>/dev/null || true)"
                 fi
                 if [[ -n "$calibration_file" && -f "$calibration_file" ]]; then
-                  echo "Using indexed calibration intelligence: $calibration_file"
+                  echo "[pipeline $pipeline_number][$detector_name] Using indexed calibration intelligence: $calibration_file"
                   args+=(--calibration-intelligence "$calibration_file")
                 else
-                  echo "No compatible indexed calibration intelligence found for $detector_name; runner will fall back to exhaustive."
+                  echo "[pipeline $pipeline_number][$detector_name] No compatible indexed calibration intelligence found; runner will fall back to exhaustive."
                 fi
               fi
             fi
 
-            echo " "
-            printf 'Regression command:'
+            echo
+            echo "[pipeline $pipeline_number][$detector_name] Regression command:"
+            printf '[pipeline %s][%s]' "$pipeline_number" "$detector_name"
             printf ' %q' "${args[@]}"
             printf '\n'
 
-            echo
-            echo "Regression Invocation"
-            echo "====================="
-            printf '%-22s: %s\n' "Mode" "$REGRESSION_MODE"
-            printf '%-22s: %s\n' "Detector" "$detector_name"
-            printf '%-22s: %s\n' "Detector config" "$detector_config"
-            printf '%-22s: %s\n' "Strategy" "$effective_strategy"
-            printf '%-22s: %s\n' "Golden Set" "hth-pipeline/$GOLDEN_SET"
-            printf '%-22s: %s\n' "Image root" "results-repo/$IMAGE_ROOT"
-            printf '%-22s: %s\n' "Output" "regression-output"
-            printf '%-22s: %s\n' "Maximum dimension" "$MAX_DIMENSION"
-            printf '%-22s: %s\n' "Top candidates" "$TOP_COUNT"
-            printf '%-22s: %s\n' "Threads" "$THREADS"
+            echo "[pipeline $pipeline_number][$detector_name] Regression Invocation"
+            printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Mode" "$REGRESSION_MODE"
+            printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Detector" "$detector_name"
+            printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Detector config" "$detector_config"
+            printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Strategy" "$effective_strategy"
+            printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Threads" "$THREADS"
+            printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Detector pipeline" "$pipeline_number of $effective_pipelines"
             if [[ -n "$effective_limit" ]]; then
-              printf '%-22s: %s (%s)\n' \
-                "Parameter-set limit" "$effective_limit" "$effective_limit_source"
+              printf '[pipeline %s][%s] %-22s: %s (%s)\n' \
+                "$pipeline_number" "$detector_name" "Parameter-set limit" "$effective_limit" "$effective_limit_source"
             else
-              printf '%-22s: %s\n' "Parameter-set limit" "unlimited"
+              printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Parameter-set limit" "unlimited"
             fi
-            if [[ -n "${HTH_OPENCV_BENCHMARK_SECONDS:-}" ]]; then
-              printf '%-22s: %.3f s total; %.0f µs/iteration\n' \
-                "OpenCV benchmark" \
-                "$HTH_OPENCV_BENCHMARK_SECONDS" \
-                "$(python -c 'import os; print(float(os.environ["HTH_OPENCV_BENCHMARK_AVERAGE_SECONDS"])*1_000_000)')"
-            fi
-            echo " "
 
+            local before_runs task_log run_dir
             before_runs="$(find "regression-output/$detector_name" -mindepth 1 -maxdepth 1 -type d -name 'run-*' 2>/dev/null | sort || true)"
+            task_log="$queue_dir/logs/$(printf '%04d' "$task_index")-$detector_name.log"
 
-            "${args[@]}" 2>&1 \
-              | sed -u -E 's/^(Machine[[:space:]]*:).*/\1 [obfuscated]/' \
-              | tee -a regression-output/runner-output.log
+            if ! HTH_DETECTOR_PIPELINES="$effective_pipelines" \
+              HTH_DETECTOR_PIPELINE_NUMBER="$pipeline_number" \
+              HTH_PIPELINE_STAGGER_MINUTES="$PIPELINE_STAGGER_MINUTES" \
+              "${args[@]}" 2>&1 \
+                | sed -u -E 's/^(Machine[[:space:]]*:).*/\1 [obfuscated]/' \
+                | sed -u "s/^/[pipeline $pipeline_number][$detector_name] /" \
+                | tee "$task_log"; then
+              echo "::error::$detector_name regression command failed in pipeline $pipeline_number"
+              return 1
+            fi
 
             run_dir="$(
               comm -13 \
@@ -704,12 +748,81 @@ jobs:
 
             if [[ -z "$run_dir" ]]; then
               echo "::error::$detector_name regression did not create a canonical run directory"
-              exit 1
+              return 1
             fi
 
-            echo "$run_dir" >> regression-output/run-directories.txt
+            printf '%s\n' "$run_dir" > "$queue_dir/run-dirs/$(printf '%04d' "$task_index")"
+            echo "[pipeline $pipeline_number][$detector_name] Completed; pipeline is taking the next queued detector."
+          }
+
+          detector_worker() {
+            local pipeline_index="$1"
+            local pipeline_number=$((pipeline_index + 1))
+            local delay_seconds=$((pipeline_index * PIPELINE_STAGGER_MINUTES * 60))
+            local task_index claimed
+
+            if (( delay_seconds > 0 )); then
+              echo "[pipeline $pipeline_number] Staggered start: waiting $((delay_seconds / 60)) minute(s)."
+              sleep "$delay_seconds"
+            fi
+            echo "[pipeline $pipeline_number] Started."
+
+            while true; do
+              claimed=""
+              for ((task_index = 0; task_index < ${#detector_configs[@]}; task_index++)); do
+                if mkdir "$queue_dir/claims/$task_index" 2>/dev/null; then
+                  claimed="$task_index"
+                  break
+                fi
+              done
+
+              if [[ -z "$claimed" ]]; then
+                echo "[pipeline $pipeline_number] Detector queue empty."
+                return 0
+              fi
+
+              if run_detector_config "$claimed" "$pipeline_number"; then
+                : > "$queue_dir/done/$claimed"
+              else
+                : > "$queue_dir/failed/$claimed"
+                echo "::error::Pipeline $pipeline_number failed detector config ${detector_configs[$claimed]}"
+                return 1
+              fi
+            done
+          }
+
+          worker_pids=()
+          for ((pipeline_index = 0; pipeline_index < effective_pipelines; pipeline_index++)); do
+            detector_worker "$pipeline_index" &
+            worker_pids+=("$!")
           done
 
+          queue_failed=0
+          for worker_pid in "${worker_pids[@]}"; do
+            if ! wait "$worker_pid"; then
+              queue_failed=1
+            fi
+          done
+
+          while IFS= read -r queue_file; do
+            cat "$queue_file"
+          done < <(find "$queue_dir/run-dirs" -maxdepth 1 -type f | sort) \
+            > regression-output/run-directories.txt
+          while IFS= read -r queue_file; do
+            cat "$queue_file"
+          done < <(find "$queue_dir/logs" -maxdepth 1 -type f -name '*.log' | sort) \
+            > regression-output/runner-output.log
+
+          completed_count="$(find "$queue_dir/done" -maxdepth 1 -type f | wc -l | tr -d ' ')"
+          failed_count="$(find "$queue_dir/failed" -maxdepth 1 -type f | wc -l | tr -d ' ')"
+          echo "Detector queue complete: $completed_count completed, $failed_count failed."
+
+          if (( queue_failed != 0 || failed_count != 0 || completed_count != ${#detector_configs[@]} )); then
+            echo "::error::Detector pipeline queue did not complete successfully"
+            exit 1
+          fi
+
+          rm -rf "$queue_dir"
           echo "run_dirs_file=regression-output/run-directories.txt" >> "$GITHUB_OUTPUT"
 
       - name: Write Regression Manifest

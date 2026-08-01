@@ -52,6 +52,16 @@ When multiple detectors run together, the top-level **Detector Regression Manife
 
 For a manual run, the **Algorithm** input is a choice of `all`, `contour`, `contour_quad`, `contour_components`, `contour_grabcut`, `grabcut_contour`, `contour_projection`, `edge_contour`, `cross_edge_contour`, `gradient_vote`, `components`, `ransac`, `grabcut`, `hough`, or `lsd`. Automatic smoke runs continue to exercise all configured detector algorithms.
 
+### Concurrent detector pipelines
+
+Every multi-detector regression uses a dynamic detector queue. Four detector pipelines run by default for automatic smoke tests and for manually dispatched runs with **Algorithm = all**. Manual builds may select 1, 2, 4, or 8 detector pipelines. A single-detector selection always uses one detector pipeline regardless of the requested multi-detector value.
+
+Each pipeline takes the next unclaimed detector configuration, runs that detector's complete regression using the separately configured per-detector `threads` value, and immediately takes another queued detector when it finishes. Pipelines remain occupied until the detector queue is empty; the workflow then waits only for the slowest remaining detector regressions. Detector pipelines and regression threads are independent forms of parallelism: four pipelines with 16 threads may run as many as four detector processes, each configured for 16 regression threads. Select values appropriate for the runner's CPU and memory capacity.
+
+The optional **Pipeline stagger minutes** input defaults to `0`, which starts every detector pipeline immediately. A positive whole-number value delays pipeline 2 by one stagger interval, pipeline 3 by two intervals, and so forth. Staggering can reduce simultaneous startup pressure for expensive detectors without reducing the selected steady-state pipeline count.
+
+Pipeline count, assigned pipeline number, and stagger interval are recorded in `parameters.json`, `RUN-INFO.json`, `reports/summary.json`, and `reports/calibration-intelligence.json` for each detector run. Concurrent console output is prefixed with the pipeline number and detector ID, while the combined manifest remains ordered deterministically by detector configuration.
+
 Manual runs default to the `exhaustive` strategy. Limit handling is explicit:
 
 - Smoke mode with a blank limit evaluates 10 parameter sets (`smoke default`).
