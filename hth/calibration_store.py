@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from hth.runtime_store import observation_from_run, update_runtime_index
+
 INDEX_SCHEMA_VERSION = "1.0"
 STATUS_PRIORITY = {"provisional": 1, "partial": 2, "authoritative": 3}
 PERSISTED_FILES = (
@@ -274,6 +276,8 @@ def main(argv: list[str] | None = None) -> int:
     }
     entries = [publish_run(run_dir, args.results_root, mode=args.mode, source_fallback=args.source_fallback, build=build) for run_dir in args.run_dir]
     update_index(args.results_root, entries)
+    runtime_observations = [observation_from_run(run_dir, build=build) for run_dir in args.run_dir]
+    update_runtime_index(args.results_root, runtime_observations)
     return 0
 
 

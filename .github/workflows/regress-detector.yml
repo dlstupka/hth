@@ -115,6 +115,15 @@ on:
           - "2"
           - "4"
           - "8"
+      detector_loading_strategy:
+        description: Detector pipeline loading strategy used when Algorithm is all
+        required: true
+        default: lpt
+        type: choice
+        options:
+          - lpt
+          - fifo
+          - ranked
       pipeline_stagger_minutes:
         description: Minutes between detector-pipeline starts; 0 starts all pipelines immediately
         required: false
@@ -193,6 +202,7 @@ jobs:
       TOP_COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.top || '10' }}
       THREADS: ${{ github.event_name == 'workflow_dispatch' && inputs.threads || '1' }}
       DETECTOR_PIPELINES: ${{ github.event_name == 'workflow_dispatch' && inputs.detector_pipelines || '4' }}
+      DETECTOR_LOADING_STRATEGY: ${{ github.event_name == 'workflow_dispatch' && inputs.detector_loading_strategy || 'lpt' }}
       PIPELINE_STAGGER_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.pipeline_stagger_minutes || '0' }}
       PYTHONNOUSERSITE: "1"
       PYTHONUNBUFFERED: "1"
@@ -611,6 +621,10 @@ jobs:
             echo "::error::Pipeline stagger must be a non-negative whole number of minutes: ${PIPELINE_STAGGER_MINUTES:-}"
             exit 1
           fi
+          if [[ ! "${DETECTOR_LOADING_STRATEGY:-lpt}" =~ ^(lpt|fifo|ranked)$ ]]; then
+            echo "::error::Detector loading strategy must be lpt, fifo, or ranked: ${DETECTOR_LOADING_STRATEGY:-}"
+            exit 1
+          fi
 
           requested_pipelines="$DETECTOR_PIPELINES"
           if [[ "${DETECTOR_ALGORITHM,,}" != "all" ]]; then
@@ -621,12 +635,68 @@ jobs:
             effective_pipelines=$requested_pipelines
           fi
 
+          golden_set_sha256="$(python - "hth-pipeline/$GOLDEN_SET" <<'PY'
+          import hashlib
+          import sys
+          from pathlib import Path
+          print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
+          PY
+          )"
+
+          declare -a ordered_configs=() detector_estimates=() detector_estimate_sources=() detector_quality=()
+          if [[ "${DETECTOR_ALGORITHM,,}" == "all" ]]; then
+            order_args=()
+            for detector_config in "${detector_configs[@]}"; do
+              order_args+=(--config "$detector_config")
+            done
+            while IFS=$'\t' read -r ordered_config estimate estimate_source quality; do
+              [[ -n "$ordered_config" ]] || continue
+              ordered_configs+=("$ordered_config")
+              detector_estimates+=("$estimate")
+              detector_estimate_sources+=("$estimate_source")
+              detector_quality+=("$quality")
+            done < <(python -m hth.runtime_store order \
+              "${order_args[@]}" \
+              --loading-strategy "$DETECTOR_LOADING_STRATEGY" \
+              --runtime-index results-repo/runtime-index.json \
+              --calibration-index results-repo/calibration-index.json \
+              --mode "$REGRESSION_MODE" \
+              --search-strategy "$effective_strategy" \
+              --threads "$THREADS" \
+              --max-dimension "$MAX_DIMENSION" \
+              --golden-set-sha256 "$golden_set_sha256" \
+              --runner-label "${HTH_RUNNER_LABEL:-}")
+            detector_configs=("${ordered_configs[@]}")
+          else
+            detector_estimates=("unknown")
+            detector_estimate_sources=("single-detector")
+            detector_quality=("unknown")
+          fi
+
           echo "Regression mode    : $REGRESSION_MODE"
           echo "Algorithm          : '$DETECTOR_ALGORITHM'"
           echo "Effective limit    : '${effective_limit:-unlimited}' ($effective_limit_source)"
           echo "Detectors          : ${#detector_configs[@]}"
           echo "Detector pipelines : $effective_pipelines (requested $requested_pipelines)"
+          echo "Loading strategy   : ${DETECTOR_LOADING_STRATEGY}"
           echo "Pipeline stagger   : ${PIPELINE_STAGGER_MINUTES} minute(s)"
+          echo
+          echo "Detector queue"
+          echo "=============="
+          for ((queue_index = 0; queue_index < ${#detector_configs[@]}; queue_index++)); do
+            queue_detector="$(python - "${detector_configs[$queue_index]}" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          print(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")).get("detector", "unknown"))
+          PY
+            )"
+            printf '%2d. %-24s estimate=%-10s source=%s quality=%s\n' \
+              "$((queue_index + 1))" "$queue_detector" \
+              "${detector_estimates[$queue_index]:-unknown}s" \
+              "${detector_estimate_sources[$queue_index]:-unknown}" \
+              "${detector_quality[$queue_index]:-unknown}"
+          done
 
           queue_dir="regression-output/.detector-queue"
           rm -rf "$queue_dir"
@@ -645,7 +715,7 @@ jobs:
               return 1
             fi
 
-            local detector_name
+            local detector_name detector_estimate detector_estimate_source detector_ranked_quality
             detector_name="$(python - "$detector_config" <<'PY'
           import json
           import sys
@@ -655,6 +725,9 @@ jobs:
           print(payload.get("detector", "unknown"))
           PY
             )"
+            detector_estimate="${detector_estimates[$task_index]:-unknown}"
+            detector_estimate_source="${detector_estimate_sources[$task_index]:-unknown}"
+            detector_ranked_quality="${detector_quality[$task_index]:-unknown}"
 
             local -a args=(
               python -m hth.regress_detector
@@ -704,7 +777,14 @@ jobs:
               fi
             fi
 
+            local detector_started_epoch detector_finished_epoch detector_wall_seconds
+            detector_started_epoch="$(date +%s)"
             echo
+            echo "======================================================================"
+            echo "[pipeline $pipeline_number] LOAD detector=$detector_name"
+            echo "[pipeline $pipeline_number] estimate=${detector_estimate}s source=${detector_estimate_source}"
+            echo "[pipeline $pipeline_number] ranked_quality=${detector_ranked_quality}"
+            echo "======================================================================"
             echo "[pipeline $pipeline_number][$detector_name] Regression command:"
             printf '[pipeline %s][%s]' "$pipeline_number" "$detector_name"
             printf ' %q' "${args[@]}"
@@ -731,6 +811,9 @@ jobs:
             if ! HTH_DETECTOR_PIPELINES="$effective_pipelines" \
               HTH_DETECTOR_PIPELINE_NUMBER="$pipeline_number" \
               HTH_PIPELINE_STAGGER_MINUTES="$PIPELINE_STAGGER_MINUTES" \
+              HTH_DETECTOR_LOADING_STRATEGY="$DETECTOR_LOADING_STRATEGY" \
+              HTH_DETECTOR_RUNTIME_ESTIMATE_SECONDS="$detector_estimate" \
+              HTH_DETECTOR_RUNTIME_ESTIMATE_SOURCE="$detector_estimate_source" \
               "${args[@]}" 2>&1 \
                 | sed -u -E 's/^(Machine[[:space:]]*:).*/\1 [obfuscated]/' \
                 | sed -u "s/^/[pipeline $pipeline_number][$detector_name] /" \
@@ -752,7 +835,12 @@ jobs:
             fi
 
             printf '%s\n' "$run_dir" > "$queue_dir/run-dirs/$(printf '%04d' "$task_index")"
-            echo "[pipeline $pipeline_number][$detector_name] Completed; pipeline is taking the next queued detector."
+            detector_finished_epoch="$(date +%s)"
+            detector_wall_seconds="$((detector_finished_epoch - detector_started_epoch))"
+            echo "======================================================================"
+            echo "[pipeline $pipeline_number] UNLOAD detector=$detector_name status=complete wall=${detector_wall_seconds}s"
+            echo "[pipeline $pipeline_number] Completed; pipeline is taking the next queued detector."
+            echo "======================================================================"
           }
 
           detector_worker() {
@@ -885,7 +973,7 @@ jobs:
           git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C results-repo remote set-url origin \
             "https://x-access-token:${HTH_RESULTS_TOKEN}@github.com/${RESULTS_REPOSITORY}.git"
-          git -C results-repo add calibration-index.json source-documents/
+          git -C results-repo add calibration-index.json runtime-index.json source-documents/
 
           if git -C results-repo diff --cached --quiet; then
             echo "Calibration intelligence store already current."

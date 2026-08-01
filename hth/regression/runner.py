@@ -623,6 +623,9 @@ def run(args:argparse.Namespace)->Path:
         "pipeline_count": int(os.environ.get("HTH_DETECTOR_PIPELINES", "1")),
         "pipeline_number": int(os.environ.get("HTH_DETECTOR_PIPELINE_NUMBER", "1")),
         "stagger_minutes": int(os.environ.get("HTH_PIPELINE_STAGGER_MINUTES", "0")),
+        "loading_strategy": os.environ.get("HTH_DETECTOR_LOADING_STRATEGY", "fifo"),
+        "runtime_estimate_seconds": os.environ.get("HTH_DETECTOR_RUNTIME_ESTIMATE_SECONDS"),
+        "runtime_estimate_source": os.environ.get("HTH_DETECTOR_RUNTIME_ESTIMATE_SOURCE"),
     }
     write_json(run_dir/"manifest.json",manifest)
     try:

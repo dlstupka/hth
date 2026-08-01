@@ -29,3 +29,16 @@ def test_single_detector_runs_force_one_pipeline() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert 'if [[ "${DETECTOR_ALGORITHM,,}" != "all" ]]; then' in text
     assert "effective_pipelines=1" in text
+
+
+def test_loading_strategies_runtime_index_and_announcements_are_wired() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "detector_loading_strategy:" in text
+    assert "default: lpt" in text
+    for strategy in ("lpt", "fifo", "ranked"):
+        assert f"          - {strategy}" in text
+    assert "python -m hth.runtime_store order" in text
+    assert "results-repo/runtime-index.json" in text
+    assert "LOAD detector=$detector_name" in text
+    assert "UNLOAD detector=$detector_name status=complete" in text
+    assert "git -C results-repo add calibration-index.json runtime-index.json source-documents/" in text
