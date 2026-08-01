@@ -43,6 +43,7 @@ DETECTOR_CHARACTERIZATION: dict[str, dict[str, Any]] = {
         "role": "Hybrid (Contour Quad + GrabCut)",
         "evidence": [("Contour quadrilateral", "Generator", "Produces the candidate page geometry."), ("GrabCut foreground segmentation", "Validator", "Provides independent pixel-level foreground evidence."), ("Polygon agreement", "Validation", "Requires sufficient overlap between contour and GrabCut hypotheses."), ("Fusion score", "Scoring", "Combines contour quality, GrabCut quality, and hypothesis agreement.")],
     },
+    "grabcut_contour": {"friendly_name": "GrabCut + Contour", "short_name": "GrabCut Contour", "role": "Hybrid (GrabCut + Contour Quad)", "evidence": [("GrabCut foreground segmentation", "Generator", "Generates the primary page polygon from pixel-level foreground segmentation."), ("Foreground contour geometry", "Geometry", "Converts the GrabCut mask into the returned page quadrilateral."), ("Contour quadrilateral", "Validator", "Provides an independent geometric hypothesis for validation."), ("Polygon agreement", "Validation", "Requires sufficient overlap between GrabCut-derived and contour-derived hypotheses."), ("Fusion score", "Scoring", "Combines GrabCut quality, contour quality, and hypothesis agreement while retaining GrabCut geometry.")]},
     "contour_projection": {
         "friendly_name": "Contour + Projection",
         "short_name": "Contour Projection",
