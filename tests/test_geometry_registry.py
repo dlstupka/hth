@@ -89,6 +89,10 @@ class RegistryIsolationTests(unittest.TestCase):
         self.assertEqual(catalog["grabcut_contour"]["origin"], "HTH")
         self.assertIn("GrabCut", catalog["grabcut_contour"]["foundation"])
         self.assertIn("Contour geometry", catalog["grabcut_contour"]["foundation"])
+        self.assertEqual(catalog["cross_edge_contour"]["origin"], "HTH")
+        self.assertIn("Cross-boundary intensity sampling", catalog["cross_edge_contour"]["foundation"])
+        self.assertEqual(catalog["gradient_vote"]["origin"], "HTH")
+        self.assertIn("Sobel gradients", catalog["gradient_vote"]["foundation"])
         self.assertEqual(catalog["contour_quad"]["authors"], ["OpenAI ChatGPT"])
         self.assertEqual(
             catalog["contour_quad"]["foundation"],

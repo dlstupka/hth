@@ -56,6 +56,18 @@ DETECTOR_CHARACTERIZATION: dict[str, dict[str, Any]] = {
         "role": "Generator",
         "evidence": [("Contour quadrilaterals", "Primary", "Generates multiple polygonal page hypotheses."), ("Area", "Scoring", "Rewards candidates occupying a plausible image fraction."), ("Rectangularity", "Scoring", "Rewards quadrilateral-like contour geometry."), ("Corner angles", "Scoring", "Rewards near-right-angle page geometry.")],
     },
+    "cross_edge_contour": {
+        "friendly_name": "Cross-Edge Contour",
+        "short_name": "X-Edge Contour",
+        "role": "Hybrid (Contour Quad + Cross-Edge Validation)",
+        "evidence": [("Contour quadrilateral", "Generator", "Produces candidate page geometry."), ("Inside/outside intensity samples", "Validator", "Measures the image transition across each proposed boundary."), ("Cross-edge contrast", "Validation", "Rejects geometrically plausible boundaries lacking a real photometric transition."), ("Polarity consistency", "Validation", "Checks that inside-versus-outside transition direction is coherent around the page.")],
+    },
+    "gradient_vote": {
+        "friendly_name": "Gradient Boundary Voting",
+        "short_name": "Gradient Vote",
+        "role": "Generator",
+        "evidence": [("Sobel gradient field", "Primary", "Measures distributed horizontal and vertical intensity transitions."), ("Boundary vote profiles", "Generator", "Accumulates local gradients into opposing page-boundary votes."), ("Peak prominence", "Validation", "Requires selected boundaries to stand out from competing transitions."), ("Boundary span", "Geometry", "Forms a page quadrilateral from the winning left, right, top, and bottom votes.")],
+    },
     "edge_contour": {
         "friendly_name": "Edge-Supported Contour",
         "short_name": "Edge Contour",

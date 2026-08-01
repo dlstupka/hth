@@ -41,6 +41,8 @@ on:
           - grabcut_contour
           - consensus_quad
           - edge_contour
+          - cross_edge_contour
+          - gradient_vote
           - components
           - ransac
           - grabcut

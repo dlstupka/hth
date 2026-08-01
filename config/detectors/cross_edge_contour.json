@@ -1,0 +1,92 @@
+{
+  "schema_version": "0.1",
+  "detector": "cross_edge_contour",
+  "description": "Calibration space for the HTH Cross-Edge Contour hybrid detector.",
+  "profiles": {
+    "baseline": {
+      "minimum_contour_area_fraction": 0.12,
+      "epsilon_max_fraction": 0.04,
+      "minimum_rectangularity": 0.55,
+      "sample_offset_fraction": 0.008,
+      "samples_per_edge": 48,
+      "minimum_cross_edge_contrast": 0.045,
+      "minimum_polarity_consistency": 0.55,
+      "contour_weight": 0.45,
+      "contrast_weight": 0.4,
+      "polarity_weight": 0.15
+    }
+  },
+  "parameters": {
+    "minimum_contour_area_fraction": {
+      "type": "float",
+      "values": [
+        0.08,
+        0.12,
+        0.18
+      ]
+    },
+    "epsilon_max_fraction": {
+      "type": "float",
+      "values": [
+        0.03,
+        0.04,
+        0.06
+      ]
+    },
+    "minimum_rectangularity": {
+      "type": "float",
+      "values": [
+        0.45,
+        0.55,
+        0.7
+      ]
+    },
+    "sample_offset_fraction": {
+      "type": "float",
+      "values": [
+        0.004,
+        0.008,
+        0.014
+      ]
+    },
+    "samples_per_edge": {
+      "type": "int",
+      "values": [
+        24,
+        48,
+        72
+      ]
+    },
+    "minimum_cross_edge_contrast": {
+      "type": "float",
+      "values": [
+        0.02,
+        0.045,
+        0.08
+      ]
+    },
+    "minimum_polarity_consistency": {
+      "type": "float",
+      "values": [
+        0.5,
+        0.65,
+        0.8
+      ]
+    },
+    "contrast_weight": {
+      "type": "float",
+      "values": [
+        0.3,
+        0.4,
+        0.5
+      ]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "failures"
+  }
+}

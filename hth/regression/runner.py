@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 import cv2
 from hth.geometry.common import document_mask, resize_for_analysis, scale_bbox, valid_bbox
-from hth.geometry import detector_components, detector_consensus_quad, detector_contour_components, detector_contour_grabcut, detector_grabcut_contour, detector_contour_projection, detector_contour_quad, detector_ransac
+from hth.geometry import detector_components, detector_consensus_quad, detector_contour_components, detector_contour_grabcut, detector_cross_edge_contour, detector_grabcut_contour, detector_gradient_vote, detector_contour_projection, detector_contour_quad, detector_ransac
 from .adapters.components import (
     detect as components_detect,
     pre_regression_report_sections as components_pre_regression_report_sections,
@@ -21,6 +21,8 @@ from .adapters.contour_projection import detect as contour_projection_detect
 from .adapters.contour_grabcut import detect as contour_grabcut_detect
 from .adapters.grabcut_contour import detect as grabcut_contour_detect
 from .adapters.edge_contour import detect as edge_contour_detect
+from .adapters.cross_edge_contour import detect as cross_edge_contour_detect
+from .adapters.gradient_vote import detect as gradient_vote_detect
 from .adapters.grabcut import detect as grabcut_detect
 from .adapters.hough import (
     detect as hough_detect,
@@ -44,7 +46,7 @@ from .progress import ProgressReporter
 from .performance import PerformanceSampler, peak_rss_bytes
 from .calibration_intelligence import build_calibration_intelligence
 
-DETECTORS={"components":components_detect,"contour":contour_detect,"contour_quad":contour_quad_detect,"contour_components":contour_components_detect,"contour_grabcut":contour_grabcut_detect,"grabcut_contour":grabcut_contour_detect,"contour_projection":contour_projection_detect,"consensus_quad":consensus_quad_detect,"edge_contour":edge_contour_detect,"grabcut":grabcut_detect,"hough":hough_detect,"lsd":lsd_detect,"ransac":ransac_detect}
+DETECTORS={"components":components_detect,"contour":contour_detect,"contour_quad":contour_quad_detect,"contour_components":contour_components_detect,"contour_grabcut":contour_grabcut_detect,"grabcut_contour":grabcut_contour_detect,"contour_projection":contour_projection_detect,"consensus_quad":consensus_quad_detect,"edge_contour":edge_contour_detect,"cross_edge_contour":cross_edge_contour_detect,"gradient_vote":gradient_vote_detect,"grabcut":grabcut_detect,"hough":hough_detect,"lsd":lsd_detect,"ransac":ransac_detect}
 ALLOWED_THREAD_COUNTS=(1,2,4,8,16,32,48,64,96,128,256,512,1024)
 
 PRE_REGRESSION_REPORTERS={
