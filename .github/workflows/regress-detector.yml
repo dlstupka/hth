@@ -205,6 +205,7 @@ jobs:
           path: results-repo
           fetch-depth: 1
           persist-credentials: false
+          token: ${{ github.event_name != 'pull_request' && secrets.HTH_RESULTS_TOKEN || github.token }}
 
       - name: Runner diagnostics
         shell: bash
@@ -621,11 +622,33 @@ jobs:
             else
               args+=(--strategy "$STRATEGY")
               if [[ "$STRATEGY" =~ ^(non-dormant|low\+|moderate\+|important\+|critical)$ ]]; then
-                calibration_file="$(find results-repo -type f -path "*/$detector_name/*/reports/calibration-intelligence.json" -print 2>/dev/null | sort | tail -1 || true)"
-                if [[ -n "$calibration_file" ]]; then
+                golden_set_sha256="$(python - "hth-pipeline/$GOLDEN_SET" <<'PY'
+          import hashlib
+          import sys
+          from pathlib import Path
+          print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
+          PY
+                )"
+                detector_config_sha256="$(python - "$detector_config" <<'PY'
+          import hashlib
+          import sys
+          from pathlib import Path
+          print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
+          PY
+                )"
+                calibration_file=""
+                if [[ -f results-repo/calibration-index.json ]]; then
+                  calibration_file="$(python -m hth.calibration_store resolve \
+                    --index results-repo/calibration-index.json \
+                    --detector "$detector_name" \
+                    --golden-set-sha256 "$golden_set_sha256" \
+                    --detector-config-sha256 "$detector_config_sha256" 2>/dev/null || true)"
+                fi
+                if [[ -n "$calibration_file" && -f "$calibration_file" ]]; then
+                  echo "Using indexed calibration intelligence: $calibration_file"
                   args+=(--calibration-intelligence "$calibration_file")
                 else
-                  echo "No prior calibration intelligence found for $detector_name; runner will fall back to exhaustive."
+                  echo "No compatible indexed calibration intelligence found for $detector_name; runner will fall back to exhaustive."
                 fi
               fi
             fi
@@ -705,6 +728,74 @@ jobs:
             --output regression-summary.md
 
           cat regression-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Persist calibration intelligence
+        if: ${{ steps.regression.outcome == 'success' && github.event_name != 'pull_request' }}
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+          HTH_RESULTS_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${HTH_RESULTS_TOKEN:-}" ]]; then
+            echo "::error::HTH_RESULTS_TOKEN is required to persist calibration intelligence"
+            exit 1
+          fi
+
+          publish_args=()
+          while IFS= read -r run_dir; do
+            [[ -n "$run_dir" ]] || continue
+            publish_args+=(--run-dir "$run_dir")
+          done < "${{ steps.regression.outputs.run_dirs_file }}"
+
+          python -m hth.calibration_store publish \
+            "${publish_args[@]}" \
+            --results-root results-repo \
+            --mode "$REGRESSION_MODE" \
+            --source-fallback "$RESULTS_REPOSITORY" \
+            --workflow "${{ github.workflow }}" \
+            --event "${{ github.event_name }}" \
+            --repository "${{ github.repository }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-number "${{ github.run_number }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --ref "${{ github.ref }}" \
+            --sha "${{ github.sha }}" \
+            --run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C results-repo remote set-url origin \
+            "https://x-access-token:${HTH_RESULTS_TOKEN}@github.com/${RESULTS_REPOSITORY}.git"
+          git -C results-repo add calibration-index.json source-documents/
+
+          if git -C results-repo diff --cached --quiet; then
+            echo "Calibration intelligence store already current."
+          else
+            git -C results-repo commit -m \
+              "Update calibration intelligence from HTH run ${{ github.run_number }}"
+            for attempt in 1 2 3; do
+              if git -C results-repo pull --rebase origin main && git -C results-repo push origin main; then
+                break
+              fi
+              if [[ "$attempt" == "3" ]]; then
+                echo "::error::Unable to publish calibration intelligence after 3 attempts"
+                exit 1
+              fi
+              sleep $((attempt * 5))
+            done
+          fi
+
+          RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
+          {
+            echo
+            echo "### Calibration intelligence persistence"
+            echo
+            echo "- Index: \`calibration-index.json\`"
+            echo "- Results commit: \`$RESULTS_COMMIT\`"
+            echo "- Smoke records are provisional; complete exhaustive full regressions are authoritative."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload regression run
         if: ${{ always() }}

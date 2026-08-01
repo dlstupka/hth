@@ -229,3 +229,33 @@ Exhaustive results preserve every evaluated parameter set and its page-level
 metrics. These runs therefore provide both calibration results and the evidence
 needed to compare future non-exhaustive search strategies against the known
 exhaustive outcome.
+
+## Persistent calibration intelligence
+
+Every successful detector regression on a push or manual workflow run publishes its
+machine-readable calibration intelligence to the results repository. Pull-request runs
+remain artifact-only because repository secrets are not available to untrusted changes.
+
+The top-level lookup file is:
+
+```text
+calibration-index.json
+```
+
+Each permanent record is stored beneath:
+
+```text
+source-documents/<source-document-id>/golden-sets/<golden-set-id>/<golden-set-sha>/
+  calibrations/<detector-id>/<calibration-id>/
+```
+
+A record includes `calibration-intelligence.json`, `manifest.json`, `parameters.json`,
+`RUN-INFO.json`, `summary.json`, and `winner-pages.json`. Smoke tests publish provisional
+records, incomplete or reduced full regressions publish partial records, and complete
+exhaustive full regressions publish authoritative records. The index preserves all records
+and selects the newest strongest compatible record without allowing a smoke test to replace
+an authoritative calibration.
+
+Effect-size regression strategies resolve prior intelligence through the index using the
+Golden Set SHA-256, detector ID, and detector-configuration SHA-256. If no compatible record
+exists, the existing strategy fallback resolves to exhaustive.
