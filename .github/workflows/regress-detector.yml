@@ -37,6 +37,7 @@ on:
           - contour_quad
           - contour_components
           - contour_projection
+          - contour_grabcut
           - consensus_quad
           - edge_contour
           - components

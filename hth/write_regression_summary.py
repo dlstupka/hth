@@ -37,6 +37,12 @@ DETECTOR_CHARACTERIZATION: dict[str, dict[str, Any]] = {
         "role": "Hybrid (Contour Quad + Components)",
         "evidence": [("Contour quadrilateral", "Generator", "Produces candidate page quadrilaterals."), ("Component containment", "Validator", "Measures how well selected components fall within each candidate."), ("Component envelope overlap", "Validator", "Compares each contour candidate with the independent component envelope."), ("Component spread and density", "Validator", "Checks whether foreground evidence is distributed plausibly across the candidate.")],
     },
+    "contour_grabcut": {
+        "friendly_name": "Contour + GrabCut",
+        "short_name": "Contour GrabCut",
+        "role": "Hybrid (Contour Quad + GrabCut)",
+        "evidence": [("Contour quadrilateral", "Generator", "Produces the candidate page geometry."), ("GrabCut foreground segmentation", "Validator", "Provides independent pixel-level foreground evidence."), ("Polygon agreement", "Validation", "Requires sufficient overlap between contour and GrabCut hypotheses."), ("Fusion score", "Scoring", "Combines contour quality, GrabCut quality, and hypothesis agreement.")],
+    },
     "contour_projection": {
         "friendly_name": "Contour + Projection",
         "short_name": "Contour Projection",

@@ -1,0 +1,32 @@
+{
+  "schema_version": "0.1",
+  "detector": "contour_grabcut",
+  "description": "Calibration space for the HTH Contour + GrabCut hybrid detector.",
+  "profiles": {
+    "baseline": {
+      "contour_minimum_area_fraction": 0.12,
+      "contour_epsilon_max_fraction": 0.04,
+      "contour_minimum_rectangularity": 0.55,
+      "grabcut_border_fraction": 0.02,
+      "grabcut_erosion_kernel_fraction": 0.015,
+      "grabcut_iterations": 3,
+      "minimum_agreement_iou": 0.3,
+      "contour_weight": 0.45,
+      "grabcut_weight": 0.25,
+      "agreement_weight": 0.3,
+      "require_grabcut": false
+    }
+  },
+  "parameters": {
+    "contour_minimum_area_fraction": {"type": "float", "values": [0.08, 0.12, 0.18]},
+    "contour_epsilon_max_fraction": {"type": "float", "values": [0.03, 0.04, 0.06]},
+    "contour_minimum_rectangularity": {"type": "float", "values": [0.45, 0.55, 0.7]},
+    "grabcut_border_fraction": {"type": "float", "values": [0.01, 0.02, 0.03]},
+    "grabcut_iterations": {"type": "integer", "values": [1, 3, 5]},
+    "minimum_agreement_iou": {"type": "float", "values": [0.15, 0.3, 0.5]},
+    "grabcut_weight": {"type": "float", "values": [0.15, 0.25, 0.35]},
+    "agreement_weight": {"type": "float", "values": [0.2, 0.3, 0.4]}
+  },
+  "binary_refine": {"passes": 3, "local_exhaustive_radius": 1},
+  "regression": {"debug_artifacts": "winner"}
+}

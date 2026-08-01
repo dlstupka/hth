@@ -50,7 +50,7 @@ The manually dispatched **HTH detector regression** workflow checks out a result
 
 When multiple detectors run together, the top-level **Detector Regression Manifest** identifies the source document and begins with a ranked detector-results table. Detectors are sorted by the regression quality ordering: average IoU, minimum IoU, failures, standard deviation, and evaluation time. The table places every detector's winner, IoU metrics, failure count, evaluated parameter-set count, estimated winner page throughput, source-document processing time derived from the configured image count, and complete detector-tuning run elapsed time side by side before the detailed per-detector manifests. The detail sections remain authoritative; the ranked table intentionally duplicates their key results to support rapid comparison.
 
-For a manual run, the **Algorithm** input is a choice of `all`, `contour`, `contour_quad`, `contour_components`, `contour_projection`, `edge_contour`, `components`, `ransac`, `grabcut`, `hough`, or `lsd`. Automatic smoke runs continue to exercise all configured detector algorithms.
+For a manual run, the **Algorithm** input is a choice of `all`, `contour`, `contour_quad`, `contour_components`, `contour_grabcut`, `contour_projection`, `edge_contour`, `components`, `ransac`, `grabcut`, `hough`, or `lsd`. Automatic smoke runs continue to exercise all configured detector algorithms.
 
 Manual runs default to the `exhaustive` strategy. Limit handling is explicit:
 
@@ -135,6 +135,7 @@ The **Show toolchain environment** step records the resolved Bash, Git, Python, 
 - `contour` — `config/detectors/contour.json`
 - `contour_quad` — `config/detectors/contour_quad.json`
 - `contour_components` — `config/detectors/contour_components.json`
+- `contour_grabcut` — `config/detectors/contour_grabcut.json`
 - `contour_projection` — `config/detectors/contour_projection.json`
 - `consensus_quad` — `config/detectors/consensus_quad.json`
 - `edge_contour` — `config/detectors/edge_contour.json`

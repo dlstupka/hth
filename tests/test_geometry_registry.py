@@ -84,6 +84,8 @@ class RegistryIsolationTests(unittest.TestCase):
         self.assertIn("Connected components", catalog["contour_components"]["foundation"])
         self.assertEqual(catalog["contour_projection"]["origin"], "HTH")
         self.assertIn("Projection profiles", catalog["contour_projection"]["foundation"])
+        self.assertEqual(catalog["contour_grabcut"]["origin"], "HTH")
+        self.assertIn("GrabCut", catalog["contour_grabcut"]["foundation"])
         self.assertEqual(catalog["contour_quad"]["authors"], ["OpenAI ChatGPT"])
         self.assertEqual(
             catalog["contour_quad"]["foundation"],
