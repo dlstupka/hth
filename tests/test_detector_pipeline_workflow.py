@@ -44,3 +44,16 @@ def test_loading_strategies_runtime_index_and_announcements_are_wired() -> None:
     assert "LOAD detector=$detector_name" in text
     assert "UNLOAD detector=$detector_name status=complete" in text
     assert "git -C results-repo add calibration-index.json runtime-index.json source-documents/" in text
+
+
+def test_intelligence_publisher_rebuilds_from_latest_results_state_on_retry() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert 'max_publish_attempts=5' in text
+    assert 'git -C results-repo fetch origin main' in text
+    assert 'git -C results-repo reset --hard origin/main' in text
+    assert 'git -C results-repo clean -fd -- calibration-index.json runtime-index.json source-documents/' in text
+    assert 'python -m hth.calibration_store publish' in text
+    assert 'git -C results-repo push origin HEAD:main' in text
+    assert 'git -C results-repo pull --rebase origin main' not in text
+    assert 'retry_delay=$((5 * (attempt - 1)))' in text
+    assert 'Publish collision detected; waiting ${retry_delay}s for calibration intelligence to free up before retrying...' in text

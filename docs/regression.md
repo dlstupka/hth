@@ -282,6 +282,15 @@ exhaustive full regressions publish authoritative records. The index preserves a
 and selects the newest strongest compatible record without allowing a smoke test to replace
 an authoritative calibration.
 
+Concurrent smoke, manual, and full regressions may finish together and attempt to publish to
+the same results repository. Publication therefore refreshes to the latest `origin/main`,
+reapplies the completed run records, and deterministically rebuilds both
+`calibration-index.json` and `runtime-index.json` before every push attempt. A rejected push
+is treated as a publication collision rather than a merge problem: the publisher waits 5,
+10, 15, then 20 seconds across subsequent attempts, refreshes again, and rebuilds the indexes
+from the new authoritative repository state. Generated intelligence indexes are never rebased
+or manually merged.
+
 Effect-size regression strategies resolve prior intelligence through the index using the
 Golden Set SHA-256, detector ID, and detector-configuration SHA-256. If no compatible record
 exists, the existing strategy fallback resolves to exhaustive.

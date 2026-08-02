@@ -936,42 +936,58 @@ jobs:
             publish_args+=(--run-dir "$run_dir")
           done < "${{ steps.regression.outputs.run_dirs_file }}"
 
-          python -m hth.calibration_store publish \
-            "${publish_args[@]}" \
-            --results-root results-repo \
-            --mode "$REGRESSION_MODE" \
-            --source-fallback "$RESULTS_REPOSITORY" \
-            --workflow "${{ github.workflow }}" \
-            --event "${{ github.event_name }}" \
-            --repository "${{ github.repository }}" \
-            --run-id "${{ github.run_id }}" \
-            --run-number "${{ github.run_number }}" \
-            --run-attempt "${{ github.run_attempt }}" \
-            --ref "${{ github.ref }}" \
-            --sha "${{ github.sha }}" \
-            --run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
           git -C results-repo config user.name "github-actions[bot]"
           git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C results-repo remote set-url origin \
             "https://x-access-token:${HTH_RESULTS_TOKEN}@github.com/${RESULTS_REPOSITORY}.git"
-          git -C results-repo add calibration-index.json runtime-index.json source-documents/
 
-          if git -C results-repo diff --cached --quiet; then
-            echo "Calibration intelligence store already current."
-          else
+          published=0
+          max_publish_attempts=5
+          for attempt in $(seq 1 "$max_publish_attempts"); do
+            if (( attempt > 1 )); then
+              retry_delay=$((5 * (attempt - 1)))
+              echo "Publish collision detected; waiting ${retry_delay}s for calibration intelligence to free up before retrying..."
+              sleep "$retry_delay"
+            fi
+
+            git -C results-repo fetch origin main
+            git -C results-repo reset --hard origin/main
+            git -C results-repo clean -fd -- calibration-index.json runtime-index.json source-documents/
+
+            python -m hth.calibration_store publish \
+              "${publish_args[@]}" \
+              --results-root results-repo \
+              --mode "$REGRESSION_MODE" \
+              --source-fallback "$RESULTS_REPOSITORY" \
+              --workflow "${{ github.workflow }}" \
+              --event "${{ github.event_name }}" \
+              --repository "${{ github.repository }}" \
+              --run-id "${{ github.run_id }}" \
+              --run-number "${{ github.run_number }}" \
+              --run-attempt "${{ github.run_attempt }}" \
+              --ref "${{ github.ref }}" \
+              --sha "${{ github.sha }}" \
+              --run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+            git -C results-repo add calibration-index.json runtime-index.json source-documents/
+
+            if git -C results-repo diff --cached --quiet; then
+              echo "Calibration intelligence store already current."
+              published=1
+              break
+            fi
+
             git -C results-repo commit -m \
               "Update calibration intelligence from HTH run ${{ github.run_number }}"
-            for attempt in 1 2 3; do
-              if git -C results-repo pull --rebase origin main && git -C results-repo push origin main; then
-                break
-              fi
-              if [[ "$attempt" == "3" ]]; then
-                echo "::error::Unable to publish calibration intelligence after 3 attempts"
-                exit 1
-              fi
-              sleep $((attempt * 5))
-            done
+            if git -C results-repo push origin HEAD:main; then
+              published=1
+              break
+            fi
+          done
+
+          if (( published == 0 )); then
+            echo "::error::Unable to publish calibration intelligence after ${max_publish_attempts} attempts"
+            exit 1
           fi
 
           RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
