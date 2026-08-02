@@ -915,28 +915,8 @@ jobs:
           rm -rf "$queue_dir"
           echo "run_dirs_file=regression-output/run-directories.txt" >> "$GITHUB_OUTPUT"
 
-      - name: Write Regression Manifest
-        if: ${{ always() && steps.regression.outcome == 'success' }}
-        shell: bash
-        env:
-          PYTHONPATH: hth-pipeline
-          HTH_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -euo pipefail
-
-          summary_args=()
-          while IFS= read -r run_dir; do
-            [[ -n "$run_dir" ]] || continue
-            summary_args+=(--run-dir "$run_dir")
-          done < "${{ steps.regression.outputs.run_dirs_file }}"
-
-          python hth-pipeline/hth/write_regression_summary.py \
-            "${summary_args[@]}" \
-            --output regression-summary.md
-
-          cat regression-summary.md >> "$GITHUB_STEP_SUMMARY"
-
       - name: Persist calibration intelligence
+        id: persistence
         if: ${{ steps.regression.outcome == 'success' && github.event_name != 'pull_request' }}
         shell: bash
         env:
@@ -995,14 +975,31 @@ jobs:
           fi
 
           RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
-          {
-            echo
-            echo "### Calibration intelligence persistence"
-            echo
-            echo "- Index: \`calibration-index.json\`"
-            echo "- Results commit: \`$RESULTS_COMMIT\`"
-            echo "- Smoke records are provisional; complete exhaustive full regressions are authoritative."
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "results_commit=$RESULTS_COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: Write Regression Manifest
+        if: ${{ always() && steps.regression.outcome == 'success' }}
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+          HTH_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          summary_args=()
+          while IFS= read -r run_dir; do
+            [[ -n "$run_dir" ]] || continue
+            summary_args+=(--run-dir "$run_dir")
+          done < "${{ steps.regression.outputs.run_dirs_file }}"
+
+          python hth-pipeline/hth/write_regression_summary.py \
+            "${summary_args[@]}" \
+            --pipeline-repository "${{ github.repository }}" \
+            --results-repository "$RESULTS_REPOSITORY" \
+            --results-commit "${{ steps.persistence.outputs.results_commit }}" \
+            --output regression-summary.md
+
+          cat regression-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload regression run
         if: ${{ always() }}

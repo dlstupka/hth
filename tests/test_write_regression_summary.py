@@ -145,7 +145,13 @@ class RegressionSummaryTests(unittest.TestCase):
                 },
             }), encoding="utf-8")
 
-            text = build_summary(run, "https://example.invalid/run")
+            text = build_summary(
+                run,
+                "https://example.invalid/run",
+                pipeline_repository="dlstupka/hth",
+                results_repository="dlstupka/hth-results",
+                results_commit="abc123def456",
+            )
             self.assertIn("# Regression Manifest", text)
             self.assertIn("<summary><strong>Navigation</strong></summary>", text)
             self.assertIn("- [Run Information](#run-information)", text)
@@ -155,6 +161,14 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("[↑ Back to Navigation](#table-of-contents)", text)
             self.assertIn("## Engineering Continuous Improvement", text)
             self.assertIn("### Runtime Intelligence Persistence", text)
+            self.assertIn("Pipeline repository: `dlstupka/hth`", text)
+            self.assertIn("https://github.com/dlstupka/hth", text)
+            self.assertIn("Results repository: `dlstupka/hth-results`", text)
+            self.assertIn("https://github.com/dlstupka/hth-results", text)
+            self.assertIn("https://github.com/dlstupka/hth-results/blob/abc123def456/calibration-index.json", text)
+            self.assertIn("https://github.com/dlstupka/hth-results/blob/abc123def456/runtime-index.json", text)
+            self.assertIn("https://github.com/dlstupka/hth-results/commit/abc123def456", text)
+            self.assertEqual(text.count("### Calibration Intelligence Persistence"), 1)
             self.assertIn("`grabcut`", text)
             self.assertIn("`binary-refine`", text)
             self.assertIn("`1234567890ab`", text)
@@ -318,7 +332,13 @@ class RegressionSummaryTests(unittest.TestCase):
                 }), encoding="utf-8")
                 run_dirs.append(run)
 
-            text = build_combined_summary(run_dirs, "https://example.invalid/run")
+            text = build_combined_summary(
+                run_dirs,
+                "https://example.invalid/run",
+                pipeline_repository="dlstupka/hth",
+                results_repository="dlstupka/hth-results",
+                results_commit="abc123def456",
+            )
             self.assertIn("# Detector Regression Manifest", text)
             self.assertIn("**Detectors evaluated:** 2", text)
             self.assertIn("## Source document", text)
@@ -358,6 +378,12 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("## Engineering Continuous Improvement", text)
             self.assertIn("### Calibration Intelligence Persistence", text)
             self.assertIn("### Runtime Intelligence Persistence", text)
+            self.assertIn("Pipeline repository: `dlstupka/hth`", text)
+            self.assertIn("Results repository: `dlstupka/hth-results`", text)
+            self.assertIn("https://github.com/dlstupka/hth-results/blob/abc123def456/calibration-index.json", text)
+            self.assertIn("https://github.com/dlstupka/hth-results/blob/abc123def456/runtime-index.json", text)
+            self.assertIn("https://github.com/dlstupka/hth-results/commit/abc123def456", text)
+            self.assertEqual(text.count("### Calibration Intelligence Persistence"), 1)
             self.assertIn("Detector short name", text)
             self.assertIn("## Detector Recommendation for this Golden Set", text)
             self.assertIn("### Calibration Report Legend", text)

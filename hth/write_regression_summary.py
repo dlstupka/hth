@@ -515,6 +515,9 @@ def build_summary(
     *,
     include_title: bool = True,
     include_metric_definitions: bool = True,
+    pipeline_repository: str = "",
+    results_repository: str = "",
+    results_commit: str = "",
 ) -> str:
     manifest = _read_json(run_dir / "manifest.json")
     info = _read_json(run_dir / "RUN-INFO.json")
@@ -805,7 +808,11 @@ def build_summary(
         lines.extend(_render_detector_calibration(detector_name, calibration_payload, summary))
 
     if calibration_payload is not None and include_title:
-        lines.extend(["", *_engineering_continuous_improvement_lines()])
+        lines.extend(["", *_engineering_continuous_improvement_lines(
+            pipeline_repository=pipeline_repository,
+            results_repository=results_repository,
+            results_commit=results_commit,
+        )])
 
     if run_url:
         lines.extend(["", f"[Open workflow run]({run_url})"])
@@ -1229,7 +1236,20 @@ def _queue_rows(run_dirs: list[Path]) -> list[dict[str, Any]]:
     return rows
 
 
-def _engineering_continuous_improvement_lines() -> list[str]:
+def _github_url(repository: str) -> str:
+    return f"https://github.com/{repository}" if repository else ""
+
+
+def _markdown_link(label: str, url: str) -> str:
+    return f"[{label}]({url})" if url else label
+
+
+def _engineering_continuous_improvement_lines(
+    *,
+    pipeline_repository: str = "",
+    results_repository: str = "",
+    results_commit: str = "",
+) -> list[str]:
     return [
         "## Engineering Continuous Improvement",
         "",
@@ -1239,6 +1259,12 @@ def _engineering_continuous_improvement_lines() -> list[str]:
         "",
         "- `calibration-index.json` retains detector quality, winner, parameter influence, domain-space, page-sensitivity, and calibration-evidence metadata.",
         "- Compatible authoritative calibrations remain preferred over provisional smoke observations.",
+        f"- Pipeline repository: `{pipeline_repository or 'unknown'}`{(' — ' + _markdown_link('open repository', _github_url(pipeline_repository))) if pipeline_repository else ''}.",
+        f"- Results repository: `{results_repository or 'unknown'}`{(' — ' + _markdown_link('open repository', _github_url(results_repository))) if results_repository else ''}.",
+        f"- Calibration index: `calibration-index.json`{(' — ' + _markdown_link('open file', _github_url(results_repository) + '/blob/' + (results_commit or 'main') + '/calibration-index.json')) if results_repository else ''}.",
+        f"- Runtime index: `runtime-index.json`{(' — ' + _markdown_link('open file', _github_url(results_repository) + '/blob/' + (results_commit or 'main') + '/runtime-index.json')) if results_repository else ''}.",
+        f"- Results commit: `{results_commit or 'unknown'}`{(' — ' + _markdown_link('open commit', _github_url(results_repository) + '/commit/' + results_commit)) if results_repository and results_commit else ''}.",
+        "- Smoke records are provisional; complete exhaustive full regressions are authoritative.",
         "",
         "### Runtime Intelligence Persistence",
         "",
@@ -1310,11 +1336,24 @@ def _combined_ranking_key(row: dict[str, Any]) -> tuple[float, float, int, float
     )
 
 
-def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
+def build_combined_summary(
+    run_dirs: list[Path],
+    run_url: str = "",
+    *,
+    pipeline_repository: str = "",
+    results_repository: str = "",
+    results_commit: str = "",
+) -> str:
     if not run_dirs:
         raise ValueError("At least one regression run directory is required")
     if len(run_dirs) == 1:
-        return build_summary(run_dirs[0], run_url)
+        return build_summary(
+            run_dirs[0],
+            run_url,
+            pipeline_repository=pipeline_repository,
+            results_repository=results_repository,
+            results_commit=results_commit,
+        )
 
     combined_rows = sorted(
         (_combined_result_row(run_dir) for run_dir in run_dirs),
@@ -1506,7 +1545,14 @@ def build_combined_summary(run_dirs: list[Path], run_url: str = "") -> str:
         lines.extend(["", "</details>"])
         if index != len(run_dirs) - 1:
             lines.extend([""])
-    lines.extend(["", "</details>", "", "</details>", "", *_engineering_continuous_improvement_lines()])
+    lines.extend([
+        "", "</details>", "", "</details>", "",
+        *_engineering_continuous_improvement_lines(
+            pipeline_repository=pipeline_repository,
+            results_repository=results_repository,
+            results_commit=results_commit,
+        ),
+    ])
     if run_url:
         lines.extend(["", f"[Open workflow run]({run_url})"])
     lines.append("")
@@ -1518,12 +1564,21 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--run-dir", type=Path, action="append", required=True)
     p.add_argument("--output", type=Path)
     p.add_argument("--run-url", default=os.environ.get("HTH_RUN_URL", ""))
+    p.add_argument("--pipeline-repository", default=os.environ.get("HTH_PIPELINE_REPOSITORY", ""))
+    p.add_argument("--results-repository", default=os.environ.get("HTH_RESULTS_REPOSITORY", ""))
+    p.add_argument("--results-commit", default=os.environ.get("HTH_RESULTS_COMMIT", ""))
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    text = build_combined_summary(args.run_dir, args.run_url)
+    text = build_combined_summary(
+        args.run_dir,
+        args.run_url,
+        pipeline_repository=args.pipeline_repository,
+        results_repository=args.results_repository,
+        results_commit=args.results_commit,
+    )
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(text, encoding="utf-8")
