@@ -69,6 +69,18 @@ DETECTOR_CHARACTERIZATION: dict[str, dict[str, Any]] = {
         "role": "Generator",
         "evidence": [("Sobel gradient field", "Primary", "Measures distributed horizontal and vertical intensity transitions."), ("Boundary vote profiles", "Generator", "Accumulates local gradients into opposing page-boundary votes."), ("Peak prominence", "Validation", "Requires selected boundaries to stand out from competing transitions."), ("Boundary span", "Geometry", "Forms a page quadrilateral from the winning left, right, top, and bottom votes.")],
     },
+    "radial_edge": {
+        "friendly_name": "Radial Edge Search",
+        "short_name": "Radial Edge",
+        "role": "Generator",
+        "evidence": [("Center-outward rays", "Primary", "Samples image gradients along radial paths from the document center."), ("Strongest radial transitions", "Generator", "Selects likely page-boundary points independently on each ray."), ("Minimum-area rectangle", "Geometry", "Fits a quadrilateral to the supported radial edge points."), ("Ray support", "Validation", "Rejects candidates when too few directions provide credible boundary evidence.")],
+    },
+    "border_energy": {
+        "friendly_name": "Border Energy Validator",
+        "short_name": "Border Energy",
+        "role": "Hybrid (Contour Quad + Border Energy)",
+        "evidence": [("Contour quadrilateral", "Generator", "Produces candidate page geometry."), ("Sobel border energy", "Validator", "Measures gradient magnitude in a narrow band along each proposed border."), ("Side consistency", "Validation", "Requires all four sides to carry comparable boundary evidence."), ("Fusion score", "Scoring", "Combines contour quality, border energy, and side consistency.")],
+    },
     "edge_contour": {
         "friendly_name": "Edge-Supported Contour",
         "short_name": "Edge Contour",

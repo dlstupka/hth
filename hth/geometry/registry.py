@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 
 from . import (
+    detector_border_energy,
     detector_components,
     detector_contour,
     detector_contour_components,
@@ -25,6 +26,7 @@ from . import (
     detector_gradient_vote,
     detector_hough,
     detector_lsd,
+    detector_radial_edge,
     detector_ransac,
 )
 from .model import Candidate
@@ -148,6 +150,26 @@ _REGISTRY: tuple[DetectorSpec, ...] = (
         origin="HTH",
         entrypoint=detector_gradient_vote.detect,
         foundation=("Sobel gradients", "Projection voting", "OpenCV"),
+        authors=("OpenAI ChatGPT",),
+        version=HTH_VERSION,
+        repository=HTH_REPOSITORY,
+    ),
+    DetectorSpec(
+        method=detector_radial_edge.METHOD,
+        name="Radial Edge Search",
+        origin="HTH",
+        entrypoint=detector_radial_edge.detect,
+        foundation=("Radial gradient search", "OpenCV"),
+        authors=("OpenAI ChatGPT",),
+        version=HTH_VERSION,
+        repository=HTH_REPOSITORY,
+    ),
+    DetectorSpec(
+        method=detector_border_energy.METHOD,
+        name="Border Energy Validator",
+        origin="HTH",
+        entrypoint=detector_border_energy.detect,
+        foundation=("Contour geometry", "Sobel border energy", "OpenCV"),
         authors=("OpenAI ChatGPT",),
         version=HTH_VERSION,
         repository=HTH_REPOSITORY,

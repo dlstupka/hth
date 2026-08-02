@@ -93,6 +93,10 @@ class RegistryIsolationTests(unittest.TestCase):
         self.assertIn("Cross-boundary intensity sampling", catalog["cross_edge_contour"]["foundation"])
         self.assertEqual(catalog["gradient_vote"]["origin"], "HTH")
         self.assertIn("Sobel gradients", catalog["gradient_vote"]["foundation"])
+        self.assertEqual(catalog["radial_edge"]["origin"], "HTH")
+        self.assertIn("Radial gradient search", catalog["radial_edge"]["foundation"])
+        self.assertEqual(catalog["border_energy"]["origin"], "HTH")
+        self.assertIn("Sobel border energy", catalog["border_energy"]["foundation"])
         self.assertEqual(catalog["contour_quad"]["authors"], ["OpenAI ChatGPT"])
         self.assertEqual(
             catalog["contour_quad"]["foundation"],

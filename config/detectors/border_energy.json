@@ -1,0 +1,92 @@
+{
+  "schema_version": "0.1",
+  "detector": "border_energy",
+  "description": "Calibration space for the HTH Border Energy Validator detector.",
+  "profiles": {
+    "baseline": {
+      "minimum_contour_area_fraction": 0.12,
+      "epsilon_max_fraction": 0.04,
+      "minimum_rectangularity": 0.55,
+      "gaussian_sigma": 1.2,
+      "band_fraction": 0.008,
+      "minimum_border_energy": 0.1,
+      "minimum_side_consistency": 0.45,
+      "contour_weight": 0.45,
+      "energy_weight": 0.4,
+      "consistency_weight": 0.15
+    }
+  },
+  "parameters": {
+    "minimum_contour_area_fraction": {
+      "type": "float",
+      "values": [
+        0.08,
+        0.12,
+        0.2
+      ]
+    },
+    "epsilon_max_fraction": {
+      "type": "float",
+      "values": [
+        0.03,
+        0.04,
+        0.06
+      ]
+    },
+    "minimum_rectangularity": {
+      "type": "float",
+      "values": [
+        0.45,
+        0.55,
+        0.7
+      ]
+    },
+    "gaussian_sigma": {
+      "type": "float",
+      "values": [
+        0.8,
+        1.2,
+        1.8
+      ]
+    },
+    "band_fraction": {
+      "type": "float",
+      "values": [
+        0.004,
+        0.008,
+        0.015
+      ]
+    },
+    "minimum_border_energy": {
+      "type": "float",
+      "values": [
+        0.05,
+        0.1,
+        0.18
+      ]
+    },
+    "minimum_side_consistency": {
+      "type": "float",
+      "values": [
+        0.3,
+        0.45,
+        0.6
+      ]
+    },
+    "energy_weight": {
+      "type": "float",
+      "values": [
+        0.3,
+        0.4,
+        0.5
+      ]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "failures"
+  }
+}

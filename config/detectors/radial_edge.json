@@ -1,0 +1,93 @@
+{
+  "schema_version": "0.1",
+  "detector": "radial_edge",
+  "description": "Calibration space for the HTH Radial Edge Search detector.",
+  "profiles": {
+    "baseline": {
+      "gaussian_sigma": 1.2,
+      "ray_count": 96,
+      "minimum_radius_fraction": 0.18,
+      "maximum_radius_fraction": 0.72,
+      "gradient_percentile": 82.0,
+      "minimum_ray_support": 0.45,
+      "minimum_area_fraction": 0.18,
+      "maximum_area_fraction": 0.98,
+      "area_weight": 0.35,
+      "support_weight": 0.45,
+      "rectangularity_weight": 0.2
+    }
+  },
+  "parameters": {
+    "gaussian_sigma": {
+      "type": "float",
+      "values": [
+        0.8,
+        1.2,
+        1.8
+      ]
+    },
+    "ray_count": {
+      "type": "int",
+      "values": [
+        64,
+        96,
+        144
+      ]
+    },
+    "minimum_radius_fraction": {
+      "type": "float",
+      "values": [
+        0.12,
+        0.18,
+        0.24
+      ]
+    },
+    "maximum_radius_fraction": {
+      "type": "float",
+      "values": [
+        0.62,
+        0.72,
+        0.82
+      ]
+    },
+    "gradient_percentile": {
+      "type": "float",
+      "values": [
+        70.0,
+        82.0,
+        90.0
+      ]
+    },
+    "minimum_ray_support": {
+      "type": "float",
+      "values": [
+        0.3,
+        0.45,
+        0.6
+      ]
+    },
+    "support_weight": {
+      "type": "float",
+      "values": [
+        0.35,
+        0.45,
+        0.55
+      ]
+    },
+    "rectangularity_weight": {
+      "type": "float",
+      "values": [
+        0.1,
+        0.2,
+        0.3
+      ]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "failures"
+  }
+}

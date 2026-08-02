@@ -43,6 +43,8 @@ on:
           - edge_contour
           - cross_edge_contour
           - gradient_vote
+          - radial_edge
+          - border_energy
           - components
           - ransac
           - grabcut
