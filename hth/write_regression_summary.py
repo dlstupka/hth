@@ -809,13 +809,12 @@ def build_summary(
 
     if calibration_payload is not None and include_title:
         lines.extend(["", *_engineering_continuous_improvement_lines(
+            run_url=run_url,
             pipeline_repository=pipeline_repository,
             results_repository=results_repository,
             results_commit=results_commit,
         )])
 
-    if run_url:
-        lines.extend(["", f"[Open workflow run]({run_url})"])
     lines.append("")
     rendered_lines = _add_report_navigation(lines) if include_title else lines
     return "\n".join(rendered_lines)
@@ -1246,6 +1245,7 @@ def _markdown_link(label: str, url: str) -> str:
 
 def _engineering_continuous_improvement_lines(
     *,
+    run_url: str = "",
     pipeline_repository: str = "",
     results_repository: str = "",
     results_commit: str = "",
@@ -1259,11 +1259,12 @@ def _engineering_continuous_improvement_lines(
         "",
         "- `calibration-index.json` retains detector quality, winner, parameter influence, domain-space, page-sensitivity, and calibration-evidence metadata.",
         "- Compatible authoritative calibrations remain preferred over provisional smoke observations.",
-        f"- Pipeline repository: `{pipeline_repository or 'unknown'}`{(' — ' + _markdown_link('open repository', _github_url(pipeline_repository))) if pipeline_repository else ''}.",
-        f"- Results repository: `{results_repository or 'unknown'}`{(' — ' + _markdown_link('open repository', _github_url(results_repository))) if results_repository else ''}.",
-        f"- Calibration index: `calibration-index.json`{(' — ' + _markdown_link('open file', _github_url(results_repository) + '/blob/' + (results_commit or 'main') + '/calibration-index.json')) if results_repository else ''}.",
-        f"- Runtime index: `runtime-index.json`{(' — ' + _markdown_link('open file', _github_url(results_repository) + '/blob/' + (results_commit or 'main') + '/runtime-index.json')) if results_repository else ''}.",
-        f"- Results commit: `{results_commit or 'unknown'}`{(' — ' + _markdown_link('open commit', _github_url(results_repository) + '/commit/' + results_commit)) if results_repository and results_commit else ''}.",
+        f"- Results commit: {_markdown_link(results_commit, _github_url(results_repository) + '/commit/' + results_commit) if results_repository and results_commit else '`unknown`'}.",
+        f"- Workflow run: {_markdown_link('Open workflow run', run_url) if run_url else 'unknown'}.",
+        f"- Pipeline repository: {_markdown_link(pipeline_repository, _github_url(pipeline_repository)) if pipeline_repository else 'unknown'}.",
+        f"- Results repository: {_markdown_link(results_repository, _github_url(results_repository)) if results_repository else 'unknown'}.",
+        f"- Calibration index: {_markdown_link('calibration-index.json', _github_url(results_repository) + '/blob/' + (results_commit or 'main') + '/calibration-index.json') if results_repository else '`calibration-index.json`'}.",
+        f"- Runtime index: {_markdown_link('runtime-index.json', _github_url(results_repository) + '/blob/' + (results_commit or 'main') + '/runtime-index.json') if results_repository else '`runtime-index.json`'}.",
         "- Smoke records are provisional; complete exhaustive full regressions are authoritative.",
         "",
         "### Runtime Intelligence Persistence",
@@ -1548,13 +1549,12 @@ def build_combined_summary(
     lines.extend([
         "", "</details>", "", "</details>", "",
         *_engineering_continuous_improvement_lines(
+            run_url=run_url,
             pipeline_repository=pipeline_repository,
             results_repository=results_repository,
             results_commit=results_commit,
         ),
     ])
-    if run_url:
-        lines.extend(["", f"[Open workflow run]({run_url})"])
     lines.append("")
     return "\n".join(_add_report_navigation(lines))
 
