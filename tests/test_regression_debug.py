@@ -339,6 +339,42 @@ class RegressionDebugTests(unittest.TestCase):
                 detector_id,
             )
 
+    def test_verbose_radial_edge_writes_search_ray_evidence(self) -> None:
+        from hth.regression.adapters.radial_edge import detect as radial_edge_detect
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image_path = root / "source.jpg"
+            image = np.zeros((240, 320, 3), dtype=np.uint8)
+            cv2.rectangle(image, (45, 30), (275, 210), (235, 235, 235), -1)
+            mask = np.ones((240, 320), dtype=np.uint8) * 255
+            cv2.imwrite(str(image_path), image)
+            candidate = radial_edge_detect(image_bgr=image, mask=mask, parameters={"minimum_ray_support": 0.20, "gradient_percentile": 70.0, "maximum_radius_fraction": 0.90})
+            page = {"global_ordinal": 6, "label": "page", "layout_type": "single_page", "image_path": str(image_path), "image": image, "mask": mask, "approved_bbox": [45, 30, 275, 210]}
+            result = {"parameter_set_id": "winner", "pages": [{"global_ordinal": 6, "label": "page", "layout_type": "single_page", "status": "ok", "iou": 0.9, "candidate": candidate.__dict__}]}
+            write_debug_artifacts(root, "radial_edge", "run-test", policy="winner", ranked=[result], pages=[page], debug_level="verbose")
+            debug_page = root / "debug" / "radial_edge" / "run-test" / "winner" / "page-0006"
+            self.assertTrue((debug_page / "05-radial-search-rays.png").is_file())
+            self.assertTrue((debug_page / "06-accepted-rays.png").is_file())
+
+    def test_verbose_debug_images_exist_for_gradient_grabcut_and_border_energy(self) -> None:
+        from hth.geometry import detector_border_energy, detector_grabcut, detector_gradient_vote
+        image = np.zeros((240, 320, 3), dtype=np.uint8)
+        cv2.rectangle(image, (45, 30), (275, 210), (235, 235, 235), -1)
+        mask = np.zeros((240, 320), dtype=np.uint8)
+        cv2.rectangle(mask, (40, 25), (280, 215), 255, -1)
+        corners = [[45, 30], [275, 30], [275, 210], [45, 210]]
+        gradient = detector_gradient_vote.debug_images(image_bgr=image, mask=mask, candidate_corners=corners, verbose=True)
+        self.assertIn("vertical-gradient-votes.png", gradient)
+        self.assertIn("horizontal-gradient-votes.png", gradient)
+        self.assertIn("vote-maxima.png", gradient)
+        grabcut = detector_grabcut.debug_images(image_bgr=image, mask=mask, candidate_corners=corners, verbose=True)
+        self.assertIn("grabcut-labels.png", grabcut)
+        self.assertIn("definite-foreground-seed.png", grabcut)
+        self.assertIn("grabcut-contours.png", grabcut)
+        border = detector_border_energy.debug_images(image_bgr=image, mask=mask, candidate_corners=corners, verbose=True)
+        self.assertIn("border-sampling-bands.png", border)
+        self.assertIn("side-energy-scores.png", border)
+
 
 if __name__ == "__main__":
     unittest.main()

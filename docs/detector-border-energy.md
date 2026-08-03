@@ -7,3 +7,5 @@ Configuration: `config/detectors/border_energy.json`.
 The calibration space controls contour geometry, gradient smoothing, border-band width, minimum energy, side consistency, and fusion weights. Debug artifacts preserve the normalized border-energy image and the validated contour overlay.
 
 Regression uses `regression.debug_artifacts: winner`, preserving the original page, detector-specific intermediate images, final overlay, diagnostics, and metadata for the winning parameter set on every Golden Set page, including fully successful runs.
+
+Verbose regression debug adds the sampled border bands and a side-labeled energy-score visualization.

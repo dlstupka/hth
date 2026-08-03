@@ -157,7 +157,7 @@ def detect(*, image_bgr: np.ndarray, mask: np.ndarray, parameters: dict[str, Any
     )
 
 
-def debug_images(*, image_bgr: np.ndarray, mask: np.ndarray, parameters: dict[str, Any] | None = None, candidate_corners: list[list[float]] | None = None) -> dict[str, np.ndarray]:
+def debug_images(*, image_bgr: np.ndarray, mask: np.ndarray, parameters: dict[str, Any] | None = None, candidate_corners: list[list[float]] | None = None, verbose: bool = False) -> dict[str, np.ndarray]:
     values = _parameters(parameters)
     gray = _gray(image_bgr)
     working = cv2.GaussianBlur(gray, (0, 0), values["gaussian_sigma"]) if values["gaussian_sigma"] > 0 else gray
@@ -167,4 +167,16 @@ def debug_images(*, image_bgr: np.ndarray, mask: np.ndarray, parameters: dict[st
     overlay = image_bgr.copy() if image_bgr.ndim == 3 else cv2.cvtColor(image_bgr, cv2.COLOR_GRAY2BGR)
     if candidate_corners is not None:
         cv2.polylines(overlay, [np.rint(np.asarray(candidate_corners)).astype(np.int32).reshape(-1, 1, 2)], True, (0, 0, 255), 3, cv2.LINE_AA)
-    return {"gradient-magnitude.png": magnitude, "selected-boundaries.png": overlay}
+    images = {"gradient-magnitude.png": magnitude, "selected-boundaries.png": overlay}
+    if verbose:
+        vertical = cv2.normalize(gx, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        horizontal = cv2.normalize(gy, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        vote_map = np.zeros_like(overlay)
+        if candidate_corners is not None:
+            corners = np.rint(np.asarray(candidate_corners)).astype(np.int32).reshape(4, 2)
+            for start, end in zip(corners, np.roll(corners, -1, axis=0)):
+                cv2.line(vote_map, tuple(start), tuple(end), (0, 255, 255), 3, cv2.LINE_AA)
+        images["vertical-gradient-votes.png"] = vertical
+        images["horizontal-gradient-votes.png"] = horizontal
+        images["vote-maxima.png"] = vote_map
+    return images

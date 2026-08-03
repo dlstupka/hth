@@ -177,21 +177,24 @@ All use the identical black-box regression path and canonical output contract.
 
 ## Debug artifacts
 
-Regression runs create a first-class top-level `debug/` tree beside the detector run directories. Debug artifacts are grouped by detector and run ID, for example `build/regression/debug/contour/run-20260724-081500/`, so forensic evidence remains attributable without becoming part of the canonical run package. The detector
-configuration may set `regression.debug_artifacts` to `none`, `failures`,
-`winner`, or `all`; the command-line `--debug-artifacts` option overrides it.
-`failures` writes failed pages from the winning parameter set and is the default.
-Detectors whose regression configuration uses `winner` preserve comparable
-page-level research artifacts for every Golden Set page from the winning
-parameter set, even when the run has no failures. Radial Edge Search and Border
-Energy Validator use this policy so successful exhaustive calibrations retain
-their visual evidence. Each page directory contains the original image,
-detector input mask, detector-specific intermediate images, final overlay, and
-complete JSON diagnostics.
+Manual regression builds expose a `Debug level` choice:
 
-Regression adapters execute detectors through the authoritative geometry
-registry, so serialized candidates include detector name, origin, foundation,
-authors, version, and repository provenance.
+- `none` (default) writes no page images;
+- `basic` preserves the established detector debug package; and
+- `verbose` includes the basic package plus detector-specific engineering evidence.
+
+The workflow forwards the selected level through `--debug-level`. Automatic smoke builds use `none` so routine calibration and runtime intelligence do not bloat the results repository. The existing `regression.debug_artifacts` / `--debug-artifacts` policy still selects which parameter sets and pages are eligible (`failures`, `winner`, or `all`); `Debug level: none` overrides that selection and emits no debug tree.
+
+At `basic`, regression runs create the existing top-level `debug/` tree beside detector run directories. Artifacts are grouped by detector and run ID and retain the original page, detector input mask, established detector-specific intermediates, final overlay, and complete JSON diagnostics.
+
+At `verbose`, selected detectors add feature-specific evidence:
+
+- Radial Edge Search adds the complete sampled-ray field and accepted-ray paths.
+- Gradient Boundary Voting adds vertical and horizontal gradient-vote evidence and selected vote maxima.
+- GrabCut adds class labels, definite-foreground seeds, and extracted foreground contours.
+- Border Energy Validator adds border sampling bands and per-side energy annotations.
+
+Verbose evidence supplements rather than replaces the basic package. Detector adapters continue to execute through the authoritative geometry registry, so serialized candidates retain detector name, origin, foundation, authors, version, and repository provenance.
 
 ## Golden Set provenance
 

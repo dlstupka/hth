@@ -57,3 +57,15 @@ def test_intelligence_publisher_rebuilds_from_latest_results_state_on_retry() ->
     assert 'git -C results-repo pull --rebase origin main' not in text
     assert 'retry_delay=$((5 * (attempt - 1)))' in text
     assert 'Publish collision detected; waiting ${retry_delay}s for calibration intelligence to free up before retrying...' in text
+
+
+def test_manual_debug_level_choices_default_to_none_and_are_forwarded() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "debug_level:" in text
+    assert "description: Debug image detail for manual builds" in text
+    assert "default: none" in text
+    for level in ("none", "basic", "verbose"):
+        assert f"          - {level}" in text
+    assert "DEBUG_LEVEL:" in text
+    assert '--debug-level "$DEBUG_LEVEL"' in text
+    assert '"Debug level" "$DEBUG_LEVEL"' in text

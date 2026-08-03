@@ -140,7 +140,7 @@ def detect(*, image_bgr: np.ndarray, mask: np.ndarray, parameters: dict[str, Any
     return Candidate(METHOD, [int(x), int(y), int(x + box_width), int(y + box_height)], corners.astype(float).tolist(), float(score), float(score), diagnostics)
 
 
-def debug_images(*, image_bgr: np.ndarray, mask: np.ndarray, parameters: dict[str, Any] | None = None, candidate_corners: list[list[float]] | None = None) -> dict[str, np.ndarray]:
+def debug_images(*, image_bgr: np.ndarray, mask: np.ndarray, parameters: dict[str, Any] | None = None, candidate_corners: list[list[float]] | None = None, verbose: bool = False) -> dict[str, np.ndarray]:
     del mask
     values = _parameters(parameters)
     points, magnitude, _support, _strength = _search(image_bgr, values)
@@ -150,7 +150,28 @@ def debug_images(*, image_bgr: np.ndarray, mask: np.ndarray, parameters: dict[st
         cv2.circle(overlay, tuple(point), 2, (0, 255, 255), -1)
     if candidate_corners is not None:
         cv2.polylines(overlay, [np.rint(np.asarray(candidate_corners)).astype(np.int32).reshape(-1, 1, 2)], True, (0, 0, 255), 3, cv2.LINE_AA)
-    return {"radial-gradient.png": gradient, "radial-edge-points.png": overlay}
+    images = {"radial-gradient.png": gradient, "radial-edge-points.png": overlay}
+    if verbose:
+        height, width = _gray(image_bgr).shape
+        center = np.array([(width - 1) / 2.0, (height - 1) / 2.0], dtype=np.float32)
+        max_radius = float(np.hypot(width, height) / 2.0)
+        start_radius = max(1.0, max_radius * values["minimum_radius_fraction"])
+        end_radius = max_radius * values["maximum_radius_fraction"]
+        ray_view = image_bgr.copy() if image_bgr.ndim == 3 else cv2.cvtColor(image_bgr, cv2.COLOR_GRAY2BGR)
+        accepted_view = ray_view.copy()
+        accepted = {tuple(np.rint(point).astype(int)) for point in points}
+        for angle in np.linspace(0.0, 2.0 * np.pi, values["ray_count"], endpoint=False):
+            direction = np.array([np.cos(angle), np.sin(angle)], dtype=np.float32)
+            start = tuple(np.rint(center + start_radius * direction).astype(int))
+            end = tuple(np.rint(center + end_radius * direction).astype(int))
+            cv2.line(ray_view, start, end, (170, 170, 170), 1, cv2.LINE_AA)
+            cv2.line(accepted_view, start, end, (120, 120, 120), 1, cv2.LINE_AA)
+        for point in np.rint(points).astype(np.int32):
+            cv2.line(accepted_view, tuple(np.rint(center).astype(int)), tuple(point), (0, 200, 0), 1, cv2.LINE_AA)
+            cv2.circle(accepted_view, tuple(point), 3, (0, 255, 255), -1)
+        images["radial-search-rays.png"] = ray_view
+        images["accepted-rays.png"] = accepted_view
+    return images
 
 
 __all__ = ["BASELINE_PARAMETERS", "METHOD", "debug_images", "detect"]

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 import cv2
 from hth.geometry.common import document_mask, resize_for_analysis, scale_bbox, valid_bbox
-from hth.geometry import detector_border_energy, detector_components, detector_consensus_quad, detector_contour_components, detector_contour_grabcut, detector_cross_edge_contour, detector_grabcut_contour, detector_gradient_vote, detector_radial_edge, detector_contour_projection, detector_contour_quad, detector_ransac
+from hth.geometry import detector_border_energy, detector_components, detector_consensus_quad, detector_contour_components, detector_contour_grabcut, detector_cross_edge_contour, detector_grabcut, detector_grabcut_contour, detector_gradient_vote, detector_radial_edge, detector_contour_projection, detector_contour_quad, detector_ransac
 from .adapters.components import (
     detect as components_detect,
     pre_regression_report_sections as components_pre_regression_report_sections,
@@ -179,7 +179,13 @@ def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
         "--debug-artifacts",
         choices=("none", "failures", "winner", "all"),
         default=None,
-        help="Debug image policy; defaults to detector configuration or failures.",
+        help="Page-selection policy for debug artifacts; defaults to detector configuration or failures.",
+    )
+    p.add_argument(
+        "--debug-level",
+        choices=("none", "basic", "verbose"),
+        default=None,
+        help="Debug detail level. none writes no images; basic writes the established artifacts; verbose adds detector-specific evidence.",
     )
     return p.parse_args(argv)
 
@@ -318,6 +324,7 @@ def _write_debug_page(
     page: dict[str, Any],
     result: dict[str, Any],
     parameter_set_id_value: str,
+    debug_level: str = "basic",
 ) -> None:
     ordinal = int(page["global_ordinal"])
     page_dir = root / _safe_name(parameter_set_id_value) / f"page-{ordinal:04d}"
@@ -469,24 +476,40 @@ def _write_debug_page(
             cv2.imwrite(str(page_dir / numbered_consensus_images[filename]), debug_image)
         overlay_name = "07-overlay.jpg"
         diagnostics_name = "08-diagnostics.json"
-    elif candidate.get("method") in {"radial_edge", "border_energy"}:
+    elif candidate.get("method") in {"radial_edge", "border_energy"} or (
+        debug_level == "verbose" and candidate.get("method") in {"gradient_vote", "grabcut"}
+    ):
         diagnostics = candidate.get("diagnostics") if isinstance(candidate.get("diagnostics"), dict) else {}
         parameters = diagnostics.get("parameters") if isinstance(diagnostics.get("parameters"), dict) else None
-        module = detector_radial_edge if candidate.get("method") == "radial_edge" else detector_border_energy
-        numbered_images = ({
-            "radial-gradient.png": "03-radial-gradient.png",
-            "radial-edge-points.png": "04-radial-edge-points.png",
-        } if candidate.get("method") == "radial_edge" else {
-            "border-energy.png": "03-border-energy.png",
-            "validated-border.png": "04-validated-border.png",
-        })
-        for filename, debug_image in module.debug_images(
+        method = candidate.get("method")
+        module = {
+            "radial_edge": detector_radial_edge,
+            "gradient_vote": detector_gradient_vote,
+            "grabcut": detector_grabcut,
+            "border_energy": detector_border_energy,
+        }[method]
+        basic_names = {
+            "radial_edge": ["radial-gradient.png", "radial-edge-points.png"],
+            "gradient_vote": [],
+            "grabcut": [],
+            "border_energy": ["border-energy.png", "validated-border.png"],
+        }[method]
+        images = module.debug_images(
             image_bgr=original, mask=page["mask"], parameters=parameters,
-            candidate_corners=candidate.get("corners"),
-        ).items():
-            cv2.imwrite(str(page_dir / numbered_images[filename]), debug_image)
-        overlay_name = "05-overlay.jpg"
-        diagnostics_name = "06-diagnostics.json"
+            candidate_corners=candidate.get("corners"), verbose=debug_level == "verbose",
+        )
+        next_number = 3
+        for filename in basic_names:
+            if filename in images:
+                cv2.imwrite(str(page_dir / f"{next_number:02d}-{filename}"), images[filename])
+                next_number += 1
+        for filename, debug_image in images.items():
+            if filename in basic_names:
+                continue
+            cv2.imwrite(str(page_dir / f"{next_number:02d}-{filename}"), debug_image)
+            next_number += 1
+        overlay_name = f"{next_number:02d}-overlay.jpg"
+        diagnostics_name = f"{next_number + 1:02d}-diagnostics.json"
     elif candidate.get("method") == "ransac":
         diagnostics = candidate.get("diagnostics") if isinstance(candidate.get("diagnostics"), dict) else {}
         parameters = diagnostics.get("parameters") if isinstance(diagnostics.get("parameters"), dict) else None
@@ -528,6 +551,7 @@ def write_debug_artifacts(
     policy: str,
     ranked: list[dict[str, Any]],
     pages: list[dict[str, Any]],
+    debug_level: str = "basic",
 ) -> list[str]:
     debug_root = regression_root / "debug" / _safe_name(detector) / _safe_name(run_id)
     debug_root.mkdir(parents=True, exist_ok=False)
@@ -548,12 +572,14 @@ def write_debug_artifacts(
             page=page,
             result=page_result,
             parameter_set_id_value=str(parameter_set["parameter_set_id"]),
+            debug_level=debug_level,
         )
 
     readme = [
         "HTH detector regression debug artifacts",
         "",
         f"Policy: {policy}",
+        f"Debug level: {debug_level}",
         f"Pages written: {len(selected)}",
         "",
         "Each page directory uses numeric prefixes to preserve analysis order.",
@@ -627,7 +653,12 @@ def print_parameter_scope(*, strategy: str, possible_sets: int, planned_sets: in
 def run(args:argparse.Namespace)->Path:
     config=json.loads(args.detector_config.read_text(encoding="utf-8")); name=str(config["detector"])
     regression_config = config.get("regression", {}) if isinstance(config.get("regression"), dict) else {}
+    debug_level = args.debug_level or "basic"
     debug_policy = args.debug_artifacts or str(regression_config.get("debug_artifacts", "failures"))
+    if debug_level == "none":
+        debug_policy = "none"
+    if debug_level not in {"none", "basic", "verbose"}:
+        raise ValueError(f"Unsupported debug level: {debug_level}")
     if debug_policy not in {"none", "failures", "winner", "all"}:
         raise ValueError(f"Unsupported debug artifact policy: {debug_policy}")
     if name not in DETECTORS: raise SystemExit(f"Unsupported detector: {name}")
@@ -672,7 +703,7 @@ def run(args:argparse.Namespace)->Path:
         effective_strategy, effect_domain, strategy_fallback_reason = _resolve_effect_strategy(requested_strategy, calibration_metadata)
         if effect_domain is not None:
             all_parameter_sets = _filter_parameter_sets(all_parameter_sets, effect_domain)
-        write_json(run_dir/"parameters.json",{"schema_version":"0.4","detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"detector_config":str(args.detector_config),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"image_root":str(args.image_root),"max_dimension":args.max_dimension,"limit":args.limit,"threads":args.threads,"detector_pipeline":detector_pipeline_context,"configuration":config})
+        write_json(run_dir/"parameters.json",{"schema_version":"0.4","detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"detector_config":str(args.detector_config),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"image_root":str(args.image_root),"max_dimension":args.max_dimension,"limit":args.limit,"threads":args.threads,"debug_level":debug_level,"debug_artifacts":debug_policy,"detector_pipeline":detector_pipeline_context,"configuration":config})
         manifest.update({"strategy": effective_strategy, "requested_strategy": requested_strategy, "strategy_fallback_reason": strategy_fallback_reason})
         write_json(run_dir/"manifest.json", manifest)
         exhaustive_candidates=[
@@ -836,7 +867,7 @@ def run(args:argparse.Namespace)->Path:
         debug_outputs = [] if debug_policy == "none" else write_debug_artifacts(
             args.output, name, run_id, policy=debug_policy, ranked=ranked, pages=pages
         )
-        finished=utc_now(); info={"schema_version":"0.3","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"detector_config":str(args.detector_config),"debug_artifacts":debug_policy,"source_commit":source_commit,"threads":args.threads,"detector_pipeline":detector_pipeline_context,"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"performance_samples":len(performance_samples),"peak_rss_bytes":peak_rss_bytes(),**environment}
+        finished=utc_now(); info={"schema_version":"0.3","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"detector_config":str(args.detector_config),"debug_artifacts":debug_policy,"debug_level":debug_level,"source_commit":source_commit,"threads":args.threads,"detector_pipeline":detector_pipeline_context,"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"performance_samples":len(performance_samples),"peak_rss_bytes":peak_rss_bytes(),**environment}
         write_json(run_dir/"RUN-INFO.json",info)
         manifest.update({
             "status": "complete",

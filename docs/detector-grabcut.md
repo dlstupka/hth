@@ -13,3 +13,5 @@ Key diagnostics include initial and refined foreground fractions, contour and
 bounding-box area fractions, rectangularity, and scores against both the
 refined and shared masks. Empty or implausibly small regions are normal
 `no_candidate` results.
+
+Verbose regression debug adds GrabCut class labels, the definite-foreground seed, and the extracted foreground contours.

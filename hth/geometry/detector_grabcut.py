@@ -247,3 +247,47 @@ def detect(
             "parameters": params,
         },
     )
+
+
+def debug_images(*, image_bgr: np.ndarray, mask: np.ndarray, parameters: Mapping[str, Any] | None = None, candidate_corners: list[list[float]] | None = None, verbose: bool = False) -> dict[str, np.ndarray]:
+    params = _parameters(parameters)
+    height, width = mask.shape
+    minimum_dimension = min(width, height)
+    gc_mask = np.full((height, width), cv2.GC_PR_BGD, dtype=np.uint8)
+    gc_mask[mask > 0] = cv2.GC_PR_FGD
+    border = max(1, round(minimum_dimension * float(params["border_fraction"])))
+    gc_mask[:border, :] = cv2.GC_BGD
+    gc_mask[-border:, :] = cv2.GC_BGD
+    gc_mask[:, :border] = cv2.GC_BGD
+    gc_mask[:, -border:] = cv2.GC_BGD
+    erosion_iterations = int(params["erosion_iterations"])
+    definite_foreground = np.zeros_like(mask, dtype=np.uint8)
+    if erosion_iterations:
+        kernel_size = _odd_kernel_size(minimum_dimension, float(params["erosion_kernel_fraction"]))
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+        definite_foreground = cv2.erode((mask > 0).astype(np.uint8), kernel, iterations=erosion_iterations)
+        gc_mask[definite_foreground > 0] = cv2.GC_FGD
+    background_model = np.zeros((1, 65), np.float64)
+    foreground_model = np.zeros((1, 65), np.float64)
+    cv2.grabCut(image_bgr, gc_mask, None, background_model, foreground_model, int(params["grabcut_iterations"]), cv2.GC_INIT_WITH_MASK)
+    refined = np.where((gc_mask == cv2.GC_FGD) | (gc_mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
+    overlay = image_bgr.copy() if image_bgr.ndim == 3 else cv2.cvtColor(image_bgr, cv2.COLOR_GRAY2BGR)
+    if candidate_corners is not None:
+        cv2.polylines(overlay, [np.rint(np.asarray(candidate_corners)).astype(np.int32).reshape(-1, 1, 2)], True, (0, 0, 255), 3, cv2.LINE_AA)
+    images = {"grabcut-mask.png": refined, "selected-region.png": overlay}
+    if verbose:
+        labels = np.zeros((height, width, 3), dtype=np.uint8)
+        labels[gc_mask == cv2.GC_BGD] = (0, 0, 0)
+        labels[gc_mask == cv2.GC_PR_BGD] = (80, 80, 80)
+        labels[gc_mask == cv2.GC_PR_FGD] = (0, 180, 180)
+        labels[gc_mask == cv2.GC_FGD] = (0, 255, 0)
+        contour_view = overlay.copy()
+        contours, _ = cv2.findContours(refined, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(contour_view, contours, -1, (255, 0, 255), 2, cv2.LINE_AA)
+        images["grabcut-labels.png"] = labels
+        images["definite-foreground-seed.png"] = (definite_foreground * 255).astype(np.uint8)
+        images["grabcut-contours.png"] = contour_view
+    return images
+
+
+__all__ = ["BASELINE_PARAMETERS", "METHOD", "debug_images", "detect"]

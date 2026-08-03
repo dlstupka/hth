@@ -114,7 +114,7 @@ def detect(*, image_bgr: np.ndarray, mask: np.ndarray, parameters: dict[str, Any
     return Candidate(METHOD, contour.bbox, contour.corners, float(score), float(score), diagnostics)
 
 
-def debug_images(*, image_bgr: np.ndarray, mask: np.ndarray, parameters: dict[str, Any] | None = None, candidate_corners: list[list[float]] | None = None) -> dict[str, np.ndarray]:
+def debug_images(*, image_bgr: np.ndarray, mask: np.ndarray, parameters: dict[str, Any] | None = None, candidate_corners: list[list[float]] | None = None, verbose: bool = False) -> dict[str, np.ndarray]:
     del mask
     values = _parameters(parameters)
     gray = _gray(image_bgr)
@@ -126,7 +126,24 @@ def debug_images(*, image_bgr: np.ndarray, mask: np.ndarray, parameters: dict[st
         _energy_value, _consistency, _side_energy, normalized = _energy(gray, corners, values["gaussian_sigma"], band_width)
         energy_image = np.rint(normalized * 255.0).astype(np.uint8)
         cv2.polylines(overlay, [np.rint(corners).astype(np.int32).reshape(-1, 1, 2)], True, (0, 0, 255), 3, cv2.LINE_AA)
-    return {"border-energy.png": energy_image, "validated-border.png": overlay}
+    images = {"border-energy.png": energy_image, "validated-border.png": overlay}
+    if verbose and candidate_corners is not None:
+        corners = np.asarray(candidate_corners, dtype=np.float32).reshape(4, 2)
+        band_width = max(1, int(round(min(gray.shape) * values["band_fraction"])))
+        _energy_value, _consistency, side_energy, _normalized = _energy(gray, corners, values["gaussian_sigma"], band_width)
+        band_view = overlay.copy()
+        score_view = overlay.copy()
+        labels = ("top", "right", "bottom", "left")
+        palette = ((0,255,0),(0,255,255),(0,165,255),(0,0,255))
+        for index in range(4):
+            start = tuple(np.rint(corners[index]).astype(int))
+            end = tuple(np.rint(corners[(index + 1) % 4]).astype(int))
+            cv2.line(band_view, start, end, palette[index], max(1, band_width), cv2.LINE_AA)
+            midpoint = tuple(np.rint((corners[index] + corners[(index + 1) % 4]) / 2.0).astype(int))
+            cv2.putText(score_view, f"{labels[index]}={side_energy[index]:.3f}", midpoint, cv2.FONT_HERSHEY_SIMPLEX, 0.55, palette[index], 2, cv2.LINE_AA)
+        images["border-sampling-bands.png"] = band_view
+        images["side-energy-scores.png"] = score_view
+    return images
 
 
 __all__ = ["BASELINE_PARAMETERS", "METHOD", "debug_images", "detect"]

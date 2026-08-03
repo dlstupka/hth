@@ -136,6 +136,15 @@ on:
         required: true
         default: "20"
         type: string
+      debug_level:
+        description: Debug image detail for manual builds
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - basic
+          - verbose
       mode:
         description: Regression mode
         required: true
@@ -206,6 +215,7 @@ jobs:
       DETECTOR_PIPELINES: ${{ github.event_name == 'workflow_dispatch' && inputs.detector_pipelines || '4' }}
       DETECTOR_LOADING_STRATEGY: ${{ github.event_name == 'workflow_dispatch' && inputs.detector_loading_strategy || 'lpt' }}
       PIPELINE_STAGGER_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.pipeline_stagger_minutes || '0' }}
+      DEBUG_LEVEL: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_level || 'none' }}
       PYTHONNOUSERSITE: "1"
       PYTHONUNBUFFERED: "1"
       HTH_RUNNER_LABELS: >-
@@ -740,6 +750,7 @@ jobs:
               --max-dimension "$MAX_DIMENSION"
               --top "$TOP_COUNT"
               --threads "$THREADS"
+              --debug-level "$DEBUG_LEVEL"
             )
 
             if [[ -n "${effective_limit:-}" ]]; then
@@ -798,6 +809,7 @@ jobs:
             printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Detector config" "$detector_config"
             printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Strategy" "$effective_strategy"
             printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Threads" "$THREADS"
+            printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Debug level" "$DEBUG_LEVEL"
             printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Detector pipeline" "$pipeline_number of $effective_pipelines"
             if [[ -n "$effective_limit" ]]; then
               printf '[pipeline %s][%s] %-22s: %s (%s)\n' \

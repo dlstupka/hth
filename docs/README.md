@@ -108,16 +108,21 @@ debug artifact for the winning parameter set.
 The purpose of debug artifacts is not only troubleshooting but also
 cross-detector analysis, regression reproducibility, and research.
 
-Each detector should produce:
+Manual regression builds expose three debug levels:
+
+- `none` (default) writes no debug images and avoids results-repository bloat;
+- `basic` writes the established comparable debug package; and
+- `verbose` adds detector-specific engineering evidence.
+
+At `basic`, each participating detector should produce:
 
 - original page
-- detector-specific intermediate images
+- detector-specific intermediate images already established for that detector
 - final overlay
 - detector diagnostics (JSON)
 - detector metadata
 
-The exact intermediate artifacts are detector-specific, but the overall
-structure and availability shall be consistent across all detectors.
+At `verbose`, detectors may add feature-specific evidence without changing the common result contract. The exact intermediate artifacts are detector-specific, but the overall structure and availability shall remain consistent.
 
 ## Configuration Boundaries
 
