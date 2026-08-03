@@ -865,7 +865,13 @@ def run(args:argparse.Namespace)->Path:
             calibration_intelligence,
         )
         debug_outputs = [] if debug_policy == "none" else write_debug_artifacts(
-            args.output, name, run_id, policy=debug_policy, ranked=ranked, pages=pages
+            args.output,
+            name,
+            run_id,
+            policy=debug_policy,
+            ranked=ranked,
+            pages=pages,
+            debug_level=debug_level,
         )
         finished=utc_now(); info={"schema_version":"0.3","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"detector_config":str(args.detector_config),"debug_artifacts":debug_policy,"debug_level":debug_level,"source_commit":source_commit,"threads":args.threads,"detector_pipeline":detector_pipeline_context,"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"performance_samples":len(performance_samples),"peak_rss_bytes":peak_rss_bytes(),**environment}
         write_json(run_dir/"RUN-INFO.json",info)

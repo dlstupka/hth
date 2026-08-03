@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import tempfile
 import unittest
@@ -19,6 +20,12 @@ from hth.regression.runner import write_debug_artifacts
 
 
 class RegressionDebugTests(unittest.TestCase):
+    def test_run_forwards_selected_debug_level_to_artifact_writer(self) -> None:
+        from hth.regression.runner import run
+
+        source = inspect.getsource(run)
+        self.assertIn("debug_level=debug_level", source)
+
     def test_regression_adapter_populates_registry_provenance(self) -> None:
         image = np.zeros((200, 300, 3), dtype=np.uint8)
         mask = np.zeros((200, 300), dtype=np.uint8)
