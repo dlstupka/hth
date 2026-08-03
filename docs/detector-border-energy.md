@@ -5,3 +5,5 @@ The stable method identifier is `border_energy`. The detector uses Contour Quadr
 Configuration: `config/detectors/border_energy.json`.
 
 The calibration space controls contour geometry, gradient smoothing, border-band width, minimum energy, side consistency, and fusion weights. Debug artifacts preserve the normalized border-energy image and the validated contour overlay.
+
+Regression uses `regression.debug_artifacts: winner`, preserving the original page, detector-specific intermediate images, final overlay, diagnostics, and metadata for the winning parameter set on every Golden Set page, including fully successful runs.

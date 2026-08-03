@@ -328,5 +328,17 @@ class RegressionDebugTests(unittest.TestCase):
                 self.assertTrue((debug_page / filename).is_file(), filename)
 
 
+    def test_new_detector_configs_preserve_winner_debug_artifacts(self) -> None:
+        repository_root = Path(__file__).resolve().parents[1]
+        for detector_id in ("radial_edge", "border_energy"):
+            config_path = repository_root / "config" / "detectors" / f"{detector_id}.json"
+            config = json.loads(config_path.read_text())
+            self.assertEqual(
+                config["regression"]["debug_artifacts"],
+                "winner",
+                detector_id,
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

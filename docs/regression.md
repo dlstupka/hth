@@ -181,8 +181,13 @@ Regression runs create a first-class top-level `debug/` tree beside the detector
 configuration may set `regression.debug_artifacts` to `none`, `failures`,
 `winner`, or `all`; the command-line `--debug-artifacts` option overrides it.
 `failures` writes failed pages from the winning parameter set and is the default.
-Each page directory contains the original image, detector input mask, bounding
-box overlay, and complete JSON diagnostics.
+Detectors whose regression configuration uses `winner` preserve comparable
+page-level research artifacts for every Golden Set page from the winning
+parameter set, even when the run has no failures. Radial Edge Search and Border
+Energy Validator use this policy so successful exhaustive calibrations retain
+their visual evidence. Each page directory contains the original image,
+detector input mask, detector-specific intermediate images, final overlay, and
+complete JSON diagnostics.
 
 Regression adapters execute detectors through the authoritative geometry
 registry, so serialized candidates include detector name, origin, foundation,

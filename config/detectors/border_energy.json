@@ -87,6 +87,6 @@
     "local_exhaustive_radius": 1
   },
   "regression": {
-    "debug_artifacts": "failures"
+    "debug_artifacts": "winner"
   }
 }

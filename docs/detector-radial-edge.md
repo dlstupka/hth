@@ -5,3 +5,5 @@ The stable method identifier is `radial_edge`. The detector samples gradient mag
 Configuration: `config/detectors/radial_edge.json`.
 
 The calibration space controls smoothing, ray density, radial search range, gradient threshold, minimum ray support, and scoring weights. Debug artifacts preserve the normalized radial gradient field and the selected edge points with the final quadrilateral.
+
+Regression uses `regression.debug_artifacts: winner`, preserving the original page, detector-specific intermediate images, final overlay, diagnostics, and metadata for the winning parameter set on every Golden Set page, including fully successful runs.
