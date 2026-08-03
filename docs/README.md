@@ -227,6 +227,7 @@ This directory contains the design, operating, and project-reference documentati
 - [Contour + Projection detector](detector-contour-projection.md) — contour hypotheses ranked with perspective-normalized text projection evidence.
 - [Consensus Quad detector](detector-consensus-quad.md) — agreement and confidence fusion across contour quadrilateral voters.
 - [Radial Edge Search detector](detector-radial-edge.md) — center-outward gradient search for independent boundary generation.
+- [Adaptive Radial Edge Search detector](detector-adaptive-radial-edge.md) — two-pass radial search that refines weak document sides at one-degree spacing.
 - [Border Energy Validator detector](detector-border-energy.md) — contour geometry validated by gradient energy along all four borders.
 - [Edge-Contour Hybrid detector](detector-edge-contour.md) — contour hypotheses verified by independent line-segment evidence.
 - [GrabCut detector](detector-grabcut.md) — GrabCut-based detector.

@@ -95,6 +95,8 @@ class RegistryIsolationTests(unittest.TestCase):
         self.assertIn("Sobel gradients", catalog["gradient_vote"]["foundation"])
         self.assertEqual(catalog["radial_edge"]["origin"], "HTH")
         self.assertIn("Radial gradient search", catalog["radial_edge"]["foundation"])
+        self.assertEqual(catalog["adaptive_radial_edge"]["origin"], "HTH")
+        self.assertIn("Adaptive angular refinement", catalog["adaptive_radial_edge"]["foundation"])
         self.assertEqual(catalog["border_energy"]["origin"], "HTH")
         self.assertIn("Sobel border energy", catalog["border_energy"]["foundation"])
         self.assertEqual(catalog["contour_quad"]["authors"], ["OpenAI ChatGPT"])

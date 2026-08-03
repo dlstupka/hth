@@ -44,6 +44,7 @@ on:
           - cross_edge_contour
           - gradient_vote
           - radial_edge
+          - adaptive_radial_edge
           - border_energy
           - components
           - ransac

@@ -49,6 +49,12 @@ _DETECTOR_EVIDENCE: dict[str, dict[str, Any]] = {
         "role": "Generator",
         "evidence": [("Center-outward rays", "Primary", "Samples image gradients along radial paths from the document center."), ("Strongest radial transitions", "Generator", "Selects likely page-boundary points independently on each ray."), ("Minimum-area rectangle", "Geometry", "Fits a quadrilateral to the supported radial edge points."), ("Ray support", "Validation", "Rejects candidates when too few directions provide credible boundary evidence.")],
     },
+    "adaptive_radial_edge": {
+        "friendly_name": "Adaptive Radial Edge Search",
+        "short_name": "Adaptive Radial",
+        "role": "Generator",
+        "evidence": [("Coarse center-outward rays", "Primary", "Samples the full image at 3-degree spacing."), ("Weak-side support", "Trigger", "Identifies fitted document sides with comparatively sparse boundary confirmation."), ("One-degree angular refinement", "Generator", "Adds a second pass only through weak-side sectors."), ("Refined quadrilateral", "Geometry", "Refits the page boundary from combined coarse and refined evidence.")],
+    },
     "border_energy": {
         "friendly_name": "Border Energy Validator",
         "short_name": "Border Energy",

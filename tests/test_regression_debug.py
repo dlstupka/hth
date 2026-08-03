@@ -337,7 +337,7 @@ class RegressionDebugTests(unittest.TestCase):
 
     def test_new_detector_configs_preserve_winner_debug_artifacts(self) -> None:
         repository_root = Path(__file__).resolve().parents[1]
-        for detector_id in ("radial_edge", "border_energy"):
+        for detector_id in ("radial_edge", "adaptive_radial_edge", "border_energy"):
             config_path = repository_root / "config" / "detectors" / f"{detector_id}.json"
             config = json.loads(config_path.read_text())
             self.assertEqual(
