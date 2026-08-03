@@ -92,17 +92,44 @@ def _point_segment_distance(point: np.ndarray, start: np.ndarray, end: np.ndarra
     return float(np.linalg.norm(point - (start + t * segment)))
 
 
-def _side_support(points: np.ndarray, corners: np.ndarray, diagonal: float, tolerance_fraction: float) -> tuple[list[int], list[float]]:
-    counts = [0, 0, 0, 0]
+def _side_support(
+    points: np.ndarray,
+    point_angles: np.ndarray,
+    requested_angles: np.ndarray,
+    center: np.ndarray,
+    corners: np.ndarray,
+    diagonal: float,
+    tolerance_fraction: float,
+) -> tuple[list[int], list[int], list[float]]:
+    """Measure each side against its own geometrically eligible ray population.
+
+    A side is not weak merely because another side receives more rays.  The
+    denominator is therefore the number of coarse rays whose forward path
+    intersects that side of the coarse quadrilateral.  The numerator is the
+    number of supported coarse-ray endpoints that both belong to that angular
+    population and land within the configured distance of the same side.
+    """
+    eligible = [0, 0, 0, 0]
+    accepted = [0, 0, 0, 0]
     tolerance = max(2.0, diagonal * tolerance_fraction)
-    for point in points:
-        distances = [_point_segment_distance(point, corners[i], corners[(i + 1) % 4]) for i in range(4)]
-        side = int(np.argmin(distances))
-        if distances[side] <= tolerance:
-            counts[side] += 1
-    maximum = max(counts) if counts else 0
-    fractions = [count / maximum if maximum else 0.0 for count in counts]
-    return counts, fractions
+
+    for angle in requested_angles:
+        direction = np.array([np.cos(angle), np.sin(angle)], dtype=np.float32)
+        side = _ray_intersection_side(center, direction, corners)
+        if side is not None:
+            eligible[side] += 1
+
+    for point, angle in zip(points, point_angles):
+        direction = np.array([np.cos(angle), np.sin(angle)], dtype=np.float32)
+        side = _ray_intersection_side(center, direction, corners)
+        if side is None:
+            continue
+        distance = _point_segment_distance(point, corners[side], corners[(side + 1) % 4])
+        if distance <= tolerance:
+            accepted[side] += 1
+
+    fractions = [accepted[i] / eligible[i] if eligible[i] else 0.0 for i in range(4)]
+    return eligible, accepted, fractions
 
 
 def _ray_intersection_side(center: np.ndarray, direction: np.ndarray, corners: np.ndarray) -> int | None:
@@ -134,7 +161,8 @@ def _run(image_bgr: np.ndarray, values: dict[str, Any]) -> dict[str, Any]:
         "magnitude": magnitude, "center": center, "threshold": threshold,
         "coarse_points": coarse_points, "coarse_angles": coarse_used,
         "refined_points": np.empty((0, 2), dtype=np.float32), "refined_angles": np.empty((0,), dtype=np.float32),
-        "weak_sides": [], "side_counts": [0, 0, 0, 0], "side_support_fractions": [0.0] * 4,
+        "weak_sides": [], "side_eligible_rays": [0, 0, 0, 0],
+        "side_support_counts": [0, 0, 0, 0], "side_support_fractions": [0.0] * 4,
         "all_points": coarse_points, "coarse_corners": None, "final_corners": None,
         "mean_strength": 0.0,
     }
@@ -143,10 +171,16 @@ def _run(image_bgr: np.ndarray, values: dict[str, Any]) -> dict[str, Any]:
     coarse_corners = _fit(coarse_points)
     result["coarse_corners"] = coarse_corners
     diagonal = float(np.hypot(*gray.shape[::-1]))
-    counts, fractions = _side_support(coarse_points, coarse_corners, diagonal, values["side_assignment_tolerance_fraction"])
+    eligible, counts, fractions = _side_support(
+        coarse_points, coarse_used, coarse_angles, center, coarse_corners, diagonal,
+        values["side_assignment_tolerance_fraction"],
+    )
     weak = [i for i, fraction in sorted(enumerate(fractions), key=lambda item: item[1]) if fraction < values["weak_side_support_fraction"]]
     weak = weak[: values["maximum_refined_sides"]]
-    result["side_counts"], result["side_support_fractions"], result["weak_sides"] = counts, fractions, weak
+    result["side_eligible_rays"] = eligible
+    result["side_support_counts"] = counts
+    result["side_support_fractions"] = fractions
+    result["weak_sides"] = weak
     refined_strengths = np.empty((0,), dtype=np.float32)
     if weak:
         refine_step = np.deg2rad(values["refined_angle_step_degrees"])
@@ -187,7 +221,8 @@ def detect(*, image_bgr: np.ndarray, mask: np.ndarray, parameters: dict[str, Any
         "total_supported_rays": int(len(points)),
         "ray_support": support,
         "mean_edge_strength": run["mean_strength"],
-        "side_support_counts": run["side_counts"],
+        "side_eligible_rays": run["side_eligible_rays"],
+        "side_support_counts": run["side_support_counts"],
         "side_support_fractions": run["side_support_fractions"],
         "weak_sides": run["weak_sides"],
         "refinement_triggered": bool(run["weak_sides"]),
@@ -227,26 +262,60 @@ def debug_images(*, image_bgr: np.ndarray, mask: np.ndarray, parameters: dict[st
     images = {"adaptive-radial-gradient.png": gradient, "adaptive-radial-edge-points.png": points_view}
     if verbose:
         center = tuple(np.rint(run["center"]).astype(int))
-        weak_view = base.copy()
-        refined_view = base.copy()
+
+        pass1_rays = base.copy()
+        for point in np.rint(run["coarse_points"]).astype(np.int32):
+            cv2.line(pass1_rays, center, tuple(point), (0, 200, 0), 1, cv2.LINE_AA)
+            cv2.circle(pass1_rays, tuple(point), 2, (0, 255, 255), -1)
+
+        pass1_fit = base.copy()
+        for point in np.rint(run["coarse_points"]).astype(np.int32):
+            cv2.circle(pass1_fit, tuple(point), 2, (0, 255, 255), -1)
+        if run["coarse_corners"] is not None:
+            cv2.polylines(pass1_fit, [np.rint(run["coarse_corners"]).astype(np.int32).reshape(-1, 1, 2)], True, (255, 160, 0), 3, cv2.LINE_AA)
+
+        side_support = base.copy()
         if run["coarse_corners"] is not None:
             corners = np.rint(run["coarse_corners"]).astype(np.int32)
+            side_names = ("top", "right", "bottom", "left")
             for side in range(4):
-                color = (0, 0, 255) if side in run["weak_sides"] else (0, 180, 0)
-                cv2.line(weak_view, tuple(corners[side]), tuple(corners[(side + 1) % 4]), color, 4, cv2.LINE_AA)
-        for point in np.rint(run["coarse_points"]).astype(np.int32):
-            cv2.line(refined_view, center, tuple(point), (120, 120, 120), 1, cv2.LINE_AA)
+                weak = side in run["weak_sides"]
+                color = (0, 0, 255) if weak else (0, 180, 0)
+                start_pt = tuple(corners[side])
+                end_pt = tuple(corners[(side + 1) % 4])
+                cv2.line(side_support, start_pt, end_pt, color, 5, cv2.LINE_AA)
+                midpoint = np.rint((corners[side] + corners[(side + 1) % 4]) / 2.0).astype(int)
+                eligible = run["side_eligible_rays"][side]
+                accepted = run["side_support_counts"][side]
+                fraction = run["side_support_fractions"][side]
+                label = f"{side_names[side]} {accepted}/{eligible} {fraction:.0%} {'WEAK' if weak else 'STRONG'}"
+                origin = (int(midpoint[0] + 8), int(midpoint[1] - 8))
+                cv2.putText(side_support, label, origin, cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 3, cv2.LINE_AA)
+                cv2.putText(side_support, label, origin, cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 1, cv2.LINE_AA)
+
+        pass2_rays = base.copy()
         for point in np.rint(run["refined_points"]).astype(np.int32):
-            cv2.line(refined_view, center, tuple(point), (255, 0, 255), 1, cv2.LINE_AA)
-            cv2.circle(refined_view, tuple(point), 3, (0, 255, 255), -1)
-        comparison = base.copy()
+            cv2.line(pass2_rays, center, tuple(point), (255, 0, 255), 1, cv2.LINE_AA)
+            cv2.circle(pass2_rays, tuple(point), 3, (0, 255, 255), -1)
+        if len(run["refined_points"]) == 0:
+            cv2.putText(pass2_rays, "Pass 2 not triggered", (24, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 4, cv2.LINE_AA)
+            cv2.putText(pass2_rays, "Pass 2 not triggered", (24, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 220, 255), 2, cv2.LINE_AA)
+
+        pass2_fit = base.copy()
+        for point in np.rint(run["refined_points"]).astype(np.int32):
+            cv2.circle(pass2_fit, tuple(point), 3, (255, 0, 255), -1)
         if run["coarse_corners"] is not None:
-            cv2.polylines(comparison, [np.rint(run["coarse_corners"]).astype(np.int32).reshape(-1, 1, 2)], True, (255, 160, 0), 2, cv2.LINE_AA)
+            cv2.polylines(pass2_fit, [np.rint(run["coarse_corners"]).astype(np.int32).reshape(-1, 1, 2)], True, (255, 160, 0), 2, cv2.LINE_AA)
         if run["final_corners"] is not None:
-            cv2.polylines(comparison, [np.rint(run["final_corners"]).astype(np.int32).reshape(-1, 1, 2)], True, (0, 0, 255), 3, cv2.LINE_AA)
-        images["weak-side-support.png"] = weak_view
-        images["refined-rays.png"] = refined_view
-        images["coarse-vs-refined-overlay.png"] = comparison
+            cv2.polylines(pass2_fit, [np.rint(run["final_corners"]).astype(np.int32).reshape(-1, 1, 2)], True, (0, 0, 255), 3, cv2.LINE_AA)
+
+        # Ordered deliberately so the regression writer emits 05 through 09,
+        # placing side support at 07 and the common final overlay at 10.
+        images["pass1-rays.png"] = pass1_rays
+        images["pass1-fit-overlay.jpg"] = pass1_fit
+        images["side-support.png"] = side_support
+        images["pass2-rays.png"] = pass2_rays
+        images["pass2-fit-overlay.jpg"] = pass2_fit
     return images
 
 
