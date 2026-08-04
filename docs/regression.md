@@ -108,7 +108,7 @@ Every completed detector regression writes `reports/calibration-intelligence.jso
 
 The report includes:
 
-- a **Best Known Detector Calibrations** table that prefers compatible full calibrations from `calibration-index.json`, falls back to smoke evidence when no full calibration exists, and records rank, detector ID, Golden Set ID, calibration date, search type, a compact linked GitHub Actions build number, parameter set ID, role, coverage, success rate, winner metrics, baseline delta, basin width, equivalent-best coverage, and Calibration Evidence; build links are temporary operational shortcuts while the persisted `calibration-intelligence.json` remains authoritative;
+- a **Best Known Detector Calibrations** table that prefers compatible full calibrations from `calibration-index.json`, falls back to smoke evidence when no full calibration exists, and records rank, detector ID, Golden Set ID, calibration date, a compact linked GitHub Actions build number, parameter set ID, parameter-set count, search type, success rate, winner metrics, baseline delta, basin width, equivalent-best coverage, deterministic Calibration Evidence, and automatic Golden Set-scoped Approval Level; the redundant Coverage column is omitted, and build links are temporary operational shortcuts while the persisted `calibration-intelligence.json` remains authoritative;
 - generator, validator, and hybrid role definitions plus an evidence-source legend;
 - search coverage and fully-successful parameter-set rate;
 - best, minimum, standard-deviation, percentile, equivalent-winner, and near-best-basin calibration-landscape metrics;
@@ -119,7 +119,8 @@ The report includes:
 - exploratory pairwise interaction estimates from a deterministic bounded sample;
 - per-page mean, minimum, maximum, standard deviation, and success rate;
 - dormant-parameter recommendations for reducing future searches;
-- Calibration Evidence based on search completeness, success rate, basin width, and sample size; and
+- deterministic Calibration Evidence scored as 2 points for exhaustive completion, 1 point for at least 90% fully successful parameter sets, and 1 point for a near-best basin of at least 1% (Low 0–1, Medium 2–3, High 4);
+- automatic Approval Level derived from Search Type and Calibration Evidence (Provisional, Candidate, Recommended, or Approved), scoped only to the identified Golden Set; and
 - a corpus recommendation naming the highest-ranked detector and the evidence supporting a source-specific freeze-or-continue decision.
 
 Each individual detector result also includes an evidence table describing the visual evidence it generates or validates. The Golden Set Winner Summary records winner-change count, first and last winner-change times, and search completion time.

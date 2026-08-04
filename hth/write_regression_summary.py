@@ -1074,6 +1074,21 @@ def _build_link_footnote(
     )
 
 
+def _calibration_approval_level(search_type: Any, evidence: Any) -> str:
+    """Return the deterministic Golden Set-scoped engineering approval level."""
+    search = str(search_type or "unknown").strip().lower().replace("_", "-")
+    rating = str(evidence or "unknown").strip().lower()
+    if search == "smoke" or search == "unknown" or rating == "unknown":
+        return "Provisional"
+    if search != "exhaustive":
+        return "Candidate"
+    if rating == "high":
+        return "Approved"
+    if rating == "medium":
+        return "Recommended"
+    return "Candidate"
+
+
 def _render_best_known_calibrations(
     records: list[dict[str, Any]],
     *,
@@ -1086,8 +1101,8 @@ def _render_best_known_calibrations(
     lines = [
         f"{heading} Best Known Detector Calibrations", "",
         "This table prefers compatible full calibrations when available and falls back to the latest smoke evidence for detectors without a full calibration on this Golden Set.", "",
-        "| Rank | Detector | Detector ID | Golden Set ID | Date | Search Type | Build* | Role | Coverage | Parameter Set ID | Parameter Sets | Successful | Best Avg IoU | Min IoU | StdDev | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence |",
-        "|---:|---|---|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+        "| Rank | Detector | Detector ID | Golden Set ID | Date | Build* | Role | Parameter Set ID | Parameter Sets | Search Type | Successful | Best Avg IoU | Min IoU | StdDev | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence | Approval Level |",
+        "|---:|---|---|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
     ]
     for rank, row in enumerate(records, start=1):
         delta = row.get("delta_baseline_mean_iou")
@@ -1095,13 +1110,16 @@ def _render_best_known_calibrations(
         build_number = str(row.get("build_number") or "unknown")
         build_label = f"#{build_number}" if build_number != "unknown" else "unknown"
         build_text = _markdown_link(build_label, str(row.get("build_url") or ""))
+        search_type = row.get("search_type", "unknown")
+        calibration_evidence = row.get("calibration_evidence", "unknown")
+        approval_level = _calibration_approval_level(search_type, calibration_evidence)
         lines.append(
             f"| {rank} | {_detector_friendly_name(str(row['detector']))} | `{row['detector']}` | "
-            f"`{row.get('golden_set_id', 'unknown')}` | {row.get('date', 'unknown')} | {row.get('search_type', 'unknown')} | {build_text} | "
-            f"{row.get('role', 'Unknown')} | {row.get('coverage', 'unknown')} | `{row.get('parameter_set_id', 'unknown')}` | "
-            f"{row.get('parameter_sets', 'unknown')} | {_percent(row.get('successful_rate'))} | {_number(row.get('mean_iou'))} | "
+            f"`{row.get('golden_set_id', 'unknown')}` | {row.get('date', 'unknown')} | {build_text} | "
+            f"{row.get('role', 'Unknown')} | `{row.get('parameter_set_id', 'unknown')}` | {row.get('parameter_sets', 'unknown')} | "
+            f"{search_type} | {_percent(row.get('successful_rate'))} | {_number(row.get('mean_iou'))} | "
             f"{_number(row.get('minimum_iou'))} | {_number(row.get('stddev_iou'))} | {row.get('failures', 'unknown')} | {delta_text} | "
-            f"{_percent(row.get('near_best_share'))} | {_percent(row.get('equivalent_winner_share'))} | {row.get('calibration_evidence', 'unknown')} |"
+            f"{_percent(row.get('near_best_share'))} | {_percent(row.get('equivalent_winner_share'))} | {calibration_evidence} | {approval_level} |"
         )
     if not records:
         lines.append("| — | No compatible calibration evidence available | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |")
@@ -1360,7 +1378,8 @@ def _render_calibration_report(
         "- **Critical / Important / Moderate / Low / Dormant:** plain-English parameter-influence classes, from dominant measured association to no material measured effect in this grid.",
         "- **Near-best coverage (basin):** share of tested parameter sets within the displayed tolerance of the best Avg IoU; broader coverage indicates more forgiving calibration.",
         "- **Equivalent best configurations:** share of tested sets effectively tied with the best result at the stricter displayed tolerance.",
-        "- **Calibration Evidence:** strength of evidence that this run adequately describes the tested landscape; it is not confidence that the detector generalizes beyond this Golden Set and grid.",
+        "- **Calibration Evidence:** deterministic evidence score for how completely this run characterizes the evaluated Golden Set and parameter grid. Score 2 points for complete exhaustive coverage, 1 point when at least 90% of parameter sets succeed on every page, and 1 point when at least 1% of tested sets are within 0.001 Avg IoU of the winner. **Low** = 0–1 points, **Medium** = 2–3 points, and **High** = 4 points. This is not confidence that the detector generalizes beyond this Golden Set and grid.",
+        "- **Approval Level:** automatic Golden Set-scoped engineering status derived from Search Type and Calibration Evidence. **Provisional** = smoke or unavailable evidence; **Candidate** = any reduced search or exhaustive search with Low evidence; **Recommended** = exhaustive search with Medium evidence; **Approved** = exhaustive search with High evidence. A different Golden Set requires its own calibration and approval.",
         "- **Evidence tables:** identify what each detector actually observes and whether that evidence generates, validates, filters, or scores a page hypothesis.",
         _build_link_footnote(
             best_known,
