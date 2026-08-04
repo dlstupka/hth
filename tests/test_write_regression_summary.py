@@ -157,6 +157,7 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("- [Run Information](#run-information)", text)
             self.assertIn("- [Results](#results)", text)
             self.assertIn("- [Page Analysis](#page-analysis)", text)
+            self.assertIn("- [Best Known Detector Calibrations](#best-known-detector-calibrations)", text)
             self.assertIn("- [Calibration Intelligence](#calibration-intelligence)", text)
             self.assertIn("[↑ Back to Navigation](#table-of-contents)", text)
             self.assertIn("## Engineering Continuous Improvement", text)
@@ -208,6 +209,9 @@ class RegressionSummaryTests(unittest.TestCase):
             )
             self.assertIn("`raw/results.csv` — present", text)
             self.assertIn("`reports/summary.json` — present", text)
+            self.assertIn("## Best Known Detector Calibrations", text)
+            self.assertIn("| Rank | Detector | Detector ID / Short Name | Golden Set ID | Date | Search Type |", text)
+            self.assertLess(text.index("## Best Known Detector Calibrations"), text.index("## Calibration Intelligence"))
             self.assertIn("## Calibration Intelligence", text)
             self.assertIn("### Calibration Identity", text)
             self.assertIn("### Detector-Selection Intelligence", text)
@@ -226,6 +230,7 @@ class RegressionSummaryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "golden_set.json").write_text(json.dumps({
+                "collection_id": "HTH-TEST",
                 "source_document": {
                     "title": "Baptisms: San Antonio. Baptism Records 1788–1824, 1858–1898",
                     "image_count": 929,
@@ -348,7 +353,7 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("## Source document", text)
             self.assertIn("**Document:** Baptisms: San Antonio. Baptism Records 1788–1824, 1858–1898", text)
             self.assertIn("**Images:** 929", text)
-            self.assertIn("## Ranked Detector Results", text)
+            self.assertIn("## Ranked Detector Smoke Test Results", text)
             self.assertIn("<summary><h2>Detector Calibration Report</h2></summary>", text)
             self.assertNotIn("<details open>\n<a id=", text)
             self.assertNotIn("<details>\n<a id=", text)
@@ -395,9 +400,10 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("Detector short name", text)
             self.assertIn("## Detector Recommendation for this Golden Set", text)
             self.assertIn("### Calibration Report Legend", text)
-            self.assertIn("### Calibration Overview", text)
-            self.assertLess(text.index("### Calibration Overview"), text.index("### Calibration Report Legend"))
-            self.assertIn("| Rank | Detector | Short Name | Detector ID | Role | Coverage |", text)
+            self.assertIn("### Best Known Detector Calibrations", text)
+            self.assertLess(text.index("### Best Known Detector Calibrations"), text.index("### Calibration Report Legend"))
+            self.assertIn("| Rank | Detector | Detector ID / Short Name | Golden Set ID | Date | Search Type | Role | Coverage |", text)
+            self.assertNotIn("| Rank | Detector | Short Name | Detector ID | Role | Coverage |", text)
             self.assertIn("#### Detector Summary", text)
             self.assertIn("#### Evidence of ROI", text)
             self.assertIn("### Detector Evidence", text)
@@ -407,10 +413,10 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("| Golden Set Page | Avg IoU | Min IoU | Max IoU |", text)
             self.assertLess(text.index("### Metric Definitions"), text.index("<summary><h2>Detector Calibration Report</h2></summary>"))
             self.assertLess(text.index("<summary><h2>Detector Calibration Report</h2></summary>"), text.index("<summary><h2>Detector Regression Reports</h2></summary>"))
-            self.assertIn("| Rank | Detector | Short Name | Detector ID | Status | Parameter Set ID | Parameter Short Name | Avg IoU |", text)
+            self.assertIn("| Rank | Detector | Short Name | Detector ID | Golden Set ID | Status | Parameter Set ID | Parameter Short Name | Avg IoU |", text)
             self.assertIn("| Eval Rate | Doc Time | Run Elapsed |", text)
-            contour_row = "| 1 | Contour Envelope | Contour | `contour` | complete | `contour` | `baseline` | 0.9200 | 0.7800 | 0.0300 | 0 | 1 | 10.00 pg/s | 1m 33s | 1s |"
-            grabcut_row = "| 2 | GrabCut Segmentation | GrabCut | `grabcut` | complete | `grabcut` | `baseline` | 0.8800 | 0.8200 | 0.0200 | 0 | 1 | 4.000 pg/s | 3m 52s | 1s |"
+            contour_row = "| 1 | Contour Envelope | Contour | `contour` | `HTH-TEST` | complete | `contour` | `baseline` | 0.9200 | 0.7800 | 0.0300 | 0 | 1 | 10.00 pg/s | 1m 33s | 1s |"
+            grabcut_row = "| 2 | GrabCut Segmentation | GrabCut | `grabcut` | `HTH-TEST` | complete | `grabcut` | `baseline` | 0.8800 | 0.8200 | 0.0200 | 0 | 1 | 4.000 pg/s | 3m 52s | 1s |"
             self.assertIn(contour_row, text)
             self.assertIn(grabcut_row, text)
             self.assertLess(text.index(contour_row), text.index(grabcut_row))

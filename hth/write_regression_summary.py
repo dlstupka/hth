@@ -536,6 +536,7 @@ def build_summary(
     pipeline_repository: str = "",
     results_repository: str = "",
     results_commit: str = "",
+    calibration_index: Path | None = None,
 ) -> str:
     manifest = _read_json(run_dir / "manifest.json")
     info = _read_json(run_dir / "RUN-INFO.json")
@@ -780,6 +781,10 @@ def build_summary(
         else:
             lines.extend(["", "No problem pages were identified."])
 
+    if include_title:
+        best_known = _best_known_calibrations(calibration_index, current_runs=[run_dir])
+        lines.extend(["", *_render_best_known_calibrations(best_known, heading_level=2)])
+
     calibration_payload = _calibration_payload(run_dir)
     if calibration_payload is not None:
         requested_strategy = manifest.get("requested_strategy", info.get("requested_strategy", manifest.get("strategy", "unknown")))
@@ -856,6 +861,196 @@ def _calibration_payload(run_dir: Path) -> dict[str, Any] | None:
     except (OSError, ValueError, json.JSONDecodeError):
         return None
     return payload if payload.get("available") else None
+
+
+def _golden_set_identity(run_dir: Path, info: dict[str, Any], parameters: dict[str, Any], summary: dict[str, Any]) -> tuple[str, str]:
+    golden_sha = str(info.get("golden_set_sha256") or parameters.get("golden_set_sha256") or summary.get("golden_set_sha256") or "unknown")
+    golden_set = info.get("golden_set") or parameters.get("golden_set")
+    if golden_set:
+        configured = Path(str(golden_set))
+        candidates = [configured]
+        if not configured.is_absolute():
+            candidates.extend([run_dir / configured, Path.cwd() / configured])
+        for candidate in candidates:
+            if not candidate.is_file():
+                continue
+            try:
+                payload = _read_json(candidate)
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+            for key in ("collection_id", "id", "name"):
+                value = payload.get(key)
+                if value:
+                    return str(value), golden_sha
+    return "unknown", golden_sha
+
+
+def _calibration_search_type(entry: dict[str, Any], payload: dict[str, Any]) -> str:
+    if str(entry.get("calibration_status") or "").lower() == "provisional":
+        return "smoke"
+    search = payload.get("search", {}) if isinstance(payload.get("search"), dict) else {}
+    strategy = search.get("strategy") or (entry.get("search") or {}).get("strategy")
+    if search.get("exhaustive_complete"):
+        return "exhaustive"
+    return str(strategy or "unknown").replace("_", "-")
+
+
+def _calibration_record_from_payload(
+    detector: str,
+    payload: dict[str, Any],
+    *,
+    entry: dict[str, Any] | None = None,
+    summary: dict[str, Any] | None = None,
+    golden_set_id: str = "unknown",
+    golden_set_sha256: str = "unknown",
+) -> dict[str, Any]:
+    entry = entry or {}
+    summary = summary or {}
+    search = payload.get("search", {}) if isinstance(payload.get("search"), dict) else {}
+    landscape = payload.get("landscape", {}) if isinstance(payload.get("landscape"), dict) else {}
+    confidence = payload.get("calibration_confidence", {}) if isinstance(payload.get("calibration_confidence"), dict) else {}
+    selection = payload.get("detector_selection_intelligence", {}) if isinstance(payload.get("detector_selection_intelligence"), dict) else {}
+    identity = payload.get("calibration_identity", {}) if isinstance(payload.get("calibration_identity"), dict) else {}
+    winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else None
+    baseline = summary.get("baseline") if isinstance(summary.get("baseline"), dict) else None
+    winner_stats = winner.get("summary", {}) if winner else {}
+    baseline_stats = baseline.get("summary", {}) if baseline else {}
+    mean_iou = selection.get("best_avg_iou", winner_stats.get("mean_iou", landscape.get("best_mean_iou")))
+    minimum_iou = selection.get("minimum_iou", winner_stats.get("minimum_iou"))
+    stddev_iou = selection.get("stddev_iou", winner_stats.get("stddev_iou"))
+    failures = selection.get("failure_count", winner_stats.get("failure_count", "unknown"))
+    parameter_id = selection.get("recommended_parameter_set_id") or (entry.get("selection") or {}).get("recommended_parameter_set_id") or _parameter_id(winner)
+    baseline_mean = baseline_stats.get("mean_iou")
+    delta = None
+    try:
+        if baseline_mean is not None and mean_iou is not None:
+            delta = float(mean_iou) - float(baseline_mean)
+    except (TypeError, ValueError):
+        delta = None
+    evidence = selection.get("calibration_evidence")
+    if isinstance(evidence, dict):
+        evidence = evidence.get("rating")
+    evidence = evidence or confidence.get("rating") or (entry.get("selection") or {}).get("calibration_evidence")
+    date_value = entry.get("created_at_utc") or identity.get("created_at_utc") or entry.get("published_at_utc")
+    date_text = str(date_value or "unknown")[:10]
+    actual_golden_id = str(entry.get("golden_set_id") or golden_set_id or "unknown")
+    actual_golden_sha = str(entry.get("golden_set_sha256") or golden_set_sha256 or "unknown")
+    status = str(entry.get("calibration_status") or ("authoritative" if search.get("exhaustive_complete") else "partial"))
+    return {
+        "detector": detector,
+        "golden_set_id": actual_golden_id,
+        "golden_set_sha256": actual_golden_sha,
+        "date": date_text,
+        "search_type": _calibration_search_type({**entry, "calibration_status": status}, payload),
+        "status": status,
+        "parameter_set_id": _short(parameter_id, 12),
+        "role": _detector_characterization(detector).get("role", "Unknown"),
+        "coverage": "complete" if search.get("exhaustive_complete") else "partial",
+        "parameter_sets": search.get("parameter_sets", (entry.get("search") or {}).get("parameter_sets", "unknown")),
+        "successful_rate": search.get("fully_successful_rate"),
+        "mean_iou": mean_iou,
+        "minimum_iou": minimum_iou,
+        "stddev_iou": stddev_iou,
+        "failures": failures,
+        "delta_baseline_mean_iou": delta,
+        "near_best_share": landscape.get("near_best_share", selection.get("near_best_coverage")),
+        "equivalent_winner_share": landscape.get("equivalent_winner_share", selection.get("equivalent_best_coverage")),
+        "calibration_evidence": evidence or "unknown",
+    }
+
+
+def _best_known_calibrations(
+    calibration_index: Path | None,
+    *,
+    current_runs: list[Path],
+) -> list[dict[str, Any]]:
+    current_records: list[dict[str, Any]] = []
+    current_sha = "unknown"
+    for run_dir in current_runs:
+        manifest = _read_json(run_dir / "manifest.json")
+        info = _read_json(run_dir / "RUN-INFO.json")
+        parameters = _read_json(run_dir / "parameters.json")
+        summary = _read_json(run_dir / "reports" / "summary.json")
+        detector = str(manifest.get("detector", run_dir.parent.name))
+        golden_id, golden_sha = _golden_set_identity(run_dir, info, parameters, summary)
+        if current_sha == "unknown":
+            current_sha = golden_sha
+        payload = _calibration_payload(run_dir)
+        if payload:
+            current_records.append(_calibration_record_from_payload(
+                detector, payload, summary=summary, golden_set_id=golden_id, golden_set_sha256=golden_sha,
+                entry={
+                    "calibration_status": "provisional" if int(summary.get("parameter_set_count", 0) or 0) <= 20 else ("authoritative" if (payload.get("search") or {}).get("exhaustive_complete") else "partial"),
+                    "created_at_utc": info.get("started_at_utc"),
+                },
+            ))
+
+    indexed_records: list[dict[str, Any]] = []
+    if calibration_index and calibration_index.is_file():
+        try:
+            index = _read_json(calibration_index)
+        except (OSError, ValueError, json.JSONDecodeError):
+            index = {}
+        for entry in index.get("entries", []):
+            if not isinstance(entry, dict):
+                continue
+            if current_sha != "unknown" and str(entry.get("golden_set_sha256") or "unknown") != current_sha:
+                continue
+            intelligence_path = calibration_index.parent / str(entry.get("intelligence_path") or "")
+            if not intelligence_path.is_file():
+                continue
+            try:
+                payload = _read_json(intelligence_path)
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+            summary_path = calibration_index.parent / str(entry.get("record_path") or "") / "summary.json"
+            summary = _read_json(summary_path) if summary_path.is_file() else {}
+            detector = str(entry.get("detector_id") or payload.get("detector") or "unknown")
+            indexed_records.append(_calibration_record_from_payload(detector, payload, entry=entry, summary=summary))
+
+    candidates = indexed_records or current_records
+    status_priority = {"authoritative": 3, "partial": 2, "provisional": 1}
+    by_detector: dict[str, dict[str, Any]] = {}
+    for record in candidates:
+        detector = str(record.get("detector"))
+        current = by_detector.get(detector)
+        key = (
+            status_priority.get(str(record.get("status")), 0),
+            float(record.get("mean_iou") or 0.0),
+            str(record.get("date") or ""),
+        )
+        current_key = (
+            status_priority.get(str(current.get("status")), 0),
+            float(current.get("mean_iou") or 0.0),
+            str(current.get("date") or ""),
+        ) if current else None
+        if current is None or key > current_key:
+            by_detector[detector] = record
+    return sorted(by_detector.values(), key=_combined_ranking_key)
+
+
+def _render_best_known_calibrations(records: list[dict[str, Any]], *, heading_level: int = 3) -> list[str]:
+    heading = "#" * heading_level
+    lines = [
+        f"{heading} Best Known Detector Calibrations", "",
+        "This table prefers compatible full calibrations when available and falls back to the latest smoke evidence for detectors without a full calibration on this Golden Set.", "",
+        "| Rank | Detector | Detector ID / Short Name | Golden Set ID | Date | Search Type | Role | Coverage | Parameter Set ID | Parameter Sets | Successful | Best Avg IoU | Min IoU | StdDev | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence |",
+        "|---:|---|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+    ]
+    for rank, row in enumerate(records, start=1):
+        delta = row.get("delta_baseline_mean_iou")
+        delta_text = f"{float(delta):+.4f}" if delta is not None else "unknown"
+        lines.append(
+            f"| {rank} | {_detector_friendly_name(str(row['detector']))} | `{row['detector']}` / {_detector_short_name(str(row['detector']))} | "
+            f"`{row.get('golden_set_id', 'unknown')}` | {row.get('date', 'unknown')} | {row.get('search_type', 'unknown')} | "
+            f"{row.get('role', 'Unknown')} | {row.get('coverage', 'unknown')} | `{row.get('parameter_set_id', 'unknown')}` | "
+            f"{row.get('parameter_sets', 'unknown')} | {_percent(row.get('successful_rate'))} | {_number(row.get('mean_iou'))} | "
+            f"{_number(row.get('minimum_iou'))} | {_number(row.get('stddev_iou'))} | {row.get('failures', 'unknown')} | {delta_text} | "
+            f"{_percent(row.get('near_best_share'))} | {_percent(row.get('equivalent_winner_share'))} | {row.get('calibration_evidence', 'unknown')} |"
+        )
+    if not records:
+        lines.append("| — | No compatible calibration evidence available | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |")
+    return lines
 
 
 def _detector_summary_and_roi(detector: str, payload: dict[str, Any]) -> tuple[list[str], str]:
@@ -1052,7 +1247,11 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
     return lines
 
 
-def _render_calibration_report(run_dirs: list[Path], combined_rows: list[dict[str, Any]]) -> list[str]:
+def _render_calibration_report(
+    run_dirs: list[Path],
+    combined_rows: list[dict[str, Any]],
+    calibration_index: Path | None = None,
+) -> list[str]:
     payload_by_detector: dict[str, dict[str, Any]] = {}
     summary_by_detector: dict[str, dict[str, Any]] = {}
     missing: list[str] = []
@@ -1078,29 +1277,8 @@ def _render_calibration_report(run_dirs: list[Path], combined_rows: list[dict[st
         lines.extend(["Calibration intelligence was not available for these runs.", "", "</details>"])
         return lines
 
-    lines.extend([
-        "### Calibration Overview", "",
-        "| Rank | Detector | Short Name | Detector ID | Role | Coverage | Parameter Sets | Successful | Best Avg IoU | Min IoU | StdDev | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence |",
-        "|---:|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
-    ])
-    for rank, row in enumerate(combined_rows, start=1):
-        detector = str(row["detector"])
-        payload = payload_by_detector.get(detector)
-        if not payload:
-            continue
-        search = payload.get("search", {}) if isinstance(payload.get("search"), dict) else {}
-        landscape = payload.get("landscape", {}) if isinstance(payload.get("landscape"), dict) else {}
-        confidence = payload.get("calibration_confidence", {}) if isinstance(payload.get("calibration_confidence"), dict) else {}
-        role = _detector_characterization(detector).get("role", "Unknown")
-        delta = row.get("delta_baseline_mean_iou")
-        delta_text = f"{float(delta):+.4f}" if delta is not None else "unknown"
-        lines.append(
-            f"| {rank} | {_detector_friendly_name(detector)} | {_detector_short_name(detector)} | `{detector}` | {role} | {'complete' if search.get('exhaustive_complete') else 'partial'} | "
-            f"{search.get('parameter_sets', 'unknown')} | {_percent(search.get('fully_successful_rate'))} | "
-            f"{_number(row.get('mean_iou'))} | {_number(row.get('minimum_iou'))} | {_number(row.get('stddev_iou'))} | "
-            f"{delta_text} | {_percent(landscape.get('near_best_share'))} | "
-            f"{_percent(landscape.get('equivalent_winner_share'))} | {confidence.get('rating', 'unknown')} |"
-        )
+    best_known = _best_known_calibrations(calibration_index, current_runs=run_dirs)
+    lines.extend(_render_best_known_calibrations(best_known, heading_level=3))
     lines.extend([
         "", "### Calibration Report Legend", "",
         "- **Generator:** proposes an original page boundary from its primary visual evidence.",
@@ -1311,8 +1489,11 @@ def _combined_result_row(run_dir: Path) -> dict[str, Any]:
     baseline_stats = baseline.get("summary", {}) if baseline else {}
     page_ordinals = summary.get("page_ordinals", []) if isinstance(summary.get("page_ordinals"), list) else []
     source_document = _source_document_metadata(run_dir, info, parameters)
+    golden_set_id, golden_set_sha256 = _golden_set_identity(run_dir, info, parameters, summary)
     page_rate = _page_rate(winner, len(page_ordinals))
     return {
+        "golden_set_id": golden_set_id,
+        "golden_set_sha256": golden_set_sha256,
         "detector": str(manifest.get("detector", run_dir.parent.name)),
         "detector_name": _detector_friendly_name(str(manifest.get("detector", run_dir.parent.name))),
         "detector_short_name": _detector_short_name(str(manifest.get("detector", run_dir.parent.name))),
@@ -1362,6 +1543,7 @@ def build_combined_summary(
     pipeline_repository: str = "",
     results_repository: str = "",
     results_commit: str = "",
+    calibration_index: Path | None = None,
 ) -> str:
     if not run_dirs:
         raise ValueError("At least one regression run directory is required")
@@ -1372,6 +1554,7 @@ def build_combined_summary(
             pipeline_repository=pipeline_repository,
             results_repository=results_repository,
             results_commit=results_commit,
+            calibration_index=calibration_index,
         )
 
     combined_rows = sorted(
@@ -1425,14 +1608,14 @@ def build_combined_summary(
         "",
         "This recommendation is specific to the evaluated Golden Set and parameter grid and should be revisited when the Golden Set, parameter grid, or source document changes.",
         "",
-        "## Ranked Detector Results",
+        "## Ranked Detector Smoke Test Results",
         "",
-        "| Rank | Detector | Short Name | Detector ID | Status | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Failures | Parameter Sets | Eval Rate | Doc Time | Run Elapsed |",
-        "|---:|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Rank | Detector | Short Name | Detector ID | Golden Set ID | Status | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Failures | Parameter Sets | Eval Rate | Doc Time | Run Elapsed |",
+        "|---:|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ])
     for rank, row in enumerate(combined_rows, start=1):
         lines.append(
-            f"| {rank} | {row['detector_name']} | {row['detector_short_name']} | `{row['detector']}` | {row['status']} | "
+            f"| {rank} | {row['detector_name']} | {row['detector_short_name']} | `{row['detector']}` | `{row.get('golden_set_id', 'unknown')}` | {row['status']} | "
             f"`{row['parameter_set_id']}` | `{row['parameter_short_name']}` | {_number(row['mean_iou'])} | "
             f"{_number(row['minimum_iou'])} | {_number(row['stddev_iou'])} | "
             f"{row['failures']} | {row['parameter_sets']} | "
@@ -1451,7 +1634,7 @@ def build_combined_summary(
         "- **Δ Baseline Avg IoU:** Winning Avg IoU minus the named baseline profile's Avg IoU for the same detector run.",
         "",
     ])
-    lines.extend(_render_calibration_report(run_dirs, combined_rows))
+    lines.extend(_render_calibration_report(run_dirs, combined_rows, calibration_index))
 
     completed_runs = sum(1 for row in combined_rows if str(row.get("status", "")).lower() == "complete")
     total_parameter_sets = sum(int(row.get("parameter_sets", 0) or 0) for row in combined_rows)
@@ -1559,6 +1742,7 @@ def build_combined_summary(
                 run_dir,
                 include_title=False,
                 include_metric_definitions=False,
+                calibration_index=calibration_index,
             ).rstrip()
         )
         lines.extend(["", "</details>"])
@@ -1585,6 +1769,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--pipeline-repository", default=os.environ.get("HTH_PIPELINE_REPOSITORY", ""))
     p.add_argument("--results-repository", default=os.environ.get("HTH_RESULTS_REPOSITORY", ""))
     p.add_argument("--results-commit", default=os.environ.get("HTH_RESULTS_COMMIT", ""))
+    p.add_argument("--calibration-index", type=Path)
     return p
 
 
@@ -1596,6 +1781,7 @@ def main(argv: list[str] | None = None) -> int:
         pipeline_repository=args.pipeline_repository,
         results_repository=args.results_repository,
         results_commit=args.results_commit,
+        calibration_index=args.calibration_index,
     )
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

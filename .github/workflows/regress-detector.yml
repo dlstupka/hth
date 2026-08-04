@@ -1028,6 +1028,7 @@ jobs:
             --pipeline-repository "${{ github.repository }}" \
             --results-repository "$RESULTS_REPOSITORY" \
             --results-commit "${{ steps.persistence.outputs.results_commit }}" \
+            --calibration-index results-repo/calibration-index.json \
             --output regression-summary.md
 
           cat regression-summary.md >> "$GITHUB_STEP_SUMMARY"

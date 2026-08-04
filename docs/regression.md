@@ -104,11 +104,11 @@ Every report ends with one **Engineering Continuous Improvement** section. Its C
 
 ## Detector calibration intelligence
 
-Every completed detector regression writes `reports/calibration-intelligence.json`. The top-level multi-detector `Detector Regression Manifest` renders this evidence in a `Detector Calibration Report` immediately after the top-level Metric Definitions and before the individual detector sections.
+Every completed detector regression writes `reports/calibration-intelligence.json`. The top-level multi-detector `Detector Regression Manifest` renders this evidence in a `Detector Calibration Report` immediately after the top-level Metric Definitions and before the individual detector sections. Its current-run ranking is titled **Ranked Detector Smoke Test Results** and includes the Golden Set ID. Single-detector manifests render the same **Best Known Detector Calibrations** table immediately before Calibration Intelligence so a detector run can be compared with all compatible detector calibrations for the same Golden Set.
 
 The report includes:
 
-- a ranked calibration overview with detector role, winner Avg IoU, Min IoU, StdDev, and change from each detector's named baseline;
+- a **Best Known Detector Calibrations** table that prefers compatible full calibrations from `calibration-index.json`, falls back to smoke evidence when no full calibration exists, and records rank, detector ID/short name, Golden Set ID, calibration date, search type, parameter set ID, role, coverage, success rate, winner metrics, baseline delta, basin width, equivalent-best coverage, and Calibration Evidence;
 - generator, validator, and hybrid role definitions plus an evidence-source legend;
 - search coverage and fully-successful parameter-set rate;
 - best, minimum, standard-deviation, percentile, equivalent-winner, and near-best-basin calibration-landscape metrics;
