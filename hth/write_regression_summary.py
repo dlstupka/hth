@@ -1034,14 +1034,14 @@ def _render_best_known_calibrations(records: list[dict[str, Any]], *, heading_le
     lines = [
         f"{heading} Best Known Detector Calibrations", "",
         "This table prefers compatible full calibrations when available and falls back to the latest smoke evidence for detectors without a full calibration on this Golden Set.", "",
-        "| Rank | Detector | Detector ID / Short Name | Golden Set ID | Date | Search Type | Role | Coverage | Parameter Set ID | Parameter Sets | Successful | Best Avg IoU | Min IoU | StdDev | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence |",
+        "| Rank | Detector | Detector ID | Golden Set ID | Date | Search Type | Role | Coverage | Parameter Set ID | Parameter Sets | Successful | Best Avg IoU | Min IoU | StdDev | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence |",
         "|---:|---|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     for rank, row in enumerate(records, start=1):
         delta = row.get("delta_baseline_mean_iou")
         delta_text = f"{float(delta):+.4f}" if delta is not None else "unknown"
         lines.append(
-            f"| {rank} | {_detector_friendly_name(str(row['detector']))} | `{row['detector']}` / {_detector_short_name(str(row['detector']))} | "
+            f"| {rank} | {_detector_friendly_name(str(row['detector']))} | `{row['detector']}` | "
             f"`{row.get('golden_set_id', 'unknown')}` | {row.get('date', 'unknown')} | {row.get('search_type', 'unknown')} | "
             f"{row.get('role', 'Unknown')} | {row.get('coverage', 'unknown')} | `{row.get('parameter_set_id', 'unknown')}` | "
             f"{row.get('parameter_sets', 'unknown')} | {_percent(row.get('successful_rate'))} | {_number(row.get('mean_iou'))} | "
@@ -1610,12 +1610,12 @@ def build_combined_summary(
         "",
         "## Ranked Detector Smoke Test Results",
         "",
-        "| Rank | Detector | Short Name | Detector ID | Golden Set ID | Status | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Failures | Parameter Sets | Eval Rate | Doc Time | Run Elapsed |",
-        "|---:|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Rank | Detector | Detector ID | Golden Set ID | Status | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Failures | Parameter Sets | Eval Rate | Doc Time | Run Elapsed |",
+        "|---:|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ])
     for rank, row in enumerate(combined_rows, start=1):
         lines.append(
-            f"| {rank} | {row['detector_name']} | {row['detector_short_name']} | `{row['detector']}` | `{row.get('golden_set_id', 'unknown')}` | {row['status']} | "
+            f"| {rank} | {row['detector_name']} | `{row['detector']}` | `{row.get('golden_set_id', 'unknown')}` | {row['status']} | "
             f"`{row['parameter_set_id']}` | `{row['parameter_short_name']}` | {_number(row['mean_iou'])} | "
             f"{_number(row['minimum_iou'])} | {_number(row['stddev_iou'])} | "
             f"{row['failures']} | {row['parameter_sets']} | "
