@@ -108,7 +108,7 @@ Every completed detector regression writes `reports/calibration-intelligence.jso
 
 The report includes:
 
-- a **Best Known Detector Calibrations** table that prefers compatible full calibrations from `calibration-index.json`, falls back to smoke evidence when no full calibration exists, and records rank, detector ID, Golden Set ID, calibration date, search type, parameter set ID, role, coverage, success rate, winner metrics, baseline delta, basin width, equivalent-best coverage, and Calibration Evidence;
+- a **Best Known Detector Calibrations** table that prefers compatible full calibrations from `calibration-index.json`, falls back to smoke evidence when no full calibration exists, and records rank, detector ID, Golden Set ID, calibration date, search type, a compact linked GitHub Actions build number, parameter set ID, role, coverage, success rate, winner metrics, baseline delta, basin width, equivalent-best coverage, and Calibration Evidence; build links are temporary operational shortcuts while the persisted `calibration-intelligence.json` remains authoritative;
 - generator, validator, and hybrid role definitions plus an evidence-source legend;
 - search coverage and fully-successful parameter-set rate;
 - best, minimum, standard-deviation, percentile, equivalent-winner, and near-best-basin calibration-landscape metrics;

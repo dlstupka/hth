@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.write_regression_summary import build_combined_summary, build_summary
+from hth.write_regression_summary import _render_best_known_calibrations, build_combined_summary, build_summary
 
 
 class RegressionSummaryTests(unittest.TestCase):
@@ -210,7 +210,7 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("`raw/results.csv` — present", text)
             self.assertIn("`reports/summary.json` — present", text)
             self.assertIn("## Best Known Detector Calibrations", text)
-            self.assertIn("| Rank | Detector | Detector ID | Golden Set ID | Date | Search Type |", text)
+            self.assertIn("| Rank | Detector | Detector ID | Golden Set ID | Date | Search Type | Build* |", text)
             self.assertLess(text.index("## Best Known Detector Calibrations"), text.index("## Calibration Intelligence"))
             self.assertIn("## Calibration Intelligence", text)
             self.assertIn("### Calibration Identity", text)
@@ -402,7 +402,7 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("### Calibration Report Legend", text)
             self.assertIn("### Best Known Detector Calibrations", text)
             self.assertLess(text.index("### Best Known Detector Calibrations"), text.index("### Calibration Report Legend"))
-            self.assertIn("| Rank | Detector | Detector ID | Golden Set ID | Date | Search Type | Role | Coverage |", text)
+            self.assertIn("| Rank | Detector | Detector ID | Golden Set ID | Date | Search Type | Build* | Role | Coverage |", text)
             self.assertNotIn("| Rank | Detector | Short Name | Detector ID | Role | Coverage |", text)
             self.assertIn("#### Detector Summary", text)
             self.assertIn("#### Evidence of ROI", text)
@@ -423,6 +423,42 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("<summary><strong>GrabCut Segmentation (`grabcut`)</strong></summary>", text)
             self.assertIn("<summary><strong>Contour Envelope (`contour`)</strong></summary>", text)
             self.assertEqual(text.count("[Open workflow run]"), 1)
+
+    def test_best_known_calibration_build_link_and_persistent_record_footnote(self):
+        lines = _render_best_known_calibrations(
+            [{
+                "detector": "radial_edge",
+                "golden_set_id": "GS-1",
+                "date": "2026-08-04",
+                "search_type": "exhaustive",
+                "status": "authoritative",
+                "parameter_set_id": "abc123",
+                "role": "Generator",
+                "coverage": "complete",
+                "parameter_sets": 10,
+                "successful_rate": 1.0,
+                "mean_iou": 0.95,
+                "minimum_iou": 0.94,
+                "stddev_iou": 0.01,
+                "failures": 0,
+                "delta_baseline_mean_iou": 0.01,
+                "near_best_share": 0.1,
+                "equivalent_winner_share": 0.01,
+                "calibration_evidence": "High",
+                "build_number": "193",
+                "build_url": "https://github.com/dlstupka/hth/actions/runs/123",
+                "intelligence_path": "source-documents/source/golden-sets/GS-1/abc/calibrations/radial_edge/run/calibration-intelligence.json",
+            }],
+            heading_level=2,
+            results_repository="dlstupka/hth-results",
+            results_ref="deadbeef",
+        )
+        text = "\n".join(lines)
+        self.assertIn("| Date | Search Type | Build* | Role |", text)
+        self.assertIn("[#193](https://github.com/dlstupka/hth/actions/runs/123)", text)
+        self.assertIn("- **Build*:** `#run` links open GitHub Actions logs and artifacts", text)
+        self.assertIn("[calibration-intelligence.json](https://github.com/dlstupka/hth-results/blob/deadbeef/source-documents/source/golden-sets/GS-1/abc/calibrations/radial_edge/run/calibration-intelligence.json)", text)
+
 
 
 if __name__ == "__main__":

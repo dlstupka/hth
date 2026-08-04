@@ -167,7 +167,7 @@ Additional conventions:
 - Keep Status Definitions with Page Analysis.
 - Multi-detector manifests retain the established nested navigation hierarchy.
 - Multi-detector current-run rankings are titled `Ranked Detector Smoke Test Results`, include the Golden Set ID, and omit detector short names.
-- `Best Known Detector Calibrations` prefers compatible full calibration evidence from `calibration-index.json`, falls back to smoke evidence only when no full calibration exists, and identifies detectors by Detector ID without a separate short-name display; the same table appears before Calibration Intelligence in single-detector manifests.
+- `Best Known Detector Calibrations` prefers compatible full calibration evidence from `calibration-index.json`, falls back to smoke evidence only when no full calibration exists, identifies detectors by Detector ID without a separate short-name display, and includes a compact linked `Build*` run number whose temporary logs and artifacts complement the persistent `calibration-intelligence.json`; the same table appears before Calibration Intelligence in single-detector manifests.
 - Single, custom, and manual detector manifests use an always-visible flat navigation menu with Back to Navigation links after major sections.
 - Do not add nonfunctional Expand All / Collapse All controls to GitHub-rendered Markdown.
 - Multi-detector regression summaries place Regression Execution and Detector Queueing immediately after Regression Completion Summary.

@@ -38,7 +38,13 @@ class CalibrationStoreTests(unittest.TestCase):
             results = root / "results"
             smoke = self._run(root, "smoke", exhaustive=False, mode="smoke")
             full = self._run(root, "full", exhaustive=True, mode="full", score=0.95)
-            build = {"github_run_id": "1"}
+            build = {
+                "workflow": "Regress detectors against Golden Set",
+                "github_run_id": "1",
+                "github_run_number": "193",
+                "github_run_attempt": "1",
+                "run_url": "https://github.com/dlstupka/hth/actions/runs/1",
+            }
             entries = [
                 publish_run(smoke, results, mode="smoke", source_fallback="repo", build=build),
                 publish_run(full, results, mode="full", source_fallback="repo", build=build),
@@ -53,6 +59,9 @@ class CalibrationStoreTests(unittest.TestCase):
             stored = json.loads(selected.read_text(encoding="utf-8"))
             self.assertEqual(stored["calibration_status"], "authoritative")
             self.assertEqual(stored["calibration_identity"]["build"]["github_run_id"], "1")
+            self.assertEqual(stored["calibration_identity"]["build"]["github_run_number"], "193")
+            self.assertEqual(stored["calibration_identity"]["build"]["workflow"], "Regress detectors against Golden Set")
+            self.assertEqual(preferred["build"]["run_url"], "https://github.com/dlstupka/hth/actions/runs/1")
 
 
 if __name__ == "__main__":

@@ -200,6 +200,7 @@ def update_index(results_root: Path, entries: list[dict[str, Any]]) -> dict[str,
                 "detector_id": entry.get("detector_id"),
                 "intelligence_path": entry.get("intelligence_path"),
                 "created_at_utc": entry.get("created_at_utc"),
+                "build": entry.get("build"),
             }
 
     index.update({

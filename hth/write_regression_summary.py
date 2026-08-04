@@ -783,7 +783,12 @@ def build_summary(
 
     if include_title:
         best_known = _best_known_calibrations(calibration_index, current_runs=[run_dir])
-        lines.extend(["", *_render_best_known_calibrations(best_known, heading_level=2)])
+        lines.extend(["", *_render_best_known_calibrations(
+            best_known,
+            heading_level=2,
+            results_repository=results_repository,
+            results_ref=results_commit or "main",
+        )])
 
     calibration_payload = _calibration_payload(run_dir)
     if calibration_payload is not None:
@@ -936,6 +941,8 @@ def _calibration_record_from_payload(
     actual_golden_id = str(entry.get("golden_set_id") or golden_set_id or "unknown")
     actual_golden_sha = str(entry.get("golden_set_sha256") or golden_set_sha256 or "unknown")
     status = str(entry.get("calibration_status") or ("authoritative" if search.get("exhaustive_complete") else "partial"))
+    build = entry.get("build") if isinstance(entry.get("build"), dict) else identity.get("build")
+    build = build if isinstance(build, dict) else {}
     return {
         "detector": detector,
         "golden_set_id": actual_golden_id,
@@ -956,6 +963,10 @@ def _calibration_record_from_payload(
         "near_best_share": landscape.get("near_best_share", selection.get("near_best_coverage")),
         "equivalent_winner_share": landscape.get("equivalent_winner_share", selection.get("equivalent_best_coverage")),
         "calibration_evidence": evidence or "unknown",
+        "build_name": build.get("workflow") or "unknown",
+        "build_number": build.get("github_run_number") or "unknown",
+        "build_url": build.get("run_url") or "",
+        "intelligence_path": str(entry.get("intelligence_path") or ""),
     }
 
 
@@ -1029,27 +1040,80 @@ def _best_known_calibrations(
     return sorted(by_detector.values(), key=_combined_ranking_key)
 
 
-def _render_best_known_calibrations(records: list[dict[str, Any]], *, heading_level: int = 3) -> list[str]:
+def _persistent_intelligence_url(
+    records: list[dict[str, Any]],
+    *,
+    results_repository: str = "",
+    results_ref: str = "main",
+) -> str:
+    if not results_repository:
+        return ""
+    for row in records:
+        intelligence_path = str(row.get("intelligence_path") or "")
+        if intelligence_path:
+            return _github_url(results_repository) + "/blob/" + (results_ref or "main") + "/" + intelligence_path
+    return ""
+
+
+def _build_link_footnote(
+    records: list[dict[str, Any]],
+    *,
+    results_repository: str = "",
+    results_ref: str = "main",
+) -> str:
+    intelligence_url = _persistent_intelligence_url(
+        records,
+        results_repository=results_repository,
+        results_ref=results_ref,
+    )
+    return (
+        "- **Build*:** `#run` links open GitHub Actions logs and artifacts and expire according to repository retention; "
+        "the calibration data persists in "
+        + _markdown_link("calibration-intelligence.json", intelligence_url)
+        + "."
+    )
+
+
+def _render_best_known_calibrations(
+    records: list[dict[str, Any]],
+    *,
+    heading_level: int = 3,
+    results_repository: str = "",
+    results_ref: str = "main",
+    include_build_footnote: bool = True,
+) -> list[str]:
     heading = "#" * heading_level
     lines = [
         f"{heading} Best Known Detector Calibrations", "",
         "This table prefers compatible full calibrations when available and falls back to the latest smoke evidence for detectors without a full calibration on this Golden Set.", "",
-        "| Rank | Detector | Detector ID | Golden Set ID | Date | Search Type | Role | Coverage | Parameter Set ID | Parameter Sets | Successful | Best Avg IoU | Min IoU | StdDev | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence |",
-        "|---:|---|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+        "| Rank | Detector | Detector ID | Golden Set ID | Date | Search Type | Build* | Role | Coverage | Parameter Set ID | Parameter Sets | Successful | Best Avg IoU | Min IoU | StdDev | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence |",
+        "|---:|---|---|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     for rank, row in enumerate(records, start=1):
         delta = row.get("delta_baseline_mean_iou")
         delta_text = f"{float(delta):+.4f}" if delta is not None else "unknown"
+        build_number = str(row.get("build_number") or "unknown")
+        build_label = f"#{build_number}" if build_number != "unknown" else "unknown"
+        build_text = _markdown_link(build_label, str(row.get("build_url") or ""))
         lines.append(
             f"| {rank} | {_detector_friendly_name(str(row['detector']))} | `{row['detector']}` | "
-            f"`{row.get('golden_set_id', 'unknown')}` | {row.get('date', 'unknown')} | {row.get('search_type', 'unknown')} | "
+            f"`{row.get('golden_set_id', 'unknown')}` | {row.get('date', 'unknown')} | {row.get('search_type', 'unknown')} | {build_text} | "
             f"{row.get('role', 'Unknown')} | {row.get('coverage', 'unknown')} | `{row.get('parameter_set_id', 'unknown')}` | "
             f"{row.get('parameter_sets', 'unknown')} | {_percent(row.get('successful_rate'))} | {_number(row.get('mean_iou'))} | "
             f"{_number(row.get('minimum_iou'))} | {_number(row.get('stddev_iou'))} | {row.get('failures', 'unknown')} | {delta_text} | "
             f"{_percent(row.get('near_best_share'))} | {_percent(row.get('equivalent_winner_share'))} | {row.get('calibration_evidence', 'unknown')} |"
         )
     if not records:
-        lines.append("| — | No compatible calibration evidence available | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |")
+        lines.append("| — | No compatible calibration evidence available | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |")
+    if include_build_footnote:
+        lines.extend([
+            "",
+            _build_link_footnote(
+                records,
+                results_repository=results_repository,
+                results_ref=results_ref,
+            ),
+        ])
     return lines
 
 
@@ -1251,6 +1315,9 @@ def _render_calibration_report(
     run_dirs: list[Path],
     combined_rows: list[dict[str, Any]],
     calibration_index: Path | None = None,
+    *,
+    results_repository: str = "",
+    results_ref: str = "main",
 ) -> list[str]:
     payload_by_detector: dict[str, dict[str, Any]] = {}
     summary_by_detector: dict[str, dict[str, Any]] = {}
@@ -1278,7 +1345,13 @@ def _render_calibration_report(
         return lines
 
     best_known = _best_known_calibrations(calibration_index, current_runs=run_dirs)
-    lines.extend(_render_best_known_calibrations(best_known, heading_level=3))
+    lines.extend(_render_best_known_calibrations(
+        best_known,
+        heading_level=3,
+        results_repository=results_repository,
+        results_ref=results_ref,
+        include_build_footnote=False,
+    ))
     lines.extend([
         "", "### Calibration Report Legend", "",
         "- **Generator:** proposes an original page boundary from its primary visual evidence.",
@@ -1289,6 +1362,11 @@ def _render_calibration_report(
         "- **Equivalent best configurations:** share of tested sets effectively tied with the best result at the stricter displayed tolerance.",
         "- **Calibration Evidence:** strength of evidence that this run adequately describes the tested landscape; it is not confidence that the detector generalizes beyond this Golden Set and grid.",
         "- **Evidence tables:** identify what each detector actually observes and whether that evidence generates, validates, filters, or scores a page hypothesis.",
+        _build_link_footnote(
+            best_known,
+            results_repository=results_repository,
+            results_ref=results_ref,
+        ),
     ])
     if missing:
         lines.extend(["", "Calibration intelligence unavailable for: " + ", ".join(f"`{name}`" for name in missing) + "."])
@@ -1634,7 +1712,13 @@ def build_combined_summary(
         "- **Δ Baseline Avg IoU:** Winning Avg IoU minus the named baseline profile's Avg IoU for the same detector run.",
         "",
     ])
-    lines.extend(_render_calibration_report(run_dirs, combined_rows, calibration_index))
+    lines.extend(_render_calibration_report(
+        run_dirs,
+        combined_rows,
+        calibration_index,
+        results_repository=results_repository,
+        results_ref=results_commit or "main",
+    ))
 
     completed_runs = sum(1 for row in combined_rows if str(row.get("status", "")).lower() == "complete")
     total_parameter_sets = sum(int(row.get("parameter_sets", 0) or 0) for row in combined_rows)
