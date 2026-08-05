@@ -857,6 +857,18 @@ def _percent(value: Any, digits: int = 1) -> str:
         return "unknown"
 
 
+def _display_golden_set_id(value: Any) -> str:
+    """Return a canonical display form for Golden Set identifiers."""
+    text = str(value or "unknown").strip()
+    return text if not text or text.lower() == "unknown" else text.upper()
+
+
+def _markdown_table_row(cells: list[str], *, bold: bool = False) -> str:
+    """Render a Markdown table row, optionally emphasizing every cell."""
+    rendered = [f"**{cell}**" if bold else cell for cell in cells]
+    return "| " + " | ".join(rendered) + " |"
+
+
 def _calibration_payload(run_dir: Path) -> dict[str, Any] | None:
     path = run_dir / "reports" / "calibration-intelligence.json"
     if not path.is_file():
@@ -1110,9 +1122,11 @@ def _render_best_known_calibrations(
     heading = "#" * heading_level
     lines = [
         f"{heading} Best Known Detector Calibrations", "",
+        "**Engineering Decision**", "",
+        "This table is the authoritative detector ranking for this Golden Set. The Rank #1 detector is the current engineering recommendation based on the best approved calibration available for this Golden Set.", "",
         "This table prefers compatible full calibrations when available and falls back to the latest smoke evidence for detectors without a full calibration on this Golden Set.", "",
-        "| Rank | Detector | Detector ID | Golden Set ID | Date | Build* | Run Time** | Role | Parameter Set ID | Parameter Sets | Search Type | Successful | Best Avg IoU | Min IoU | StdDev | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence | Approval Level |",
-        "|---:|---|---|---|---|---|---:|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
+        "| Rank | Detector | Detector ID | Role | Golden Set ID | Date | Build* | Run Time** | Parameter Set ID | Parameter Sets | Search Type | Successful Parameter Sets | Best Avg IoU | Min IoU | StdDev | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence | Approval Level |",
+        "|---:|---|---|---|---|---|---|---:|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
     ]
     for rank, row in enumerate(records, start=1):
         delta = row.get("delta_baseline_mean_iou")
@@ -1123,14 +1137,30 @@ def _render_best_known_calibrations(
         search_type = row.get("search_type", "unknown")
         calibration_evidence = row.get("calibration_evidence", "unknown")
         approval_level = _calibration_approval_level(search_type, calibration_evidence)
-        lines.append(
-            f"| {rank} | {_detector_friendly_name(str(row['detector']))} | `{row['detector']}` | "
-            f"`{row.get('golden_set_id', 'unknown')}` | {row.get('date', 'unknown')} | {build_text} | {_duration(row.get('run_time_seconds'))} | "
-            f"{row.get('role', 'Unknown')} | `{row.get('parameter_set_id', 'unknown')}` | {row.get('parameter_sets', 'unknown')} | "
-            f"{search_type} | {_percent(row.get('successful_rate'))} | {_number(row.get('mean_iou'))} | "
-            f"{_number(row.get('minimum_iou'))} | {_number(row.get('stddev_iou'))} | {row.get('failures', 'unknown')} | {delta_text} | "
-            f"{_percent(row.get('near_best_share'))} | {_percent(row.get('equivalent_winner_share'))} | {calibration_evidence} | {approval_level} |"
-        )
+        cells = [
+            str(rank),
+            _detector_friendly_name(str(row["detector"])),
+            f"`{row['detector']}`",
+            str(row.get("role", "Unknown")),
+            f"`{_display_golden_set_id(row.get('golden_set_id', 'unknown'))}`",
+            str(row.get("date", "unknown")),
+            build_text,
+            _duration(row.get("run_time_seconds")),
+            f"`{row.get('parameter_set_id', 'unknown')}`",
+            str(row.get("parameter_sets", "unknown")),
+            str(search_type),
+            _percent(row.get("successful_rate")),
+            _number(row.get("mean_iou")),
+            _number(row.get("minimum_iou")),
+            _number(row.get("stddev_iou")),
+            str(row.get("failures", "unknown")),
+            delta_text,
+            _percent(row.get("near_best_share")),
+            _percent(row.get("equivalent_winner_share")),
+            str(calibration_evidence),
+            approval_level,
+        ]
+        lines.append(_markdown_table_row(cells, bold=(rank == 1)))
     if not records:
         lines.append("| — | No compatible calibration evidence available | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |")
     if include_build_footnote:
@@ -1719,12 +1749,12 @@ def build_combined_summary(
         "",
         "## Ranked Detector Smoke Test Results",
         "",
-        "| Rank | Detector | Detector ID | Golden Set ID | Status | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Failures | Parameter Sets | Eval Rate | Doc Time | Run Elapsed |",
-        "|---:|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Rank | Detector | Detector ID | Role | Golden Set ID | Status | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Failures | Parameter Sets | Eval Rate | Doc Time | Run Elapsed |",
+        "|---:|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ])
     for rank, row in enumerate(combined_rows, start=1):
         lines.append(
-            f"| {rank} | {row['detector_name']} | `{row['detector']}` | `{row.get('golden_set_id', 'unknown')}` | {row['status']} | "
+            f"| {rank} | {row['detector_name']} | `{row['detector']}` | {_detector_characterization(str(row['detector'])).get('role', 'Unknown')} | `{_display_golden_set_id(row.get('golden_set_id', 'unknown'))}` | {row['status']} | "
             f"`{row['parameter_set_id']}` | `{row['parameter_short_name']}` | {_number(row['mean_iou'])} | "
             f"{_number(row['minimum_iou'])} | {_number(row['stddev_iou'])} | "
             f"{row['failures']} | {row['parameter_sets']} | "
