@@ -26,9 +26,10 @@ class CalibrationStoreTests(unittest.TestCase):
             "detector_selection_intelligence": {"recommended_parameter_set_id": "p1", "best_avg_iou": score},
         }
         (run / "reports" / "calibration-intelligence.json").write_text(json.dumps(intelligence), encoding="utf-8")
-        for name in ("manifest.json", "parameters.json", "RUN-INFO.json"):
+        for name in ("manifest.json", "parameters.json"):
             (run / name).write_text("{}", encoding="utf-8")
-        (run / "reports" / "summary.json").write_text(json.dumps({"elapsed_seconds": 3723}), encoding="utf-8")
+        (run / "RUN-INFO.json").write_text(json.dumps({"elapsed_seconds": 3723}), encoding="utf-8")
+        (run / "reports" / "summary.json").write_text("{}", encoding="utf-8")
         (run / "reports" / "winner-pages.json").write_text("{}", encoding="utf-8")
         return run
 

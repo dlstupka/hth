@@ -112,9 +112,12 @@ def publish_run(
     identity.setdefault("calibration_run_id", calibration_id)
     summary_path = run_dir / "reports" / "summary.json"
     summary = _read_json(summary_path) if summary_path.is_file() else {}
+    info_path = run_dir / "RUN-INFO.json"
+    info = _read_json(info_path) if info_path.is_file() else {}
     persisted_build = dict(build)
-    if summary.get("elapsed_seconds") is not None:
-        persisted_build["run_time_seconds"] = summary.get("elapsed_seconds")
+    run_time_seconds = info.get("elapsed_seconds", summary.get("elapsed_seconds"))
+    if run_time_seconds is not None:
+        persisted_build["run_time_seconds"] = run_time_seconds
     identity["build"] = persisted_build
     intelligence["calibration_status"] = _status(mode, intelligence)
     intelligence["persistence"] = {

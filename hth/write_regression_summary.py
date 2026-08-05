@@ -994,6 +994,7 @@ def _best_known_calibrations(
                 entry={
                     "calibration_status": "provisional" if int(summary.get("parameter_set_count", 0) or 0) <= 20 else ("authoritative" if (payload.get("search") or {}).get("exhaustive_complete") else "partial"),
                     "created_at_utc": info.get("started_at_utc"),
+                    "build": {"run_time_seconds": info.get("elapsed_seconds")},
                 },
             ))
 
@@ -1015,10 +1016,18 @@ def _best_known_calibrations(
                 payload = _read_json(intelligence_path)
             except (OSError, ValueError, json.JSONDecodeError):
                 continue
-            summary_path = calibration_index.parent / str(entry.get("record_path") or "") / "summary.json"
+            record_dir = calibration_index.parent / str(entry.get("record_path") or "")
+            summary_path = record_dir / "summary.json"
+            info_path = record_dir / "RUN-INFO.json"
             summary = _read_json(summary_path) if summary_path.is_file() else {}
+            info = _read_json(info_path) if info_path.is_file() else {}
+            indexed_entry = dict(entry)
+            indexed_build = dict(entry.get("build")) if isinstance(entry.get("build"), dict) else {}
+            if indexed_build.get("run_time_seconds") is None and info.get("elapsed_seconds") is not None:
+                indexed_build["run_time_seconds"] = info.get("elapsed_seconds")
+            indexed_entry["build"] = indexed_build
             detector = str(entry.get("detector_id") or payload.get("detector") or "unknown")
-            indexed_records.append(_calibration_record_from_payload(detector, payload, entry=entry, summary=summary))
+            indexed_records.append(_calibration_record_from_payload(detector, payload, entry=indexed_entry, summary=summary))
 
     candidates = indexed_records or current_records
     status_priority = {"authoritative": 3, "partial": 2, "provisional": 1}

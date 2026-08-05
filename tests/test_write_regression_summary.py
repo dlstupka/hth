@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.write_regression_summary import _render_best_known_calibrations, build_combined_summary, build_summary
+from hth.write_regression_summary import _best_known_calibrations, _render_best_known_calibrations, build_combined_summary, build_summary
 
 
 class RegressionSummaryTests(unittest.TestCase):
@@ -427,6 +427,37 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("<summary><strong>GrabCut Segmentation (`grabcut`)</strong></summary>", text)
             self.assertIn("<summary><strong>Contour Envelope (`contour`)</strong></summary>", text)
             self.assertEqual(text.count("[Open workflow run]"), 1)
+
+    def test_best_known_calibrations_reads_runtime_from_persisted_run_info(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            record_dir = root / "records" / "radial-edge" / "run-1"
+            record_dir.mkdir(parents=True)
+            (record_dir / "RUN-INFO.json").write_text(json.dumps({"elapsed_seconds": 3723}), encoding="utf-8")
+            (record_dir / "summary.json").write_text(json.dumps({}), encoding="utf-8")
+            intelligence = {
+                "available": True,
+                "detector": "radial_edge",
+                "search": {"strategy": "exhaustive", "parameter_sets": 10, "exhaustive_complete": True},
+                "landscape": {},
+                "calibration_identity": {"build": {"github_run_number": "193", "run_url": "https://example.invalid/run"}},
+            }
+            intelligence_path = record_dir / "calibration-intelligence.json"
+            intelligence_path.write_text(json.dumps(intelligence), encoding="utf-8")
+            index_path = root / "calibration-index.json"
+            index_path.write_text(json.dumps({"entries": [{
+                "detector_id": "radial_edge",
+                "golden_set_sha256": "abc123",
+                "golden_set_id": "GS-1",
+                "calibration_status": "authoritative",
+                "created_at_utc": "2026-08-04T00:00:00Z",
+                "record_path": "records/radial-edge/run-1",
+                "intelligence_path": "records/radial-edge/run-1/calibration-intelligence.json",
+                "build": {"github_run_number": "193", "run_url": "https://example.invalid/run"},
+            }]}), encoding="utf-8")
+            records = _best_known_calibrations(index_path, current_runs=[])
+            self.assertEqual(records[0]["run_time_seconds"], 3723)
+
 
     def test_best_known_calibration_build_link_and_persistent_record_footnote(self):
         lines = _render_best_known_calibrations(
