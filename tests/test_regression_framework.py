@@ -3,7 +3,7 @@ import csv, json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from hth.regression.io import create_run_directory
-from hth.regression.reports import write_rankings, write_raw_results
+from hth.regression.reports import normalize_result_record, write_rankings, write_raw_results
 
 def sample():
     return [{"run_id":"run-test","rank":1,"parameter_set_id":"abc","profile":"baseline","parameters":{"x":1},"summary":{"mean_iou":.9,"minimum_iou":.8,"mean_edge_error_px":2.5,"failure_count":0,"elapsed_ms_total":10},"pages":[{"global_ordinal":5,"label":"fs_0005","layout_type":"spread","status":"ok","iou":.9,"edge_errors":{"left":1,"top":2,"right":3,"bottom":4},"edge_error_mean_px":2.5,"edge_error_maximum_px":4,"elapsed_ms":10,"approved_bbox":[0,0,10,10],"predicted_bbox":[1,2,13,14]}]}]
@@ -21,3 +21,25 @@ def test_reports_preserve_per_page_observations():
         rows=list(csv.DictReader((root/"results.csv").open()))
         assert len(rows)==1 and rows[0]["global_ordinal"]=="5" and rows[0]["left_error_px"]=="1"
         assert json.loads(rows[0]["parameters_json"])=={"x":1}
+
+
+def test_raw_report_accepts_null_page_error() -> None:
+    with TemporaryDirectory() as td:
+        result = sample()
+        result[0]["pages"][0]["error"] = None
+        path = Path(td) / "results.csv"
+        write_raw_results(path, result)
+        row = next(csv.DictReader(path.open(encoding="utf-8")))
+        assert row["error_type"] == ""
+        assert row["error_message"] == ""
+
+
+def test_normalize_result_record_canonicalizes_optional_fields() -> None:
+    result = {"error": None, "warnings": None, "metadata": None, "pages": [{"error": None}]}
+    normalized = normalize_result_record(result)
+    assert normalized["error"] == {}
+    assert normalized["warnings"] == []
+    assert normalized["metadata"] == {}
+    assert normalized["pages"][0]["error"] == {}
+    assert normalized["pages"][0]["warnings"] == []
+    assert normalized["pages"][0]["metadata"] == {}

@@ -6,6 +6,23 @@ from typing import Any
 from .parameter_space import canonical_parameters
 
 
+def normalize_result_record(result: dict[str, Any]) -> dict[str, Any]:
+    """Normalize optional result fields at the execution/reporting boundary.
+
+    Successful page evaluations may carry ``error: null`` after shard CSV
+    reconstruction.  Downstream report writers expect mapping/list fields, so
+    normalize them once before serialization while preserving real errors.
+    """
+    result["error"] = result.get("error") or {}
+    result["warnings"] = result.get("warnings") or []
+    result["metadata"] = result.get("metadata") or {}
+    for page in result.get("pages") or []:
+        page["error"] = page.get("error") or {}
+        page["warnings"] = page.get("warnings") or []
+        page["metadata"] = page.get("metadata") or {}
+    return result
+
+
 def ranking_key(result: dict[str, Any]) -> tuple[float, float, int, float]:
     s=result["summary"]; edge=s["mean_edge_error_px"]
     return (-float(s["mean_iou"]), -float(s["minimum_iou"]), int(s["failure_count"]), float(edge) if edge is not None else float("inf"))
@@ -16,9 +33,10 @@ def write_raw_results(path: Path, ranked: list[dict[str, Any]]) -> None:
     with path.open("w",newline="",encoding="utf-8") as h:
         w=csv.DictWriter(h,fieldnames=fields); w.writeheader()
         for result in ranked:
+            normalize_result_record(result)
             for page in result["pages"]:
-                errors=page.get("edge_errors",{})
-                err=page.get("error",{})
+                errors=page.get("edge_errors") or {}
+                err=page.get("error") or {}
                 w.writerow({
                     "run_id":result.get("run_id",""),"parameter_set_id":result["parameter_set_id"],"profile":result.get("profile") or "","rank":result.get("rank",""),
                     "global_ordinal":page["global_ordinal"],"label":page["label"],"layout_type":page["layout_type"],"status":page["status"],"iou":page["iou"],

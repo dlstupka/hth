@@ -12,7 +12,7 @@ from typing import Any
 from .calibration_intelligence import build_calibration_intelligence
 from .io import create_run_directory, write_json
 from .parameter_space import canonical_parameters
-from .reports import ranking_key, write_rankings, write_raw_results
+from .reports import normalize_result_record, ranking_key, write_rankings, write_raw_results
 from .runner import build_winner_page_report, load_pages, write_debug_artifacts
 
 
@@ -74,7 +74,7 @@ def _results_from_raw(path: Path) -> list[dict[str, Any]]:
             "elapsed_ms_total": round(sum(float(page.get("elapsed_ms") or 0) for page in pages), 3),
             "wall_ms": round(sum(float(page.get("elapsed_ms") or 0) for page in pages), 3),
         }
-        results.append(result)
+        results.append(normalize_result_record(result))
     return results
 
 
