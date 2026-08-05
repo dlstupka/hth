@@ -110,7 +110,12 @@ def publish_run(
     identity = intelligence.setdefault("calibration_identity", {})
     calibration_id = str(identity.get("calibration_run_id") or run_dir.name)
     identity.setdefault("calibration_run_id", calibration_id)
-    identity["build"] = build
+    summary_path = run_dir / "reports" / "summary.json"
+    summary = _read_json(summary_path) if summary_path.is_file() else {}
+    persisted_build = dict(build)
+    if summary.get("elapsed_seconds") is not None:
+        persisted_build["run_time_seconds"] = summary.get("elapsed_seconds")
+    identity["build"] = persisted_build
     intelligence["calibration_status"] = _status(mode, intelligence)
     intelligence["persistence"] = {
         "store": "results-repository",
@@ -156,7 +161,7 @@ def publish_run(
         "compatibility_key": compatibility_key,
         "created_at_utc": identity.get("created_at_utc"),
         "published_at_utc": intelligence["persistence"]["published_at_utc"],
-        "build": build,
+        "build": persisted_build,
         "search": {
             "strategy": search.get("strategy") if isinstance(search, dict) else None,
             "parameter_sets": search.get("parameter_sets") if isinstance(search, dict) else None,

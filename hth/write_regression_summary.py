@@ -966,6 +966,7 @@ def _calibration_record_from_payload(
         "build_name": build.get("workflow") or "unknown",
         "build_number": build.get("github_run_number") or "unknown",
         "build_url": build.get("run_url") or "",
+        "run_time_seconds": build.get("run_time_seconds", summary.get("elapsed_seconds")),
         "intelligence_path": str(entry.get("intelligence_path") or ""),
     }
 
@@ -1101,8 +1102,8 @@ def _render_best_known_calibrations(
     lines = [
         f"{heading} Best Known Detector Calibrations", "",
         "This table prefers compatible full calibrations when available and falls back to the latest smoke evidence for detectors without a full calibration on this Golden Set.", "",
-        "| Rank | Detector | Detector ID | Golden Set ID | Date | Build* | Role | Parameter Set ID | Parameter Sets | Search Type | Successful | Best Avg IoU | Min IoU | StdDev | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence | Approval Level |",
-        "|---:|---|---|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
+        "| Rank | Detector | Detector ID | Golden Set ID | Date | Build* | Run Time** | Role | Parameter Set ID | Parameter Sets | Search Type | Successful | Best Avg IoU | Min IoU | StdDev | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence | Approval Level |",
+        "|---:|---|---|---|---|---|---:|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
     ]
     for rank, row in enumerate(records, start=1):
         delta = row.get("delta_baseline_mean_iou")
@@ -1115,14 +1116,14 @@ def _render_best_known_calibrations(
         approval_level = _calibration_approval_level(search_type, calibration_evidence)
         lines.append(
             f"| {rank} | {_detector_friendly_name(str(row['detector']))} | `{row['detector']}` | "
-            f"`{row.get('golden_set_id', 'unknown')}` | {row.get('date', 'unknown')} | {build_text} | "
+            f"`{row.get('golden_set_id', 'unknown')}` | {row.get('date', 'unknown')} | {build_text} | {_duration(row.get('run_time_seconds'))} | "
             f"{row.get('role', 'Unknown')} | `{row.get('parameter_set_id', 'unknown')}` | {row.get('parameter_sets', 'unknown')} | "
             f"{search_type} | {_percent(row.get('successful_rate'))} | {_number(row.get('mean_iou'))} | "
             f"{_number(row.get('minimum_iou'))} | {_number(row.get('stddev_iou'))} | {row.get('failures', 'unknown')} | {delta_text} | "
             f"{_percent(row.get('near_best_share'))} | {_percent(row.get('equivalent_winner_share'))} | {calibration_evidence} | {approval_level} |"
         )
     if not records:
-        lines.append("| — | No compatible calibration evidence available | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |")
+        lines.append("| — | No compatible calibration evidence available | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |")
     if include_build_footnote:
         lines.extend([
             "",
@@ -1131,6 +1132,7 @@ def _render_best_known_calibrations(
                 results_repository=results_repository,
                 results_ref=results_ref,
             ),
+            r"- **Run Time\*\*:** This is the wall-clock run time for the build; for full details, refer to the build log directly.",
         ])
     return lines
 
@@ -1386,6 +1388,7 @@ def _render_calibration_report(
             results_repository=results_repository,
             results_ref=results_ref,
         ),
+        r"- **Run Time\*\*:** This is the wall-clock run time for the build; for full details, refer to the build log directly.",
     ])
     if missing:
         lines.extend(["", "Calibration intelligence unavailable for: " + ", ".join(f"`{name}`" for name in missing) + "."])

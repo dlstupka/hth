@@ -28,8 +28,8 @@ class CalibrationStoreTests(unittest.TestCase):
         (run / "reports" / "calibration-intelligence.json").write_text(json.dumps(intelligence), encoding="utf-8")
         for name in ("manifest.json", "parameters.json", "RUN-INFO.json"):
             (run / name).write_text("{}", encoding="utf-8")
-        for name in ("summary.json", "winner-pages.json"):
-            (run / "reports" / name).write_text("{}", encoding="utf-8")
+        (run / "reports" / "summary.json").write_text(json.dumps({"elapsed_seconds": 3723}), encoding="utf-8")
+        (run / "reports" / "winner-pages.json").write_text("{}", encoding="utf-8")
         return run
 
     def test_publishes_records_and_prefers_authoritative(self):
@@ -61,7 +61,9 @@ class CalibrationStoreTests(unittest.TestCase):
             self.assertEqual(stored["calibration_identity"]["build"]["github_run_id"], "1")
             self.assertEqual(stored["calibration_identity"]["build"]["github_run_number"], "193")
             self.assertEqual(stored["calibration_identity"]["build"]["workflow"], "Regress detectors against Golden Set")
+            self.assertEqual(stored["calibration_identity"]["build"]["run_time_seconds"], 3723)
             self.assertEqual(preferred["build"]["run_url"], "https://github.com/dlstupka/hth/actions/runs/1")
+            self.assertEqual(preferred["build"]["run_time_seconds"], 3723)
 
 
 if __name__ == "__main__":

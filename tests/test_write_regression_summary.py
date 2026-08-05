@@ -210,7 +210,7 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("`raw/results.csv` — present", text)
             self.assertIn("`reports/summary.json` — present", text)
             self.assertIn("## Best Known Detector Calibrations", text)
-            self.assertIn("| Rank | Detector | Detector ID | Golden Set ID | Date | Build* | Role | Parameter Set ID | Parameter Sets | Search Type |", text)
+            self.assertIn("| Rank | Detector | Detector ID | Golden Set ID | Date | Build* | Run Time** | Role | Parameter Set ID | Parameter Sets | Search Type |", text)
             self.assertLess(text.index("## Best Known Detector Calibrations"), text.index("## Calibration Intelligence"))
             self.assertIn("## Calibration Intelligence", text)
             self.assertIn("### Calibration Identity", text)
@@ -402,7 +402,7 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("### Calibration Report Legend", text)
             self.assertIn("### Best Known Detector Calibrations", text)
             self.assertLess(text.index("### Best Known Detector Calibrations"), text.index("### Calibration Report Legend"))
-            self.assertIn("| Rank | Detector | Detector ID | Golden Set ID | Date | Build* | Role | Parameter Set ID | Parameter Sets | Search Type |", text)
+            self.assertIn("| Rank | Detector | Detector ID | Golden Set ID | Date | Build* | Run Time** | Role | Parameter Set ID | Parameter Sets | Search Type |", text)
             self.assertNotIn("| Coverage |", text)
             self.assertIn("| Calibration Evidence | Approval Level |", text)
             self.assertIn("**Low** = 0–1 points", text)
@@ -451,6 +451,7 @@ class RegressionSummaryTests(unittest.TestCase):
                 "calibration_evidence": "High",
                 "build_number": "193",
                 "build_url": "https://github.com/dlstupka/hth/actions/runs/123",
+                "run_time_seconds": 3723,
                 "intelligence_path": "source-documents/source/golden-sets/GS-1/abc/calibrations/radial_edge/run/calibration-intelligence.json",
             }],
             heading_level=2,
@@ -458,11 +459,13 @@ class RegressionSummaryTests(unittest.TestCase):
             results_ref="deadbeef",
         )
         text = "\n".join(lines)
-        self.assertIn("| Date | Build* | Role | Parameter Set ID | Parameter Sets | Search Type |", text)
+        self.assertIn("| Date | Build* | Run Time** | Role | Parameter Set ID | Parameter Sets | Search Type |", text)
         self.assertIn("| Calibration Evidence | Approval Level |", text)
         self.assertIn("| High | Approved |", text)
         self.assertIn("[#193](https://github.com/dlstupka/hth/actions/runs/123)", text)
+        self.assertIn("| [#193](https://github.com/dlstupka/hth/actions/runs/123) | 1h 2m 3s |", text)
         self.assertIn("- **Build*:** `#run` links open GitHub Actions logs and artifacts", text)
+        self.assertIn(r"- **Run Time\*\*:** This is the wall-clock run time for the build", text)
         self.assertIn("[calibration-intelligence.json](https://github.com/dlstupka/hth-results/blob/deadbeef/source-documents/source/golden-sets/GS-1/abc/calibrations/radial_edge/run/calibration-intelligence.json)", text)
 
 
