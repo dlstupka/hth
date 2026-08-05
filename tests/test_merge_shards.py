@@ -1,7 +1,38 @@
 from __future__ import annotations
 
+import csv
+import json
+
 from hth.regression.merge_shards import _results_from_raw
 from hth.regression.sharding import plan_shards
+
+
+def _write_raw_row(path, *, status: str = "ok", iou: float = 0.9) -> None:
+    fields = [
+        "run_id", "parameter_set_id", "profile", "rank", "global_ordinal", "label",
+        "layout_type", "status", "iou", "left_error_px", "top_error_px",
+        "right_error_px", "bottom_error_px", "edge_error_mean_px",
+        "edge_error_maximum_px", "elapsed_ms", "approved_bbox_json",
+        "predicted_bbox_json", "parameters_json", "error_type", "error_message",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerow({
+            "run_id": "run-1",
+            "parameter_set_id": "abc",
+            "profile": "baseline",
+            "rank": 1,
+            "global_ordinal": 1,
+            "label": "page-1",
+            "layout_type": "single",
+            "status": status,
+            "iou": iou,
+            "elapsed_ms": 12.5,
+            "approved_bbox_json": json.dumps([0, 0, 10, 10]),
+            "predicted_bbox_json": json.dumps([0, 0, 10, 10]),
+            "parameters_json": json.dumps({"x": 1}),
+        })
 
 
 def test_shard_planner_caps_runner_threads() -> None:
@@ -11,17 +42,18 @@ def test_shard_planner_caps_runner_threads() -> None:
 
 def test_reconstructed_success_rows_have_canonical_optional_fields(tmp_path) -> None:
     raw = tmp_path / "results.csv"
-    raw.write_text(
-        "run_id,parameter_set_id,profile,rank,global_ordinal,label,layout_type,status,iou,"
-        "left_error_px,top_error_px,right_error_px,bottom_error_px,edge_error_mean_px,"
-        "edge_error_maximum_px,elapsed_ms,approved_bbox_json,predicted_bbox_json,"
-        "parameters_json,error_type,error_message\n"
-        'run-1,abc,baseline,1,1,page-1,single,success,0.9,,,,,,,'
-        '12.5,"[0, 0, 10, 10]","[0, 0, 10, 10]","{\"x\": 1}",,\n',
-        encoding="utf-8",
-    )
+    _write_raw_row(raw)
     result = _results_from_raw(raw)[0]
     page = result["pages"][0]
     assert page["error"] == {}
     assert page["warnings"] == []
     assert page["metadata"] == {}
+
+
+def test_reconstructed_ok_rows_are_counted_as_success(tmp_path) -> None:
+    raw = tmp_path / "results.csv"
+    _write_raw_row(raw, status="ok", iou=0.9)
+    result = _results_from_raw(raw)[0]
+    assert result["summary"]["success_count"] == 1
+    assert result["summary"]["failure_count"] == 0
+    assert result["summary"]["mean_iou"] == 0.9

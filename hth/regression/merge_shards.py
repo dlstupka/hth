@@ -13,7 +13,7 @@ from .calibration_intelligence import build_calibration_intelligence
 from .io import create_run_directory, write_json
 from .parameter_space import canonical_parameters
 from .reports import normalize_result_record, ranking_key, write_rankings, write_raw_results
-from .runner import build_winner_page_report, load_pages, write_debug_artifacts
+from .runner import build_winner_page_report, file_sha256, load_pages, write_debug_artifacts
 
 
 def _read(path: Path) -> dict[str, Any]:
@@ -60,7 +60,7 @@ def _results_from_raw(path: Path) -> list[dict[str, Any]]:
     results = []
     for result in grouped.values():
         pages = result["pages"]
-        successful = [page for page in pages if page["status"] == "success"]
+        successful = [page for page in pages if str(page.get("status") or "").strip().lower() in {"ok", "success"}]
         ious = [float(page["iou"]) for page in successful] or [0.0]
         edges = [float(page["edge_error_mean_px"]) for page in successful if page.get("edge_error_mean_px") is not None]
         result["summary"] = {
@@ -127,7 +127,59 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
     write_rankings(run_dir / "reports" / "top20.csv", ranked[:max(0, top)])
     write_json(run_dir / "reports" / "summary.json", summary)
     write_json(run_dir / "reports" / "winner-pages.json", winner_pages)
-    calibration = build_calibration_intelligence(ranked, detector=detector, strategy="exhaustive", possible_parameter_sets=possible, calibration_context={"calibration_run_id": run_id, "calibration_schema_version": "1.1", "created_at_utc": start.isoformat(), "golden_set": {"sha256": first_info.get("golden_set_sha256"), "page_count": pages, "page_ordinals": first_summary.get("page_ordinals", [])}, "detector_configuration": {"detector_id": detector, "configuration": str(detector_config)}}, regression_context={"requested_strategy": "exhaustive", "resolved_strategy": "exhaustive", "configured_threads": summary["threads"], "possible_parameter_sets": possible, "planned_parameter_sets": len(ranked), "evaluated_parameter_sets": len(ranked), "golden_set_pages": pages, "page_evaluations": len(ranked) * pages, "average_eval_rate": summary["progress"]["average_eval_rate"], "shard": shard_context})
+    try:
+        golden_set_payload = _read(golden_set) if golden_set is not None else {}
+    except (OSError, ValueError, json.JSONDecodeError):
+        golden_set_payload = {}
+    source_document = golden_set_payload.get("source_document") if isinstance(golden_set_payload, dict) else None
+    golden_set_identity = {
+        "configuration": str(golden_set) if golden_set is not None else first_info.get("golden_set"),
+        "sha256": first_info.get("golden_set_sha256"),
+        "collection_id": golden_set_payload.get("collection_id") if isinstance(golden_set_payload, dict) else None,
+        "schema_version": golden_set_payload.get("schema_version") if isinstance(golden_set_payload, dict) else None,
+        "description": golden_set_payload.get("description") if isinstance(golden_set_payload, dict) else None,
+        "page_count": pages,
+        "page_ordinals": first_summary.get("page_ordinals", []),
+    }
+    calibration_context = {
+        "calibration_run_id": run_id,
+        "calibration_schema_version": "1.1",
+        "created_at_utc": start.isoformat(),
+        "source_document": source_document,
+        "golden_set": golden_set_identity,
+        "detector_configuration": {
+            "detector_id": detector,
+            "configuration": str(detector_config),
+            "sha256": file_sha256(detector_config),
+        },
+        "pipeline": {
+            "commit": first_summary.get("runner", {}).get("pipeline_commit"),
+            "source_commit": first_info.get("source_commit"),
+            "python": first_summary.get("runner", {}).get("python_version"),
+            "opencv": first_summary.get("runner", {}).get("opencv_version"),
+        },
+    }
+    calibration = build_calibration_intelligence(
+        ranked,
+        detector=detector,
+        strategy="exhaustive",
+        possible_parameter_sets=possible,
+        calibration_context=calibration_context,
+        regression_context={
+            "requested_strategy": "exhaustive",
+            "resolved_strategy": "exhaustive",
+            "configured_threads": summary["threads"],
+            "possible_parameter_sets": possible,
+            "planned_parameter_sets": len(ranked),
+            "evaluated_parameter_sets": len(ranked),
+            "golden_set_pages": pages,
+            "page_evaluations": len(ranked) * pages,
+            "failed_page_evaluations": summary["progress"]["failures"],
+            "average_eval_rate": summary["progress"]["average_eval_rate"],
+            "execution_environment": first_summary.get("runner", {}),
+            "shard": shard_context,
+        },
+    )
     write_json(run_dir / "reports" / "calibration-intelligence.json", calibration)
     debug_outputs: list[str] = []
     if debug_level != "none" and golden_set is not None and image_root is not None:
