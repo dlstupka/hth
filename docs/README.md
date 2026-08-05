@@ -248,3 +248,5 @@ This directory contains the design, operating, and project-reference documentati
 - [Publication](publication.md) — publication layout, provenance, and outputs.
 - [Reference collection editor](reference-collection-editor.md) — single-detector review tool.
 - [Multi-detector reference collection editor](reference-collection-editor-multidetector.md) — multi-detector review tool.
+
+- Long exhaustive regressions use smoke-derived serial-runtime estimates for automatic thread selection and deterministic interleaved shard planning. The default target is 30 minutes per shard, with expiring and renewable shard leases so abandoned work can be reclaimed. Runner-profile maxima begin at 48 threads for `e7k` and 32 threads for `e9k`; shorter workloads deliberately use fewer threads to avoid parallelism overhead.

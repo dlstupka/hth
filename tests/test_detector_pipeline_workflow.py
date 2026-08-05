@@ -18,7 +18,7 @@ def test_multidetector_pipeline_inputs_and_defaults_are_declared() -> None:
 
 def test_detector_queue_is_dynamic_and_records_pipeline_metadata() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert 'mkdir "$queue_dir/claims/$task_index"' in text
+    assert 'mkdir "$claim_dir"' in text
     assert "Completed; pipeline is taking the next queued detector." in text
     assert 'HTH_DETECTOR_PIPELINES="$effective_pipelines"' in text
     assert 'HTH_DETECTOR_PIPELINE_NUMBER="$pipeline_number"' in text
@@ -69,3 +69,16 @@ def test_manual_debug_level_choices_default_to_none_and_are_forwarded() -> None:
     assert "DEBUG_LEVEL:" in text
     assert '--debug-level "$DEBUG_LEVEL"' in text
     assert '"Debug level" "$DEBUG_LEVEL"' in text
+
+
+def test_auto_threads_shards_and_expiring_leases_are_wired() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "default: auto" in text
+    assert "shard_target_minutes:" in text
+    assert "shard_lease_minutes:" in text
+    assert "from hth.regression.sharding import best_smoke_observation" in text
+    assert '--shard-index "$shard_index"' in text
+    assert '--shard-count "$shard_count"' in text
+    assert "Reclaiming expired shard lease" in text
+    assert "python -m hth.regression.merge_shards" in text
+    assert 'runner_label=runner_label' in text

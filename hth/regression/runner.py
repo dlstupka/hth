@@ -176,6 +176,8 @@ def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
     p.add_argument("--top",type=int,default=20)
     p.add_argument("--threads",type=int,choices=ALLOWED_THREAD_COUNTS,default=1,help="Parallel exhaustive-search threads; default: 1.")
     p.add_argument("--run-id",default=None)
+    p.add_argument("--shard-index",type=int,default=0,help="Zero-based interleaved exhaustive-search shard index.")
+    p.add_argument("--shard-count",type=int,default=1,help="Total interleaved exhaustive-search shard count.")
     p.add_argument(
         "--debug-artifacts",
         choices=("none", "failures", "winner", "all"),
@@ -188,7 +190,12 @@ def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
         default=None,
         help="Debug detail level. none writes no images; basic writes the established artifacts; verbose adds detector-specific evidence.",
     )
-    return p.parse_args(argv)
+    args=p.parse_args(argv)
+    if args.shard_count < 1 or not 0 <= args.shard_index < args.shard_count:
+        p.error("--shard-index must be within [0, --shard-count)")
+    if args.shard_count > 1 and args.strategy != "exhaustive":
+        p.error("sharding currently requires --strategy exhaustive")
+    return args
 
 def find_image(root:Path, ordinal:int)->Path:
     for suffix in (".png",".jpg",".jpeg",".tif",".tiff",".webp"):
@@ -632,7 +639,7 @@ def write_debug_artifacts(
     return outputs
 
 
-def print_parameter_scope(*, strategy: str, possible_sets: int, planned_sets: int | None, golden_pages: int, threads: int, limit: int | None) -> None:
+def print_parameter_scope(*, strategy: str, possible_sets: int, planned_sets: int | None, golden_pages: int, threads: int, limit: int | None, shard_index: int = 0, shard_count: int = 1) -> None:
     print("Regression Scope")
     print("=" * 16)
     rows = [
@@ -646,6 +653,8 @@ def print_parameter_scope(*, strategy: str, possible_sets: int, planned_sets: in
         ),
         ("Parameter-set Limit", limit if limit is not None else "unlimited"),
         ("Threads", threads),
+        ("Shard", f"{shard_index + 1} of {shard_count}"),
+        ("Shard Assignment", "interleaved" if shard_count > 1 else "unsharded"),
     ]
     label_width = max(len(label) for label, _ in rows)
     for label, value in rows:
@@ -706,7 +715,7 @@ def run(args:argparse.Namespace)->Path:
         effective_strategy, effect_domain, strategy_fallback_reason = _resolve_effect_strategy(requested_strategy, calibration_metadata)
         if effect_domain is not None:
             all_parameter_sets = _filter_parameter_sets(all_parameter_sets, effect_domain)
-        write_json(run_dir/"parameters.json",{"schema_version":"0.4","detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"detector_config":str(args.detector_config),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"image_root":str(args.image_root),"max_dimension":args.max_dimension,"limit":args.limit,"threads":args.threads,"debug_level":debug_level,"debug_artifacts":debug_policy,"detector_pipeline":detector_pipeline_context,"configuration":config})
+        write_json(run_dir/"parameters.json",{"schema_version":"0.4","detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"detector_config":str(args.detector_config),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"image_root":str(args.image_root),"max_dimension":args.max_dimension,"limit":args.limit,"threads":args.threads,"debug_level":debug_level,"debug_artifacts":debug_policy,"detector_pipeline":detector_pipeline_context,"shard":{"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved"},"configuration":config})
         manifest.update({"strategy": effective_strategy, "requested_strategy": requested_strategy, "strategy_fallback_reason": strategy_fallback_reason})
         write_json(run_dir/"manifest.json", manifest)
         exhaustive_candidates=[
@@ -715,6 +724,12 @@ def run(args:argparse.Namespace)->Path:
         ]
         if args.limit is not None:
             exhaustive_candidates=exhaustive_candidates[:args.limit]
+        full_exhaustive_candidate_count=len(exhaustive_candidates)
+        if args.shard_count > 1:
+            exhaustive_candidates=[
+                parameters for index, parameters in enumerate(exhaustive_candidates)
+                if index % args.shard_count == args.shard_index
+            ]
         planned_parameter_set_count=(
             1 + len(exhaustive_candidates) if effective_strategy=="exhaustive" or effective_strategy in EFFECT_STRATEGY_KEYS else None
         )
@@ -728,6 +743,8 @@ def run(args:argparse.Namespace)->Path:
             golden_pages=len(pages),
             threads=args.threads,
             limit=args.limit,
+            shard_index=args.shard_index,
+            shard_count=args.shard_count,
         )
         reporter = PRE_REGRESSION_REPORTERS.get(name)
         if reporter is not None:
@@ -805,7 +822,7 @@ def run(args:argparse.Namespace)->Path:
         raw=run_dir/"raw"/"results.csv"; rankings=run_dir/"reports"/"rankings.csv"; top=run_dir/"reports"/"top20.csv"
         write_raw_results(raw,ranked); write_rankings(rankings,ranked); write_rankings(top,ranked[:max(0,args.top)])
         winner_pages = build_winner_page_report(ranked[0], baseline)
-        summary={"schema_version":"0.8","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"threads":args.threads,"detector_pipeline":detector_pipeline_context,"parameter_space":{"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ranked)*len(pages)},"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"winner":ranked[0],"baseline":baseline,"top_parameter_sets":ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,"performance":{"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl"},"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":progress.baseline_surpassed,"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds,"winner_history":progress_snapshot.winner_history,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
+        summary={"schema_version":"0.8","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"threads":args.threads,"shard":{"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved","full_candidate_count":full_exhaustive_candidate_count},"detector_pipeline":detector_pipeline_context,"parameter_space":{"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ranked)*len(pages)},"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"winner":ranked[0],"baseline":baseline,"top_parameter_sets":ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,"performance":{"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl"},"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":progress.baseline_surpassed,"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds,"winner_history":progress_snapshot.winner_history,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
         write_json(run_dir/"reports"/"summary.json",summary)
         write_json(run_dir/"reports"/"winner-pages.json",winner_pages)
         try:
@@ -876,7 +893,7 @@ def run(args:argparse.Namespace)->Path:
             pages=pages,
             debug_level=debug_level,
         )
-        finished=utc_now(); info={"schema_version":"0.3","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"detector_config":str(args.detector_config),"debug_artifacts":debug_policy,"debug_level":debug_level,"source_commit":source_commit,"threads":args.threads,"detector_pipeline":detector_pipeline_context,"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"performance_samples":len(performance_samples),"peak_rss_bytes":peak_rss_bytes(),**environment}
+        finished=utc_now(); info={"schema_version":"0.3","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"detector_config":str(args.detector_config),"debug_artifacts":debug_policy,"debug_level":debug_level,"source_commit":source_commit,"threads":args.threads,"detector_pipeline":detector_pipeline_context,"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"performance_samples":len(performance_samples),"peak_rss_bytes":peak_rss_bytes(),**environment}
         write_json(run_dir/"RUN-INFO.json",info)
         manifest.update({
             "status": "complete",

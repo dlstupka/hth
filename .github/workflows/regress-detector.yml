@@ -92,9 +92,10 @@ on:
       threads:
         description: Parallel regression threads
         required: true
-        default: "1"
+        default: auto
         type: choice
         options:
+          - auto
           - "1"
           - "2"
           - "4"
@@ -108,6 +109,16 @@ on:
           - "256"
           - "512"
           - "1024"
+      shard_target_minutes:
+        description: Target maximum wall time for automatically planned regression shards
+        required: true
+        default: "30"
+        type: string
+      shard_lease_minutes:
+        description: Expired shard-claim lease recovery interval
+        required: true
+        default: "5"
+        type: string
       detector_pipelines:
         description: Concurrent detector pipelines used when Algorithm is all
         required: true
@@ -212,7 +223,9 @@ jobs:
       LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '' }}
       MAX_DIMENSION: ${{ github.event_name == 'workflow_dispatch' && inputs.max_dimension || '1800' }}
       TOP_COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.top || '10' }}
-      THREADS: ${{ github.event_name == 'workflow_dispatch' && inputs.threads || '1' }}
+      THREADS: ${{ github.event_name == 'workflow_dispatch' && inputs.threads || 'auto' }}
+      SHARD_TARGET_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.shard_target_minutes || '30' }}
+      SHARD_LEASE_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.shard_lease_minutes || '5' }}
       DETECTOR_PIPELINES: ${{ github.event_name == 'workflow_dispatch' && inputs.detector_pipelines || '4' }}
       DETECTOR_LOADING_STRATEGY: ${{ github.event_name == 'workflow_dispatch' && inputs.detector_loading_strategy || 'lpt' }}
       PIPELINE_STAGGER_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.pipeline_stagger_minutes || '0' }}
@@ -656,6 +669,8 @@ jobs:
           PY
           )"
 
+          order_threads="$THREADS"
+          [[ "$order_threads" == "auto" ]] && order_threads="1"
           declare -a ordered_configs=() detector_estimates=() detector_estimate_sources=() detector_quality=()
           if [[ "${DETECTOR_ALGORITHM,,}" == "all" ]]; then
             order_args=()
@@ -675,7 +690,7 @@ jobs:
               --calibration-index results-repo/calibration-index.json \
               --mode "$REGRESSION_MODE" \
               --search-strategy "$effective_strategy" \
-              --threads "$THREADS" \
+              --threads "$order_threads" \
               --max-dimension "$MAX_DIMENSION" \
               --golden-set-sha256 "$golden_set_sha256" \
               --runner-label "${HTH_RUNNER_LABEL:-}")
@@ -684,6 +699,65 @@ jobs:
             detector_estimates=("unknown")
             detector_estimate_sources=("single-detector")
             detector_quality=("unknown")
+          fi
+
+          if [[ ! "${SHARD_TARGET_MINUTES:-30}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Shard target must be a positive whole number of minutes"
+            exit 1
+          fi
+          if [[ ! "${SHARD_LEASE_MINUTES:-5}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Shard lease must be a positive whole number of minutes"
+            exit 1
+          fi
+
+          declare -a task_configs=() task_estimates=() task_estimate_sources=() task_quality=()
+          declare -a task_shard_indexes=() task_shard_counts=() task_threads=() task_detectors=()
+          for ((detector_index = 0; detector_index < ${#detector_configs[@]}; detector_index++)); do
+            detector_config="${detector_configs[$detector_index]}"
+            detector_name="$(python - "$detector_config" <<'PYPLAN'
+          import json, sys
+          from pathlib import Path
+          print(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["detector"])
+          PYPLAN
+            )"
+            read -r planned_threads planned_shards serial_estimate plan_source < <(
+              python - "$detector_config" "results-repo/runtime-index.json" "$detector_name" "${HTH_RUNNER_LABEL:-}" "$THREADS" "$SHARD_TARGET_MINUTES" <<'PYPLAN'
+          import json, sys
+          from pathlib import Path
+          from hth.regression.sharding import best_smoke_observation, estimate_serial_runtime, plan_shards
+          from hth.regression.strategies.cartesian import generate
+          config_path, index_path, detector, runner_label, requested_threads, target_minutes = sys.argv[1:]
+          config = json.loads(Path(config_path).read_text(encoding="utf-8"))
+          possible = len(generate(config))
+          observation = best_smoke_observation(Path(index_path), detector)
+          serial = estimate_serial_runtime(observation, possible) if observation else None
+          plan = plan_shards(serial, runner_label=runner_label, requested_threads=requested_threads, target_shard_seconds=int(target_minutes) * 60, estimate_source="smoke-runtime-index" if observation else "no-smoke-history")
+          print(plan.threads, plan.shard_count, "unknown" if serial is None else f"{serial:.3f}", plan.estimate_source)
+          PYPLAN
+            )
+            # User limits and smoke runs are already bounded; do not shard them.
+            if [[ "$REGRESSION_MODE" != "full" || -n "${effective_limit:-}" || "$effective_strategy" != "exhaustive" ]]; then
+              planned_shards=1
+            fi
+            for ((shard_index = 0; shard_index < planned_shards; shard_index++)); do
+              task_configs+=("$detector_config")
+              task_estimates+=("${detector_estimates[$detector_index]:-$serial_estimate}")
+              task_estimate_sources+=("${detector_estimate_sources[$detector_index]:-$plan_source}")
+              task_quality+=("${detector_quality[$detector_index]:-unknown}")
+              task_shard_indexes+=("$shard_index")
+              task_shard_counts+=("$planned_shards")
+              task_threads+=("$planned_threads")
+              task_detectors+=("$detector_name")
+            done
+          done
+          detector_configs=("${task_configs[@]}")
+          detector_estimates=("${task_estimates[@]}")
+          detector_estimate_sources=("${task_estimate_sources[@]}")
+          detector_quality=("${task_quality[@]}")
+          if (( requested_pipelines > ${#detector_configs[@]} )); then
+            effective_pipelines=${#detector_configs[@]}
+          else
+            effective_pipelines=$requested_pipelines
           fi
 
           echo "Regression mode    : $REGRESSION_MODE"
@@ -704,8 +778,9 @@ jobs:
           print(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")).get("detector", "unknown"))
           PY
             )"
-            printf '%2d. %-24s estimate=%-10s source=%s quality=%s\n' \
+            printf '%2d. %-24s shard=%s/%s threads=%s estimate=%-10s source=%s quality=%s\n' \
               "$((queue_index + 1))" "$queue_detector" \
+              "$((task_shard_indexes[$queue_index] + 1))" "${task_shard_counts[$queue_index]}" "${task_threads[$queue_index]}" \
               "${detector_estimates[$queue_index]:-unknown}s" \
               "${detector_estimate_sources[$queue_index]:-unknown}" \
               "${detector_quality[$queue_index]:-unknown}"
@@ -729,6 +804,10 @@ jobs:
             fi
 
             local detector_name detector_estimate detector_estimate_source detector_ranked_quality
+            local shard_index shard_count detector_threads shard_output
+            shard_index="${task_shard_indexes[$task_index]}"
+            shard_count="${task_shard_counts[$task_index]}"
+            detector_threads="${task_threads[$task_index]}"
             detector_name="$(python - "$detector_config" <<'PY'
           import json
           import sys
@@ -738,6 +817,8 @@ jobs:
           print(payload.get("detector", "unknown"))
           PY
             )"
+            shard_output="regression-output/.shards/$detector_name/shard-$(printf '%04d' "$shard_index")"
+            mkdir -p "$shard_output"
             detector_estimate="${detector_estimates[$task_index]:-unknown}"
             detector_estimate_source="${detector_estimate_sources[$task_index]:-unknown}"
             detector_ranked_quality="${detector_quality[$task_index]:-unknown}"
@@ -747,10 +828,12 @@ jobs:
               --detector-config "$detector_config"
               --golden-set "hth-pipeline/$GOLDEN_SET"
               --image-root "results-repo/$IMAGE_ROOT"
-              --output regression-output
+              --output "$shard_output"
               --max-dimension "$MAX_DIMENSION"
               --top "$TOP_COUNT"
-              --threads "$THREADS"
+              --threads "$detector_threads"
+              --shard-index "$shard_index"
+              --shard-count "$shard_count"
               --debug-level "$DEBUG_LEVEL"
             )
 
@@ -809,7 +892,7 @@ jobs:
             printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Detector" "$detector_name"
             printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Detector config" "$detector_config"
             printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Strategy" "$effective_strategy"
-            printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Threads" "$THREADS"
+            printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Threads" "$detector_threads"
             printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Debug level" "$DEBUG_LEVEL"
             printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Detector pipeline" "$pipeline_number of $effective_pipelines"
             if [[ -n "$effective_limit" ]]; then
@@ -819,9 +902,23 @@ jobs:
               printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Parameter-set limit" "unlimited"
             fi
 
-            local before_runs task_log run_dir
-            before_runs="$(find "regression-output/$detector_name" -mindepth 1 -maxdepth 1 -type d -name 'run-*' 2>/dev/null | sort || true)"
-            task_log="$queue_dir/logs/$(printf '%04d' "$task_index")-$detector_name.log"
+            local before_runs task_log run_dir lease_file lease_pid
+            before_runs="$(find "$shard_output/$detector_name" -mindepth 1 -maxdepth 1 -type d -name 'run-*' 2>/dev/null | sort || true)"
+            task_log="$queue_dir/logs/$(printf '%04d' "$task_index")-$detector_name-shard-$shard_index.log"
+            lease_file="$queue_dir/claims/$task_index/lease.json"
+            renew_lease() {
+              while true; do
+                python - "$lease_file" "$pipeline_number" "$SHARD_LEASE_MINUTES" "$shard_index/$shard_count" <<'PYLEASE'
+          from pathlib import Path
+          import sys
+          from hth.regression.sharding import write_lease
+          write_lease(Path(sys.argv[1]), owner=f"pipeline-{sys.argv[2]}", ttl_seconds=int(sys.argv[3]) * 60, shard=sys.argv[4])
+          PYLEASE
+                sleep 60
+              done
+            }
+            renew_lease &
+            lease_pid=$!
 
             if ! HTH_DETECTOR_PIPELINES="$effective_pipelines" \
               HTH_DETECTOR_PIPELINE_NUMBER="$pipeline_number" \
@@ -835,14 +932,18 @@ jobs:
                 | sed -u -E 's/^(Machine[[:space:]]*:).*/\1 [obfuscated]/' \
                 | sed -u "s/^/[pipeline $pipeline_number][$detector_name] /" \
                 | tee "$task_log"; then
+              kill "$lease_pid" 2>/dev/null || true
+              wait "$lease_pid" 2>/dev/null || true
               echo "::error::$detector_name regression command failed in pipeline $pipeline_number"
               return 1
             fi
+            kill "$lease_pid" 2>/dev/null || true
+            wait "$lease_pid" 2>/dev/null || true
 
             run_dir="$(
               comm -13 \
                 <(printf '%s\n' "$before_runs" | sed '/^$/d' | sort) \
-                <(find "regression-output/$detector_name" -mindepth 1 -maxdepth 1 -type d -name 'run-*' | sort) \
+                <(find "$shard_output/$detector_name" -mindepth 1 -maxdepth 1 -type d -name 'run-*' | sort) \
               | tail -n 1
             )"
 
@@ -875,9 +976,25 @@ jobs:
             while true; do
               claimed=""
               for ((task_index = 0; task_index < ${#detector_configs[@]}; task_index++)); do
-                if mkdir "$queue_dir/claims/$task_index" 2>/dev/null; then
+                [[ -f "$queue_dir/done/$task_index" ]] && continue
+                claim_dir="$queue_dir/claims/$task_index"
+                if mkdir "$claim_dir" 2>/dev/null; then
                   claimed="$task_index"
                   break
+                fi
+                if [[ -f "$claim_dir/lease.json" ]] && python - "$claim_dir/lease.json" <<'PYLEASE'
+          from pathlib import Path
+          import sys
+          from hth.regression.sharding import lease_expired
+          raise SystemExit(0 if lease_expired(Path(sys.argv[1])) else 1)
+          PYLEASE
+                then
+                  echo "[pipeline $pipeline_number] Reclaiming expired shard lease $task_index."
+                  rm -rf "$claim_dir"
+                  if mkdir "$claim_dir" 2>/dev/null; then
+                    claimed="$task_index"
+                    break
+                  fi
                 fi
               done
 
@@ -909,10 +1026,25 @@ jobs:
             fi
           done
 
-          while IFS= read -r queue_file; do
-            cat "$queue_file"
-          done < <(find "$queue_dir/run-dirs" -maxdepth 1 -type f | sort) \
-            > regression-output/run-directories.txt
+          : > regression-output/run-directories.txt
+          mapfile -t unique_detectors < <(printf '%s\n' "${task_detectors[@]}" | sort -u)
+          for detector_name in "${unique_detectors[@]}"; do
+            mapfile -t detector_shard_dirs < <(find "regression-output/.shards/$detector_name" -mindepth 3 -maxdepth 3 -type d -name 'run-*' | sort)
+            detector_config="hth-pipeline/config/detectors/$detector_name.json"
+            if (( ${#detector_shard_dirs[@]} == 1 )); then
+              source_dir="${detector_shard_dirs[0]}"
+              mkdir -p "regression-output/$detector_name"
+              target_dir="regression-output/$detector_name/$(basename "$source_dir")"
+              rm -rf "$target_dir"
+              mv "$source_dir" "$target_dir"
+              printf '%s\n' "$target_dir" >> regression-output/run-directories.txt
+            else
+              merge_args=()
+              for shard_dir in "${detector_shard_dirs[@]}"; do merge_args+=(--shard-dir "$shard_dir"); done
+              merged_dir="$(python -m hth.regression.merge_shards "${merge_args[@]}" --output regression-output --detector-config "$detector_config" --golden-set "hth-pipeline/$GOLDEN_SET" --image-root "results-repo/$IMAGE_ROOT" --max-dimension "$MAX_DIMENSION" --debug-level "$DEBUG_LEVEL" --top "$TOP_COUNT")"
+              printf '%s\n' "$merged_dir" >> regression-output/run-directories.txt
+            fi
+          done
           while IFS= read -r queue_file; do
             cat "$queue_file"
           done < <(find "$queue_dir/logs" -maxdepth 1 -type f -name '*.log' | sort) \

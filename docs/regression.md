@@ -306,3 +306,11 @@ or manually merged.
 Effect-size regression strategies resolve prior intelligence through the index using the
 Golden Set SHA-256, detector ID, and detector-configuration SHA-256. If no compatible record
 exists, the existing strategy fallback resolves to exhaustive.
+
+## Automatic thread selection and bounded regression shards
+
+Full exhaustive regressions use smoke-test runtime history to estimate the detector's serial-equivalent workload. When `threads` is `auto`, the planner selects the smallest useful thread count: one thread below five minutes, up to four threads from five to fifteen minutes, up to eight threads from fifteen to thirty minutes, and the runner-profile maximum above thirty minutes. The initial runner-profile limits are 48 threads for `e7k` and 32 threads for `e9k`.
+
+After conservative thread-speedup adjustment and a 20% planning margin, work estimated to exceed the configured 30-minute shard target is divided into deterministic interleaved parameter-set shards. Interleaving distributes clustered expensive configurations more evenly than contiguous parameter ranges. Smoke tests, limited searches, and non-exhaustive strategies remain unsharded.
+
+Shard claims are leases rather than permanent locks. Active workers renew their lease every minute. Another detector pipeline may reclaim a shard after the configured lease expiration, minimizing work stranded by a terminated worker. Completed shards are merged into one canonical detector regression before calibration intelligence, summaries, and winner debug artifacts are published. Shard metadata, source run IDs, selected threads, and the interleaved assignment method are retained in the merged provenance.
