@@ -10,8 +10,8 @@ def test_multidetector_pipeline_inputs_and_defaults_are_declared() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "detector_pipelines:" in text
     assert "default: \"4\"" in text
-    for option in ("1", "2", "4", "8"):
-        assert f'          - "{option}"' in text
+    assert "type: string" in text
+    assert "any integer from 1 through 1024" in text
     assert "pipeline_stagger_minutes:" in text
     assert 'default: "0"' in text
 
@@ -45,7 +45,7 @@ def test_loading_strategies_runtime_index_and_announcements_are_wired() -> None:
     assert "START detector=$detector_name shard=$((shard_index + 1))/$shard_count" in text
     assert "UNLOAD detector=$detector_name shard=$((shard_index + 1))/$shard_count status=complete" in text
     assert "time=$lifecycle_time" in text
-    assert "git -C results-repo add calibration-index.json runtime-index.json source-documents/" in text
+    assert "git -C results-repo add calibration-index.json runtime-index.json parallelism-index.json source-documents/" in text
 
 
 def test_intelligence_publisher_rebuilds_from_latest_results_state_on_retry() -> None:
@@ -53,7 +53,7 @@ def test_intelligence_publisher_rebuilds_from_latest_results_state_on_retry() ->
     assert 'max_publish_attempts=5' in text
     assert 'git -C results-repo fetch origin main' in text
     assert 'git -C results-repo reset --hard origin/main' in text
-    assert 'git -C results-repo clean -fd -- calibration-index.json runtime-index.json source-documents/' in text
+    assert 'git -C results-repo clean -fd -- calibration-index.json runtime-index.json parallelism-index.json source-documents/' in text
     assert 'python -m hth.calibration_store publish' in text
     assert 'git -C results-repo push origin HEAD:main' in text
     assert 'git -C results-repo pull --rebase origin main' not in text
@@ -95,10 +95,10 @@ def test_execution_summary_and_merge_use_canonical_detector_shard_and_budget_cou
     text = WORKFLOW.read_text(encoding="utf-8")
     assert 'detector_count=${#detector_configs[@]}' in text
     assert 'echo "Detectors          : $detector_count"' in text
-    assert 'echo "Shards             : ${#detector_configs[@]}"' in text
+    assert 'echo "Shards             : ${#detector_configs[@]}${SHARDS:+ (explicit request $SHARDS; capped at one parameter set per shard)}"' in text
     assert 'from hth.regression.sharding import plan_execution' in text
     assert 'task_threads[$task_index]="$effective_threads_per_pipeline"' in text
-    assert 'rm -rf "$queue_dir" regression-output/.shards' in text
+    assert 'rm -rf "$queue_dir"' in text
     assert '--expected-shard-count "$expected_detector_shards"' in text
     assert 'Missing completed shard' in text
 

@@ -255,4 +255,10 @@ This directory contains the design, operating, and project-reference documentati
 - [Reference collection editor](reference-collection-editor.md) — single-detector review tool.
 - [Multi-detector reference collection editor](reference-collection-editor-multidetector.md) — multi-detector review tool.
 
-- Long exhaustive regressions use smoke-derived serial-runtime estimates for automatic thread selection and deterministic interleaved shard planning. The default target is 30 minutes per shard, with expiring and renewable shard leases so abandoned work can be reclaimed. Runner-profile maxima begin at 48 threads for `e7k` and 32 threads for `e9k`; shorter workloads deliberately use fewer threads to avoid parallelism overhead.
+- Long exhaustive regressions use smoke-derived serial-runtime estimates for automatic thread selection and deterministic interleaved shard planning. The default target is 30 minutes per shard, with expiring and renewable shard leases so abandoned work can be reclaimed. Runner-profile aggregate budgets are 64 threads for `e7k` and 32 threads for `e9k`; shorter workloads deliberately use fewer threads to avoid parallelism overhead.
+
+### Parallelism experimentation
+
+- Manual detector regressions accept any integer from `1` through `1024` for both threads per active pipeline and maximum detector pipelines; `auto` remains available for threads.
+- `parallelism-index.json` records detector execution shapes independently from runtime queue history, including shards, active pipelines, threads per pipeline, allocated threads, measured wall-clock time, estimated serial runtime, and effective acceleration.
+- Parallelism experiments compare execution shapes such as `1×64`, `4×16`, and `8×8`; equal aggregate thread counts are not assumed to have equal performance.

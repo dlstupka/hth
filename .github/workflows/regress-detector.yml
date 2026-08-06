@@ -90,25 +90,10 @@ on:
         default: "1800"
         type: string
       threads:
-        description: Parallel regression threads
+        description: Parallel regression threads per active pipeline; auto or any integer from 1 through 1024
         required: true
         default: auto
-        type: choice
-        options:
-          - auto
-          - "1"
-          - "2"
-          - "4"
-          - "8"
-          - "16"
-          - "32"
-          - "48"
-          - "64"
-          - "96"
-          - "128"
-          - "256"
-          - "512"
-          - "1024"
+        type: string
       shards:
         description: Optional explicit shard count; blank uses wall-clock planning and explicit shards take precedence
         required: false
@@ -125,15 +110,10 @@ on:
         default: "5"
         type: string
       detector_pipelines:
-        description: Concurrent detector pipelines used when Algorithm is all
+        description: Maximum concurrent detector pipelines; any integer from 1 through 1024
         required: true
         default: "4"
-        type: choice
-        options:
-          - "1"
-          - "2"
-          - "4"
-          - "8"
+        type: string
       detector_loading_strategy:
         description: Detector pipeline loading strategy used when Algorithm is all
         required: true
@@ -659,6 +639,20 @@ jobs:
           fi
 
           requested_pipelines="$DETECTOR_PIPELINES"
+          runner_pipeline_max="$(python - "${HTH_RUNNER_LABEL:-}" <<'PYMAX'
+          import sys
+          from hth.regression.sharding import runner_max_threads
+          print(runner_max_threads(sys.argv[1]))
+          PYMAX
+          )"
+          if [[ ! "$requested_pipelines" =~ ^[0-9]+$ ]] || (( requested_pipelines < 1 || requested_pipelines > runner_pipeline_max )); then
+            echo "::error::Detector pipelines must be an integer from 1 through runner budget $runner_pipeline_max: $requested_pipelines"
+            exit 1
+          fi
+          if [[ "$THREADS" != "auto" ]] && { [[ ! "$THREADS" =~ ^[0-9]+$ ]] || (( THREADS < 1 || THREADS > 1024 )); }; then
+            echo "::error::Threads must be auto or an integer from 1 through 1024: $THREADS"
+            exit 1
+          fi
           if [[ "${DETECTOR_ALGORITHM,,}" != "all" ]]; then
             effective_pipelines=1
           elif (( requested_pipelines > ${#detector_configs[@]} )); then
@@ -1166,7 +1160,7 @@ jobs:
 
             git -C results-repo fetch origin main
             git -C results-repo reset --hard origin/main
-            git -C results-repo clean -fd -- calibration-index.json runtime-index.json source-documents/
+            git -C results-repo clean -fd -- calibration-index.json runtime-index.json parallelism-index.json source-documents/
 
             python -m hth.calibration_store publish \
               "${publish_args[@]}" \
@@ -1183,7 +1177,7 @@ jobs:
               --sha "${{ github.sha }}" \
               --run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-            git -C results-repo add calibration-index.json runtime-index.json source-documents/
+            git -C results-repo add calibration-index.json runtime-index.json parallelism-index.json source-documents/
 
             if git -C results-repo diff --cached --quiet; then
               echo "Calibration intelligence store already current."
