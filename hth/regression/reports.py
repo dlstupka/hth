@@ -29,7 +29,7 @@ def ranking_key(result: dict[str, Any]) -> tuple[float, float, int, float]:
 
 
 def write_raw_results(path: Path, ranked: list[dict[str, Any]]) -> None:
-    fields=["run_id","parameter_set_id","profile","rank","global_ordinal","label","layout_type","status","iou","left_error_px","top_error_px","right_error_px","bottom_error_px","edge_error_mean_px","edge_error_maximum_px","elapsed_ms","approved_bbox_json","predicted_bbox_json","parameters_json","error_type","error_message"]
+    fields=["run_id","parameter_set_id","profile","rank","completion_index","completion_elapsed_seconds","search_fraction","global_ordinal","label","layout_type","status","iou","left_error_px","top_error_px","right_error_px","bottom_error_px","edge_error_mean_px","edge_error_maximum_px","elapsed_ms","approved_bbox_json","predicted_bbox_json","parameters_json","error_type","error_message"]
     with path.open("w",newline="",encoding="utf-8") as h:
         w=csv.DictWriter(h,fieldnames=fields); w.writeheader()
         for result in ranked:
@@ -39,6 +39,9 @@ def write_raw_results(path: Path, ranked: list[dict[str, Any]]) -> None:
                 err=page.get("error") or {}
                 w.writerow({
                     "run_id":result.get("run_id",""),"parameter_set_id":result["parameter_set_id"],"profile":result.get("profile") or "","rank":result.get("rank",""),
+                    "completion_index":(result.get("search_observation") or {}).get("completion_index", (result.get("search_observation") or {}).get("parameter_set_number", "")),
+                    "completion_elapsed_seconds":(result.get("search_observation") or {}).get("elapsed_seconds", ""),
+                    "search_fraction":(result.get("search_observation") or {}).get("search_fraction", ""),
                     "global_ordinal":page["global_ordinal"],"label":page["label"],"layout_type":page["layout_type"],"status":page["status"],"iou":page["iou"],
                     "left_error_px":errors.get("left"),"top_error_px":errors.get("top"),"right_error_px":errors.get("right"),"bottom_error_px":errors.get("bottom"),
                     "edge_error_mean_px":page.get("edge_error_mean_px"),"edge_error_maximum_px":page.get("edge_error_maximum_px"),"elapsed_ms":page.get("elapsed_ms"),

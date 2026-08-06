@@ -108,7 +108,7 @@ Every completed detector regression writes `reports/calibration-intelligence.jso
 
 The report includes:
 
-- a **Best Known Detector Calibrations** table that prefers compatible full calibrations from `calibration-index.json`, falls back to smoke evidence when no full calibration exists, and records rank, detector ID, Golden Set ID, calibration date, a compact linked GitHub Actions build number, build wall-clock run time, parameter set ID, parameter-set count, search type, success rate, winner metrics, baseline delta, basin width, equivalent-best coverage, deterministic Calibration Evidence, and automatic Golden Set-scoped Approval Level; the redundant Coverage column is omitted, build run time is the wall-clock duration recorded for that build, and build links are temporary operational shortcuts while the persisted `calibration-intelligence.json` remains authoritative;
+- a **Best Known Detector Calibrations** table that prefers compatible full calibrations from `calibration-index.json`, falls back to smoke evidence when no full calibration exists, and records rank, detector ID, Golden Set ID, calibration date, a compact linked GitHub Actions build number, estimated single-detector serial runtime, parameter set ID, parameter-set count, search type, success rate, winner metrics, baseline delta, basin width, equivalent-best coverage, deterministic Calibration Evidence, and automatic Golden Set-scoped Approval Level; the redundant Coverage column is omitted, build run time is the wall-clock duration recorded for that build, and build links are temporary operational shortcuts while the persisted `calibration-intelligence.json` remains authoritative;
 - generator, validator, and hybrid role definitions plus an evidence-source legend;
 - search coverage and fully-successful parameter-set rate;
 - best, minimum, standard-deviation, percentile, equivalent-winner, and near-best-basin calibration-landscape metrics;
@@ -314,3 +314,8 @@ Full exhaustive regressions use smoke-test runtime history to estimate the detec
 After conservative thread-speedup adjustment and a 20% planning margin, work estimated to exceed the configured 30-minute shard target is divided into deterministic interleaved parameter-set shards. Interleaving distributes clustered expensive configurations more evenly than contiguous parameter ranges. Smoke tests, limited searches, and non-exhaustive strategies remain unsharded.
 
 Shard claims are leases rather than permanent locks. Active workers renew their lease every minute. Another detector pipeline may reclaim a shard after the configured lease expiration, minimizing work stranded by a terminated worker. Completed shards are merged into one canonical detector regression before calibration intelligence, summaries, and winner debug artifacts are published. Shard metadata, source run IDs, selected threads, and the interleaved assignment method are retained in the merged provenance.
+
+### Parallel completion ordering
+
+Parallel parameter evaluation records `completion_index` in actual parameter-completion order. Shard coalescing reconstructs one global completion sequence from shard start times and per-result completion elapsed time, then derives discovery time, search-space percentage, winner history, and stabilization from that sequence. When runtime history is absent, queue reports display `no history` rather than `unknown`.
+

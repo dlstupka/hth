@@ -5,7 +5,7 @@ import argparse
 import csv
 import json
 import statistics
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +35,17 @@ def _results_from_raw(path: Path) -> list[dict[str, Any]]:
                 "parameters": json.loads(row["parameters_json"]),
                 "pages": [],
             })
+            if "search_observation" not in result:
+                completion_index = row.get("completion_index")
+                elapsed = row.get("completion_elapsed_seconds")
+                fraction = row.get("search_fraction")
+                if completion_index not in (None, "") or elapsed not in (None, ""):
+                    result["search_observation"] = {
+                        "completion_index": int(completion_index) if completion_index not in (None, "") else None,
+                        "parameter_set_number": int(completion_index) if completion_index not in (None, "") else None,
+                        "elapsed_seconds": float(elapsed) if elapsed not in (None, "") else None,
+                        "search_fraction": float(fraction) if fraction not in (None, "") else None,
+                    }
             edge_values = {
                 key.removesuffix("_error_px"): float(row[key])
                 for key in ("left_error_px", "top_error_px", "right_error_px", "bottom_error_px")
@@ -89,10 +100,45 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
     if found != set(range(expected)):
         raise ValueError(f"Incomplete shard set: expected {expected}, found {sorted(found)}")
 
+    start = min(_parse_time(str(info["started_at_utc"])) for info in infos)
+    finish = max(_parse_time(str(info["finished_at_utc"])) for info in infos)
+    elapsed = (finish - start).total_seconds()
+
     by_id: dict[str, dict[str, Any]] = {}
-    for shard_dir in shard_dirs:
+    completion_records: list[tuple[datetime, dict[str, Any]]] = []
+    for shard_dir, info in zip(shard_dirs, infos):
+        shard_start = _parse_time(str(info["started_at_utc"]))
         for result in _results_from_raw(shard_dir / "raw" / "results.csv"):
-            by_id.setdefault(result["parameter_set_id"], result)
+            existing = by_id.setdefault(result["parameter_set_id"], result)
+            if existing is not result:
+                continue
+            observation = result.get("search_observation") or {}
+            elapsed_seconds = observation.get("elapsed_seconds")
+            if result.get("profile") != "baseline" and elapsed_seconds is not None:
+                completion_records.append((shard_start + timedelta(seconds=float(elapsed_seconds)), result))
+
+    completion_records.sort(key=lambda item: (item[0], str(item[1].get("parameter_set_id") or "")))
+    completion_total = len(completion_records)
+    winner_history: list[dict[str, Any]] = []
+    best_result = next((result for result in by_id.values() if result.get("profile") == "baseline"), None)
+    for completion_index, (completed_at, result) in enumerate(completion_records, 1):
+        elapsed_seconds = (completed_at - start).total_seconds()
+        observation = {
+            "completion_index": completion_index,
+            "parameter_set_number": completion_index,
+            "elapsed_seconds": max(0.0, elapsed_seconds),
+            "search_fraction": completion_index / completion_total if completion_total else None,
+        }
+        result["search_observation"] = observation
+        if best_result is None or ranking_key(result) < ranking_key(best_result):
+            best_result = result
+            winner_history.append({
+                "change_number": len(winner_history) + 1,
+                "parameter_set_id": str(result.get("parameter_set_id") or "unknown"),
+                "parameter_short_name": result.get("profile") or str(result.get("parameter_set_id") or "unknown")[:8],
+                **observation,
+            })
+
     ranked = sorted(by_id.values(), key=ranking_key)
     run_id, run_dir = create_run_directory(output, detector, None)
     for rank, result in enumerate(ranked, 1):
@@ -101,9 +147,6 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
     baseline = next((result for result in ranked if result.get("profile") == "baseline"), None)
     first_summary = summaries[0]
     first_info = infos[0]
-    start = min(_parse_time(str(info["started_at_utc"])) for info in infos)
-    finish = max(_parse_time(str(info["finished_at_utc"])) for info in infos)
-    elapsed = (finish - start).total_seconds()
     pages = len(first_summary.get("page_ordinals", []))
     possible = int(first_info.get("possible_parameter_sets") or first_summary.get("parameter_space", {}).get("possible_parameter_sets") or len(ranked))
     winner_pages = build_winner_page_report(ranked[0], baseline)
@@ -120,7 +163,7 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         "golden_set_sha256": first_info.get("golden_set_sha256"), "winner": ranked[0], "baseline": baseline,
         "top_parameter_sets": ranked[:5], "winner_page_report": winner_pages,
         "runner": first_summary.get("runner", {}), "source_commit": first_info.get("source_commit"),
-        "progress": {"estimated_parameter_sets": len(ranked), "completed_parameter_sets": len(ranked), "average_eval_rate": len(ranked) / elapsed if elapsed else None, "failures": sum(r["summary"]["failure_count"] for r in ranked)},
+        "progress": {"estimated_parameter_sets": completion_total, "completed_parameter_sets": completion_total, "average_eval_rate": completion_total / elapsed if elapsed else None, "failures": sum(r["summary"]["failure_count"] for r in ranked), "winner_changes": len(winner_history), "winner_history": winner_history, "winner_first_changed_elapsed_seconds": winner_history[0]["elapsed_seconds"] if winner_history else None, "winner_last_changed_elapsed_seconds": winner_history[-1]["elapsed_seconds"] if winner_history else None},
     }
     write_raw_results(run_dir / "raw" / "results.csv", ranked)
     write_rankings(run_dir / "reports" / "rankings.csv", ranked)

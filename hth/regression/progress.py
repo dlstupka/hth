@@ -268,6 +268,7 @@ class ProgressReporter:
             self.current_result = result
             profile_name = self._profile_name(result, profile)
             observation = {
+                "completion_index": self.completed,
                 "parameter_set_number": self.completed,
                 "elapsed_seconds": max(0.0, now - self.started),
                 "search_fraction": (self.completed / self.total) if self.total > 0 else None,

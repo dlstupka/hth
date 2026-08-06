@@ -728,7 +728,7 @@ def build_summary(
                 f"{_duration(event.get('elapsed_seconds'))} | {_search_space_percent(event)} |"
             )
         if not winner_history:
-            lines.append("| — | unavailable | unknown | unknown |")
+            lines.append("| — | no history | no history | no history |")
         lines.extend([
             "",
             f"Total winner changes: **{progress.get('winner_changes', 0)}**.",
@@ -1125,7 +1125,7 @@ def _render_best_known_calibrations(
         "**Engineering Decision**", "",
         "This table is the authoritative detector ranking for this Golden Set. The Rank #1 detector is the current engineering recommendation based on the best approved calibration available for this Golden Set.", "",
         "This table prefers compatible full calibrations when available and falls back to the latest smoke evidence for detectors without a full calibration on this Golden Set.", "",
-        "| Rank | Detector | Detector ID | Role | Golden Set ID | Date | Build* | Run Time** | Parameter Set ID | Parameter Sets | Search Type | Successful Parameter Sets | Best Avg IoU | Min IoU | StdDev | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence | Approval Level |",
+        "| Rank | Detector | Detector ID | Role | Golden Set ID | Date | Build* | Est. Serial Runtime** | Parameter Set ID | Parameter Sets | Search Type | Successful Parameter Sets | Best Avg IoU | Min IoU | StdDev | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence | Approval Level |",
         "|---:|---|---|---|---|---|---|---:|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
     ]
     for rank, row in enumerate(records, start=1):
@@ -1171,7 +1171,7 @@ def _render_best_known_calibrations(
                 results_repository=results_repository,
                 results_ref=results_ref,
             ),
-            r"- **Run Time\*\*:** This is the wall-clock run time for the build; for full details, refer to the build log directly.",
+            r"- **Est. Serial Runtime\*\*:** Estimated single-detector serial runtime derived from recorded regression evidence; actual wall time varies with parallelism and scheduling.",
         ])
     return lines
 
@@ -1267,7 +1267,7 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
         f"| All possible parameter sets | {full_search_metrics[0]} |",
         f"| Parameter sets evaluated | {search.get('parameter_sets', 'unknown')} |",
         f"| Evaluated sets (% of all possible parameter sets) | {full_search_metrics[1]} |",
-        f"| ETA for full parameter set evaluation* | {full_search_metrics[2]} |",
+        f"| Est. serial runtime for full parameter set evaluation* | {full_search_metrics[2]} |",
         f"| Fully successful parameter sets | {search.get('fully_successful_parameter_sets', 'unknown')} ({_percent(search.get('fully_successful_rate'))}) |",
         f"| Best Avg IoU | {_number(landscape.get('best_mean_iou'))} |",
         f"| Minimum Avg IoU | {_number(landscape.get('minimum_mean_iou'))} |",
@@ -1278,7 +1278,7 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
         f"| Equivalent-best configurations (within {float(landscape.get('equivalent_tolerance', 0.0001) or 0.0001):.4f}) | {landscape.get('equivalent_winner_count', 'unknown')} ({_percent(landscape.get('equivalent_winner_share'))}) |",
         f"| Calibration Evidence | {confidence.get('rating', 'unknown')} |",
         "",
-        r"\* **ETA Note:** Long parameter-set regression ETAs assume a single-threaded serial run at the measured detector page rate. Actual wall time will vary with parallelization, worker count, scheduling overhead, and parameter-dependent runtime.",
+        r"\* **Serial-runtime note:** Long parameter-set estimates assume a single-threaded serial run at the measured detector page rate. Actual wall time varies with parallelization, worker count, scheduling overhead, and parameter-dependent runtime.",
     ])
 
     domain_space = payload.get("domain_space", {}) if isinstance(payload.get("domain_space"), dict) else {}
@@ -1303,7 +1303,7 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
             factor = exhaustive_count / count_value if count_value else None
             factor_text = f"{factor:.1f}×" if factor is not None else "unavailable"
             lines.append(f"| {label} | {count_value} | {_percent(percent)} | {_duration(seconds)} | {factor_text} |")
-        lines.extend(["", r"\* Uses the same serial measured-page-rate assumptions as the Calibration Landscape ETA."])
+        lines.extend(["", r"\* Uses the same serial measured-page-rate assumptions as the Calibration Landscape serial-runtime estimate."])
     reasons = confidence.get("reasons", []) if isinstance(confidence.get("reasons"), list) else []
     if reasons:
         lines.extend(["", f"Calibration evidence basis: {', '.join(str(reason) for reason in reasons)}."])
@@ -1427,7 +1427,7 @@ def _render_calibration_report(
             results_repository=results_repository,
             results_ref=results_ref,
         ),
-        r"- **Run Time\*\*:** This is the wall-clock run time for the build; for full details, refer to the build log directly.",
+        r"- **Est. Serial Runtime\*\*:** Estimated single-detector serial runtime derived from recorded regression evidence; actual wall time varies with parallelism and scheduling.",
     ])
     if missing:
         lines.extend(["", "Calibration intelligence unavailable for: " + ", ".join(f"`{name}`" for name in missing) + "."])
@@ -1840,8 +1840,9 @@ def build_combined_summary(
     for queue_index, row in enumerate(queue_rows, start=1):
         position = row.get("queue_position")
         queue_number = int(position) if str(position or "").isdigit() else queue_index
-        estimate = _duration(row.get("estimate_seconds"))
-        source = str(row.get("estimate_source") or "unknown")
+        estimate_seconds = row.get("estimate_seconds")
+        estimate = "no history" if estimate_seconds is None else _duration(estimate_seconds)
+        source = str(row.get("estimate_source") or "no-history")
         lines.append(
             f"| {queue_number} | {_detector_friendly_name(str(row['detector']))} (`{row['detector']}`) | "
             f"{row.get('pipeline_number', 'unknown')} | {estimate} | {source} |"

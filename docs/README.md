@@ -167,7 +167,7 @@ Additional conventions:
 - Keep Status Definitions with Page Analysis.
 - Multi-detector manifests retain the established nested navigation hierarchy.
 - Multi-detector current-run rankings are titled `Ranked Detector Smoke Test Results`, include the Golden Set ID, and omit detector short names.
-- `Best Known Detector Calibrations` prefers compatible full calibration evidence from `calibration-index.json`, falls back to smoke evidence only when no full calibration exists, identifies detectors by Detector ID without a separate short-name display, omits redundant Coverage, and includes Search Type, deterministic Calibration Evidence, automatic Golden Set-scoped Approval Level, a compact linked `Build*` run number whose temporary logs and artifacts complement the persistent `calibration-intelligence.json`, and `Run Time**` showing the build wall-clock duration; the same table appears before Calibration Intelligence in single-detector manifests.
+- `Best Known Detector Calibrations` prefers compatible full calibration evidence from `calibration-index.json`, falls back to smoke evidence only when no full calibration exists, identifies detectors by Detector ID without a separate short-name display, omits redundant Coverage, and includes Search Type, deterministic Calibration Evidence, automatic Golden Set-scoped Approval Level, a compact linked `Build*` run number whose temporary logs and artifacts complement the persistent `calibration-intelligence.json`, and `Est. Serial Runtime**` showing the estimated single-detector serial runtime; the same table appears before Calibration Intelligence in single-detector manifests.
 - Single, custom, and manual detector manifests use an always-visible flat navigation menu with Back to Navigation links after major sections.
 - Do not add nonfunctional Expand All / Collapse All controls to GitHub-rendered Markdown.
 - Multi-detector regression summaries place Regression Execution and Detector Queueing immediately after Regression Completion Summary.
@@ -192,6 +192,8 @@ Update this file when the project adopts a recurring convention expressed as “
 - Detector calibration and regression operate against the Golden Set.
 - `--threads` defaults to `1`; supported explicit values are powers of two from `1` through `1024`.
 - Parallelism must not change parameter generation, result metrics, deterministic ranking, or report ordering.
+- Parallel regressions record `completion_index` in actual parameter-completion order; merged shards reconstruct one global sequence for discovery and stabilization reporting.
+- Queue reports display `no history` when no compatible runtime observation exists.
 - Keep one aggregate heartbeat; do not emit independent heartbeat streams from evaluation threads.
 - Report search strategy and parameter-space scope before evaluation begins.
 - Preserve runner CPU, thread, throughput, memory, and workload telemetry for every regression so exhaustive runs can guide future automatic thread selection and non-exhaustive search design.
