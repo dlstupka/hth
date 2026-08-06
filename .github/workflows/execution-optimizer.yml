@@ -118,6 +118,15 @@ jobs:
       - name: Checkout HTH pipeline
         uses: actions/checkout@v6
 
+      - name: Checkout results repository
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.results_repository }}
+          path: results-repo
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.HTH_RESULTS_TOKEN }}
+
       - name: Build pipeline enumeration
         id: plan
         shell: bash
@@ -252,3 +261,59 @@ jobs:
             echo "::error::$failures execution optimizer experiment(s) failed"
             exit 1
           fi
+      - name: Publish optimizer intelligence and heat map
+        if: ${{ always() }}
+        shell: bash
+        env:
+          PYTHONPATH: .
+          HTH_RESULTS_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN }}
+          RESULTS_REPOSITORY: ${{ inputs.results_repository }}
+          ALGORITHM: ${{ inputs.algorithm }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${HTH_RESULTS_TOKEN:-}" ]]; then
+            echo "::error::HTH_RESULTS_TOKEN is required to publish optimizer intelligence"
+            exit 1
+          fi
+
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C results-repo remote set-url origin \
+            "https://x-access-token:${HTH_RESULTS_TOKEN}@github.com/${RESULTS_REPOSITORY}.git"
+
+          max_publish_attempts=5
+          for attempt in $(seq 1 "$max_publish_attempts"); do
+            git -C results-repo fetch origin main
+            git -C results-repo reset --hard origin/main
+            git -C results-repo clean -fd -- optimizer-index.json execution-optimizer/
+
+            python -m hth.optimizer_store \
+              --results-root results-repo \
+              --detector "$ALGORITHM"
+
+            git -C results-repo add optimizer-index.json "execution-optimizer/$ALGORITHM/summary.md" "execution-optimizer/$ALGORITHM/heatmap.svg"
+            if git -C results-repo diff --cached --quiet; then
+              echo "Optimizer intelligence is already current."
+              break
+            fi
+            git -C results-repo commit -m "Update $ALGORITHM execution optimizer intelligence"
+            if git -C results-repo push origin HEAD:main; then
+              break
+            fi
+            if (( attempt == max_publish_attempts )); then
+              echo "::error::Unable to publish optimizer intelligence after $max_publish_attempts attempts"
+              exit 1
+            fi
+            sleep $((5 * attempt))
+          done
+
+          cat "results-repo/execution-optimizer/$ALGORITHM/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo
+            echo "### Execution optimizer heat map"
+            echo
+            echo "![Execution optimizer heat map](https://raw.githubusercontent.com/${RESULTS_REPOSITORY}/main/execution-optimizer/${ALGORITHM}/heatmap.svg?run=${GITHUB_RUN_ID})"
+            echo
+            echo "The heat map uses a shared logarithmic wall-time scale across all compatible runner profiles and labels currently recorded in \`parallelism-index.json\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+

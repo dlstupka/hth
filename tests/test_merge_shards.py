@@ -40,7 +40,7 @@ def _write_raw_row(path, *, status: str = "ok", iou: float = 0.9) -> None:
 
 def test_shard_planner_caps_runner_threads() -> None:
     assert plan_shards(4 * 3600, runner_label="e7k", requested_threads="auto").threads == 64
-    assert plan_shards(4 * 3600, runner_label="e9k", requested_threads="auto").threads == 32
+    assert plan_shards(4 * 3600, runner_label="e9k", requested_threads="auto").threads == 64
 
 
 def test_reconstructed_success_rows_have_canonical_optional_fields(tmp_path) -> None:

@@ -321,3 +321,13 @@ Shard claims are leases rather than permanent locks. Active workers renew their 
 
 Parallel parameter evaluation records `completion_index` in actual parameter-completion order. Shard coalescing reconstructs one global completion sequence from shard start times and per-result completion elapsed time, then derives discovery time, search-space percentage, winner history, and stabilization from that sequence. When runtime history is absent, queue reports display `no history` rather than `unknown`.
 
+
+## Execution optimizer intelligence
+
+The manual `HTH execution optimizer` workflow evaluates full exhaustive execution shapes with shards equal to detector pipelines and threads allocated from the selected runner budget. After its child regressions complete, it rebuilds three persistent artifacts in the results repository:
+
+- `optimizer-index.json` — detector-scoped optimizer views grouped by concrete runner identity and labels;
+- `execution-optimizer/<detector>/summary.md` — a cross-runner execution-shape table; and
+- `execution-optimizer/<detector>/heatmap.svg` — a faceted heat map using one shared logarithmic wall-time scale across compatible runner profiles.
+
+`parallelism-index.json` remains the raw execution-observation store. `optimizer-index.json` is a derived planning abstraction that summarizes those observations without replacing them. Runner profiles remain separate when their label, runner name, CPU model, or logical CPU count differs, while the table and heat map display all compatible profiles together for comparison.

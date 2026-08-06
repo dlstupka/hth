@@ -31,3 +31,12 @@ def test_execution_optimizer_uses_runner_budget_candidates() -> None:
     assert "from hth.regression.sharding import runner_max_threads" in text
     assert "preferred = [1, 2, 4, 8, 16, 32, 64, 96, 128, 192]" in text
     assert "Manual pipeline range must satisfy" in text
+
+
+def test_execution_optimizer_publishes_optimizer_table_heatmap_and_index() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "python -m hth.optimizer_store" in text
+    assert "optimizer-index.json" in text
+    assert 'execution-optimizer/$ALGORITHM/summary.md' in text
+    assert 'execution-optimizer/$ALGORITHM/heatmap.svg' in text
+    assert "Execution optimizer heat map" in text

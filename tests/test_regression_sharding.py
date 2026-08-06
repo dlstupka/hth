@@ -17,8 +17,8 @@ from hth.regression.runner import parse_args
 
 
 def test_runner_profiles_and_auto_thread_thresholds() -> None:
-    assert runner_max_threads("e7k") == 64
-    assert runner_max_threads("e9k") == 32
+    assert runner_max_threads("e7k") == 192
+    assert runner_max_threads("e9k") == 64
     assert runner_max_threads("github-hosted") == 8
     assert runner_max_threads("github-hosted", available_cpus=4) == 8
     assert automatic_threads(60, 64) == 1
@@ -37,21 +37,21 @@ def test_execution_plan_uses_the_aggregate_runner_budget() -> None:
     assert github.unused_threads == 0
 
     e7k = plan_execution("auto", runner_label="e7k", active_pipelines=3)
-    assert e7k.runner_thread_budget == 64
-    assert e7k.threads_per_pipeline == 21
-    assert e7k.allocated_threads == 63
-    assert e7k.unused_threads == 1
+    assert e7k.runner_thread_budget == 192
+    assert e7k.threads_per_pipeline == 64
+    assert e7k.allocated_threads == 192
+    assert e7k.unused_threads == 0
 
     capped = plan_execution(16, runner_label="e7k", active_pipelines=3)
     assert capped.threads_per_pipeline == 16
     assert capped.allocated_threads == 48
-    assert capped.unused_threads == 16
+    assert capped.unused_threads == 144
 
 
 def test_long_plan_is_sharded_and_short_plan_is_not() -> None:
     assert plan_shards(60, runner_label="e9k").shard_count == 1
     plan = plan_shards(12 * 3600, runner_label="e9k")
-    assert plan.threads == 32
+    assert plan.threads == 64
     assert plan.shard_count > 1
 
 

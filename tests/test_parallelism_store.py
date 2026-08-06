@@ -35,7 +35,7 @@ def test_parallelism_index_tracks_fastest_compatible_shape_and_summaries(tmp_pat
         _observation("3", pipelines=8, shards=8, threads=8, wall=440),
     ])
     payload = json.loads((tmp_path / "parallelism-index.json").read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "2.0"
+    assert payload["schema_version"] == "2.1"
     assert payload["best"]["adaptive_radial_edge"]["shards"] == 8
     assert payload["best_by_compatibility"]["compatible-workload"]["threads_per_pipeline"] == 8
     summary = next(row for row in payload["shape_summaries"] if row["execution_shape"] == "8p/8s/8t")

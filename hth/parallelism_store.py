@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-PARALLELISM_INDEX_SCHEMA_VERSION = "2.0"
+PARALLELISM_INDEX_SCHEMA_VERSION = "2.1"
 MAX_OBSERVATIONS_PER_DETECTOR = 500
 
 
@@ -78,7 +78,7 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
     runner_label = build.get("runner_label") or info.get("runner_label")
     detector_config_sha256 = info.get("detector_config_sha256") or summary.get("detector_config_sha256")
     golden_sha = info.get("golden_set_sha256") or summary.get("golden_set_sha256")
-    compatibility = {
+    workload = {
         "detector_id": info.get("detector") or summary.get("detector") or "unknown",
         "detector_config_sha256": detector_config_sha256,
         "golden_set_sha256": golden_sha,
@@ -87,8 +87,15 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
         "possible_parameter_sets": possible_sets,
         "actual_parameter_sets": actual_sets,
         "max_dimension": _as_int(info.get("max_dimension") or summary.get("max_dimension")),
-        "runner_label": runner_label,
     }
+    runner_identity = {
+        "runner_label": runner_label,
+        "runner_name": runner.get("runner_name") or info.get("runner_name"),
+        "runner_labels": runner.get("github_runner_labels") or info.get("github_runner_labels"),
+        "cpu_model": runner.get("cpu_model") or info.get("cpu_model"),
+        "logical_cpu_count": _as_int(runner.get("logical_cpu_count") or info.get("logical_cpu_count")),
+    }
+    compatibility = {**workload, **runner_identity}
     shape = {
         "shards": shards,
         "active_pipelines": active_pipelines,
@@ -110,6 +117,8 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
         "golden_set_pages": page_count,
         "page_evaluations": page_evaluations,
         "max_dimension": compatibility["max_dimension"],
+        "workload_key": _canonical_hash(workload),
+        "runner_key": _canonical_hash(runner_identity),
         "compatibility_key": _canonical_hash(compatibility),
         "execution_shape": f"{active_pipelines}p/{shards}s/{threads}t",
         **shape,
