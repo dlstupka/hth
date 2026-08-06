@@ -201,6 +201,17 @@ def _compact_percent(value: Any) -> str:
         return "unknown"
 
 
+
+
+def _acceleration(value: Any) -> str:
+    try:
+        acceleration = float(value)
+    except (TypeError, ValueError):
+        return "unknown"
+    if acceleration <= 0:
+        return "unknown"
+    return f"{acceleration:.2f}×"
+
 def _pluralized_parameter_sets(value: Any) -> str:
     try:
         count = int(value)
@@ -572,7 +583,9 @@ def build_summary(
         f"- OpenCV: `{info.get('opencv_version', 'unknown')}`",
         f"- Started: `{info.get('started_at_utc', manifest.get('started_at_utc', 'unknown'))}`",
         f"- Finished: `{info.get('finished_at_utc', manifest.get('finished_at_utc', 'unknown'))}`",
-        f"- Elapsed: `{_duration(info.get('elapsed_seconds'))}`",
+        f"- Wall-clock elapsed: `{_duration(info.get('wall_elapsed_seconds', info.get('elapsed_seconds')))}`",
+        f"- Est. serial runtime: `{_duration(info.get('estimated_serial_runtime_seconds', summary.get('estimated_serial_runtime_seconds')))}`",
+        f"- Effective acceleration: `{_acceleration(info.get('effective_acceleration', summary.get('effective_acceleration')))}`",
         "",
         "### Golden Set",
         "",
@@ -732,7 +745,7 @@ def build_summary(
         lines.extend([
             "",
             f"Total winner changes: **{progress.get('winner_changes', 0)}**.",
-            f"Search completed in **{_duration(info.get('elapsed_seconds'))}**.",
+            f"Search completed in **{_duration(info.get('wall_elapsed_seconds', info.get('elapsed_seconds')))}** wall-clock time.",
             "",
             f"**Stabilization Interpretation:** {_stabilization_interpretation(winner_history[-1] if winner_history else {})}",
         ])
@@ -978,7 +991,7 @@ def _calibration_record_from_payload(
         "build_name": build.get("workflow") or "unknown",
         "build_number": build.get("github_run_number") or "unknown",
         "build_url": build.get("run_url") or "",
-        "run_time_seconds": build.get("run_time_seconds", summary.get("elapsed_seconds")),
+        "run_time_seconds": build.get("run_time_seconds", summary.get("estimated_serial_runtime_seconds", summary.get("elapsed_seconds"))),
         "intelligence_path": str(entry.get("intelligence_path") or ""),
     }
 
@@ -1006,7 +1019,7 @@ def _best_known_calibrations(
                 entry={
                     "calibration_status": "provisional" if int(summary.get("parameter_set_count", 0) or 0) <= 20 else ("authoritative" if (payload.get("search") or {}).get("exhaustive_complete") else "partial"),
                     "created_at_utc": info.get("started_at_utc"),
-                    "build": {"run_time_seconds": info.get("elapsed_seconds")},
+                    "build": {"run_time_seconds": info.get("estimated_serial_runtime_seconds", info.get("elapsed_seconds"))},
                 },
             ))
 
@@ -1035,8 +1048,10 @@ def _best_known_calibrations(
             info = _read_json(info_path) if info_path.is_file() else {}
             indexed_entry = dict(entry)
             indexed_build = dict(entry.get("build")) if isinstance(entry.get("build"), dict) else {}
-            if indexed_build.get("run_time_seconds") is None and info.get("elapsed_seconds") is not None:
-                indexed_build["run_time_seconds"] = info.get("elapsed_seconds")
+            if indexed_build.get("run_time_seconds") is None:
+                runtime_value = info.get("estimated_serial_runtime_seconds", info.get("elapsed_seconds"))
+                if runtime_value is not None:
+                    indexed_build["run_time_seconds"] = runtime_value
             indexed_entry["build"] = indexed_build
             detector = str(entry.get("detector_id") or payload.get("detector") or "unknown")
             indexed_records.append(_calibration_record_from_payload(detector, payload, entry=indexed_entry, summary=summary))

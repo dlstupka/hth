@@ -71,3 +71,17 @@ def test_reconstructed_result_preserves_completion_observation(tmp_path) -> None
     assert observation["parameter_set_number"] == 3
     assert observation["elapsed_seconds"] == 12.0
     assert observation["search_fraction"] == 0.3
+
+
+def test_reconstructed_result_preserves_local_completion_without_elapsed(tmp_path) -> None:
+    raw = tmp_path / "results.csv"
+    _write_raw_row(raw)
+    rows = raw.read_text(encoding="utf-8").splitlines()
+    header = rows[0].split(",")
+    values = rows[1].split(",")
+    elapsed_index = header.index("completion_elapsed_seconds")
+    values[elapsed_index] = ""
+    raw.write_text(rows[0] + "\n" + ",".join(values) + "\n", encoding="utf-8")
+    observation = _results_from_raw(raw)[0]["search_observation"]
+    assert observation["completion_index"] == 3
+    assert observation["elapsed_seconds"] is None

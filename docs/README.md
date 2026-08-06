@@ -193,6 +193,7 @@ Update this file when the project adopts a recurring convention expressed as “
 - `--threads` defaults to `1`; supported explicit values are powers of two from `1` through `1024`.
 - Parallelism must not change parameter generation, result metrics, deterministic ranking, or report ordering.
 - Parallel regressions record `completion_index` in actual parameter-completion order; merged shards reconstruct one global sequence for discovery and stabilization reporting.
+- Sharded reports distinguish measured wall-clock elapsed time from estimated serial runtime and report effective acceleration as serial runtime divided by wall-clock elapsed time.
 - Queue reports display `no history` when no compatible runtime observation exists.
 - Keep one aggregate heartbeat; do not emit independent heartbeat streams from evaluation threads.
 - Report search strategy and parameter-space scope before evaluation begins.

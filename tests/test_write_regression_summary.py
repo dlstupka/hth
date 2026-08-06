@@ -20,7 +20,9 @@ class RegressionSummaryTests(unittest.TestCase):
             (run / "RUN-INFO.json").write_text(json.dumps({
                 "pipeline_commit": "1234567890abcdef", "python_version": "3.12.0",
                 "opencv_version": "5.0.0", "started_at_utc": "start", "finished_at_utc": "finish",
-                "elapsed_seconds": 61.2, "golden_set": "config/golden_set.json",
+                "elapsed_seconds": 61.2, "wall_elapsed_seconds": 61.2,
+                "estimated_serial_runtime_seconds": 612.0, "effective_acceleration": 10.0,
+                "golden_set": "config/golden_set.json",
                 "golden_set_sha256": "abc123"
             }), encoding="utf-8")
             (run / "parameters.json").write_text(json.dumps({
@@ -153,6 +155,10 @@ class RegressionSummaryTests(unittest.TestCase):
                 results_commit="abc123def456",
             )
             self.assertIn("# Regression Manifest", text)
+            self.assertIn("Wall-clock elapsed: `1m 1s`", text)
+            self.assertIn("Est. serial runtime: `10m 12s`", text)
+            self.assertIn("Effective acceleration: `10.00×`", text)
+            self.assertIn("Search completed in **1m 1s** wall-clock time.", text)
             self.assertIn("<summary><strong>Navigation</strong></summary>", text)
             self.assertIn("- [Run Information](#run-information)", text)
             self.assertIn("- [Results](#results)", text)
