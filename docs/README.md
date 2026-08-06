@@ -191,14 +191,14 @@ Update this file when the project adopts a recurring convention expressed as “
 
 - Detector calibration and regression operate against the Golden Set.
 - `--threads` defaults to `1`; supported explicit values are powers of two from `1` through `1024`.
-- Runner thread limits are aggregate detector-thread budgets across concurrently active detector pipelines, not per-pipeline allowances. The GitHub-hosted budget is `8`; the E7K budget is `64`. Effective per-pipeline threads are clamped so `active pipelines × threads per pipeline` never exceeds the runner budget.
+- Runner thread limits are aggregate detector-thread budgets across concurrently active detector pipelines, not per-pipeline allowances. The GitHub-hosted budget is `8`; the E7K budget is `64`. One canonical execution plan supplies the queue, launcher, telemetry, and manifest. Explicit thread requests are capped by the equal per-pipeline budget; `auto` uses `floor(runner budget / active pipelines)`, including non-power-of-two values such as `21` when three E7K pipelines share 64 threads, so unused budget is minimized without exceeding the maximum. Named runner budgets are policy limits and may intentionally oversubscribe the logical CPUs reported inside a GitHub-hosted runner.
 - Regression execution summaries distinguish unique `Detectors`, concurrent `Detector pipelines`, and queued `Shards`; shard jobs must never be reported as detector algorithms.
 - A parameter-set limit is the total number of evaluated parameter sets including the baseline.
 - Parallelism must not change parameter generation, result metrics, deterministic ranking, or report ordering.
 - Parallel regressions record `completion_index` in actual parameter-completion order; merged shards reconstruct one global sequence for discovery and stabilization reporting.
 - Sharded reports distinguish measured wall-clock elapsed time from estimated serial runtime and report effective acceleration as serial runtime divided by wall-clock elapsed time.
 - Queue reports display `no history` when no compatible runtime observation exists.
-- Keep one aggregate heartbeat; do not emit independent heartbeat streams from evaluation threads.
+- Keep one aggregate heartbeat; do not emit independent heartbeat streams from evaluation threads. Queue-job lifecycle telemetry records UTC-timestamped `LOAD`, `START`, and `UNLOAD` events for every shard, including `1/1` for unsharded work. Pipeline staggering occurs between `LOAD` and `START`, making queue residence and execution time distinguishable.
 - Report search strategy and parameter-space scope before evaluation begins.
 - Preserve runner CPU, thread, throughput, memory, and workload telemetry for every regression so exhaustive runs can guide future automatic thread selection and non-exhaustive search design.
 

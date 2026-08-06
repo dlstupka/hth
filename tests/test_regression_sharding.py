@@ -8,6 +8,7 @@ from hth.regression.sharding import (
     budgeted_threads,
     best_smoke_observation,
     lease_expired,
+    plan_execution,
     plan_shards,
     runner_max_threads,
     write_lease,
@@ -19,12 +20,32 @@ def test_runner_profiles_and_auto_thread_thresholds() -> None:
     assert runner_max_threads("e7k") == 64
     assert runner_max_threads("e9k") == 32
     assert runner_max_threads("github-hosted") == 8
+    assert runner_max_threads("github-hosted", available_cpus=4) == 8
     assert automatic_threads(60, 64) == 1
     assert automatic_threads(6 * 60, 64) == 4
     assert automatic_threads(20 * 60, 64) == 8
     assert automatic_threads(31 * 60, 64) == 64
     assert budgeted_threads(16, runner_label="e7k", active_pipelines=4) == 16
     assert budgeted_threads(4, runner_label="github-hosted", active_pipelines=4) == 2
+
+
+def test_execution_plan_uses_the_aggregate_runner_budget() -> None:
+    github = plan_execution("auto", runner_label="github-hosted", active_pipelines=4)
+    assert github.runner_thread_budget == 8
+    assert github.threads_per_pipeline == 2
+    assert github.allocated_threads == 8
+    assert github.unused_threads == 0
+
+    e7k = plan_execution("auto", runner_label="e7k", active_pipelines=3)
+    assert e7k.runner_thread_budget == 64
+    assert e7k.threads_per_pipeline == 21
+    assert e7k.allocated_threads == 63
+    assert e7k.unused_threads == 1
+
+    capped = plan_execution(16, runner_label="e7k", active_pipelines=3)
+    assert capped.threads_per_pipeline == 16
+    assert capped.allocated_threads == 48
+    assert capped.unused_threads == 16
 
 
 def test_long_plan_is_sharded_and_short_plan_is_not() -> None:

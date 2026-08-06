@@ -761,22 +761,25 @@ jobs:
             effective_pipelines=$requested_pipelines
           fi
 
-          read -r runner_thread_budget per_pipeline_thread_budget < <(
-            python - "${HTH_RUNNER_LABEL:-}" "$effective_pipelines" <<'PYBUDGET'
+          read -r runner_thread_budget effective_threads_per_pipeline allocated_threads unused_threads < <(
+            python - "$THREADS" "${HTH_RUNNER_LABEL:-}" "$effective_pipelines" <<'PYBUDGET'
           import sys
-          from hth.regression.sharding import runner_max_threads
-          label, pipelines = sys.argv[1], max(1, int(sys.argv[2]))
-          budget = runner_max_threads(label)
-          print(budget, max(1, budget // pipelines))
+          from hth.regression.sharding import plan_execution
+          plan = plan_execution(
+              sys.argv[1],
+              runner_label=sys.argv[2],
+              active_pipelines=int(sys.argv[3]),
+          )
+          print(
+              plan.runner_thread_budget,
+              plan.threads_per_pipeline,
+              plan.allocated_threads,
+              plan.unused_threads,
+          )
           PYBUDGET
           )
           for ((task_index = 0; task_index < ${#task_threads[@]}; task_index++)); do
-            task_threads[$task_index]="$(python - "${task_threads[$task_index]}" "${HTH_RUNNER_LABEL:-}" "$effective_pipelines" <<'PYBUDGET'
-          import sys
-          from hth.regression.sharding import budgeted_threads
-          print(budgeted_threads(int(sys.argv[1]), runner_label=sys.argv[2], active_pipelines=int(sys.argv[3])))
-          PYBUDGET
-            )"
+            task_threads[$task_index]="$effective_threads_per_pipeline"
           done
 
           echo "Regression mode    : $REGRESSION_MODE"
@@ -785,7 +788,7 @@ jobs:
           echo "Detectors          : $detector_count"
           echo "Detector pipelines : $effective_pipelines (requested $requested_pipelines)"
           echo "Shards             : ${#detector_configs[@]}"
-          echo "Thread budget      : $runner_thread_budget total; $per_pipeline_thread_budget per active pipeline"
+          echo "Thread budget      : $runner_thread_budget total; $effective_threads_per_pipeline per active pipeline; $allocated_threads allocated; $unused_threads free"
           echo "Loading strategy   : ${DETECTOR_LOADING_STRATEGY}"
           echo "Pipeline stagger   : ${PIPELINE_STAGGER_MINUTES} minute(s)"
           echo
@@ -817,6 +820,7 @@ jobs:
           run_detector_config() {
             local task_index="$1"
             local pipeline_number="$2"
+            local start_delay_seconds="${3:-0}"
             local detector_config="${detector_configs[$task_index]}"
 
             if [[ ! -f "$detector_config" ]]; then
@@ -895,13 +899,22 @@ jobs:
               fi
             fi
 
-            local detector_started_epoch detector_finished_epoch detector_wall_seconds
-            detector_started_epoch="$(date +%s)"
+            local detector_loaded_epoch detector_started_epoch detector_finished_epoch detector_wall_seconds
+            local lifecycle_time
+            detector_loaded_epoch="$(date +%s)"
+            lifecycle_time="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
             echo
             echo "======================================================================"
-            echo "[pipeline $pipeline_number] LOAD detector=$detector_name"
+            echo "[pipeline $pipeline_number] LOAD detector=$detector_name shard=$((shard_index + 1))/$shard_count threads=$detector_threads time=$lifecycle_time"
             echo "[pipeline $pipeline_number] estimate=${detector_estimate}s source=${detector_estimate_source}"
             echo "[pipeline $pipeline_number] ranked_quality=${detector_ranked_quality}"
+            if (( start_delay_seconds > 0 )); then
+              echo "[pipeline $pipeline_number] WAIT detector=$detector_name shard=$((shard_index + 1))/$shard_count stagger=${start_delay_seconds}s"
+              sleep "$start_delay_seconds"
+            fi
+            detector_started_epoch="$(date +%s)"
+            lifecycle_time="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "[pipeline $pipeline_number] START detector=$detector_name shard=$((shard_index + 1))/$shard_count threads=$detector_threads time=$lifecycle_time"
             echo "======================================================================"
             echo "[pipeline $pipeline_number][$detector_name] Regression command:"
             printf '[pipeline %s][%s]' "$pipeline_number" "$detector_name"
@@ -955,6 +968,10 @@ jobs:
                 | tee "$task_log"; then
               kill "$lease_pid" 2>/dev/null || true
               wait "$lease_pid" 2>/dev/null || true
+              detector_finished_epoch="$(date +%s)"
+              detector_wall_seconds="$((detector_finished_epoch - detector_started_epoch))"
+              lifecycle_time="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+              echo "[pipeline $pipeline_number] UNLOAD detector=$detector_name shard=$((shard_index + 1))/$shard_count status=failed wall=${detector_wall_seconds}s time=$lifecycle_time"
               echo "::error::$detector_name regression command failed in pipeline $pipeline_number"
               return 1
             fi
@@ -976,8 +993,9 @@ jobs:
             printf '%s\n' "$run_dir" > "$queue_dir/run-dirs/$(printf '%04d' "$task_index")"
             detector_finished_epoch="$(date +%s)"
             detector_wall_seconds="$((detector_finished_epoch - detector_started_epoch))"
+            lifecycle_time="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
             echo "======================================================================"
-            echo "[pipeline $pipeline_number] UNLOAD detector=$detector_name status=complete wall=${detector_wall_seconds}s"
+            echo "[pipeline $pipeline_number] UNLOAD detector=$detector_name shard=$((shard_index + 1))/$shard_count status=complete wall=${detector_wall_seconds}s time=$lifecycle_time"
             echo "[pipeline $pipeline_number] Completed; pipeline is taking the next queued detector."
             echo "======================================================================"
           }
@@ -986,12 +1004,9 @@ jobs:
             local pipeline_index="$1"
             local pipeline_number=$((pipeline_index + 1))
             local delay_seconds=$((pipeline_index * PIPELINE_STAGGER_MINUTES * 60))
-            local task_index claimed
+            local task_index claimed task_start_delay
 
-            if (( delay_seconds > 0 )); then
-              echo "[pipeline $pipeline_number] Staggered start: waiting $((delay_seconds / 60)) minute(s)."
-              sleep "$delay_seconds"
-            fi
+            local first_task=1
             echo "[pipeline $pipeline_number] Started."
 
             while true; do
@@ -1024,7 +1039,12 @@ jobs:
                 return 0
               fi
 
-              if run_detector_config "$claimed" "$pipeline_number"; then
+              task_start_delay=0
+              if (( first_task == 1 )); then
+                task_start_delay="$delay_seconds"
+                first_task=0
+              fi
+              if run_detector_config "$claimed" "$pipeline_number" "$task_start_delay"; then
                 : > "$queue_dir/done/$claimed"
               else
                 : > "$queue_dir/failed/$claimed"

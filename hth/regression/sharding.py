@@ -32,23 +32,60 @@ class ShardPlan:
     estimate_source: str
 
 
+@dataclass(frozen=True)
+class ExecutionPlan:
+    runner_thread_budget: int
+    active_pipelines: int
+    requested_threads: str
+    threads_per_pipeline: int
+    allocated_threads: int
+    unused_threads: int
+
+
 def runner_max_threads(runner_label: str, available_cpus: int | None = None) -> int:
     label = (runner_label or "").strip().lower()
     configured = RUNNER_MAX_THREADS.get(label)
     if configured is None:
         configured = max(1, min(16, int(available_cpus or os.cpu_count() or 1)))
-    if available_cpus:
-        configured = min(configured, max(1, int(available_cpus)))
-    return max(value for value in ALLOWED_THREADS if value <= configured)
+    # Named runner profiles are policy budgets and may intentionally oversubscribe
+    # the logical CPUs reported inside a hosted runner.
+    return max(1, int(configured))
 
+
+def plan_execution(
+    requested_threads: str | int,
+    *,
+    runner_label: str,
+    active_pipelines: int,
+    available_cpus: int | None = None,
+) -> ExecutionPlan:
+    """Create the one authoritative detector-thread allocation for a build."""
+    pipelines = max(1, int(active_pipelines))
+    budget = runner_max_threads(runner_label, available_cpus)
+    per_pipeline_budget = max(1, budget // pipelines)
+    requested = str(requested_threads).strip().lower()
+    if requested == "auto":
+        threads = per_pipeline_budget
+    else:
+        threads = min(max(1, int(requested)), per_pipeline_budget)
+    allocated = threads * pipelines
+    return ExecutionPlan(
+        runner_thread_budget=budget,
+        active_pipelines=pipelines,
+        requested_threads=requested,
+        threads_per_pipeline=threads,
+        allocated_threads=allocated,
+        unused_threads=max(0, budget - allocated),
+    )
 
 
 def budgeted_threads(planned_threads: int, *, runner_label: str, active_pipelines: int) -> int:
-    """Clamp per-pipeline threads so all concurrent pipelines honor the runner budget."""
-    pipelines = max(1, int(active_pipelines))
-    per_pipeline_budget = max(1, runner_max_threads(runner_label) // pipelines)
-    usable = min(max(1, int(planned_threads)), per_pipeline_budget)
-    return max(value for value in ALLOWED_THREADS if value <= usable)
+    """Compatibility wrapper for explicit per-pipeline thread requests."""
+    return plan_execution(
+        planned_threads,
+        runner_label=runner_label,
+        active_pipelines=active_pipelines,
+    ).threads_per_pipeline
 
 def automatic_threads(serial_runtime_seconds: float | None, maximum: int) -> int:
     """Use the fewest useful threads for the estimated serial workload."""

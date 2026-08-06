@@ -41,8 +41,10 @@ def test_loading_strategies_runtime_index_and_announcements_are_wired() -> None:
         assert f"          - {strategy}" in text
     assert "python -m hth.runtime_store order" in text
     assert "results-repo/runtime-index.json" in text
-    assert "LOAD detector=$detector_name" in text
-    assert "UNLOAD detector=$detector_name status=complete" in text
+    assert "LOAD detector=$detector_name shard=$((shard_index + 1))/$shard_count" in text
+    assert "START detector=$detector_name shard=$((shard_index + 1))/$shard_count" in text
+    assert "UNLOAD detector=$detector_name shard=$((shard_index + 1))/$shard_count status=complete" in text
+    assert "time=$lifecycle_time" in text
     assert "git -C results-repo add calibration-index.json runtime-index.json source-documents/" in text
 
 
@@ -89,7 +91,8 @@ def test_execution_summary_and_merge_use_canonical_detector_shard_and_budget_cou
     assert 'detector_count=${#detector_configs[@]}' in text
     assert 'echo "Detectors          : $detector_count"' in text
     assert 'echo "Shards             : ${#detector_configs[@]}"' in text
-    assert 'from hth.regression.sharding import budgeted_threads' in text
+    assert 'from hth.regression.sharding import plan_execution' in text
+    assert 'task_threads[$task_index]="$effective_threads_per_pipeline"' in text
     assert 'rm -rf "$queue_dir" regression-output/.shards' in text
     assert '--expected-shard-count "$expected_detector_shards"' in text
     assert 'Missing completed shard' in text
