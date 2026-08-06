@@ -109,3 +109,10 @@ def test_runner_thread_budget_profile_survives_runner_diagnostics() -> None:
     assert "|| 'github-hosted' }}" in text
     assert 'echo "HTH_RUNNER_LABEL=${HTH_RUNNER_LABEL}" >> "$GITHUB_ENV"' in text
     assert 'echo "HTH_RUNNER_LABEL=${{ inputs.execution_target }}" >> "$GITHUB_ENV"' not in text
+
+
+def test_detector_pipeline_validation_accepts_any_integer_within_runner_budget() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "Detector pipelines must be one of 1, 2, 4, or 8" not in text
+    assert 'if [[ ! "$requested_pipelines" =~ ^[0-9]+$ ]] || (( requested_pipelines < 1 || requested_pipelines > runner_pipeline_max )); then' in text
+    assert 'Detector pipelines must be an integer from 1 through runner budget $runner_pipeline_max' in text

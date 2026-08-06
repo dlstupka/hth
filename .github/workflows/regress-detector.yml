@@ -625,10 +625,6 @@ jobs:
             exit 1
           fi
 
-          if [[ ! "${DETECTOR_PIPELINES:-4}" =~ ^(1|2|4|8)$ ]]; then
-            echo "::error::Detector pipelines must be one of 1, 2, 4, or 8: ${DETECTOR_PIPELINES:-}"
-            exit 1
-          fi
           if [[ ! "${PIPELINE_STAGGER_MINUTES:-0}" =~ ^[0-9]+$ ]]; then
             echo "::error::Pipeline stagger must be a non-negative whole number of minutes: ${PIPELINE_STAGGER_MINUTES:-}"
             exit 1

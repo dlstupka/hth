@@ -54,7 +54,7 @@ For a manual run, the **Algorithm** input is a choice of `all`, `contour`, `cont
 
 ### Concurrent detector pipelines
 
-Every multi-detector regression uses a dynamic detector queue. Four detector pipelines run by default for automatic smoke tests and for manually dispatched runs with **Algorithm = all**. Manual builds may select 1, 2, 4, or 8 detector pipelines. A single-detector selection always uses one detector pipeline regardless of the requested multi-detector value.
+Every multi-detector regression uses a dynamic detector queue. Four detector pipelines run by default for automatic smoke tests and for manually dispatched runs with **Algorithm = all**. Manual builds may select any whole-number detector pipeline count from 1 through the selected runner's aggregate detector-thread budget. A single-detector selection always uses one detector pipeline regardless of the requested multi-detector value.
 
 Each pipeline takes the next unclaimed detector shard, runs it with the thread count from the build's canonical execution plan, and immediately takes another queued shard when it finishes. Pipelines remain occupied until the queue is empty; the workflow then waits only for the slowest remaining regression jobs. The runner budget is aggregate across active pipelines: GitHub-hosted runs use 8 detector threads total and E7K uses 64. Explicit thread requests act as a per-pipeline cap. `auto` divides the aggregate budget equally across active pipelines and may choose a non-power-of-two value, such as 21 threads for each of three active E7K pipelines.
 
