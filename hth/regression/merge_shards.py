@@ -89,16 +89,30 @@ def _results_from_raw(path: Path) -> list[dict[str, Any]]:
     return results
 
 
-def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int = 20, *, golden_set: Path | None = None, image_root: Path | None = None, max_dimension: int = 1800, debug_level: str = "none") -> Path:
+def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int = 20, *, expected_shard_count: int | None = None, golden_set: Path | None = None, image_root: Path | None = None, max_dimension: int = 1800, debug_level: str = "none") -> Path:
     if not shard_dirs:
         raise ValueError("No shard directories supplied")
     infos = [_read(path / "RUN-INFO.json") for path in shard_dirs]
     summaries = [_read(path / "reports" / "summary.json") for path in shard_dirs]
     detector = str(infos[0]["detector"])
-    expected = int(infos[0].get("shard_count") or summaries[0].get("shard", {}).get("count") or 1)
-    found = {int(info.get("shard_index") or summary.get("shard", {}).get("index") or 0) for info, summary in zip(infos, summaries)}
-    if found != set(range(expected)):
-        raise ValueError(f"Incomplete shard set: expected {expected}, found {sorted(found)}")
+    metadata_counts = {
+        int(info.get("shard_count") or summary.get("shard", {}).get("count") or 1)
+        for info, summary in zip(infos, summaries)
+    }
+    expected = int(expected_shard_count) if expected_shard_count is not None else max(metadata_counts)
+    found = {
+        int(info.get("shard_index") if info.get("shard_index") is not None else summary.get("shard", {}).get("index") or 0)
+        for info, summary in zip(infos, summaries)
+    }
+    expected_indexes = set(range(expected))
+    missing = sorted(expected_indexes - found)
+    extra = sorted(found - expected_indexes)
+    if len(metadata_counts) != 1 or missing or extra:
+        raise ValueError(
+            "Invalid shard set: "
+            f"expected_count={expected}, metadata_counts={sorted(metadata_counts)}, "
+            f"found={sorted(found)}, missing={missing}, extra={extra}"
+        )
 
     starts = [_parse_time(str(info["started_at_utc"])) for info in infos]
     start = min(starts)
@@ -276,12 +290,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--detector-config", type=Path, required=True)
     parser.add_argument("--top", type=int, default=20)
+    parser.add_argument("--expected-shard-count", type=int)
     parser.add_argument("--golden-set", type=Path)
     parser.add_argument("--image-root", type=Path)
     parser.add_argument("--max-dimension", type=int, default=1800)
     parser.add_argument("--debug-level", choices=("none", "basic", "verbose"), default="none")
     args = parser.parse_args(argv)
-    print(merge(args.shard_dir, args.output, args.detector_config, args.top, golden_set=args.golden_set, image_root=args.image_root, max_dimension=args.max_dimension, debug_level=args.debug_level))
+    print(merge(args.shard_dir, args.output, args.detector_config, args.top, expected_shard_count=args.expected_shard_count, golden_set=args.golden_set, image_root=args.image_root, max_dimension=args.max_dimension, debug_level=args.debug_level))
     return 0
 
 

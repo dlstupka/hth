@@ -651,7 +651,7 @@ def print_parameter_scope(*, strategy: str, possible_sets: int, planned_sets: in
             "Planned Page Evaluations",
             planned_sets * golden_pages if planned_sets is not None else "adaptive / unknown",
         ),
-        ("Parameter-set Limit", limit if limit is not None else "unlimited"),
+        ("Parameter-set Limit", f"{limit} total (including baseline)" if limit is not None else "unlimited"),
         ("Threads", threads),
         ("Shard", f"{shard_index + 1} of {shard_count}"),
         ("Shard Assignment", "interleaved" if shard_count > 1 else "unsharded"),
@@ -723,7 +723,8 @@ def run(args:argparse.Namespace)->Path:
             if canonical_parameters(parameters) != baseline_key
         ]
         if args.limit is not None:
-            exhaustive_candidates=exhaustive_candidates[:args.limit]
+            # The execution limit is the total number of parameter sets, including baseline.
+            exhaustive_candidates=exhaustive_candidates[:max(0, args.limit - 1)]
         full_exhaustive_candidate_count=len(exhaustive_candidates)
         if args.shard_count > 1:
             exhaustive_candidates=[

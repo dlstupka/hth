@@ -12,14 +12,14 @@ from typing import Any
 TARGET_SHARD_SECONDS = 30 * 60
 SAFETY_FACTOR = 1.20
 RUNNER_MAX_THREADS = {
-    "e7k": 48,
+    "e7k": 64,
     "e9k": 32,
-    "github-hosted": 4,
+    "github-hosted": 8,
     "hth": 16,
     "rhel8": 16,
     "windows": 8,
 }
-ALLOWED_THREADS = (1, 2, 4, 8, 16, 32, 48)
+ALLOWED_THREADS = (1, 2, 4, 8, 16, 32, 48, 64)
 
 
 @dataclass(frozen=True)
@@ -41,6 +41,14 @@ def runner_max_threads(runner_label: str, available_cpus: int | None = None) -> 
         configured = min(configured, max(1, int(available_cpus)))
     return max(value for value in ALLOWED_THREADS if value <= configured)
 
+
+
+def budgeted_threads(planned_threads: int, *, runner_label: str, active_pipelines: int) -> int:
+    """Clamp per-pipeline threads so all concurrent pipelines honor the runner budget."""
+    pipelines = max(1, int(active_pipelines))
+    per_pipeline_budget = max(1, runner_max_threads(runner_label) // pipelines)
+    usable = min(max(1, int(planned_threads)), per_pipeline_budget)
+    return max(value for value in ALLOWED_THREADS if value <= usable)
 
 def automatic_threads(serial_runtime_seconds: float | None, maximum: int) -> int:
     """Use the fewest useful threads for the estimated serial workload."""

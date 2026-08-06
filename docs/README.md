@@ -191,6 +191,9 @@ Update this file when the project adopts a recurring convention expressed as “
 
 - Detector calibration and regression operate against the Golden Set.
 - `--threads` defaults to `1`; supported explicit values are powers of two from `1` through `1024`.
+- Runner thread limits are aggregate detector-thread budgets across concurrently active detector pipelines, not per-pipeline allowances. The GitHub-hosted budget is `8`; the E7K budget is `64`. Effective per-pipeline threads are clamped so `active pipelines × threads per pipeline` never exceeds the runner budget.
+- Regression execution summaries distinguish unique `Detectors`, concurrent `Detector pipelines`, and queued `Shards`; shard jobs must never be reported as detector algorithms.
+- A parameter-set limit is the total number of evaluated parameter sets including the baseline.
 - Parallelism must not change parameter generation, result metrics, deterministic ranking, or report ordering.
 - Parallel regressions record `completion_index` in actual parameter-completion order; merged shards reconstruct one global sequence for discovery and stabilization reporting.
 - Sharded reports distinguish measured wall-clock elapsed time from estimated serial runtime and report effective acceleration as serial runtime divided by wall-clock elapsed time.

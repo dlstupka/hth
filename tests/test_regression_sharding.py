@@ -5,6 +5,7 @@ from pathlib import Path
 
 from hth.regression.sharding import (
     automatic_threads,
+    budgeted_threads,
     best_smoke_observation,
     lease_expired,
     plan_shards,
@@ -15,12 +16,15 @@ from hth.regression.runner import parse_args
 
 
 def test_runner_profiles_and_auto_thread_thresholds() -> None:
-    assert runner_max_threads("e7k") == 48
+    assert runner_max_threads("e7k") == 64
     assert runner_max_threads("e9k") == 32
-    assert automatic_threads(60, 48) == 1
-    assert automatic_threads(6 * 60, 48) == 4
-    assert automatic_threads(20 * 60, 48) == 8
-    assert automatic_threads(31 * 60, 48) == 48
+    assert runner_max_threads("github-hosted") == 8
+    assert automatic_threads(60, 64) == 1
+    assert automatic_threads(6 * 60, 64) == 4
+    assert automatic_threads(20 * 60, 64) == 8
+    assert automatic_threads(31 * 60, 64) == 64
+    assert budgeted_threads(16, runner_label="e7k", active_pipelines=4) == 16
+    assert budgeted_threads(4, runner_label="github-hosted", active_pipelines=4) == 2
 
 
 def test_long_plan_is_sharded_and_short_plan_is_not() -> None:

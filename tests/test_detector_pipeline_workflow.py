@@ -82,3 +82,14 @@ def test_auto_threads_shards_and_expiring_leases_are_wired() -> None:
     assert "Reclaiming expired shard lease" in text
     assert "python -m hth.regression.merge_shards" in text
     assert 'runner_label=runner_label' in text
+
+
+def test_execution_summary_and_merge_use_canonical_detector_shard_and_budget_counts() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert 'detector_count=${#detector_configs[@]}' in text
+    assert 'echo "Detectors          : $detector_count"' in text
+    assert 'echo "Shards             : ${#detector_configs[@]}"' in text
+    assert 'from hth.regression.sharding import budgeted_threads' in text
+    assert 'rm -rf "$queue_dir" regression-output/.shards' in text
+    assert '--expected-shard-count "$expected_detector_shards"' in text
+    assert 'Missing completed shard' in text

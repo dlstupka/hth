@@ -37,7 +37,7 @@ class RegressionParallelismTests(unittest.TestCase):
             print_parameter_scope(
                 strategy="exhaustive",
                 possible_sets=212576,
-                planned_sets=11,
+                planned_sets=10,
                 golden_pages=5,
                 threads=32,
                 limit=10,
@@ -47,8 +47,9 @@ class RegressionParallelismTests(unittest.TestCase):
         separators = {line.index(":") for line in scope_rows}
         self.assertEqual(separators, {25})
         self.assertIn("Possible Parameter Sets  : 212576", scope_rows)
-        self.assertIn("Planned Parameter Sets   : 11", scope_rows)
-        self.assertIn("Planned Page Evaluations : 55", scope_rows)
+        self.assertIn("Planned Parameter Sets   : 10", scope_rows)
+        self.assertIn("Planned Page Evaluations : 50", scope_rows)
+        self.assertIn("Parameter-set Limit      : 10 total (including baseline)", lines)
         self.assertIn("Threads                  : 32", scope_rows)
 
     def test_performance_sampler_writes_thread_and_throughput_sample(self) -> None:
