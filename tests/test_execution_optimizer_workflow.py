@@ -40,3 +40,31 @@ def test_execution_optimizer_publishes_optimizer_table_heatmap_and_index() -> No
     assert 'execution-optimizer/$ALGORITHM/summary.md' in text
     assert 'execution-optimizer/$ALGORITHM/heatmap.svg' in text
     assert "Execution optimizer heat map" in text
+
+
+def test_execution_optimizer_validates_selected_runner_with_regression_setup() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "name: Validate selected runner and enumerate shapes" in text
+    assert "inputs.runner == 'self-hosted-e7k'" in text
+    assert "fromJSON('[\"self-hosted\",\"Linux\",\"X64\",\"e7k\"]')" in text
+    for step in (
+        "Runner diagnostics",
+        "Set up Python — GitHub-hosted Linux",
+        "Verify Python — self-hosted Linux",
+        "Create isolated Python environment",
+        "Install dependencies",
+        "Verify Python dependency ABI",
+        "Show toolchain environment",
+        "Show OpenCV build",
+        "Benchmark OpenCV",
+    ):
+        assert f"- name: {step}" in text
+
+
+def test_execution_optimizer_controller_does_not_hold_selected_runner_and_emits_heartbeat() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "name: Dispatch and monitor execution shapes" in text
+    assert "needs: prepare" in text
+    assert "runs-on: ubuntu-latest" in text
+    assert "[optimizer heartbeat]" in text
+    assert "gh run watch \"$run_id\" --exit-status" in text
