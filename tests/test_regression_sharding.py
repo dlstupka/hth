@@ -88,3 +88,10 @@ def test_runner_accepts_valid_shard_arguments() -> None:
         "--shard-index", "2", "--shard-count", "4",
     ])
     assert (args.shard_index, args.shard_count) == (2, 4)
+
+
+def test_named_optimization_runner_budgets_are_twice_vcpu_policy() -> None:
+    from hth.regression.sharding import runner_max_threads
+
+    assert runner_max_threads("e7k") == 192
+    assert runner_max_threads("e9k") == 64

@@ -1,0 +1,254 @@
+name: HTH execution optimizer
+
+run-name: >-
+  Optimize ${{ inputs.algorithm }} execution on ${{ inputs.runner }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      algorithm:
+        description: Single detector algorithm to benchmark
+        required: true
+        default: adaptive_radial_edge
+        type: choice
+        options:
+          - contour
+          - contour_quad
+          - contour_components
+          - contour_projection
+          - contour_grabcut
+          - grabcut_contour
+          - consensus_quad
+          - edge_contour
+          - cross_edge_contour
+          - gradient_vote
+          - radial_edge
+          - adaptive_radial_edge
+          - border_energy
+          - components
+          - ransac
+          - grabcut
+          - hough
+          - lsd
+      runner:
+        description: Execution runner
+        required: true
+        default: self-hosted-e7k
+        type: choice
+        options:
+          - self-hosted-e7k
+          - self-hosted-e9k
+          - self-hosted-hth
+          - self-hosted-rhel8
+          - self-hosted-windows
+          - github-hosted
+      pipeline_range:
+        description: Pipeline enumeration mode
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - manual
+      pipeline_min:
+        description: Manual minimum pipelines, inclusive
+        required: false
+        default: "1"
+        type: string
+      pipeline_max:
+        description: Manual maximum pipelines, inclusive
+        required: false
+        default: "16"
+        type: string
+      results_repository:
+        description: Repository containing preprocessed images and intelligence indexes
+        required: true
+        default: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
+        type: string
+      golden_set:
+        description: Golden Set configuration
+        required: true
+        default: config/golden_set.json
+        type: string
+      image_root:
+        description: Image directory inside the results repository
+        required: true
+        default: test/latest/raw
+        type: string
+      max_dimension:
+        description: Maximum analysis image dimension
+        required: true
+        default: "1800"
+        type: string
+      strategy:
+        description: Regression search strategy
+        required: true
+        default: exhaustive
+        type: choice
+        options:
+          - exhaustive
+          - non-dormant
+          - low+
+          - moderate+
+          - important+
+          - critical
+      debug_level:
+        description: Debug image detail
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - basic
+          - verbose
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: execution-optimizer-${{ github.ref }}-${{ inputs.runner }}-${{ inputs.algorithm }}
+  cancel-in-progress: false
+
+jobs:
+  optimize:
+    name: Enumerate execution shapes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
+
+      - name: Build pipeline enumeration
+        id: plan
+        shell: bash
+        env:
+          RANGE_MODE: ${{ inputs.pipeline_range }}
+          PIPELINE_MIN: ${{ inputs.pipeline_min }}
+          PIPELINE_MAX: ${{ inputs.pipeline_max }}
+          RUNNER: ${{ inputs.runner }}
+        run: |
+          set -euo pipefail
+          runner_label="${RUNNER#self-hosted-}"
+          [[ "$RUNNER" == "github-hosted" ]] && runner_label="github-hosted"
+          budget="$(PYTHONPATH=. python - "$runner_label" <<'PY'
+          import sys
+          from hth.regression.sharding import runner_max_threads
+          print(runner_max_threads(sys.argv[1]))
+          PY
+          )"
+
+          if [[ "$RANGE_MODE" == "manual" ]]; then
+            if [[ ! "$PIPELINE_MIN" =~ ^[1-9][0-9]*$ || ! "$PIPELINE_MAX" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::Manual pipeline minimum and maximum must be positive whole numbers"
+              exit 1
+            fi
+            if (( PIPELINE_MIN > PIPELINE_MAX || PIPELINE_MAX > budget )); then
+              echo "::error::Manual pipeline range must satisfy 1 <= min <= max <= runner budget $budget"
+              exit 1
+            fi
+            pipelines="$(seq -s, "$PIPELINE_MIN" "$PIPELINE_MAX")"
+          else
+            pipelines="$(python - "$budget" <<'PY'
+          import sys
+          budget = int(sys.argv[1])
+          preferred = [1, 2, 4, 8, 16, 32, 64, 96, 128, 192]
+          values = [value for value in preferred if value <= budget]
+          if budget not in values:
+              values.append(budget)
+          print(",".join(str(value) for value in sorted(set(values))))
+          PY
+            )"
+          fi
+
+          echo "runner_label=$runner_label" >> "$GITHUB_OUTPUT"
+          echo "runner_budget=$budget" >> "$GITHUB_OUTPUT"
+          echo "pipelines=$pipelines" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Execution optimizer plan"
+            echo
+            echo "- Runner profile: \`$runner_label\`"
+            echo "- Aggregate detector-thread budget: **$budget**"
+            echo "- Pipeline candidates: \`$pipelines\`"
+            echo "- Threads: \`auto\` (budget divided across active pipelines)"
+            echo "- Shards: equal to requested pipelines"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run execution-shape experiments
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PIPELINES: ${{ steps.plan.outputs.pipelines }}
+          ALGORITHM: ${{ inputs.algorithm }}
+          RUNNER: ${{ inputs.runner }}
+          RESULTS_REPOSITORY: ${{ inputs.results_repository }}
+          GOLDEN_SET: ${{ inputs.golden_set }}
+          IMAGE_ROOT: ${{ inputs.image_root }}
+          MAX_DIMENSION: ${{ inputs.max_dimension }}
+          STRATEGY: ${{ inputs.strategy }}
+          DEBUG_LEVEL: ${{ inputs.debug_level }}
+        run: |
+          set -euo pipefail
+          IFS=',' read -r -a candidates <<< "$PIPELINES"
+          failures=0
+          {
+            echo
+            echo "### Execution optimizer results"
+            echo
+            echo "| Pipelines | Threads | Shards | Child run | Result |"
+            echo "|---:|---:|---:|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for pipelines in "${candidates[@]}"; do
+            dispatched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "Dispatching $ALGORITHM with pipelines=$pipelines shards=$pipelines threads=auto"
+            gh workflow run regress-detector.yml \
+              --ref "$GITHUB_REF_NAME" \
+              -f algorithm="$ALGORITHM" \
+              -f golden_set="$GOLDEN_SET" \
+              -f results_repository="$RESULTS_REPOSITORY" \
+              -f image_root="$IMAGE_ROOT" \
+              -f strategy="$STRATEGY" \
+              -f limit="" \
+              -f max_dimension="$MAX_DIMENSION" \
+              -f threads=auto \
+              -f shards="$pipelines" \
+              -f shard_target_minutes=30 \
+              -f shard_lease_minutes=5 \
+              -f detector_pipelines="$pipelines" \
+              -f detector_loading_strategy=lpt \
+              -f pipeline_stagger_minutes=0 \
+              -f top=20 \
+              -f debug_level="$DEBUG_LEVEL" \
+              -f mode=full \
+              -f runner="$RUNNER"
+
+            run_id=""
+            for _ in {1..30}; do
+              run_id="$(gh run list --workflow regress-detector.yml --branch "$GITHUB_REF_NAME" --event workflow_dispatch --limit 20 --json databaseId,createdAt \
+                --jq ".[] | select(.createdAt >= \"$dispatched_at\") | .databaseId" | head -1)"
+              [[ -n "$run_id" ]] && break
+              sleep 2
+            done
+            if [[ -z "$run_id" ]]; then
+              echo "::error::Unable to identify child run for pipelines=$pipelines"
+              failures=$((failures + 1))
+              continue
+            fi
+
+            run_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$run_id"
+            if gh run watch "$run_id" --exit-status; then
+              result="success"
+            else
+              result="failed"
+              failures=$((failures + 1))
+            fi
+            budget=${{ steps.plan.outputs.runner_budget }}
+            threads=$(( budget / pipelines ))
+            (( threads < 1 )) && threads=1
+            echo "| $pipelines | $threads | $pipelines | [#$run_id]($run_url) | $result |" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          if (( failures > 0 )); then
+            echo "::error::$failures execution optimizer experiment(s) failed"
+            exit 1
+          fi

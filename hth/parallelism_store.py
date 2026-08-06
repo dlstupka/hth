@@ -2,13 +2,15 @@
 """Persist execution-shape observations for detector parallelism experiments."""
 from __future__ import annotations
 
+import hashlib
 import json
+import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-PARALLELISM_INDEX_SCHEMA_VERSION = "1.0"
-MAX_OBSERVATIONS_PER_DETECTOR = 200
+PARALLELISM_INDEX_SCHEMA_VERSION = "2.0"
+MAX_OBSERVATIONS_PER_DETECTOR = 500
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -37,6 +39,11 @@ def _as_float(value: Any) -> float | None:
         return None
 
 
+def _canonical_hash(payload: Any) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, Any]:
     info = _read_json(run_dir / "RUN-INFO.json")
     summary = _read_json(run_dir / "reports" / "summary.json")
@@ -44,6 +51,7 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
     shard = info.get("shard") if isinstance(info.get("shard"), dict) else {}
     runner = summary.get("runner") if isinstance(summary.get("runner"), dict) else {}
     parameter_space = summary.get("parameter_space") if isinstance(summary.get("parameter_space"), dict) else {}
+    golden = summary.get("golden_set") if isinstance(summary.get("golden_set"), dict) else {}
 
     threads = max(1, _as_int(info.get("threads") or summary.get("threads")) or 1)
     shards = max(1, _as_int(info.get("shard_count") or shard.get("count")) or 1)
@@ -51,39 +59,87 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
         pipeline.get("pipeline_count")
         or pipeline.get("count")
         or pipeline.get("detector_pipelines")
-    ) or min(shards, 1))
+    ) or 1)
     active_pipelines = min(pipelines, shards)
+    allocated_threads = active_pipelines * threads
     wall = _as_float(info.get("wall_elapsed_seconds") or info.get("elapsed_seconds") or summary.get("elapsed_seconds"))
     serial = _as_float(info.get("estimated_serial_runtime_seconds") or summary.get("estimated_serial_runtime_seconds"))
     acceleration = _as_float(info.get("effective_acceleration") or summary.get("effective_acceleration"))
     if acceleration is None and wall and serial and wall > 0:
         acceleration = serial / wall
 
+    possible_sets = _as_int(info.get("possible_parameter_sets") or parameter_space.get("possible_parameter_sets"))
+    actual_sets = _as_int(info.get("actual_parameter_sets") or parameter_space.get("actual_parameter_sets"))
+    page_count = _as_int(info.get("golden_set_pages") or golden.get("pages") or summary.get("golden_set_pages"))
+    page_evaluations = _as_int(info.get("planned_page_evaluations") or summary.get("page_evaluations"))
+    if page_evaluations is None and actual_sets is not None and page_count is not None:
+        page_evaluations = actual_sets * page_count
+
+    runner_label = build.get("runner_label") or info.get("runner_label")
+    detector_config_sha256 = info.get("detector_config_sha256") or summary.get("detector_config_sha256")
+    golden_sha = info.get("golden_set_sha256") or summary.get("golden_set_sha256")
+    compatibility = {
+        "detector_id": info.get("detector") or summary.get("detector") or "unknown",
+        "detector_config_sha256": detector_config_sha256,
+        "golden_set_sha256": golden_sha,
+        "mode": build.get("mode"),
+        "strategy": info.get("strategy") or summary.get("strategy"),
+        "possible_parameter_sets": possible_sets,
+        "actual_parameter_sets": actual_sets,
+        "max_dimension": _as_int(info.get("max_dimension") or summary.get("max_dimension")),
+        "runner_label": runner_label,
+    }
+    shape = {
+        "shards": shards,
+        "active_pipelines": active_pipelines,
+        "threads_per_pipeline": threads,
+        "allocated_threads": allocated_threads,
+    }
+
     return {
         "observation_id": f"{build.get('github_run_id', 'local')}:{info.get('run_id', run_dir.name)}",
         "observed_at_utc": info.get("finished_at_utc") or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "run_id": info.get("run_id") or run_dir.name,
-        "detector_id": info.get("detector") or summary.get("detector") or "unknown",
-        "mode": build.get("mode"),
-        "strategy": info.get("strategy") or summary.get("strategy"),
-        "golden_set_sha256": info.get("golden_set_sha256") or summary.get("golden_set_sha256"),
-        "possible_parameter_sets": _as_int(info.get("possible_parameter_sets") or parameter_space.get("possible_parameter_sets")),
-        "actual_parameter_sets": _as_int(info.get("actual_parameter_sets") or parameter_space.get("actual_parameter_sets")),
-        "shards": shards,
-        "active_pipelines": active_pipelines,
-        "threads_per_pipeline": threads,
-        "allocated_threads": active_pipelines * threads,
+        "detector_id": compatibility["detector_id"],
+        "mode": compatibility["mode"],
+        "strategy": compatibility["strategy"],
+        "golden_set_sha256": golden_sha,
+        "detector_config_sha256": detector_config_sha256,
+        "possible_parameter_sets": possible_sets,
+        "actual_parameter_sets": actual_sets,
+        "golden_set_pages": page_count,
+        "page_evaluations": page_evaluations,
+        "max_dimension": compatibility["max_dimension"],
+        "compatibility_key": _canonical_hash(compatibility),
+        "execution_shape": f"{active_pipelines}p/{shards}s/{threads}t",
+        **shape,
         "wall_clock_seconds": wall,
         "estimated_serial_runtime_seconds": serial,
         "effective_acceleration": acceleration,
+        "parallel_efficiency": (acceleration / allocated_threads) if acceleration is not None and allocated_threads else None,
+        "allocated_thread_seconds": (wall * allocated_threads) if wall is not None else None,
+        "parameter_sets_per_second": (actual_sets / wall) if wall and actual_sets is not None else None,
+        "page_evaluations_per_second": (page_evaluations / wall) if wall and page_evaluations is not None else None,
         "runner": {
+            "runner_label": runner_label,
             "runner_name": runner.get("runner_name") or info.get("runner_name"),
             "runner_labels": runner.get("github_runner_labels") or info.get("github_runner_labels"),
             "cpu_model": runner.get("cpu_model") or info.get("cpu_model"),
+            "physical_core_count": _as_int(runner.get("physical_core_count") or info.get("physical_core_count")),
             "logical_cpu_count": _as_int(runner.get("logical_cpu_count") or info.get("logical_cpu_count")),
+            "memory_gib": _as_float(runner.get("memory_gib") or info.get("memory_gib")),
         },
         "build": build,
     }
+
+
+def _is_comparable(row: dict[str, Any]) -> bool:
+    return (
+        row.get("mode") == "full"
+        and row.get("strategy") == "exhaustive"
+        and _as_int(row.get("actual_parameter_sets")) == _as_int(row.get("possible_parameter_sets"))
+        and (_as_float(row.get("wall_clock_seconds")) or 0) > 0
+    )
 
 
 def update_parallelism_index(results_root: Path, observations: Iterable[dict[str, Any]]) -> dict[str, Any]:
@@ -91,7 +147,7 @@ def update_parallelism_index(results_root: Path, observations: Iterable[dict[str
     if path.is_file():
         index = _read_json(path)
     else:
-        index = {"schema_version": PARALLELISM_INDEX_SCHEMA_VERSION, "observations": [], "best": {}}
+        index = {"schema_version": PARALLELISM_INDEX_SCHEMA_VERSION, "observations": []}
 
     by_id = {
         str(item.get("observation_id")): item
@@ -101,41 +157,90 @@ def update_parallelism_index(results_root: Path, observations: Iterable[dict[str
     for observation in observations:
         by_id[str(observation["observation_id"])] = observation
 
-    grouped: dict[str, list[dict[str, Any]]] = {}
+    grouped_by_detector: dict[str, list[dict[str, Any]]] = {}
     for item in by_id.values():
-        grouped.setdefault(str(item.get("detector_id") or "unknown"), []).append(item)
+        grouped_by_detector.setdefault(str(item.get("detector_id") or "unknown"), []).append(item)
 
     trimmed: list[dict[str, Any]] = []
-    best: dict[str, dict[str, Any]] = {}
-    for detector, items in grouped.items():
+    for items in grouped_by_detector.values():
         items.sort(key=lambda row: str(row.get("observed_at_utc") or ""), reverse=True)
-        kept = items[:MAX_OBSERVATIONS_PER_DETECTOR]
-        trimmed.extend(kept)
-        comparable = [
-            row for row in kept
-            if row.get("mode") == "full"
-            and row.get("strategy") == "exhaustive"
-            and _as_int(row.get("actual_parameter_sets")) == _as_int(row.get("possible_parameter_sets"))
-            and _as_float(row.get("wall_clock_seconds")) not in (None, 0.0)
-        ]
-        if comparable:
-            winner = min(comparable, key=lambda row: float(row["wall_clock_seconds"]))
-            best[detector] = {
-                "observation_id": winner.get("observation_id"),
-                "shards": winner.get("shards"),
-                "active_pipelines": winner.get("active_pipelines"),
-                "threads_per_pipeline": winner.get("threads_per_pipeline"),
-                "allocated_threads": winner.get("allocated_threads"),
-                "wall_clock_seconds": winner.get("wall_clock_seconds"),
-                "effective_acceleration": winner.get("effective_acceleration"),
+        trimmed.extend(items[:MAX_OBSERVATIONS_PER_DETECTOR])
+
+    comparable = [row for row in trimmed if _is_comparable(row)]
+    best_by_compatibility: dict[str, dict[str, Any]] = {}
+    shape_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in comparable:
+        compatibility_key = str(row.get("compatibility_key") or "legacy")
+        shape_key = str(row.get("execution_shape") or "unknown")
+        shape_groups.setdefault((compatibility_key, shape_key), []).append(row)
+        current = best_by_compatibility.get(compatibility_key)
+        if current is None or float(row["wall_clock_seconds"]) < float(current["wall_clock_seconds"]):
+            best_by_compatibility[compatibility_key] = row
+
+    shape_summaries: list[dict[str, Any]] = []
+    for (compatibility_key, shape_key), rows in shape_groups.items():
+        walls = sorted(float(row["wall_clock_seconds"]) for row in rows)
+        fastest = min(rows, key=lambda row: float(row["wall_clock_seconds"]))
+        latest = max(rows, key=lambda row: str(row.get("observed_at_utc") or ""))
+        shape_summaries.append({
+            "compatibility_key": compatibility_key,
+            "detector_id": fastest.get("detector_id"),
+            "execution_shape": shape_key,
+            "shards": fastest.get("shards"),
+            "active_pipelines": fastest.get("active_pipelines"),
+            "threads_per_pipeline": fastest.get("threads_per_pipeline"),
+            "allocated_threads": fastest.get("allocated_threads"),
+            "observation_count": len(rows),
+            "fastest_wall_clock_seconds": walls[0],
+            "median_wall_clock_seconds": statistics.median(walls),
+            "latest_wall_clock_seconds": latest.get("wall_clock_seconds"),
+            "fastest_observation_id": fastest.get("observation_id"),
+            "latest_observation_id": latest.get("observation_id"),
+        })
+
+    best_compact = {
+        key: {
+            "observation_id": row.get("observation_id"),
+            "detector_id": row.get("detector_id"),
+            "execution_shape": row.get("execution_shape"),
+            "shards": row.get("shards"),
+            "active_pipelines": row.get("active_pipelines"),
+            "threads_per_pipeline": row.get("threads_per_pipeline"),
+            "allocated_threads": row.get("allocated_threads"),
+            "wall_clock_seconds": row.get("wall_clock_seconds"),
+            "effective_acceleration": row.get("effective_acceleration"),
+            "parallel_efficiency": row.get("parallel_efficiency"),
+        }
+        for key, row in best_by_compatibility.items()
+    }
+
+    # Preserve the convenient detector-level best view for existing readers while
+    # the compatibility-scoped optimizer uses best_by_compatibility.
+    best_by_detector: dict[str, dict[str, Any]] = {}
+    for row in comparable:
+        detector = str(row.get("detector_id") or "unknown")
+        current = best_by_detector.get(detector)
+        if current is None or float(row["wall_clock_seconds"]) < float(current["wall_clock_seconds"]):
+            best_by_detector[detector] = {
+                "observation_id": row.get("observation_id"),
+                "execution_shape": row.get("execution_shape"),
+                "shards": row.get("shards"),
+                "active_pipelines": row.get("active_pipelines"),
+                "threads_per_pipeline": row.get("threads_per_pipeline"),
+                "allocated_threads": row.get("allocated_threads"),
+                "wall_clock_seconds": row.get("wall_clock_seconds"),
+                "effective_acceleration": row.get("effective_acceleration"),
             }
 
     trimmed.sort(key=lambda row: (str(row.get("detector_id")), str(row.get("observed_at_utc") or "")))
+    shape_summaries.sort(key=lambda row: (str(row.get("detector_id")), str(row.get("compatibility_key")), float(row.get("fastest_wall_clock_seconds") or 0)))
     index.update({
         "schema_version": PARALLELISM_INDEX_SCHEMA_VERSION,
         "updated_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "observations": trimmed,
-        "best": best,
+        "shape_summaries": shape_summaries,
+        "best_by_compatibility": best_compact,
+        "best": best_by_detector,
     })
     _write_json(path, index)
     return index

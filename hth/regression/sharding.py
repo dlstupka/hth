@@ -12,8 +12,8 @@ from typing import Any
 TARGET_SHARD_SECONDS = 30 * 60
 SAFETY_FACTOR = 1.20
 RUNNER_MAX_THREADS = {
-    "e7k": 64,
-    "e9k": 32,
+    "e7k": 192,
+    "e9k": 64,
     "github-hosted": 8,
     "hth": 16,
     "rhel8": 16,

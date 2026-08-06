@@ -79,3 +79,9 @@ STAGE_EXTRACT
 STAGE_REASON
 STAGE_PUBLISH
 ```
+
+## Execution optimizer
+
+`.github/workflows/execution-optimizer.yml` is a manually dispatched experiment driver for one detector. It launches full exhaustive child regressions sequentially, sets shards equal to the requested pipeline count, and leaves threads on `auto` so the canonical execution plan divides the selected runner's aggregate thread budget across active pipelines.
+
+Auto enumeration uses representative pipeline counts through the runner budget. Manual enumeration accepts an inclusive pipeline minimum and maximum. Every successful child regression contributes its measured execution shape to `parallelism-index.json`; the optimizer summary links each child run.
