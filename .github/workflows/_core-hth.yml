@@ -6,13 +6,14 @@ on:
   workflow_call:
     inputs:
       mode:
-        description: "Execution mode: production, test, or calibration"
+        description: "Execution mode: production, test, calibration, or execution-optimizer"
         required: true
         type: string
       source_repository:
         description: "Source repository containing DOCX masters"
-        required: true
+        required: false
         type: string
+        default: ""
       results_repository:
         description: "Results repository"
         required: true
@@ -24,8 +25,9 @@ on:
         default: ""
       output_directory:
         description: "Pipeline output directory"
-        required: true
+        required: false
         type: string
+        default: ""
       publish_results:
         description: "Commit generated results to the results repository"
         required: false
@@ -46,6 +48,36 @@ on:
         required: false
         type: string
         default: "never"
+      optimizer_runner:
+        description: "Runner profile validated for execution optimization"
+        required: false
+        type: string
+        default: "github-hosted"
+      optimizer_pipeline_range:
+        description: "Execution optimizer pipeline enumeration mode"
+        required: false
+        type: string
+        default: "auto"
+      optimizer_pipeline_min:
+        description: "Manual execution optimizer minimum pipelines"
+        required: false
+        type: string
+        default: "1"
+      optimizer_pipeline_max:
+        description: "Manual execution optimizer maximum pipelines"
+        required: false
+        type: string
+        default: "16"
+    outputs:
+      optimizer_runner_label:
+        description: "Canonical runner profile selected by the optimizer preparation job"
+        value: ${{ jobs.prepare-execution-optimizer.outputs.runner_label }}
+      optimizer_runner_budget:
+        description: "Aggregate detector-thread budget for the selected optimizer runner"
+        value: ${{ jobs.prepare-execution-optimizer.outputs.runner_budget }}
+      optimizer_pipelines:
+        description: "Comma-separated pipeline candidates selected for optimization"
+        value: ${{ jobs.prepare-execution-optimizer.outputs.pipelines }}
     secrets:
       HTH_RESULTS_TOKEN:
         required: false
@@ -55,6 +87,7 @@ permissions:
 
 jobs:
   run-hth:
+    if: ${{ inputs.mode != 'execution-optimizer' }}
     name: ${{ inputs.mode == 'production' && 'Preprocess complete collection' || inputs.mode == 'calibration' && 'Calibrate physical geometry' || 'Test one DOCX master' }}
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.mode == 'production' && 120 || 30 }}
@@ -997,3 +1030,271 @@ jobs:
           if-no-files-found: error
           retention-days: ${{ inputs.artifact_retention_days }}
           compression-level: ${{ inputs.mode == 'production' && 0 || 6 }}
+
+  prepare-execution-optimizer:
+    if: ${{ inputs.mode == 'execution-optimizer' }}
+    name: Validate selected runner and enumerate shapes
+    runs-on: >-
+      ${{    inputs.optimizer_runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+          || inputs.optimizer_runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
+          || inputs.optimizer_runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
+          || inputs.optimizer_runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
+          || inputs.optimizer_runner == 'self-hosted-e9k'     && fromJSON('["self-hosted","Linux","X64","e9k"]')
+          || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    outputs:
+      runner_label: ${{ steps.plan.outputs.runner_label }}
+      runner_budget: ${{ steps.plan.outputs.runner_budget }}
+      pipelines: ${{ steps.plan.outputs.pipelines }}
+    env:
+      RESULTS_REPOSITORY: ${{ inputs.results_repository }}
+      PYTHONNOUSERSITE: "1"
+      PYTHONUNBUFFERED: "1"
+      HTH_RUNNER_LABELS: >-
+        ${{  inputs.optimizer_runner == 'self-hosted-hth' && 'self-hosted,linux,x64,hth'
+          || inputs.optimizer_runner == 'self-hosted-rhel8' && 'self-hosted,linux,x64,rhel8'
+          || inputs.optimizer_runner == 'self-hosted-e7k' && 'self-hosted,linux,x64,e7k'
+          || inputs.optimizer_runner == 'self-hosted-e9k' && 'self-hosted,linux,x64,e9k'
+          || inputs.optimizer_runner == 'self-hosted-windows' && 'self-hosted,windows,x64'
+          || 'ubuntu-latest' }}
+      HTH_RUNNER_LABEL: >-
+        ${{  inputs.optimizer_runner == 'self-hosted-hth' && 'hth'
+          || inputs.optimizer_runner == 'self-hosted-rhel8' && 'rhel8'
+          || inputs.optimizer_runner == 'self-hosted-e7k' && 'e7k'
+          || inputs.optimizer_runner == 'self-hosted-e9k' && 'e9k'
+          || inputs.optimizer_runner == 'self-hosted-windows' && 'windows'
+          || 'github-hosted' }}
+    steps:
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
+        with:
+          path: hth-pipeline
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout results repository
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.results_repository }}
+          path: results-repo
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.HTH_RESULTS_TOKEN }}
+
+      - name: Start HTH core heartbeat
+        shell: bash
+        run: |
+          set -euo pipefail
+          heartbeat_file="$RUNNER_TEMP/hth-core-heartbeat.pid"
+          (
+            while true; do
+              echo "[hth core heartbeat] time=$(date -u +%Y-%m-%dT%H:%M:%SZ) mode=execution-optimizer runner=${HTH_RUNNER_LABEL} status=validating"
+              sleep 60
+            done
+          ) &
+          echo "$!" > "$heartbeat_file"
+
+      - name: Runner diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "runner.os=${{ runner.os }}"
+          echo "runner.arch=${{ runner.arch }}"
+          echo "runner.environment=${{ runner.environment }}"
+          echo "runner.name=${{ runner.name }}"
+          echo "runner.labels=${HTH_RUNNER_LABELS}"
+          echo "HTH_EXECUTION_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
+          echo "HTH_RUNNER_NAME=${{ runner.name }}" >> "$GITHUB_ENV"
+          echo "HTH_RUNNER_LABEL=${HTH_RUNNER_LABEL}" >> "$GITHUB_ENV"
+
+      - name: Set up Python — GitHub-hosted Linux
+        if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: hth-pipeline/requirements.txt
+
+      - name: Verify Python — self-hosted Linux
+        if: ${{ runner.os == 'Linux' && runner.environment == 'self-hosted' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "python: $(command -v python)"
+          python --version
+          python -m pip --version
+          python - <<'PYVERIFY'
+          import sys
+          if sys.version_info[:2] != (3, 12):
+              raise SystemExit(f"Expected Python 3.12, got {sys.version} from {sys.executable}")
+          print(f"Python executable: {sys.executable}")
+          PYVERIFY
+
+      - name: Use repaired Python tool cache — Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $pythonVersion = "3.12.10"
+          $pythonRoot = Join-Path $env:RUNNER_TOOL_CACHE "Python\$pythonVersion\x64"
+          $pythonExe = Join-Path $pythonRoot "python.exe"
+          $completeMarker = "$pythonRoot.complete"
+          $scriptsDir = Join-Path $pythonRoot "Scripts"
+          if (-not (Test-Path -LiteralPath $completeMarker)) { throw "Python tool-cache marker is missing: $completeMarker" }
+          if (-not (Test-Path -LiteralPath $pythonExe)) { throw "Python executable is missing: $pythonExe" }
+          $pythonRoot | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $scriptsDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & $pythonExe --version
+          & $pythonExe -m pip --version
+
+      - name: Create isolated Python environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          bootstrap_python="$(command -v python)"
+          venv_dir="$RUNNER_TEMP/hth-python-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$venv_dir"
+          "$bootstrap_python" -m venv "$venv_dir"
+          if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
+            venv_bin="$venv_dir/Scripts"
+            venv_python="$venv_bin/python.exe"
+            github_path_entry="$(cygpath -w "$venv_bin")"
+          else
+            venv_bin="$venv_dir/bin"
+            venv_python="$venv_bin/python"
+            github_path_entry="$venv_bin"
+          fi
+          [[ -x "$venv_python" ]] || { echo "::error::Virtual-environment Python is missing: $venv_python"; exit 1; }
+          echo "$github_path_entry" >> "$GITHUB_PATH"
+          echo "HTH_VENV=$venv_dir" >> "$GITHUB_ENV"
+          echo "HTH_BOOTSTRAP_PYTHON=$bootstrap_python" >> "$GITHUB_ENV"
+          "$venv_python" -m pip install --upgrade pip
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python --version
+          python -m pip --version
+          python -m pip install --requirement hth-pipeline/requirements.txt
+          python -m pip check
+
+      - name: Verify Python dependency ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PYABI'
+          import sys, cv2, numpy, skimage
+          print(f"Python       : {sys.executable}")
+          print(f"NumPy        : {numpy.__version__} ({numpy.__file__})")
+          print(f"scikit-image : {skimage.__version__} ({skimage.__file__})")
+          print(f"OpenCV       : {cv2.__version__} ({cv2.__file__})")
+          PYABI
+
+      - name: Show toolchain environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Toolchain Environment"
+          echo "====================="
+          echo "Runner name      : ${RUNNER_NAME:-unknown}"
+          echo "Runner OS        : ${RUNNER_OS:-unknown}"
+          echo "Runner arch      : ${RUNNER_ARCH:-unknown}"
+          echo "Runner toolcache : ${RUNNER_TOOL_CACHE:-unknown}"
+          echo "bootstrap Python : ${HTH_BOOTSTRAP_PYTHON:-unknown}"
+          echo "virtual env      : ${HTH_VENV:-unknown}"
+          echo "active Python    : $(command -v python)"
+          python --version
+          python -m pip --version
+          git --version
+
+      - name: Show OpenCV build
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          python - <<'PYCV'
+          import cv2
+          print(f"OpenCV version: {cv2.__version__}")
+          wanted = ("CPU/HW", "Baseline:", "Dispatched code generation:", "Parallel framework", "Intel IPP", "OpenCL", "AVX", "SSE", "TBB", "OpenMP")
+          for line in cv2.getBuildInformation().splitlines():
+              if any(token in line for token in wanted):
+                  print(line)
+          PYCV
+
+      - name: Benchmark OpenCV
+        shell: bash
+        run: |
+          python - <<'PYBENCH'
+          import time, cv2, numpy as np
+          image = np.random.default_rng(12345).integers(0, 256, size=(3000, 3000), dtype=np.uint8)
+          for _ in range(5): cv2.GaussianBlur(image, (9, 9), 0)
+          started = time.perf_counter()
+          for _ in range(100): cv2.GaussianBlur(image, (9, 9), 0)
+          elapsed = time.perf_counter() - started
+          print(f"GaussianBlur 100 iterations: {elapsed:.3f} seconds")
+          print(f"Average per iteration: {elapsed / 100:.6f} seconds")
+          PYBENCH
+
+      - name: Build pipeline enumeration
+        id: plan
+        shell: bash
+        env:
+          RANGE_MODE: ${{ inputs.optimizer_pipeline_range }}
+          PIPELINE_MIN: ${{ inputs.optimizer_pipeline_min }}
+          PIPELINE_MAX: ${{ inputs.optimizer_pipeline_max }}
+          RUNNER: ${{ inputs.optimizer_runner }}
+        run: |
+          set -euo pipefail
+          runner_label="${RUNNER#self-hosted-}"
+          [[ "$RUNNER" == "github-hosted" ]] && runner_label="github-hosted"
+          budget="$(PYTHONPATH=hth-pipeline python - "$runner_label" <<'PYPLAN'
+          import sys
+          from hth.regression.sharding import runner_max_threads
+          print(runner_max_threads(sys.argv[1]))
+          PYPLAN
+          )"
+          if [[ "$RANGE_MODE" == "manual" ]]; then
+            if [[ ! "$PIPELINE_MIN" =~ ^[1-9][0-9]*$ || ! "$PIPELINE_MAX" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::Manual pipeline minimum and maximum must be positive whole numbers"; exit 1
+            fi
+            if (( PIPELINE_MIN > PIPELINE_MAX || PIPELINE_MAX > budget )); then
+              echo "::error::Manual pipeline range must satisfy 1 <= min <= max <= runner budget $budget"; exit 1
+            fi
+            pipelines="$(seq -s, "$PIPELINE_MIN" "$PIPELINE_MAX")"
+          else
+            pipelines="$(python - "$budget" <<'PYCANDIDATES'
+          import sys
+          budget = int(sys.argv[1])
+          preferred = [1, 2, 4, 8, 16, 32, 64, 96, 128, 192]
+          values = [value for value in preferred if value <= budget]
+          if budget not in values: values.append(budget)
+          print(",".join(str(value) for value in sorted(set(values))))
+          PYCANDIDATES
+            )"
+          fi
+          echo "runner_label=$runner_label" >> "$GITHUB_OUTPUT"
+          echo "runner_budget=$budget" >> "$GITHUB_OUTPUT"
+          echo "pipelines=$pipelines" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Selected runner validation and execution optimizer plan"
+            echo
+            echo "- Runner: \`${{ runner.name }}\`"
+            echo "- Runner profile: \`$runner_label\`"
+            echo "- Aggregate detector-thread budget: **$budget**"
+            echo "- Pipeline candidates: \`$pipelines\`"
+            echo "- Threads: \`auto\` (budget divided across active pipelines)"
+            echo "- Shards: equal to requested pipelines"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Stop HTH core heartbeat
+        if: always()
+        shell: bash
+        run: |
+          heartbeat_file="$RUNNER_TEMP/hth-core-heartbeat.pid"
+          if [[ -f "$heartbeat_file" ]]; then
+            heartbeat_pid="$(cat "$heartbeat_file")"
+            kill "$heartbeat_pid" 2>/dev/null || true
+            wait "$heartbeat_pid" 2>/dev/null || true
+          fi
+

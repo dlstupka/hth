@@ -26,11 +26,13 @@ def test_execution_optimizer_dispatches_full_regressions_with_auto_threads() -> 
     assert 'gh run watch "$run_id" --exit-status' in text
 
 
-def test_execution_optimizer_uses_runner_budget_candidates() -> None:
+def test_execution_optimizer_uses_runner_budget_candidates_from_core() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert "from hth.regression.sharding import runner_max_threads" in text
-    assert "preferred = [1, 2, 4, 8, 16, 32, 64, 96, 128, 192]" in text
-    assert "Manual pipeline range must satisfy" in text
+    core = (WORKFLOW.parent / "_core-hth.yml").read_text(encoding="utf-8")
+    assert "uses: ./.github/workflows/_core-hth.yml" in text
+    assert "from hth.regression.sharding import runner_max_threads" in core
+    assert "preferred = [1, 2, 4, 8, 16, 32, 64, 96, 128, 192]" in core
+    assert "Manual pipeline range must satisfy" in core
 
 
 def test_execution_optimizer_publishes_optimizer_table_heatmap_and_index() -> None:
@@ -42,23 +44,17 @@ def test_execution_optimizer_publishes_optimizer_table_heatmap_and_index() -> No
     assert "Execution optimizer heat map" in text
 
 
-def test_execution_optimizer_validates_selected_runner_with_regression_setup() -> None:
+def test_execution_optimizer_uses_reusable_hth_core_for_runner_validation() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "name: Validate selected runner and enumerate shapes" in text
-    assert "inputs.runner == 'self-hosted-e7k'" in text
-    assert "fromJSON('[\"self-hosted\",\"Linux\",\"X64\",\"e7k\"]')" in text
-    for step in (
-        "Runner diagnostics",
-        "Set up Python — GitHub-hosted Linux",
-        "Verify Python — self-hosted Linux",
-        "Create isolated Python environment",
-        "Install dependencies",
-        "Verify Python dependency ABI",
-        "Show toolchain environment",
-        "Show OpenCV build",
-        "Benchmark OpenCV",
-    ):
-        assert f"- name: {step}" in text
+    assert "uses: ./.github/workflows/_core-hth.yml" in text
+    assert "mode: execution-optimizer" in text
+    assert "optimizer_runner: ${{ inputs.runner }}" in text
+    assert "optimizer_pipeline_range: ${{ inputs.pipeline_range }}" in text
+    assert "optimizer_pipeline_min: ${{ inputs.pipeline_min }}" in text
+    assert "optimizer_pipeline_max: ${{ inputs.pipeline_max }}" in text
+    assert "Runner diagnostics" not in text
+    assert "Benchmark OpenCV" not in text
 
 
 def test_execution_optimizer_controller_does_not_hold_selected_runner_and_emits_heartbeat() -> None:
