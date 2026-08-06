@@ -50,7 +50,8 @@ from .performance import PerformanceSampler, peak_rss_bytes
 from .calibration_intelligence import build_calibration_intelligence
 
 DETECTORS={"components":components_detect,"contour":contour_detect,"contour_quad":contour_quad_detect,"contour_components":contour_components_detect,"contour_grabcut":contour_grabcut_detect,"grabcut_contour":grabcut_contour_detect,"contour_projection":contour_projection_detect,"consensus_quad":consensus_quad_detect,"edge_contour":edge_contour_detect,"cross_edge_contour":cross_edge_contour_detect,"gradient_vote":gradient_vote_detect,"radial_edge":radial_edge_detect,"adaptive_radial_edge":adaptive_radial_edge_detect,"border_energy":border_energy_detect,"grabcut":grabcut_detect,"hough":hough_detect,"lsd":lsd_detect,"ransac":ransac_detect}
-ALLOWED_THREAD_COUNTS=(1,2,4,8,16,32,48,64,96,128,256,512,1024)
+MIN_THREAD_COUNT=1
+MAX_THREAD_COUNT=1024
 
 PRE_REGRESSION_REPORTERS={
     "components":components_pre_regression_report_sections,
@@ -174,7 +175,7 @@ def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
     p.add_argument("--max-dimension",type=int,default=1800)
     p.add_argument("--limit",type=int,default=None)
     p.add_argument("--top",type=int,default=20)
-    p.add_argument("--threads",type=int,choices=ALLOWED_THREAD_COUNTS,default=1,help="Parallel exhaustive-search threads; default: 1.")
+    p.add_argument("--threads",type=int,default=1,help="Parallel exhaustive-search threads from 1 through 1024; default: 1.")
     p.add_argument("--run-id",default=None)
     p.add_argument("--shard-index",type=int,default=0,help="Zero-based interleaved exhaustive-search shard index.")
     p.add_argument("--shard-count",type=int,default=1,help="Total interleaved exhaustive-search shard count.")
@@ -191,6 +192,8 @@ def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
         help="Debug detail level. none writes no images; basic writes the established artifacts; verbose adds detector-specific evidence.",
     )
     args=p.parse_args(argv)
+    if not MIN_THREAD_COUNT <= args.threads <= MAX_THREAD_COUNT:
+        p.error(f"--threads must be within [{MIN_THREAD_COUNT}, {MAX_THREAD_COUNT}]")
     if args.shard_count < 1 or not 0 <= args.shard_index < args.shard_count:
         p.error("--shard-index must be within [0, --shard-count)")
     if args.shard_count > 1 and args.strategy != "exhaustive":

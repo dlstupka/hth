@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from hth.regression.performance import PerformanceSampler
-from hth.regression.runner import ALLOWED_THREAD_COUNTS, parse_args, print_parameter_scope
+from hth.regression.runner import MAX_THREAD_COUNT, MIN_THREAD_COUNT, parse_args, print_parameter_scope
 
 
 class FakeClock:
@@ -27,7 +27,8 @@ class RegressionParallelismTests(unittest.TestCase):
             "--output", "output",
         ]
         self.assertEqual(parse_args(base).threads, 1)
-        self.assertEqual(ALLOWED_THREAD_COUNTS, (1, 2, 4, 8, 16, 32, 48, 64, 96, 128, 256, 512, 1024))
+        self.assertEqual((MIN_THREAD_COUNT, MAX_THREAD_COUNT), (1, 1024))
+        self.assertEqual(parse_args([*base, "--threads", "10"]).threads, 10)
         self.assertEqual(parse_args([*base, "--threads", "256"]).threads, 256)
 
     def test_scope_reports_possible_planned_and_page_evaluations(self) -> None:

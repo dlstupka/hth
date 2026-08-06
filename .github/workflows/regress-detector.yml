@@ -109,6 +109,11 @@ on:
           - "256"
           - "512"
           - "1024"
+      shards:
+        description: Optional explicit shard count; blank uses wall-clock planning and explicit shards take precedence
+        required: false
+        default: ""
+        type: string
       shard_target_minutes:
         description: Target maximum wall time for automatically planned regression shards
         required: true
@@ -224,6 +229,7 @@ jobs:
       MAX_DIMENSION: ${{ github.event_name == 'workflow_dispatch' && inputs.max_dimension || '1800' }}
       TOP_COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.top || '10' }}
       THREADS: ${{ github.event_name == 'workflow_dispatch' && inputs.threads || 'auto' }}
+      SHARDS: ${{ github.event_name == 'workflow_dispatch' && inputs.shards || '' }}
       SHARD_TARGET_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.shard_target_minutes || '30' }}
       SHARD_LEASE_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.shard_lease_minutes || '5' }}
       DETECTOR_PIPELINES: ${{ github.event_name == 'workflow_dispatch' && inputs.detector_pipelines || '4' }}
@@ -701,6 +707,10 @@ jobs:
             detector_quality=("unknown")
           fi
 
+          if [[ -n "${SHARDS:-}" && ! "${SHARDS}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Shards must be a positive whole number or blank for wall-clock planning"
+            exit 1
+          fi
           if [[ ! "${SHARD_TARGET_MINUTES:-30}" =~ ^[1-9][0-9]*$ ]]; then
             echo "::error::Shard target must be a positive whole number of minutes"
             exit 1
@@ -722,17 +732,17 @@ jobs:
           PYPLAN
             )"
             read -r planned_threads planned_shards serial_estimate plan_source < <(
-              python - "$detector_config" "results-repo/runtime-index.json" "$detector_name" "${HTH_RUNNER_LABEL:-}" "$THREADS" "$SHARD_TARGET_MINUTES" <<'PYPLAN'
+              python - "$detector_config" "results-repo/runtime-index.json" "$detector_name" "${HTH_RUNNER_LABEL:-}" "$THREADS" "$SHARD_TARGET_MINUTES" "${SHARDS:-}" <<'PYPLAN'
           import json, sys
           from pathlib import Path
           from hth.regression.sharding import best_smoke_observation, estimate_serial_runtime, plan_shards
           from hth.regression.strategies.cartesian import generate
-          config_path, index_path, detector, runner_label, requested_threads, target_minutes = sys.argv[1:]
+          config_path, index_path, detector, runner_label, requested_threads, target_minutes, requested_shards = sys.argv[1:]
           config = json.loads(Path(config_path).read_text(encoding="utf-8"))
           possible = len(generate(config))
           observation = best_smoke_observation(Path(index_path), detector)
           serial = estimate_serial_runtime(observation, possible) if observation else None
-          plan = plan_shards(serial, runner_label=runner_label, requested_threads=requested_threads, target_shard_seconds=int(target_minutes) * 60, estimate_source="smoke-runtime-index" if observation else "no-smoke-history")
+          plan = plan_shards(serial, runner_label=runner_label, requested_threads=requested_threads, target_shard_seconds=int(target_minutes) * 60, maximum_shards=possible, requested_shards=int(requested_shards) if requested_shards else None, possible_parameter_sets=possible, estimate_source="smoke-runtime-index" if observation else "no-smoke-history")
           print(plan.threads, plan.shard_count, "unknown" if serial is None else f"{serial:.3f}", plan.estimate_source)
           PYPLAN
             )
@@ -787,7 +797,7 @@ jobs:
           echo "Effective limit    : '${effective_limit:-unlimited}' ($effective_limit_source)"
           echo "Detectors          : $detector_count"
           echo "Detector pipelines : $effective_pipelines (requested $requested_pipelines)"
-          echo "Shards             : ${#detector_configs[@]}"
+          echo "Shards             : ${#detector_configs[@]}${SHARDS:+ (explicit request $SHARDS; capped at one parameter set per shard)}"
           echo "Thread budget      : $runner_thread_budget total; $effective_threads_per_pipeline per active pipeline; $allocated_threads allocated; $unused_threads free"
           echo "Loading strategy   : ${DETECTOR_LOADING_STRATEGY}"
           echo "Pipeline stagger   : ${PIPELINE_STAGGER_MINUTES} minute(s)"

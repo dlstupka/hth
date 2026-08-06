@@ -117,6 +117,8 @@ def plan_shards(
     target_shard_seconds: int = TARGET_SHARD_SECONDS,
     safety_factor: float = SAFETY_FACTOR,
     maximum_shards: int = 96,
+    requested_shards: int | None = None,
+    possible_parameter_sets: int | None = None,
     estimate_source: str = "runtime-index",
 ) -> ShardPlan:
     maximum = runner_max_threads(runner_label, available_cpus)
@@ -125,12 +127,19 @@ def plan_shards(
     else:
         requested = int(requested_threads)
         threads = max(value for value in ALLOWED_THREADS if value <= min(requested, maximum))
-    if serial_runtime_seconds is None or serial_runtime_seconds <= 0:
+    parameter_cap = max(1, int(possible_parameter_sets or maximum_shards))
+    shard_cap = min(max(1, int(maximum_shards)), parameter_cap)
+    if requested_shards is not None:
+        shards = max(1, min(int(requested_shards), parameter_cap))
+        source = "explicit-shard-count"
+    elif serial_runtime_seconds is None or serial_runtime_seconds <= 0:
         shards = 1
+        source = estimate_source
     else:
         predicted = serial_runtime_seconds * safety_factor / conservative_speedup(threads)
-        shards = max(1, min(maximum_shards, math.ceil(predicted / target_shard_seconds)))
-    return ShardPlan(serial_runtime_seconds, threads, shards, target_shard_seconds, safety_factor, estimate_source)
+        shards = max(1, min(shard_cap, math.ceil(predicted / target_shard_seconds)))
+        source = estimate_source
+    return ShardPlan(serial_runtime_seconds, threads, shards, target_shard_seconds, safety_factor, source)
 
 
 def estimate_serial_runtime(observation: dict[str, Any], possible_parameter_sets: int) -> float | None:

@@ -190,7 +190,7 @@ Update this file when the project adopts a recurring convention expressed as “
 ## Regression Parallelism and Telemetry
 
 - Detector calibration and regression operate against the Golden Set.
-- `--threads` defaults to `1`; supported explicit values are powers of two from `1` through `1024`.
+- `--threads` defaults to `1` and accepts any whole number from `1` through `1024`; the manual workflow currently retains its established dropdown values, while `auto` may supply any integer within that range.
 - Runner thread limits are aggregate detector-thread budgets across concurrently active detector pipelines, not per-pipeline allowances. The GitHub-hosted budget is `8`; the E7K budget is `64`. One canonical execution plan supplies the queue, launcher, telemetry, and manifest. Explicit thread requests are capped by the equal per-pipeline budget; `auto` uses `floor(runner budget / active pipelines)`, including non-power-of-two values such as `21` when three E7K pipelines share 64 threads, so unused budget is minimized without exceeding the maximum. Named runner budgets are policy limits and may intentionally oversubscribe the logical CPUs reported inside a GitHub-hosted runner.
 - Regression execution summaries distinguish unique `Detectors`, concurrent `Detector pipelines`, and queued `Shards`; shard jobs must never be reported as detector algorithms.
 - A parameter-set limit is the total number of evaluated parameter sets including the baseline.

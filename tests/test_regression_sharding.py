@@ -55,6 +55,15 @@ def test_long_plan_is_sharded_and_short_plan_is_not() -> None:
     assert plan.shard_count > 1
 
 
+
+def test_explicit_shards_override_wall_clock_and_cap_at_one_parameter_per_shard() -> None:
+    explicit = plan_shards(12 * 3600, runner_label="e7k", requested_shards=6, possible_parameter_sets=6562)
+    assert explicit.shard_count == 6
+    assert explicit.estimate_source == "explicit-shard-count"
+
+    capped = plan_shards(12 * 3600, runner_label="e7k", requested_shards=999, possible_parameter_sets=10)
+    assert capped.shard_count == 10
+
 def test_expiring_lease(tmp_path: Path) -> None:
     lease = tmp_path / "lease.json"
     write_lease(lease, owner="worker-1", ttl_seconds=60, shard="2/8")

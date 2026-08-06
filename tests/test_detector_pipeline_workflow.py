@@ -76,6 +76,9 @@ def test_manual_debug_level_choices_default_to_none_and_are_forwarded() -> None:
 def test_auto_threads_shards_and_expiring_leases_are_wired() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "default: auto" in text
+    assert "shards:" in text
+    assert "explicit shard count" in text
+    assert "SHARDS:" in text
     assert "shard_target_minutes:" in text
     assert "shard_lease_minutes:" in text
     assert "from hth.regression.sharding import best_smoke_observation" in text
@@ -84,6 +87,8 @@ def test_auto_threads_shards_and_expiring_leases_are_wired() -> None:
     assert "Reclaiming expired shard lease" in text
     assert "python -m hth.regression.merge_shards" in text
     assert 'runner_label=runner_label' in text
+    assert 'requested_shards=int(requested_shards) if requested_shards else None' in text
+    assert 'possible_parameter_sets=possible' in text
 
 
 def test_execution_summary_and_merge_use_canonical_detector_shard_and_budget_counts() -> None:
