@@ -96,3 +96,11 @@ def test_execution_summary_and_merge_use_canonical_detector_shard_and_budget_cou
     assert 'rm -rf "$queue_dir" regression-output/.shards' in text
     assert '--expected-shard-count "$expected_detector_shards"' in text
     assert 'Missing completed shard' in text
+
+
+def test_runner_thread_budget_profile_survives_runner_diagnostics() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "HTH_RUNNER_LABEL: >-" in text
+    assert "|| 'github-hosted' }}" in text
+    assert 'echo "HTH_RUNNER_LABEL=${HTH_RUNNER_LABEL}" >> "$GITHUB_ENV"' in text
+    assert 'echo "HTH_RUNNER_LABEL=${{ inputs.execution_target }}" >> "$GITHUB_ENV"' not in text

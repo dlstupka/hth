@@ -245,7 +245,7 @@ jobs:
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e7k' && 'e7k'
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e9k' && 'e9k'
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && 'windows'
-          || 'ubuntu-latest' }}
+          || 'github-hosted' }}
 
     steps:
       - name: Checkout HTH pipeline
@@ -277,7 +277,7 @@ jobs:
           # Export runtime metadata for later reporting.
           echo "HTH_EXECUTION_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
           echo "HTH_RUNNER_NAME=${{ runner.name }}" >> "$GITHUB_ENV"
-          echo "HTH_RUNNER_LABEL=${{ inputs.execution_target }}" >> "$GITHUB_ENV"
+          echo "HTH_RUNNER_LABEL=${HTH_RUNNER_LABEL}" >> "$GITHUB_ENV"
           
       - name: Set up Python — GitHub-hosted Linux
         if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' }}
