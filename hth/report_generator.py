@@ -122,17 +122,46 @@ def generate_calibration_manifest(
     return output
 
 
-def _latest_optimizer_run(index: dict[str, Any], detector: str) -> tuple[str, dict[str, Any]]:
+def _latest_optimizer_run(
+    index: dict[str, Any], detector: str, parallelism: dict[str, Any] | None = None
+) -> tuple[str, dict[str, Any]]:
     matches: list[tuple[str, dict[str, Any]]] = []
     runs = index.get("runs") if isinstance(index.get("runs"), dict) else {}
     for run_id, payload in runs.items():
         if not isinstance(payload, dict) or str(payload.get("detector_id")) != detector:
             continue
         matches.append((str(run_id), payload))
-    if not matches:
-        raise ValueError(f"No persisted optimizer run found for detector {detector}")
-    matches.sort(key=lambda item: (str(item[1].get("updated_at_utc") or ""), item[0]), reverse=True)
-    return matches[0]
+    if matches:
+        matches.sort(key=lambda item: (str(item[1].get("updated_at_utc") or ""), item[0]), reverse=True)
+        return matches[0]
+
+    # Older persisted optimizer indexes predate the per-run ``runs`` map.
+    # Recover the newest execution from the canonical parallelism observations
+    # instead of making report regeneration depend on the newer derived schema.
+    if isinstance(parallelism, dict):
+        recovered: dict[str, dict[str, Any]] = {}
+        for row in parallelism.get("observations", []):
+            if not isinstance(row, dict) or str(row.get("detector_id")) != detector:
+                continue
+            run_id = row.get("optimizer_run_id")
+            if run_id in (None, ""):
+                continue
+            key = str(run_id)
+            stamp = str(row.get("captured_at_utc") or row.get("updated_at_utc") or "")
+            prior = recovered.get(key)
+            if prior is None or stamp > str(prior.get("updated_at_utc") or ""):
+                recovered[key] = {
+                    "optimizer_run_id": key,
+                    "detector_id": detector,
+                    "updated_at_utc": stamp,
+                    "run_metadata": {},
+                }
+        if recovered:
+            candidates = list(recovered.items())
+            candidates.sort(key=lambda item: (str(item[1].get("updated_at_utc") or ""), item[0]), reverse=True)
+            return candidates[0]
+
+    raise ValueError(f"No persisted optimizer run found for detector {detector}")
 
 
 def generate_optimizer_report(results_root: Path, detector: str, output_dir: Path) -> dict[str, Path]:
@@ -143,8 +172,8 @@ def generate_optimizer_report(results_root: Path, detector: str, output_dir: Pat
     if not parallelism_path.is_file():
         raise FileNotFoundError(f"Missing {parallelism_path}")
     optimizer = _read_json(optimizer_path)
-    run_id, run_payload = _latest_optimizer_run(optimizer, detector)
     parallelism = _read_json(parallelism_path)
+    run_id, run_payload = _latest_optimizer_run(optimizer, detector, parallelism)
     current = build_optimizer_index(parallelism, detector, run_id)
     if not current.get("observation_count"):
         raise ValueError(f"Optimizer run {run_id} has no compatible observations for {detector}")
