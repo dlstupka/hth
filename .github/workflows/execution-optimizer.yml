@@ -162,6 +162,7 @@ jobs:
 
       - name: Run execution-shape experiments
         shell: bash
+        working-directory: hth-pipeline
         env:
           GH_TOKEN: ${{ github.token }}
           PIPELINES: ${{ needs.prepare.outputs.optimizer_pipelines }}

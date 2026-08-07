@@ -64,3 +64,10 @@ def test_execution_optimizer_controller_does_not_hold_selected_runner_and_emits_
     assert "runs-on: ubuntu-latest" in text
     assert "[optimizer heartbeat]" in text
     assert "gh run watch \"$run_id\" --exit-status" in text
+
+
+def test_execution_optimizer_dispatches_from_hth_checkout() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    dispatch_step = text.split("- name: Run execution-shape experiments", 1)[1].split("- name: Publish optimizer intelligence", 1)[0]
+    assert "working-directory: hth-pipeline" in dispatch_step
+    assert "gh workflow run regress-detector.yml" in dispatch_step
