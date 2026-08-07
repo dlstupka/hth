@@ -324,10 +324,22 @@ Parallel parameter evaluation records `completion_index` in actual parameter-com
 
 ## Execution optimizer intelligence
 
-The manual `HTH execution optimizer` workflow evaluates execution shapes serially in one direct job on one selected runner. It performs the same checkout, Python/ABI/toolchain/OpenCV setup and benchmark sequence as the normal detector regression once, then repeats the normal detector-regression execution driver for each shape. Shards equal detector pipelines and threads are allocated automatically from the selected runner budget. Optimizer execution does not publish calibration persistence, regression manifests, or normal regression artifacts. After all shapes complete, it rebuilds three persistent artifacts in the results repository:
+The manual `HTH execution optimizer` workflow evaluates execution shapes serially in one direct job on one selected runner. It performs the same checkout, Python/ABI/toolchain/OpenCV setup and benchmark sequence as the normal detector regression once, then repeats the normal detector-regression execution driver for every selected shape. Shards equal detector pipelines.
 
-- `optimizer-index.json` — detector-scoped optimizer views grouped by concrete runner identity and labels;
-- `execution-optimizer/<detector>/summary.md` — a cross-runner execution-shape table; and
-- `execution-optimizer/<detector>/heatmap.svg` — a faceted heat map using one shared logarithmic wall-time scale across compatible runner profiles.
+Pipeline enumeration defaults to exhaustive integer progression from the configured minimum through maximum. The optional binary enumeration samples powers of two within the range plus both range endpoints. Threads per active pipeline are calculated as the smaller of the configured per-pipeline maximum and `floor(runner aggregate thread budget / pipelines)`; shapes that would fall below the configured minimum thread count are excluded. Thus runner policy controls total allocation while manual thread limits constrain each detector process.
 
-`parallelism-index.json` remains the raw execution-observation store. `optimizer-index.json` is a derived planning abstraction that summarizes those observations without replacing them. Runner profiles remain separate when their label, runner name, CPU model, or logical CPU count differs, while the table and heat map display all compatible profiles together for comparison.
+After every successfully completed shape, the optimizer compares parameter sets/second with the best throughput seen so far. By default, three consecutive shapes that improve by less than 1% from that perceived maximum stop the remaining sweep. The stop rule is evaluated only after a complete shape and its state is retained in `optimizer-index.json`.
+
+Every optimizer shard writes a shard-completion checkpoint into the raw optimizer parallelism data as soon as that shard finishes. Shape aggregates are written after merge. This preserves partial experimental evidence without turning optimizer runs into calibration runs. Optimizer execution does not publish calibration intelligence, regression manifests, or normal regression artifacts.
+
+Runner health sampling is intentionally coarse. On the existing optimizer heartbeat only, Linux runners read `/proc/loadavg`, `/proc/stat`, and `/proc/meminfo` and emit a companion line such as `[runner e7k/rh8-a197] load=1042.7 cpu=93.4% iowait=1.2% ram=8.1G/2.0T swap=0`. Raw heartbeat samples are retained in optimizer intelligence and summarized for each shape; there is no separate high-frequency sampler.
+
+Persistent artifacts are:
+
+- `parallelism-index.json` — raw shape observations plus per-shard optimizer checkpoints;
+- `optimizer-index.json` — detector- and runner-specific historical execution preferences plus individual optimizer-run metadata and runner samples;
+- `execution-optimizer/<detector>/summary.md` — a table containing only shapes completed in the current optimizer execution; and
+- `execution-optimizer/<detector>/heatmap.svg` — the current execution processing profile with detector pipelines on the X axis and parameter sets/second on the Y axis, with threads per pipeline annotated at each point.
+
+Historical observations remain available to derive future detector-specific recommendations, but they are never mixed into the current-run table or processing profile.
+

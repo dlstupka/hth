@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build execution-optimizer intelligence, Markdown tables, and SVG heat maps."""
+"""Build execution-optimizer intelligence, run-local tables, and processing profiles."""
 from __future__ import annotations
 
 import argparse
@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-OPTIMIZER_INDEX_SCHEMA_VERSION = "1.0"
+OPTIMIZER_INDEX_SCHEMA_VERSION = "2.0"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -68,6 +68,20 @@ def _duration(seconds: Any) -> str:
     return " ".join(parts)
 
 
+def _format_bytes(value: Any) -> str:
+    number = _as_float(value)
+    if number is None:
+        return "unknown"
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    unit = units[0]
+    for candidate in units:
+        unit = candidate
+        if abs(number) < 1024 or candidate == units[-1]:
+            break
+        number /= 1024
+    return f"{number:.1f} {unit}"
+
+
 def _runner_key(row: dict[str, Any]) -> str:
     runner = row.get("runner") if isinstance(row.get("runner"), dict) else {}
     labels = runner.get("runner_labels")
@@ -103,10 +117,14 @@ def _runner_labels(row: dict[str, Any]) -> str:
     return str(labels or runner.get("runner_label") or "unknown")
 
 
-def _comparable(rows: Iterable[dict[str, Any]], detector_id: str) -> list[dict[str, Any]]:
-    result = []
+def _comparable(rows: Iterable[dict[str, Any]], detector_id: str, optimizer_run_id: str | None = None) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
     for row in rows:
         if str(row.get("detector_id")) != detector_id:
+            continue
+        if row.get("source") != "execution-optimizer":
+            continue
+        if optimizer_run_id is not None and str(row.get("optimizer_run_id")) != str(optimizer_run_id):
             continue
         if row.get("mode") != "full" or row.get("strategy") != "exhaustive":
             continue
@@ -118,10 +136,33 @@ def _comparable(rows: Iterable[dict[str, Any]], detector_id: str) -> list[dict[s
     return result
 
 
-def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str) -> dict[str, Any]:
+def _shape_from_row(row: dict[str, Any], *, baseline_wall: float | None, observation_count: int = 1, median_wall: float | None = None) -> dict[str, Any]:
+    wall = _as_float(row.get("wall_clock_seconds")) or 0.0
+    metrics = row.get("runner_metrics") if isinstance(row.get("runner_metrics"), dict) else {}
+    return {
+        "execution_shape": row.get("execution_shape"),
+        "pipelines": _as_int(row.get("active_pipelines")),
+        "shards": _as_int(row.get("shards")),
+        "threads_per_pipeline": _as_int(row.get("threads_per_pipeline")),
+        "allocated_threads": _as_int(row.get("allocated_threads")),
+        "observation_count": observation_count,
+        "fastest_wall_clock_seconds": wall,
+        "median_wall_clock_seconds": wall if median_wall is None else median_wall,
+        "parameter_sets_per_second": _as_float(row.get("parameter_sets_per_second")),
+        "page_evaluations_per_second": _as_float(row.get("page_evaluations_per_second")),
+        "effective_acceleration": _as_float(row.get("effective_acceleration")),
+        "parallel_efficiency": _as_float(row.get("parallel_efficiency")),
+        "observed_speedup_vs_one_pipeline": (baseline_wall / wall) if baseline_wall and wall > 0 else None,
+        "optimizer_shape_sequence": _as_int(row.get("optimizer_shape_sequence")),
+        "runner_metrics": metrics,
+    }
+
+
+def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, optimizer_run_id: str | None = None) -> dict[str, Any]:
     rows = _comparable(
         (row for row in parallelism_index.get("observations", []) if isinstance(row, dict)),
         detector_id,
+        optimizer_run_id,
     )
     runner_groups: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
@@ -129,67 +170,42 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str) -
 
     runners: list[dict[str, Any]] = []
     for runner_key, runner_rows in runner_groups.items():
-        shape_groups: dict[str, list[dict[str, Any]]] = {}
-        for row in runner_rows:
-            shape_groups.setdefault(str(row.get("execution_shape") or "unknown"), []).append(row)
-
-        one_pipeline = [
-            row for row in runner_rows
-            if _as_int(row.get("active_pipelines")) == 1 and (_as_float(row.get("wall_clock_seconds")) or 0) > 0
-        ]
-        baseline_wall = min((_as_float(row.get("wall_clock_seconds")) for row in one_pipeline), default=None)
+        one_pipeline = [row for row in runner_rows if _as_int(row.get("active_pipelines")) == 1]
+        baseline_wall = min((_as_float(row.get("wall_clock_seconds")) for row in one_pipeline if _as_float(row.get("wall_clock_seconds")) is not None), default=None)
 
         shapes: list[dict[str, Any]] = []
-        for execution_shape, shape_rows in shape_groups.items():
-            walls = sorted(float(row["wall_clock_seconds"]) for row in shape_rows)
-            fastest = min(shape_rows, key=lambda row: float(row["wall_clock_seconds"]))
-            median_wall = statistics.median(walls)
-            wall = walls[0]
-            observed_speedup = (baseline_wall / wall) if baseline_wall and wall > 0 else None
-            shapes.append({
-                "execution_shape": execution_shape,
-                "pipelines": _as_int(fastest.get("active_pipelines")),
-                "shards": _as_int(fastest.get("shards")),
-                "threads_per_pipeline": _as_int(fastest.get("threads_per_pipeline")),
-                "allocated_threads": _as_int(fastest.get("allocated_threads")),
-                "observation_count": len(shape_rows),
-                "fastest_wall_clock_seconds": wall,
-                "median_wall_clock_seconds": median_wall,
-                "parameter_sets_per_second": _as_float(fastest.get("parameter_sets_per_second")),
-                "page_evaluations_per_second": _as_float(fastest.get("page_evaluations_per_second")),
-                "effective_acceleration": _as_float(fastest.get("effective_acceleration")),
-                "parallel_efficiency": _as_float(fastest.get("parallel_efficiency")),
-                "observed_speedup_vs_one_pipeline": observed_speedup,
-                "fastest_observation_id": fastest.get("observation_id"),
-                "build": fastest.get("build"),
-            })
-        shapes.sort(key=lambda item: (float(item.get("fastest_wall_clock_seconds") or math.inf), int(item.get("pipelines") or 0)))
-        representative = min(runner_rows, key=lambda row: float(row["wall_clock_seconds"]))
-        best = shapes[0] if shapes else None
+        if optimizer_run_id is not None:
+            # A run-local report must show exactly the shapes exercised in this execution.
+            for row in sorted(runner_rows, key=lambda item: int(item.get("optimizer_shape_sequence") or 0)):
+                shapes.append(_shape_from_row(row, baseline_wall=baseline_wall))
+        else:
+            shape_groups: dict[str, list[dict[str, Any]]] = {}
+            for row in runner_rows:
+                shape_groups.setdefault(str(row.get("execution_shape") or "unknown"), []).append(row)
+            for shape_rows in shape_groups.values():
+                walls = sorted(float(row["wall_clock_seconds"]) for row in shape_rows)
+                fastest = min(shape_rows, key=lambda row: float(row["wall_clock_seconds"]))
+                shapes.append(_shape_from_row(fastest, baseline_wall=baseline_wall, observation_count=len(shape_rows), median_wall=statistics.median(walls)))
+            shapes.sort(key=lambda shape: (int(shape.get("pipelines") or 0), int(shape.get("threads_per_pipeline") or 0)))
+
+        best_shape = min(shapes, key=lambda shape: float(shape.get("fastest_wall_clock_seconds") or math.inf), default=None)
+        sample = runner_rows[0]
         runners.append({
             "runner_key": runner_key,
-            "runner_title": _runner_title(representative),
-            "runner_label": (representative.get("runner") or {}).get("runner_label"),
-            "runner_name": (representative.get("runner") or {}).get("runner_name"),
-            "runner_labels": _runner_labels(representative),
-            "cpu_model": (representative.get("runner") or {}).get("cpu_model"),
-            "logical_cpu_count": (representative.get("runner") or {}).get("logical_cpu_count"),
-            "physical_core_count": (representative.get("runner") or {}).get("physical_core_count"),
-            "memory_gib": (representative.get("runner") or {}).get("memory_gib"),
-            "baseline_one_pipeline_wall_clock_seconds": baseline_wall,
-            "best_shape": best,
+            "runner_label": (sample.get("runner") or {}).get("runner_label"),
+            "runner_title": _runner_title(sample),
+            "runner_labels": _runner_labels(sample),
+            "best_shape": best_shape,
             "shapes": shapes,
         })
 
-    runners.sort(key=lambda item: str(item.get("runner_title") or ""))
-    all_best = [runner["best_shape"] | {"runner_key": runner["runner_key"], "runner_title": runner["runner_title"]}
-                for runner in runners if runner.get("best_shape")]
-    all_best.sort(key=lambda item: float(item.get("fastest_wall_clock_seconds") or math.inf))
+    all_shapes = [shape for runner in runners for shape in runner.get("shapes", [])]
+    all_best = sorted(all_shapes, key=lambda shape: float(shape.get("fastest_wall_clock_seconds") or math.inf))
     return {
         "schema_version": OPTIMIZER_INDEX_SCHEMA_VERSION,
         "updated_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "source_parallelism_schema_version": parallelism_index.get("schema_version"),
         "detector_id": detector_id,
+        "optimizer_run_id": optimizer_run_id,
         "runner_count": len(runners),
         "observation_count": len(rows),
         "best_across_runners": all_best[0] if all_best else None,
@@ -197,153 +213,219 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str) -
     }
 
 
-def render_markdown(index: dict[str, Any]) -> str:
+def render_markdown(index: dict[str, Any], run_metadata: dict[str, Any] | None = None) -> str:
     lines = [
         "### Execution optimizer summary",
         "",
         f"Detector: `{index.get('detector_id')}`  ",
-        f"Compatible observations: **{index.get('observation_count', 0)}** across **{index.get('runner_count', 0)}** runner profiles.",
-        "",
-        "| Runner | Pipelines | Shards | Threads / pipeline | Allocated threads | Fastest wall | Median wall | Sets/s | Speedup vs 1 pipeline | Efficiency | Runs |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
+    if index.get("optimizer_run_id") is not None:
+        lines.append(f"Optimizer run: **{index.get('optimizer_run_id')}** — this table contains only shapes completed in this execution.")
+    lines.extend([
+        "",
+        "| Runner | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Sets/s | Speedup | Avg load | Peak load | Avg CPU | Peak RAM |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ])
     rows: list[tuple[str, dict[str, Any], bool]] = []
     for runner in index.get("runners", []):
         best_shape = (runner.get("best_shape") or {}).get("execution_shape")
+        best_seq = (runner.get("best_shape") or {}).get("optimizer_shape_sequence")
         for shape in runner.get("shapes", []):
-            rows.append((str(runner.get("runner_title") or "unknown"), shape, shape.get("execution_shape") == best_shape))
-    rows.sort(key=lambda item: (item[0], int(item[1].get("pipelines") or 0), int(item[1].get("threads_per_pipeline") or 0)))
+            best = shape.get("execution_shape") == best_shape and shape.get("optimizer_shape_sequence") == best_seq
+            rows.append((str(runner.get("runner_title") or "unknown"), shape, best))
+    rows.sort(key=lambda item: (int(item[1].get("optimizer_shape_sequence") or 10**9), item[0], int(item[1].get("pipelines") or 0)))
     for runner_title, shape, best in rows:
-        runner_cell = f"**{runner_title}**" if best else runner_title
+        metrics = shape.get("runner_metrics") if isinstance(shape.get("runner_metrics"), dict) else {}
         speedup = _as_float(shape.get("observed_speedup_vs_one_pipeline"))
-        efficiency = _as_float(shape.get("parallel_efficiency"))
         rate = _as_float(shape.get("parameter_sets_per_second"))
+        avg_load = _as_float(metrics.get("avg_load1"))
+        peak_load = _as_float(metrics.get("peak_load1"))
+        avg_cpu = _as_float(metrics.get("avg_cpu_pct"))
+        peak_ram = metrics.get("peak_ram_used_bytes")
         lines.append(
-            "| {runner} | {pipelines} | {shards} | {threads} | {allocated} | {fastest} | {median} | {rate} | {speedup} | {efficiency} | {runs} |".format(
-                runner=runner_cell,
+            "| {runner} | {pipelines} | {shards} | {threads} | {allocated} | {wall} | {rate} | {speedup} | {avg_load} | {peak_load} | {avg_cpu} | {peak_ram} |".format(
+                runner=f"**{runner_title}**" if best else runner_title,
                 pipelines=shape.get("pipelines") or "?",
                 shards=shape.get("shards") or "?",
                 threads=shape.get("threads_per_pipeline") or "?",
                 allocated=shape.get("allocated_threads") or "?",
-                fastest=_duration(shape.get("fastest_wall_clock_seconds")),
-                median=_duration(shape.get("median_wall_clock_seconds")),
+                wall=_duration(shape.get("fastest_wall_clock_seconds")),
                 rate=f"{rate:.2f}" if rate is not None else "unknown",
-                speedup=f"{speedup:.2f}×" if speedup is not None else "no 1-pipeline baseline",
-                efficiency=f"{efficiency * 100:.1f}%" if efficiency is not None else "unknown",
-                runs=shape.get("observation_count") or 0,
+                speedup=f"{speedup:.2f}×" if speedup is not None else "—",
+                avg_load=f"{avg_load:.1f}" if avg_load is not None else "—",
+                peak_load=f"{peak_load:.1f}" if peak_load is not None else "—",
+                avg_cpu=f"{avg_cpu:.1f}%" if avg_cpu is not None else "—",
+                peak_ram=_format_bytes(peak_ram) if peak_ram is not None else "—",
             )
         )
-    lines.extend(["", "**Bold runner rows mark that runner profile's fastest measured execution shape.**", ""])
+    lines.append("")
+    if run_metadata:
+        early = run_metadata.get("early_stop") if isinstance(run_metadata.get("early_stop"), dict) else {}
+        if early.get("stop_reason") == "throughput_plateau":
+            lines.extend([
+                "**Early stop:** throughput plateau detected after "
+                f"{early.get('required_consecutive_shapes', 3)} consecutive completed shapes improved by less than "
+                f"{early.get('threshold_pct', 1.0)}% from the perceived maximum.",
+                "",
+            ])
+        elif run_metadata.get("stop_reason"):
+            lines.extend([f"**Stop reason:** `{run_metadata.get('stop_reason')}`", ""])
     return "\n".join(lines)
 
 
-def _color(value: float, minimum: float, maximum: float) -> str:
-    if maximum <= minimum:
-        ratio = 0.0
-    else:
-        ratio = (math.log(max(value, 1e-9)) - math.log(max(minimum, 1e-9))) / (
-            math.log(max(maximum, 1e-9)) - math.log(max(minimum, 1e-9))
-        )
-    ratio = min(1.0, max(0.0, ratio))
-    # Green (fast) through amber to red (slow), expressed directly for portable SVG.
-    if ratio < 0.5:
-        local = ratio / 0.5
-        r, g, b = int(40 + 190 * local), int(170 + 35 * local), int(90 - 45 * local)
-    else:
-        local = (ratio - 0.5) / 0.5
-        r, g, b = int(230 + 15 * local), int(205 - 150 * local), int(45 - 5 * local)
-    return f"rgb({r},{g},{b})"
-
-
 def render_heatmap_svg(index: dict[str, Any]) -> str:
+    """Render the execution processing profile: pipelines on X, sets/s on Y."""
     runners = [runner for runner in index.get("runners", []) if runner.get("shapes")]
-    all_shapes = [shape for runner in runners for shape in runner.get("shapes", [])]
-    walls = [float(shape["fastest_wall_clock_seconds"]) for shape in all_shapes]
-    min_wall = min(walls) if walls else 0.0
-    max_wall = max(walls) if walls else 1.0
-    panel_width = 480
-    panel_height = 390
-    columns = min(2, max(1, len(runners)))
-    rows = max(1, math.ceil(len(runners) / columns))
-    width = columns * panel_width
-    height = 95 + rows * panel_height + 65
+    width, height = 980, 560
+    left, top, right, bottom = 92, 90, 40, 90
+    plot_w = width - left - right
+    plot_h = height - top - bottom
+    points = [
+        (runner, shape)
+        for runner in runners
+        for shape in runner.get("shapes", [])
+        if (_as_int(shape.get("pipelines")) or 0) > 0 and (_as_float(shape.get("parameter_sets_per_second")) or 0) > 0
+    ]
+    max_pipeline = max((_as_int(shape.get("pipelines")) or 1 for _, shape in points), default=1)
+    max_rate = max((_as_float(shape.get("parameter_sets_per_second")) or 0 for _, shape in points), default=1.0)
+    min_log = 0.0
+    max_log = math.log2(max_pipeline) if max_pipeline > 1 else 1.0
+
+    def x_of(pipeline: int) -> float:
+        value = math.log2(max(1, pipeline))
+        return left + ((value - min_log) / max(1e-9, max_log - min_log)) * plot_w
+
+    def y_of(rate: float) -> float:
+        return top + plot_h - (rate / max(1e-9, max_rate * 1.08)) * plot_h
+
+    palette = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#39c5cf"]
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
         '<rect width="100%" height="100%" fill="#0d1117"/>',
-        '<style>text{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;fill:#e6edf3}.muted{fill:#8b949e}.axis{stroke:#484f58;stroke-width:1}.cell{stroke:#e6edf3;stroke-width:.7}</style>',
-        f'<text x="20" y="32" font-size="22" font-weight="700">Execution optimizer — {html.escape(str(index.get("detector_id")))}</text>',
-        f'<text x="20" y="56" font-size="13" class="muted">Fastest measured wall time by pipeline/thread shape; shared logarithmic color scale across runner profiles.</text>',
+        '<style>text{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;fill:#e6edf3}.muted{fill:#8b949e}.axis{stroke:#484f58;stroke-width:1}.grid{stroke:#21262d;stroke-width:1}.point{stroke:#e6edf3;stroke-width:1.2}</style>',
+        f'<text x="24" y="34" font-size="22" font-weight="700">Execution processing profile — {html.escape(str(index.get("detector_id")))}</text>',
+        '<text x="24" y="58" font-size="13" class="muted">Pipeline count vs parameter sets/second; thread count is annotated at each measured shape.</text>',
+        f'<line x1="{left}" y1="{top + plot_h}" x2="{left + plot_w}" y2="{top + plot_h}" class="axis"/>',
+        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_h}" class="axis"/>',
     ]
-    for panel_index, runner in enumerate(runners):
-        col = panel_index % columns
-        row = panel_index // columns
-        ox = col * panel_width + 50
-        oy = 90 + row * panel_height
-        shapes = runner.get("shapes", [])
-        pipelines = sorted({int(shape["pipelines"]) for shape in shapes if shape.get("pipelines")})
-        threads = sorted({int(shape["threads_per_pipeline"]) for shape in shapes if shape.get("threads_per_pipeline")})
-        plot_x, plot_y, plot_w, plot_h = ox + 70, oy + 55, 340, 255
-        parts.append(f'<text x="{ox}" y="{oy + 20}" font-size="16" font-weight="700">{html.escape(str(runner.get("runner_title")))}</text>')
-        parts.append(f'<line x1="{plot_x}" y1="{plot_y + plot_h}" x2="{plot_x + plot_w}" y2="{plot_y + plot_h}" class="axis"/>')
-        parts.append(f'<line x1="{plot_x}" y1="{plot_y}" x2="{plot_x}" y2="{plot_y + plot_h}" class="axis"/>')
-        x_positions = {value: plot_x + (i + 0.5) * plot_w / max(1, len(threads)) for i, value in enumerate(threads)}
-        y_positions = {value: plot_y + plot_h - (i + 0.5) * plot_h / max(1, len(pipelines)) for i, value in enumerate(pipelines)}
-        cell_w = min(58, plot_w / max(1, len(threads)) * 0.78)
-        cell_h = min(42, plot_h / max(1, len(pipelines)) * 0.72)
-        for value, x in x_positions.items():
-            parts.append(f'<text x="{x}" y="{plot_y + plot_h + 22}" text-anchor="middle" font-size="11">{value}</text>')
-        for value, y in y_positions.items():
-            parts.append(f'<text x="{plot_x - 10}" y="{y + 4}" text-anchor="end" font-size="11">{value}</text>')
-        parts.append(f'<text x="{plot_x + plot_w / 2}" y="{plot_y + plot_h + 43}" text-anchor="middle" font-size="12" class="muted">threads / pipeline</text>')
-        parts.append(f'<text x="{plot_x - 48}" y="{plot_y + plot_h / 2}" text-anchor="middle" font-size="12" class="muted" transform="rotate(-90 {plot_x - 48} {plot_y + plot_h / 2})">pipelines</text>')
-        best_shape = (runner.get("best_shape") or {}).get("execution_shape")
+    for tick in range(0, 6):
+        rate = max_rate * tick / 5
+        y = y_of(rate)
+        parts.append(f'<line x1="{left}" y1="{y:.1f}" x2="{left + plot_w}" y2="{y:.1f}" class="grid"/>')
+        parts.append(f'<text x="{left - 12}" y="{y + 4:.1f}" text-anchor="end" font-size="11">{rate:.1f}</text>')
+    pipeline_ticks = sorted({1, max_pipeline} | {2**i for i in range(int(max_log) + 1) if 2**i <= max_pipeline})
+    for pipeline in pipeline_ticks:
+        x = x_of(pipeline)
+        parts.append(f'<line x1="{x:.1f}" y1="{top}" x2="{x:.1f}" y2="{top + plot_h}" class="grid"/>')
+        parts.append(f'<text x="{x:.1f}" y="{top + plot_h + 24}" text-anchor="middle" font-size="11">{pipeline}</text>')
+    parts.append(f'<text x="{left + plot_w/2}" y="{height - 28}" text-anchor="middle" font-size="13" class="muted">detector pipelines (log₂ scale)</text>')
+    parts.append(f'<text x="28" y="{top + plot_h/2}" text-anchor="middle" font-size="13" class="muted" transform="rotate(-90 28 {top + plot_h/2})">parameter sets / second</text>')
+
+    for runner_index, runner in enumerate(runners):
+        color = palette[runner_index % len(palette)]
+        shapes = sorted(runner.get("shapes", []), key=lambda shape: int(shape.get("pipelines") or 0))
+        coords: list[tuple[float, float, dict[str, Any]]] = []
         for shape in shapes:
-            x = x_positions.get(int(shape["threads_per_pipeline"]))
-            y = y_positions.get(int(shape["pipelines"]))
-            wall = float(shape["fastest_wall_clock_seconds"])
-            if x is None or y is None:
+            p = _as_int(shape.get("pipelines"))
+            rate = _as_float(shape.get("parameter_sets_per_second"))
+            if not p or not rate or rate <= 0:
                 continue
-            stroke_width = 3 if shape.get("execution_shape") == best_shape else 0.7
-            parts.append(f'<rect x="{x - cell_w/2:.1f}" y="{y - cell_h/2:.1f}" width="{cell_w:.1f}" height="{cell_h:.1f}" rx="5" fill="{_color(wall, min_wall, max_wall)}" class="cell" stroke-width="{stroke_width}"/>')
-            parts.append(f'<text x="{x}" y="{y + 4}" text-anchor="middle" font-size="10" fill="#0d1117" style="fill:#0d1117">{html.escape(_duration(wall))}</text>')
-    legend_y = height - 38
-    legend_x = 20
-    legend_w = min(500, width - 40)
-    steps = 80
-    for i in range(steps):
-        value = min_wall + (max_wall - min_wall) * i / max(1, steps - 1)
-        parts.append(f'<rect x="{legend_x + legend_w*i/steps:.1f}" y="{legend_y}" width="{legend_w/steps + 1:.1f}" height="12" fill="{_color(value, min_wall, max_wall)}"/>')
-    parts.append(f'<text x="{legend_x}" y="{legend_y - 6}" font-size="11" class="muted">fast {_duration(min_wall)}</text>')
-    parts.append(f'<text x="{legend_x + legend_w}" y="{legend_y - 6}" text-anchor="end" font-size="11" class="muted">slow {_duration(max_wall)}</text>')
-    parts.append('</svg>')
+            coords.append((x_of(p), y_of(rate), shape))
+        if len(coords) > 1:
+            path = " ".join(("M" if i == 0 else "L") + f" {x:.1f} {y:.1f}" for i, (x, y, _) in enumerate(coords))
+            parts.append(f'<path d="{path}" fill="none" stroke="{color}" stroke-width="2.5"/>')
+        best = runner.get("best_shape") or {}
+        for x, y, shape in coords:
+            is_best = shape.get("execution_shape") == best.get("execution_shape") and shape.get("optimizer_shape_sequence") == best.get("optimizer_shape_sequence")
+            radius = 7 if is_best else 5
+            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{color}" class="point"/>')
+            threads = shape.get("threads_per_pipeline") or "?"
+            parts.append(f'<text x="{x + 8:.1f}" y="{y - 8:.1f}" font-size="10">{threads}t</text>')
+        legend_y = 78 + runner_index * 18
+        parts.append(f'<rect x="{width - 320}" y="{legend_y - 10}" width="12" height="12" fill="{color}"/>')
+        parts.append(f'<text x="{width - 300}" y="{legend_y}" font-size="11">{html.escape(str(runner.get("runner_title") or "unknown"))}</text>')
+    parts.append("</svg>")
     return "\n".join(parts) + "\n"
 
 
-def update_optimizer_artifacts(results_root: Path, detector_id: str) -> dict[str, Path]:
+def _read_jsonl(path: Path | None, optimizer_run_id: str | None = None) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if path is None or not path.is_file():
+        return rows
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        if optimizer_run_id is not None and str(row.get("optimizer_run_id")) != str(optimizer_run_id):
+            continue
+        rows.append(row)
+    return rows
+
+
+def update_optimizer_artifacts(
+    results_root: Path,
+    detector_id: str,
+    *,
+    optimizer_run_id: str | None = None,
+    run_metadata_path: Path | None = None,
+    runner_metrics_log: Path | None = None,
+) -> dict[str, Path]:
     parallelism_path = results_root / "parallelism-index.json"
     if not parallelism_path.is_file():
         raise FileNotFoundError(f"Missing {parallelism_path}")
-    index = build_optimizer_index(_read_json(parallelism_path), detector_id)
+    parallelism = _read_json(parallelism_path)
+    historical = build_optimizer_index(parallelism, detector_id)
+    current = build_optimizer_index(parallelism, detector_id, optimizer_run_id) if optimizer_run_id is not None else historical
+
+    run_metadata: dict[str, Any] = {}
+    if run_metadata_path is not None and run_metadata_path.is_file():
+        run_metadata = _read_json(run_metadata_path)
+    runner_samples = _read_jsonl(runner_metrics_log, optimizer_run_id)
+
     index_path = results_root / "optimizer-index.json"
-    existing: dict[str, Any]
     if index_path.is_file():
         existing = _read_json(index_path)
     else:
-        existing = {"schema_version": OPTIMIZER_INDEX_SCHEMA_VERSION, "detectors": {}}
+        existing = {"schema_version": OPTIMIZER_INDEX_SCHEMA_VERSION, "detectors": {}, "runs": {}}
     detectors = existing.get("detectors") if isinstance(existing.get("detectors"), dict) else {}
-    detectors[detector_id] = index
+    detectors[detector_id] = historical
+    runs = existing.get("runs") if isinstance(existing.get("runs"), dict) else {}
+    if optimizer_run_id is not None:
+        shard_rows = [
+            row for row in parallelism.get("shard_observations", [])
+            if isinstance(row, dict)
+            and str(row.get("optimizer_run_id")) == str(optimizer_run_id)
+            and str(row.get("detector_id")) == detector_id
+        ]
+        runs[str(optimizer_run_id)] = {
+            "optimizer_run_id": str(optimizer_run_id),
+            "detector_id": detector_id,
+            "updated_at_utc": current["updated_at_utc"],
+            "shape_observation_count": current.get("observation_count", 0),
+            "shard_observation_count": len(shard_rows),
+            "run_metadata": run_metadata,
+            "runner_metrics_samples": runner_samples,
+            "current_execution": current,
+        }
     existing.update({
         "schema_version": OPTIMIZER_INDEX_SCHEMA_VERSION,
-        "updated_at_utc": index["updated_at_utc"],
+        "updated_at_utc": current["updated_at_utc"],
         "detectors": detectors,
+        "runs": runs,
     })
     _write_json(index_path, existing)
+
     output_dir = results_root / "execution-optimizer" / detector_id
     output_dir.mkdir(parents=True, exist_ok=True)
     markdown_path = output_dir / "summary.md"
     svg_path = output_dir / "heatmap.svg"
-    markdown_path.write_text(render_markdown(index), encoding="utf-8")
-    svg_path.write_text(render_heatmap_svg(index), encoding="utf-8")
+    markdown_path.write_text(render_markdown(current, run_metadata), encoding="utf-8")
+    svg_path.write_text(render_heatmap_svg(current), encoding="utf-8")
     return {"index": index_path, "markdown": markdown_path, "heatmap": svg_path}
 
 
@@ -351,8 +433,17 @@ def _main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--results-root", type=Path, required=True)
     parser.add_argument("--detector", required=True)
+    parser.add_argument("--optimizer-run-id")
+    parser.add_argument("--run-metadata", type=Path)
+    parser.add_argument("--runner-metrics-log", type=Path)
     args = parser.parse_args()
-    paths = update_optimizer_artifacts(args.results_root, args.detector)
+    paths = update_optimizer_artifacts(
+        args.results_root,
+        args.detector,
+        optimizer_run_id=args.optimizer_run_id,
+        run_metadata_path=args.run_metadata,
+        runner_metrics_log=args.runner_metrics_log,
+    )
     for name, path in paths.items():
         print(f"{name}={path}")
     return 0

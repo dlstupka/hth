@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unittest
 from pathlib import Path
 
 
@@ -10,92 +11,96 @@ REGRESSION = ROOT / ".github" / "workflows" / "regress-detector.yml"
 DRIVER = ROOT / "tools" / "run-detector-regressions.sh"
 
 
-def test_execution_optimizer_is_manual_and_supports_auto_or_manual_ranges() -> None:
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert "name: HTH execution optimizer" in text
-    assert "workflow_dispatch:" in text
-    assert "pipeline_range:" in text
-    assert "default: auto" in text
-    assert "pipeline_min:" in text
-    assert "pipeline_max:" in text
+class ExecutionOptimizerWorkflowTests(unittest.TestCase):
+    def test_execution_optimizer_is_manual_and_supports_exhaustive_or_binary_enumeration(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("name: HTH execution optimizer", text)
+        self.assertIn("workflow_dispatch:", text)
+        self.assertIn("pipeline_enumeration:", text)
+        self.assertIn("default: exhaustive", text)
+        self.assertIn("- exhaustive", text)
+        self.assertIn("- binary", text)
+        self.assertIn("pipeline_min:", text)
+        self.assertIn("pipeline_max:", text)
+        self.assertIn("thread_min:", text)
+        self.assertIn("thread_max:", text)
+        self.assertIn("early_stop:", text)
+        self.assertIn("default: true", text)
+
+    def test_execution_optimizer_is_one_direct_job_on_selected_runner(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("jobs:\n  optimize:", text)
+        self.assertIn("name: Optimize detector execution shapes", text)
+        self.assertNotIn("uses: ./.github/workflows/_core-hth.yml", text)
+        self.assertNotIn("gh workflow run", text)
+        self.assertNotIn("gh run watch", text)
+        self.assertIn("inputs.runner == 'self-hosted-e7k'", text)
+        self.assertIn("inputs.runner == 'self-hosted-e9k'", text)
+
+    def test_execution_optimizer_reuses_normal_regression_setup_sequence(self) -> None:
+        optimizer = WORKFLOW.read_text(encoding="utf-8")
+        regression = REGRESSION.read_text(encoding="utf-8")
+        for step in (
+            "Checkout HTH pipeline", "Checkout results repository", "Runner diagnostics",
+            "Set up Python — GitHub-hosted Linux", "Verify Python — self-hosted Linux",
+            "Use repaired Python tool cache — Windows", "Create isolated Python environment",
+            "Install dependencies", "Verify Python dependency ABI", "Show toolchain environment",
+            "Show OpenCV build", "Benchmark OpenCV",
+        ):
+            marker = f"- name: {step}"
+            self.assertIn(marker, regression)
+            self.assertIn(marker, optimizer)
+
+    def test_execution_optimizer_serially_reuses_normal_regression_driver(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('for pipelines in "${candidates[@]}"; do', text)
+        self.assertIn('export DETECTOR_PIPELINES="$pipelines"', text)
+        self.assertIn('export SHARDS="$pipelines"', text)
+        self.assertIn('export THREADS="$effective_threads"', text)
+        self.assertIn('bash hth-pipeline/tools/run-detector-regressions.sh', text)
+        self.assertIn("Execution optimizer shape $shape_number/$total", text)
+        self.assertTrue(DRIVER.is_file())
+
+    def test_execution_optimizer_honors_runner_and_manual_thread_bounds(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('effective_threads=$((RUNNER_BUDGET / pipelines))', text)
+        self.assertIn('effective_threads > THREAD_MAX', text)
+        self.assertIn('effective_threads < THREAD_MIN', text)
+        self.assertIn('feasible_pipeline_max=$((budget / THREAD_MIN))', text)
+
+    def test_execution_optimizer_records_shards_and_current_run_only_reports(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("optimizer-work/shards.jsonl", text)
+        self.assertIn("HTH_OPTIMIZER_SHARD_LOG", text)
+        self.assertIn("--replay-shard-log", text)
+        self.assertIn('--optimizer-run-id "$GITHUB_RUN_ID"', text)
+        self.assertIn("parallelism-index.json", text)
+        self.assertIn("optimizer-index.json", text)
+        self.assertIn("execution-optimizer/$DETECTOR_ALGORITHM/summary.md", text)
+        self.assertIn("execution-optimizer/$DETECTOR_ALGORITHM/heatmap.svg", text)
+        self.assertNotIn("upload-artifact", text)
+
+    def test_execution_optimizer_collects_proc_metrics_only_with_heartbeat(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("Start execution optimizer heartbeat", text)
+        self.assertIn("[execution optimizer heartbeat]", text)
+        self.assertIn("python -m hth.runner_metrics", text)
+        self.assertIn("sleep 60", text)
+        self.assertIn("Stop execution optimizer heartbeat", text)
+
+    def test_execution_optimizer_has_default_three_shape_one_percent_early_stop(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("--threshold-pct 1.0", text)
+        self.assertIn("--consecutive 3", text)
+        self.assertIn("throughput_plateau", text)
+        self.assertIn("3 consecutive completed shapes improved throughput by <1%", text)
+
+    def test_core_has_no_execution_optimizer_orchestration(self) -> None:
+        text = CORE.read_text(encoding="utf-8")
+        self.assertNotIn("prepare-execution-optimizer", text)
+        self.assertNotIn("optimizer_algorithm", text)
+        self.assertNotIn("execution-optimizer", text)
 
 
-def test_execution_optimizer_is_one_direct_job_on_selected_runner() -> None:
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert "jobs:\n  optimize:" in text
-    assert "name: Optimize detector execution shapes" in text
-    assert "uses: ./.github/workflows/_core-hth.yml" not in text
-    assert "gh workflow run" not in text
-    assert "gh run watch" not in text
-    assert "inputs.runner == 'self-hosted-e7k'" in text
-    assert "inputs.runner == 'self-hosted-e9k'" in text
-
-
-def test_execution_optimizer_reuses_normal_regression_setup_sequence() -> None:
-    optimizer = WORKFLOW.read_text(encoding="utf-8")
-    regression = REGRESSION.read_text(encoding="utf-8")
-    setup_steps = (
-        "Checkout HTH pipeline",
-        "Checkout results repository",
-        "Runner diagnostics",
-        "Set up Python — GitHub-hosted Linux",
-        "Verify Python — self-hosted Linux",
-        "Use repaired Python tool cache — Windows",
-        "Create isolated Python environment",
-        "Install dependencies",
-        "Verify Python dependency ABI",
-        "Show toolchain environment",
-        "Show OpenCV build",
-        "Benchmark OpenCV",
-    )
-    for step in setup_steps:
-        marker = f"- name: {step}"
-        assert marker in regression
-        assert marker in optimizer
-
-
-def test_execution_optimizer_serially_reuses_normal_regression_driver() -> None:
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert 'for pipelines in "${candidates[@]}"; do' in text
-    assert 'export DETECTOR_PIPELINES="$pipelines"' in text
-    assert 'export SHARDS="$pipelines"' in text
-    assert 'export THREADS="auto"' in text
-    assert 'bash hth-pipeline/tools/run-detector-regressions.sh' in text
-    assert "Execution optimizer shape $shape_number/$total" in text
-    assert DRIVER.is_file()
-
-
-def test_execution_optimizer_records_only_optimizer_intelligence() -> None:
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert "python -m hth.optimizer_capture" in text
-    assert "python -m hth.optimizer_store" in text
-    assert "parallelism-index.json" in text
-    assert "optimizer-index.json" in text
-    assert "execution-optimizer/$DETECTOR_ALGORITHM/summary.md" in text
-    assert "execution-optimizer/$DETECTOR_ALGORITHM/heatmap.svg" in text
-    assert "hth.calibration_store publish" not in text
-    assert "Write Regression Manifest" not in text
-    assert "upload-artifact" not in text
-
-
-def test_execution_optimizer_rebases_observations_before_publish() -> None:
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert "optimizer-work/observations.jsonl" in text
-    assert "git -C results-repo fetch origin main" in text
-    assert "git -C results-repo reset --hard origin/main" in text
-    assert "--replay-log" in text
-    assert "max_publish_attempts=5" in text
-
-
-def test_execution_optimizer_has_one_aggregate_heartbeat() -> None:
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert "Start execution optimizer heartbeat" in text
-    assert "[execution optimizer heartbeat]" in text
-    assert "Stop execution optimizer heartbeat" in text
-
-
-def test_core_has_no_execution_optimizer_orchestration() -> None:
-    text = CORE.read_text(encoding="utf-8")
-    assert "prepare-execution-optimizer" not in text
-    assert "optimizer_algorithm" not in text
-    assert "execution-optimizer" not in text
+if __name__ == "__main__":
+    unittest.main()

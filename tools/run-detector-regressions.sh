@@ -405,6 +405,27 @@ PYLEASE
   printf '%s\n' "$run_dir" > "$queue_dir/run-dirs/$(printf '%04d' "$task_index")"
   detector_finished_epoch="$(date +%s)"
   detector_wall_seconds="$((detector_finished_epoch - detector_started_epoch))"
+
+  if [[ -n "${HTH_OPTIMIZER_SHARD_LOG:-}" && -n "${HTH_OPTIMIZER_RUN_ID:-}" && -n "${HTH_OPTIMIZER_SHAPE_SEQUENCE:-}" ]]; then
+    optimizer_shard_args=(
+      --results-root results-repo
+      --shard-run-dir "$run_dir"
+      --shard-wall-clock-seconds "$detector_wall_seconds"
+      --runner-label "${HTH_RUNNER_LABEL:-unknown}"
+      --github-run-id "$HTH_OPTIMIZER_RUN_ID"
+      --shape-sequence "$HTH_OPTIMIZER_SHAPE_SEQUENCE"
+      --pipeline-number "$pipeline_number"
+      --shard-index "$shard_index"
+      --shard-count "$shard_count"
+      --threads "$detector_threads"
+      --shard-log "$HTH_OPTIMIZER_SHARD_LOG"
+    )
+    if [[ -n "${HTH_OPTIMIZER_RUNNER_METRICS_LOG:-}" ]]; then
+      optimizer_shard_args+=(--runner-metrics-log "$HTH_OPTIMIZER_RUNNER_METRICS_LOG")
+    fi
+    python -m hth.optimizer_capture "${optimizer_shard_args[@]}"
+  fi
+
   lifecycle_time="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   echo "======================================================================"
   echo "[pipeline $pipeline_number] UNLOAD detector=$detector_name shard=$((shard_index + 1))/$shard_count status=complete wall=${detector_wall_seconds}s time=$lifecycle_time"

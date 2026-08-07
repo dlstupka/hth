@@ -42,24 +42,39 @@ on:
           - self-hosted-rhel8
           - self-hosted-windows
           - github-hosted
-      pipeline_range:
-        description: Pipeline enumeration mode
+      pipeline_enumeration:
+        description: Pipeline shape enumeration
         required: true
-        default: auto
+        default: exhaustive
         type: choice
         options:
-          - auto
-          - manual
+          - exhaustive
+          - binary
       pipeline_min:
-        description: Manual minimum pipelines, inclusive
-        required: false
+        description: Minimum detector pipelines, inclusive
+        required: true
         default: "1"
         type: string
       pipeline_max:
-        description: Manual maximum pipelines, inclusive
-        required: false
-        default: "16"
+        description: Maximum detector pipelines, inclusive
+        required: true
+        default: "192"
         type: string
+      thread_min:
+        description: Minimum threads per active pipeline
+        required: true
+        default: "1"
+        type: string
+      thread_max:
+        description: Maximum threads per active pipeline
+        required: true
+        default: "96"
+        type: string
+      early_stop:
+        description: Stop after 3 consecutive shapes improve sets/s by less than 1% from the perceived maximum
+        required: true
+        default: true
+        type: boolean
       results_repository:
         description: Repository containing preprocessed images and intelligence indexes
         required: true
@@ -508,27 +523,60 @@ jobs:
 
       - name: Start execution optimizer heartbeat
         shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
         run: |
           set -euo pipefail
-          state_file="$RUNNER_TEMP/hth-execution-optimizer-state.txt"
+          state_file="$RUNNER_TEMP/hth-execution-optimizer-state.json"
           pid_file="$RUNNER_TEMP/hth-execution-optimizer-heartbeat.pid"
-          echo "setup" > "$state_file"
+          metrics_log="$RUNNER_TEMP/hth-execution-optimizer-runner-metrics.jsonl"
+          cpu_state_file="$RUNNER_TEMP/hth-execution-optimizer-proc-stat.json"
+          rm -f "$metrics_log" "$cpu_state_file"
+          python - "$state_file" "$GITHUB_RUN_ID" <<'PYSTATE'
+          import json, sys
+          from pathlib import Path
+          Path(sys.argv[1]).write_text(json.dumps({"phase": "setup", "optimizer_run_id": sys.argv[2]}) + "\n", encoding="utf-8")
+          PYSTATE
           (
             while true; do
-              state="$(cat "$state_file" 2>/dev/null || echo unknown)"
+              state="$(python - "$state_file" <<'PYSTATE'
+          import json, sys
+          from pathlib import Path
+          try:
+              data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          except Exception:
+              data = {"phase": "unknown"}
+          fields = [f"phase={data.get('phase', 'unknown')}"]
+          for key in ("shape_sequence", "shape_total", "pipelines", "shards", "threads_per_pipeline"):
+              if data.get(key) is not None:
+                  fields.append(f"{key}={data[key]}")
+          print(" ".join(fields))
+          PYSTATE
+              )"
               echo "[execution optimizer heartbeat] time=$(date -u +%Y-%m-%dT%H:%M:%SZ) ${state}"
+              python -m hth.runner_metrics \
+                --runner-label "$HTH_RUNNER_LABEL" \
+                --runner-name "${HTH_RUNNER_NAME:-unknown}" \
+                --optimizer-run-id "$GITHUB_RUN_ID" \
+                --state-file "$state_file" \
+                --output-log "$metrics_log" \
+                --cpu-state-file "$cpu_state_file"
               sleep 60
             done
           ) &
           echo "$!" > "$pid_file"
+          echo "HTH_OPTIMIZER_STATE_FILE=$state_file" >> "$GITHUB_ENV"
+          echo "HTH_OPTIMIZER_RUNNER_METRICS_LOG=$metrics_log" >> "$GITHUB_ENV"
 
       - name: Build execution shape plan
         id: plan
         shell: bash
         env:
-          RANGE_MODE: ${{ inputs.pipeline_range }}
+          ENUMERATION: ${{ inputs.pipeline_enumeration }}
           PIPELINE_MIN: ${{ inputs.pipeline_min }}
           PIPELINE_MAX: ${{ inputs.pipeline_max }}
+          THREAD_MIN: ${{ inputs.thread_min }}
+          THREAD_MAX: ${{ inputs.thread_max }}
         run: |
           set -euo pipefail
           budget="$(PYTHONPATH=hth-pipeline python - "$HTH_RUNNER_LABEL" <<'PYPLAN'
@@ -538,38 +586,68 @@ jobs:
           PYPLAN
           )"
 
-          if [[ "$RANGE_MODE" == "manual" ]]; then
-            if [[ ! "$PIPELINE_MIN" =~ ^[1-9][0-9]*$ || ! "$PIPELINE_MAX" =~ ^[1-9][0-9]*$ ]]; then
-              echo "::error::Manual pipeline minimum and maximum must be positive whole numbers"
+          for name in PIPELINE_MIN PIPELINE_MAX THREAD_MIN THREAD_MAX; do
+            value="${!name}"
+            if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::$name must be a positive whole number: $value"
               exit 1
             fi
-            if (( PIPELINE_MIN > PIPELINE_MAX || PIPELINE_MAX > budget )); then
-              echo "::error::Manual pipeline range must satisfy 1 <= min <= max <= runner budget $budget"
-              exit 1
-            fi
-            pipelines="$(seq -s, "$PIPELINE_MIN" "$PIPELINE_MAX")"
+          done
+          if (( PIPELINE_MIN > PIPELINE_MAX )); then
+            echo "::error::Pipeline minimum cannot exceed pipeline maximum"
+            exit 1
+          fi
+          if (( THREAD_MIN > THREAD_MAX )); then
+            echo "::error::Thread minimum cannot exceed thread maximum"
+            exit 1
+          fi
+          if (( THREAD_MAX > 1024 )); then
+            echo "::error::Thread maximum cannot exceed detector CLI maximum 1024"
+            exit 1
+          fi
+
+          effective_thread_max="$THREAD_MAX"
+          (( effective_thread_max > budget )) && effective_thread_max="$budget"
+          feasible_pipeline_max=$((budget / THREAD_MIN))
+          effective_pipeline_max="$PIPELINE_MAX"
+          (( effective_pipeline_max > feasible_pipeline_max )) && effective_pipeline_max="$feasible_pipeline_max"
+          if (( PIPELINE_MIN > effective_pipeline_max )); then
+            echo "::error::No legal execution shape: pipeline minimum $PIPELINE_MIN with thread minimum $THREAD_MIN exceeds runner budget $budget"
+            exit 1
+          fi
+
+          if [[ "$ENUMERATION" == "exhaustive" ]]; then
+            pipelines="$(seq -s, "$PIPELINE_MIN" "$effective_pipeline_max")"
           else
-            pipelines="$(python - "$budget" <<'PYCANDIDATES'
+            pipelines="$(python - "$PIPELINE_MIN" "$effective_pipeline_max" <<'PYCANDIDATES'
           import sys
-          budget = int(sys.argv[1])
-          preferred = [1, 2, 4, 8, 16, 32, 64, 96, 128, 192]
-          values = [value for value in preferred if value <= budget]
-          if budget not in values:
-              values.append(budget)
-          print(",".join(str(value) for value in sorted(set(values))))
+          low, high = map(int, sys.argv[1:])
+          values = {low, high}
+          power = 1
+          while power <= high:
+              if power >= low:
+                  values.add(power)
+              power *= 2
+          print(",".join(str(value) for value in sorted(values)))
           PYCANDIDATES
             )"
           fi
 
           echo "runner_budget=$budget" >> "$GITHUB_OUTPUT"
           echo "pipelines=$pipelines" >> "$GITHUB_OUTPUT"
+          echo "thread_min=$THREAD_MIN" >> "$GITHUB_OUTPUT"
+          echo "thread_max=$effective_thread_max" >> "$GITHUB_OUTPUT"
           echo "Execution Optimizer"
           echo "==================="
-          echo "Detector      : $DETECTOR_ALGORITHM"
-          echo "Runner        : $HTH_RUNNER_LABEL"
-          echo "Thread budget : $budget"
-          echo "Shapes        : $pipelines"
-          echo "Model         : pipelines = shards; threads = auto"
+          echo "Detector             : $DETECTOR_ALGORITHM"
+          echo "Runner               : $HTH_RUNNER_LABEL"
+          echo "Runner thread budget : $budget"
+          echo "Pipeline enumeration : $ENUMERATION"
+          echo "Pipeline range       : $PIPELINE_MIN-$effective_pipeline_max"
+          echo "Thread range         : $THREAD_MIN-$effective_thread_max per pipeline"
+          echo "Shapes               : $pipelines"
+          echo "Model                : shards = pipelines; threads = min(thread max, floor(runner budget / pipelines))"
+          echo "Early stop           : ${{ inputs.early_stop }} (3 consecutive completed shapes <1% improvement from perceived max)"
 
       - name: Optimize detector execution shapes
         id: optimizer
@@ -578,36 +656,86 @@ jobs:
           PYTHONPATH: hth-pipeline
           PIPELINES: ${{ steps.plan.outputs.pipelines }}
           RUNNER_BUDGET: ${{ steps.plan.outputs.runner_budget }}
+          THREAD_MIN: ${{ steps.plan.outputs.thread_min }}
+          THREAD_MAX: ${{ steps.plan.outputs.thread_max }}
+          EARLY_STOP: ${{ inputs.early_stop }}
+          ENUMERATION: ${{ inputs.pipeline_enumeration }}
         run: |
           set -euo pipefail
-          state_file="$RUNNER_TEMP/hth-execution-optimizer-state.txt"
           rm -rf optimizer-work
           mkdir -p optimizer-work
           : > optimizer-work/observations.jsonl
+          : > optimizer-work/shards.jsonl
+          run_metadata="$GITHUB_WORKSPACE/optimizer-work/run-metadata.json"
+          observation_log="$GITHUB_WORKSPACE/optimizer-work/observations.jsonl"
+          shard_log="$GITHUB_WORKSPACE/optimizer-work/shards.jsonl"
 
           IFS=',' read -r -a candidates <<< "$PIPELINES"
           total="${#candidates[@]}"
           shape_number=0
+          stop_reason="shape_range_complete"
+
+          python - "$run_metadata" "$GITHUB_RUN_ID" "$DETECTOR_ALGORITHM" "$HTH_RUNNER_LABEL" "$RUNNER_BUDGET" "$THREAD_MIN" "$THREAD_MAX" "$ENUMERATION" "$EARLY_STOP" <<'PYMETA'
+          import json, sys
+          from pathlib import Path
+          path = Path(sys.argv[1])
+          path.write_text(json.dumps({
+              "optimizer_run_id": sys.argv[2],
+              "detector_id": sys.argv[3],
+              "runner_label": sys.argv[4],
+              "runner_thread_budget": int(sys.argv[5]),
+              "thread_min": int(sys.argv[6]),
+              "thread_max": int(sys.argv[7]),
+              "pipeline_enumeration": sys.argv[8],
+              "early_stop_enabled": sys.argv[9].lower() == "true",
+              "early_stop": {"threshold_pct": 1.0, "required_consecutive_shapes": 3},
+              "completed_shapes": 0,
+              "stop_reason": None,
+          }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PYMETA
 
           for pipelines in "${candidates[@]}"; do
+            effective_threads=$((RUNNER_BUDGET / pipelines))
+            (( effective_threads > THREAD_MAX )) && effective_threads="$THREAD_MAX"
+            if (( effective_threads < THREAD_MIN )); then
+              echo "Skipping pipelines=$pipelines because computed threads=$effective_threads is below thread minimum $THREAD_MIN"
+              continue
+            fi
+
             shape_number=$((shape_number + 1))
             export DETECTOR_PIPELINES="$pipelines"
             export SHARDS="$pipelines"
-            export THREADS="auto"
-            export HTH_REGRESSION_OUTPUT="optimizer-work/${pipelines}p"
+            export THREADS="$effective_threads"
+            export HTH_REGRESSION_OUTPUT="optimizer-work/${pipelines}p-${effective_threads}t"
+            export HTH_OPTIMIZER_RUN_ID="$GITHUB_RUN_ID"
+            export HTH_OPTIMIZER_SHAPE_SEQUENCE="$shape_number"
+            export HTH_OPTIMIZER_SHARD_LOG="$shard_log"
+            export HTH_OPTIMIZER_RUNNER_METRICS_LOG
             rm -rf "$HTH_REGRESSION_OUTPUT"
 
-            effective_threads=$((RUNNER_BUDGET / pipelines))
-            (( effective_threads < 1 )) && effective_threads=1
-            echo "shape=$shape_number/$total detector=$DETECTOR_ALGORITHM pipelines=$pipelines shards=$pipelines threads=$effective_threads" > "$state_file"
+            python - "$HTH_OPTIMIZER_STATE_FILE" "$GITHUB_RUN_ID" "$shape_number" "$total" "$DETECTOR_ALGORITHM" "$pipelines" "$effective_threads" <<'PYSTATE'
+          import json, sys
+          from pathlib import Path
+          Path(sys.argv[1]).write_text(json.dumps({
+              "phase": "running",
+              "optimizer_run_id": sys.argv[2],
+              "shape_sequence": int(sys.argv[3]),
+              "shape_total": int(sys.argv[4]),
+              "detector_id": sys.argv[5],
+              "pipelines": int(sys.argv[6]),
+              "shards": int(sys.argv[6]),
+              "threads_per_pipeline": int(sys.argv[7]),
+          }) + "\n", encoding="utf-8")
+          PYSTATE
 
             echo
             echo "########################################################################"
             echo "Execution optimizer shape $shape_number/$total"
-            echo "Detector  : $DETECTOR_ALGORITHM"
-            echo "Pipelines : $pipelines"
-            echo "Shards    : $pipelines"
-            echo "Threads   : $effective_threads (auto from $RUNNER_BUDGET-thread budget)"
+            echo "Detector          : $DETECTOR_ALGORITHM"
+            echo "Pipelines         : $pipelines"
+            echo "Shards            : $pipelines"
+            echo "Threads / pipeline: $effective_threads"
+            echo "Allocated threads : $((pipelines * effective_threads)) / $RUNNER_BUDGET budget"
             echo "########################################################################"
 
             shape_started="$(date +%s)"
@@ -628,23 +756,75 @@ jobs:
               --runner-label "$HTH_RUNNER_LABEL" \
               --github-run-id "$GITHUB_RUN_ID" \
               --shape-sequence "$shape_number" \
-              --observation-log optimizer-work/observations.jsonl
+              --observation-log "$observation_log" \
+              --runner-metrics-log "$HTH_OPTIMIZER_RUNNER_METRICS_LOG" \
+              --observation-json optimizer-work/latest-shape.json
 
-            echo "Execution optimizer shape $shape_number/$total complete: pipelines=$pipelines threads=$effective_threads wall=${shape_wall}s"
+            assessment="$(python -m hth.optimizer_capture \
+              --results-root results-repo \
+              --assess-log "$observation_log" \
+              --threshold-pct 1.0 \
+              --consecutive 3)"
+            python - "$run_metadata" "$assessment" "$shape_number" <<'PYMETA'
+          import json, sys
+          from pathlib import Path
+          path = Path(sys.argv[1])
+          data = json.loads(path.read_text(encoding="utf-8"))
+          assessment = json.loads(sys.argv[2])
+          data["completed_shapes"] = int(sys.argv[3])
+          data["early_stop"] = assessment
+          path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PYMETA
+
+            rate="$(python - <<'PYRATE'
+          import json
+          from pathlib import Path
+          row = json.loads(Path("optimizer-work/latest-shape.json").read_text(encoding="utf-8"))
+          print(row.get("parameter_sets_per_second") or "unknown")
+          PYRATE
+            )"
+            echo "Execution optimizer shape $shape_number/$total complete: pipelines=$pipelines threads=$effective_threads wall=${shape_wall}s sets/s=$rate"
             rm -rf "$HTH_REGRESSION_OUTPUT"
+
+            should_stop="$(python - "$assessment" <<'PYSTOP'
+          import json, sys
+          print("true" if json.loads(sys.argv[1]).get("should_stop") else "false")
+          PYSTOP
+            )"
+            if [[ "$EARLY_STOP" == "true" && "$should_stop" == "true" ]]; then
+              stop_reason="throughput_plateau"
+              echo "Optimizer early stop: 3 consecutive completed shapes improved throughput by <1% from the perceived maximum."
+              break
+            fi
           done
 
-          echo "reporting" > "$state_file"
+          python - "$run_metadata" "$stop_reason" <<'PYMETA'
+          import json, sys
+          from pathlib import Path
+          path = Path(sys.argv[1])
+          data = json.loads(path.read_text(encoding="utf-8"))
+          data["stop_reason"] = sys.argv[2]
+          path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PYMETA
+          python - "$HTH_OPTIMIZER_STATE_FILE" "$GITHUB_RUN_ID" <<'PYSTATE'
+          import json, sys
+          from pathlib import Path
+          Path(sys.argv[1]).write_text(json.dumps({"phase": "reporting", "optimizer_run_id": sys.argv[2]}) + "\n", encoding="utf-8")
+          PYSTATE
+
           python -m hth.optimizer_store \
             --results-root results-repo \
-            --detector "$DETECTOR_ALGORITHM"
+            --detector "$DETECTOR_ALGORITHM" \
+            --optimizer-run-id "$GITHUB_RUN_ID" \
+            --run-metadata "$run_metadata" \
+            --runner-metrics-log "$HTH_OPTIMIZER_RUNNER_METRICS_LOG"
 
           cat "results-repo/execution-optimizer/$DETECTOR_ALGORITHM/summary.md" >> "$GITHUB_STEP_SUMMARY"
           {
             echo
-            echo "### Execution optimizer heat map"
+            echo "### Execution processing profile"
             echo
-            echo "![Execution optimizer heat map](https://raw.githubusercontent.com/${RESULTS_REPOSITORY}/main/execution-optimizer/${DETECTOR_ALGORITHM}/heatmap.svg?run=${GITHUB_RUN_ID})"
+            echo "![Execution processing profile](https://raw.githubusercontent.com/${RESULTS_REPOSITORY}/main/execution-optimizer/${DETECTOR_ALGORITHM}/heatmap.svg?run=${GITHUB_RUN_ID})"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish execution optimizer intelligence
@@ -666,6 +846,8 @@ jobs:
             "https://x-access-token:${HTH_RESULTS_TOKEN}@github.com/${RESULTS_REPOSITORY}.git"
 
           observation_log="$GITHUB_WORKSPACE/optimizer-work/observations.jsonl"
+          shard_log="$GITHUB_WORKSPACE/optimizer-work/shards.jsonl"
+          run_metadata="$GITHUB_WORKSPACE/optimizer-work/run-metadata.json"
           max_publish_attempts=5
           for attempt in $(seq 1 "$max_publish_attempts"); do
             git -C results-repo fetch origin main
@@ -673,10 +855,14 @@ jobs:
             git -C results-repo clean -fd -- optimizer-index.json execution-optimizer/
             python -m hth.optimizer_capture \
               --results-root results-repo \
-              --replay-log "$observation_log"
+              --replay-log "$observation_log" \
+              --replay-shard-log "$shard_log"
             python -m hth.optimizer_store \
               --results-root results-repo \
-              --detector "$DETECTOR_ALGORITHM"
+              --detector "$DETECTOR_ALGORITHM" \
+              --optimizer-run-id "$GITHUB_RUN_ID" \
+              --run-metadata "$run_metadata" \
+              --runner-metrics-log "$HTH_OPTIMIZER_RUNNER_METRICS_LOG"
 
             git -C results-repo add \
               parallelism-index.json \

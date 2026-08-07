@@ -8,8 +8,11 @@ import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+import os
+import time
+from contextlib import contextmanager
 
-PARALLELISM_INDEX_SCHEMA_VERSION = "2.1"
+PARALLELISM_INDEX_SCHEMA_VERSION = "2.2"
 MAX_OBSERVATIONS_PER_DETECTOR = 500
 
 
@@ -43,6 +46,56 @@ def _canonical_hash(payload: Any) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
+
+
+@contextmanager
+def _index_lock(path: Path, timeout_seconds: float = 30.0):
+    lock = path.with_suffix(path.suffix + ".lock")
+    deadline = time.monotonic() + timeout_seconds
+    fd = None
+    while fd is None:
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Timed out waiting for parallelism index lock: {lock}")
+            time.sleep(0.05)
+    try:
+        os.write(fd, f"pid={os.getpid()}\n".encode("utf-8"))
+        os.close(fd)
+        fd = None
+        yield
+    finally:
+        if fd is not None:
+            os.close(fd)
+        try:
+            lock.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def update_parallelism_shards(results_root: Path, shard_observations: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    path = results_root / "parallelism-index.json"
+    with _index_lock(path):
+        if path.is_file():
+            index = _read_json(path)
+        else:
+            index = {"schema_version": PARALLELISM_INDEX_SCHEMA_VERSION, "observations": [], "shard_observations": []}
+        by_id = {
+            str(item.get("observation_id")): item
+            for item in index.get("shard_observations", [])
+            if isinstance(item, dict) and item.get("observation_id")
+        }
+        for observation in shard_observations:
+            by_id[str(observation["observation_id"])] = observation
+        rows = list(by_id.values())
+        rows.sort(key=lambda row: (str(row.get("detector_id") or ""), str(row.get("optimizer_run_id") or ""), int(row.get("shape_sequence") or 0), int(row.get("shard_index") or 0)))
+        index["schema_version"] = PARALLELISM_INDEX_SCHEMA_VERSION
+        index["updated_at_utc"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        index["shard_observations"] = rows[-5000:]
+        index.setdefault("observations", [])
+        _write_json(path, index)
+        return index
 
 def observation_from_run(
     run_dir: Path,
@@ -162,10 +215,15 @@ def _is_comparable(row: dict[str, Any]) -> bool:
 
 def update_parallelism_index(results_root: Path, observations: Iterable[dict[str, Any]]) -> dict[str, Any]:
     path = results_root / "parallelism-index.json"
+    with _index_lock(path):
+        return _update_parallelism_index_locked(path, observations)
+
+
+def _update_parallelism_index_locked(path: Path, observations: Iterable[dict[str, Any]]) -> dict[str, Any]:
     if path.is_file():
         index = _read_json(path)
     else:
-        index = {"schema_version": PARALLELISM_INDEX_SCHEMA_VERSION, "observations": []}
+        index = {"schema_version": PARALLELISM_INDEX_SCHEMA_VERSION, "observations": [], "shard_observations": []}
 
     by_id = {
         str(item.get("observation_id")): item
