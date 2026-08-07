@@ -91,6 +91,22 @@ class ReportGeneratorTests(unittest.TestCase):
             self.assertIn("| 2 | 2 | 1 |", text)
             self.assertNotIn("| 1 | 1 | 1 |", text)
 
+    def test_optimizer_report_recovers_latest_run_from_shard_observations(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "optimizer-index.json").write_text(json.dumps({"detectors": {"adaptive_radial_edge": {}}}), encoding="utf-8")
+            shards = []
+            for idx in range(2):
+                shards.append({"detector_id": "adaptive_radial_edge", "optimizer_run_id": "777", "shape_sequence": 2,
+                    "shard_index": idx, "shard_count": 2, "threads_per_pipeline": 48, "wall_clock_seconds": 10 + idx,
+                    "actual_parameter_sets": 50, "observed_at_utc": f"2026-01-03T00:00:0{idx}Z",
+                    "runner": {"runner_label": "e7k", "runner_name": "host", "logical_cpu_count": 96}})
+            (root / "parallelism-index.json").write_text(json.dumps({"observations": [], "shard_observations": shards}), encoding="utf-8")
+            paths = generate_optimizer_report(root, "adaptive_radial_edge", root / "out")
+            text = paths["summary"].read_text(encoding="utf-8")
+            self.assertIn("Optimizer run: **777**", text)
+            self.assertIn("| 2 | 2 | 48 |", text)
+
 
 if __name__ == "__main__":
     unittest.main()

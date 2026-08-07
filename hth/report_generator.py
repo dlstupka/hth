@@ -140,7 +140,12 @@ def _latest_optimizer_run(
     # instead of making report regeneration depend on the newer derived schema.
     if isinstance(parallelism, dict):
         recovered: dict[str, dict[str, Any]] = {}
-        for row in parallelism.get("observations", []):
+        # Shape observations are preferred, but the optimizer deliberately
+        # persists shard completions immediately.  Some repositories therefore
+        # contain a durable optimizer execution in shard_observations before
+        # (or without legacy) aggregate shape observations.
+        source_rows = list(parallelism.get("observations", [])) + list(parallelism.get("shard_observations", []))
+        for row in source_rows:
             if not isinstance(row, dict) or str(row.get("detector_id")) != detector:
                 continue
             run_id = row.get("optimizer_run_id")
@@ -164,6 +169,52 @@ def _latest_optimizer_run(
     raise ValueError(f"No persisted optimizer run found for detector {detector}")
 
 
+def _shape_observations_from_shards(parallelism: dict[str, Any], detector: str, run_id: str) -> list[dict[str, Any]]:
+    """Recover reportable shape observations from durable per-shard records."""
+    groups: dict[int, list[dict[str, Any]]] = {}
+    for row in parallelism.get("shard_observations", []):
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("detector_id")) != detector or str(row.get("optimizer_run_id")) != str(run_id):
+            continue
+        try:
+            sequence = int(row.get("shape_sequence"))
+        except (TypeError, ValueError):
+            continue
+        groups.setdefault(sequence, []).append(row)
+    recovered: list[dict[str, Any]] = []
+    for sequence, rows in sorted(groups.items()):
+        sample = rows[0]
+        try:
+            shards = int(sample.get("shard_count") or len(rows))
+            threads = int(sample.get("threads_per_pipeline") or 1)
+        except (TypeError, ValueError):
+            continue
+        # Only publish completed shapes.  A partially persisted in-flight shape
+        # must never masquerade as an optimizer result.
+        shard_indexes = {row.get("shard_index") for row in rows}
+        if len(shard_indexes) < shards:
+            continue
+        walls = [float(row.get("wall_clock_seconds") or 0) for row in rows]
+        wall = max(walls, default=0.0)
+        actual = sum(int(row.get("actual_parameter_sets") or 0) for row in rows)
+        if wall <= 0 or actual <= 0:
+            continue
+        runner = sample.get("runner") if isinstance(sample.get("runner"), dict) else {}
+        recovered.append({
+            "observation_id": f"optimizer-recovered:{run_id}:{sequence}",
+            "observed_at_utc": max((str(row.get("observed_at_utc") or "") for row in rows), default=""),
+            "detector_id": detector, "optimizer_run_id": str(run_id), "optimizer_shape_sequence": sequence,
+            "source": "execution-optimizer", "mode": "full", "strategy": "exhaustive",
+            "actual_parameter_sets": actual, "possible_parameter_sets": actual,
+            "active_pipelines": shards, "shards": shards, "threads_per_pipeline": threads,
+            "allocated_threads": shards * threads, "wall_clock_seconds": wall,
+            "parameter_sets_per_second": actual / wall, "execution_shape": f"{shards}p/{shards}s/{threads}t",
+            "runner": runner,
+        })
+    return recovered
+
+
 def generate_optimizer_report(results_root: Path, detector: str, output_dir: Path) -> dict[str, Path]:
     optimizer_path = results_root / "optimizer-index.json"
     parallelism_path = results_root / "parallelism-index.json"
@@ -176,7 +227,13 @@ def generate_optimizer_report(results_root: Path, detector: str, output_dir: Pat
     run_id, run_payload = _latest_optimizer_run(optimizer, detector, parallelism)
     current = build_optimizer_index(parallelism, detector, run_id)
     if not current.get("observation_count"):
-        raise ValueError(f"Optimizer run {run_id} has no compatible observations for {detector}")
+        recovered = _shape_observations_from_shards(parallelism, detector, run_id)
+        if recovered:
+            report_parallelism = dict(parallelism)
+            report_parallelism["observations"] = recovered
+            current = build_optimizer_index(report_parallelism, detector, run_id)
+    if not current.get("observation_count"):
+        raise ValueError(f"Optimizer run {run_id} has no compatible completed shapes for {detector}")
     run_metadata = run_payload.get("run_metadata") if isinstance(run_payload.get("run_metadata"), dict) else {}
     output_dir.mkdir(parents=True, exist_ok=True)
     summary = output_dir / "summary.md"
