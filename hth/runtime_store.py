@@ -71,8 +71,13 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
 
     config_sha = _sha256(detector_config) if detector_config.is_file() else None
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    observation_run_id = info.get("run_id") or run_dir.name
+    # Run IDs are second-resolution timestamps and concurrent detector pipelines can
+    # legitimately create the same run ID.  Include detector identity so one
+    # detector cannot overwrite another detector's runtime observation.
+    observation_id = f"{build.get('github_run_id', 'local')}:{detector}:{observation_run_id}"
     return {
-        "observation_id": f"{build.get('github_run_id', 'local')}:{info.get('run_id', run_dir.name)}",
+        "observation_id": observation_id,
         "observed_at_utc": info.get("finished_at_utc") or now,
         "run_id": info.get("run_id") or run_dir.name,
         "detector_id": detector,
@@ -280,8 +285,20 @@ def order_configs(
 ) -> list[tuple[Path, float | None, str, float | None]]:
     runtime_index = _read_json(runtime_index_path) if runtime_index_path and runtime_index_path.is_file() else {"observations": []}
     calibration_index = _read_json(calibration_index_path) if calibration_index_path and calibration_index_path.is_file() else {"entries": []}
-    if not runtime_index.get("observations"):
-        runtime_index["observations"] = _runtime_observations_from_calibration_store(calibration_index_path)
+
+    # Calibration records contain durable RUN-INFO for every persisted detector.
+    # Supplement only detectors missing from runtime-index so historical
+    # observation-ID collisions cannot leave LPT reporting `no-history` even
+    # though a compatible persisted run exists.  Native runtime observations
+    # remain authoritative whenever they are present.
+    runtime_rows = [row for row in runtime_index.get("observations", []) if isinstance(row, dict)]
+    runtime_detectors = {str(row.get("detector_id")) for row in runtime_rows if row.get("detector_id")}
+    calibration_rows = _runtime_observations_from_calibration_store(calibration_index_path)
+    runtime_rows.extend(
+        row for row in calibration_rows
+        if str(row.get("detector_id") or "") not in runtime_detectors
+    )
+    runtime_index["observations"] = runtime_rows
     rows = []
     known_estimates = []
     for config in configs:

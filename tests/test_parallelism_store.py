@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from hth.parallelism_store import update_parallelism_index
+from hth.parallelism_store import observation_from_run, update_parallelism_index
 
 
 def _observation(identifier: str, *, pipelines: int, shards: int, threads: int, wall: float) -> dict:
@@ -42,3 +42,33 @@ def test_parallelism_index_tracks_fastest_compatible_shape_and_summaries(tmp_pat
     assert summary["observation_count"] == 2
     assert summary["fastest_wall_clock_seconds"] == 420
     assert summary["median_wall_clock_seconds"] == 430
+
+
+def _parallel_run(path: Path, detector: str, run_id: str) -> Path:
+    (path / "reports").mkdir(parents=True)
+    (path / "RUN-INFO.json").write_text(json.dumps({
+        "run_id": run_id,
+        "detector": detector,
+        "elapsed_seconds": 5.0,
+        "threads": 2,
+        "possible_parameter_sets": 10,
+        "actual_parameter_sets": 10,
+        "golden_set_sha256": "gold",
+        "strategy": "exhaustive",
+        "detector_pipeline": {"pipeline_count": 4},
+    }), encoding="utf-8")
+    (path / "reports" / "summary.json").write_text(json.dumps({
+        "detector": detector,
+        "parameter_space": {"possible_parameter_sets": 10, "actual_parameter_sets": 10},
+        "runner": {},
+    }), encoding="utf-8")
+    return path
+
+
+def test_parallelism_observation_ids_include_detector_identity(tmp_path: Path) -> None:
+    first = _parallel_run(tmp_path / "a", "grabcut", "run-20260807-120000")
+    second = _parallel_run(tmp_path / "b", "contour", "run-20260807-120000")
+    build = {"github_run_id": "243", "mode": "full", "runner_label": "e7k"}
+    a = observation_from_run(first, build=build)
+    b = observation_from_run(second, build=build)
+    assert a["observation_id"] != b["observation_id"]

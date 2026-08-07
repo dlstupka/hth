@@ -1524,7 +1524,19 @@ def _estimate_scope_makespan(
     scope: str,
     pipelines: int,
 ) -> float | None:
-    estimates: list[float] = []
+    """Estimate full-scope wall time using the same shard/LPT execution model.
+
+    The measured detector elapsed time is scaled to the requested parameter
+    domain at the current thread setting.  Full exhaustive work is then split
+    into the same bounded ~30-minute shards used by the regression launcher and
+    those shard durations are placed across the active detector pipelines with
+    LPT.  Treating each detector as one indivisible task badly overstates the
+    makespan once long detectors are sharded.
+    """
+    from math import ceil
+    from hth.regression.sharding import SAFETY_FACTOR, TARGET_SHARD_SECONDS
+
+    shard_estimates: list[float] = []
     for run_dir in run_dirs:
         info = _read_json(run_dir / "RUN-INFO.json")
         summary = _read_json(run_dir / "reports" / "summary.json")
@@ -1533,8 +1545,16 @@ def _estimate_scope_makespan(
         target_count = _scope_parameter_count(_calibration_payload(run_dir), scope)
         if evaluated <= 0 or elapsed <= 0 or target_count is None:
             return None
-        estimates.append(elapsed * target_count / evaluated)
-    return _lpt_makespan(estimates, pipelines)
+
+        scaled_work = elapsed * target_count / evaluated
+        # Mirror the launcher's automatic shard count at the measured thread
+        # setting.  Shards remain bounded by one parameter set each and by the
+        # framework's normal 96-shard planning ceiling.
+        shard_count = max(1, min(96, target_count, ceil(
+            scaled_work * SAFETY_FACTOR / TARGET_SHARD_SECONDS
+        )))
+        shard_estimates.extend([scaled_work / shard_count] * shard_count)
+    return _lpt_makespan(shard_estimates, pipelines)
 
 
 def _regression_execution_metadata(run_dirs: list[Path]) -> dict[str, Any]:
@@ -1888,7 +1908,7 @@ def build_combined_summary(
         f"| Non-dormant | {_duration(non_dormant_estimate)} |",
         f"| Critical only | {_duration(critical_estimate)} |",
         "",
-        r"\* Estimates scale each detector's measured runtime to the selected effect-size domain and simulate LPT placement across the recommended detector pipelines. Effect-group fallback remains active when a detector has no parameter sets in the requested group.",
+        r"\* Estimates scale each detector's measured runtime to the selected effect-size domain, apply the normal bounded shard plan, and simulate shard-level LPT placement across the recommended detector pipelines. Effect-group fallback remains active when a detector has no parameter sets in the requested group.",
         "",
         "The reports below preserve the complete manifest, winner, baseline, calibration statistics, page analysis, and output inventory for each detector run.",
         "",

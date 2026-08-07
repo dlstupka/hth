@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.write_regression_summary import _best_known_calibrations, _render_best_known_calibrations, build_combined_summary, build_summary
+from hth.write_regression_summary import _best_known_calibrations, _estimate_scope_makespan, _render_best_known_calibrations, build_combined_summary, build_summary
 
 
 class RegressionSummaryTests(unittest.TestCase):
@@ -231,6 +231,28 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("Dormant parameters: `margin`", text)
             self.assertIn("Available domain spaces: `exhaustive, non_dormant, important_plus`", text)
             self.assertIn("[Open workflow run]", text)
+
+
+    def test_scope_estimate_models_shard_level_lpt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run_dirs = []
+            for detector in ("a", "b"):
+                run = root / detector / "run-1"
+                (run / "reports").mkdir(parents=True)
+                (run / "RUN-INFO.json").write_text(json.dumps({"elapsed_seconds": 1000.0}), encoding="utf-8")
+                (run / "reports" / "summary.json").write_text(json.dumps({"parameter_set_count": 1}), encoding="utf-8")
+                (run / "reports" / "calibration-intelligence.json").write_text(json.dumps({
+                    "available": True,
+                    "domain_space": {"exhaustive": {"parameter_set_count": 8}},
+                }), encoding="utf-8")
+                run_dirs.append(run)
+
+            # Each detector scales to 8000s of measured work. The normal shard
+            # planner produces six shards per detector; 12 equal tasks across
+            # four pipelines yield a 4000s makespan rather than treating each
+            # detector as an indivisible 8000s task.
+            self.assertAlmostEqual(_estimate_scope_makespan(run_dirs, "exhaustive", 4), 4000.0)
 
     def test_builds_combined_manifest_for_multiple_detectors(self):
         with tempfile.TemporaryDirectory() as temporary:

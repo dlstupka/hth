@@ -165,8 +165,12 @@ def observation_from_run(
         "allocated_threads": allocated_threads,
     }
 
+    observation_run_id = info.get("run_id") or run_dir.name
+    # Concurrent detector pipelines can share the same second-resolution run ID.
+    # Detector identity is therefore part of the durable observation key.
+    observation_id = f"{build.get('github_run_id', 'local')}:{compatibility['detector_id']}:{observation_run_id}"
     return {
-        "observation_id": f"{build.get('github_run_id', 'local')}:{info.get('run_id', run_dir.name)}",
+        "observation_id": observation_id,
         "observed_at_utc": info.get("finished_at_utc") or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "run_id": info.get("run_id") or run_dir.name,
         "detector_id": compatibility["detector_id"],
