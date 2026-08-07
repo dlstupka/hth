@@ -111,19 +111,602 @@ concurrency:
 
 jobs:
   optimize:
-    name: Optimize execution shapes serially
-    uses: ./.github/workflows/_core-hth.yml
-    with:
-      mode: execution-optimizer
-      results_repository: ${{ inputs.results_repository }}
-      optimizer_algorithm: ${{ inputs.algorithm }}
-      optimizer_runner: ${{ inputs.runner }}
-      optimizer_pipeline_range: ${{ inputs.pipeline_range }}
-      optimizer_pipeline_min: ${{ inputs.pipeline_min }}
-      optimizer_pipeline_max: ${{ inputs.pipeline_max }}
-      optimizer_golden_set: ${{ inputs.golden_set }}
-      optimizer_image_root: ${{ inputs.image_root }}
-      optimizer_max_dimension: ${{ inputs.max_dimension }}
-      optimizer_strategy: ${{ inputs.strategy }}
-      optimizer_debug_level: ${{ inputs.debug_level }}
-    secrets: inherit
+    name: Optimize detector execution shapes
+    runs-on: >-
+      ${{    inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+          || inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
+          || inputs.runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
+          || inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
+          || inputs.runner == 'self-hosted-e9k'     && fromJSON('["self-hosted","Linux","X64","e9k"]')
+          || 'ubuntu-latest' }}
+    timeout-minutes: 10080
+
+    env:
+      DETECTOR_ALGORITHM: ${{ inputs.algorithm }}
+      GOLDEN_SET: ${{ inputs.golden_set }}
+      RESULTS_REPOSITORY: ${{ inputs.results_repository }}
+      IMAGE_ROOT: ${{ inputs.image_root }}
+      REGRESSION_MODE: full
+      STRATEGY: ${{ inputs.strategy }}
+      LIMIT: ""
+      MAX_DIMENSION: ${{ inputs.max_dimension }}
+      TOP_COUNT: "20"
+      THREADS: auto
+      SHARDS: ""
+      SHARD_TARGET_MINUTES: "30"
+      SHARD_LEASE_MINUTES: "5"
+      DETECTOR_PIPELINES: "1"
+      DETECTOR_LOADING_STRATEGY: lpt
+      PIPELINE_STAGGER_MINUTES: "0"
+      DEBUG_LEVEL: ${{ inputs.debug_level }}
+      PYTHONNOUSERSITE: "1"
+      PYTHONUNBUFFERED: "1"
+      HTH_RUNNER_LABELS: >-
+        ${{  inputs.runner == 'self-hosted-hth' && 'self-hosted,linux,x64,hth'
+          || inputs.runner == 'self-hosted-rhel8' && 'self-hosted,linux,x64,rhel8'
+          || inputs.runner == 'self-hosted-e7k' && 'self-hosted,linux,x64,e7k'
+          || inputs.runner == 'self-hosted-e9k' && 'self-hosted,linux,x64,e9k'
+          || inputs.runner == 'self-hosted-windows' && 'self-hosted,windows,x64'
+          || 'ubuntu-latest' }}
+      HTH_RUNNER_LABEL: >-
+        ${{  inputs.runner == 'self-hosted-hth' && 'hth'
+          || inputs.runner == 'self-hosted-rhel8' && 'rhel8'
+          || inputs.runner == 'self-hosted-e7k' && 'e7k'
+          || inputs.runner == 'self-hosted-e9k' && 'e9k'
+          || inputs.runner == 'self-hosted-windows' && 'windows'
+          || 'github-hosted' }}
+
+    steps:
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
+        with:
+          path: hth-pipeline
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout results repository
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.RESULTS_REPOSITORY }}
+          path: results-repo
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ github.event_name != 'pull_request' && secrets.HTH_RESULTS_TOKEN || github.token }}
+
+      - name: Runner diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "runner.os=${{ runner.os }}"
+          echo "runner.arch=${{ runner.arch }}"
+          echo "runner.environment=${{ runner.environment }}"
+          echo "runner.name=${{ runner.name }}"
+
+          # Export runtime metadata for later reporting.
+          echo "HTH_EXECUTION_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
+          echo "HTH_RUNNER_NAME=${{ runner.name }}" >> "$GITHUB_ENV"
+          echo "HTH_RUNNER_LABEL=${HTH_RUNNER_LABEL}" >> "$GITHUB_ENV"
+          
+      - name: Set up Python — GitHub-hosted Linux
+        if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: hth-pipeline/requirements.txt
+
+      - name: Verify Python — self-hosted Linux
+        if: ${{ runner.os == 'Linux' && runner.environment == 'self-hosted' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "python: $(command -v python)"
+          python --version
+          python -m pip --version
+
+          python - <<'PY'
+          import sys
+
+          if sys.version_info[:2] != (3, 12):
+              raise SystemExit(
+                  f"Expected Python 3.12, got {sys.version} "
+                  f"from {sys.executable}"
+              )
+
+          print(f"Python executable: {sys.executable}")
+          PY
+          
+      - name: Use repaired Python tool cache — Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $pythonVersion = "3.12.10"
+          $pythonRoot = Join-Path `
+            $env:RUNNER_TOOL_CACHE `
+            "Python\$pythonVersion\x64"
+          $pythonExe = Join-Path $pythonRoot "python.exe"
+          $completeMarker = "$pythonRoot.complete"
+          $scriptsDir = Join-Path $pythonRoot "Scripts"
+
+          if (-not (Test-Path -LiteralPath $completeMarker)) {
+            throw "Python tool-cache marker is missing: $completeMarker"
+          }
+
+          if (-not (Test-Path -LiteralPath $pythonExe)) {
+            throw "Python executable is missing: $pythonExe"
+          }
+
+          # Make this interpreter canonical for this step and all later steps.
+          $env:PATH = "$pythonRoot;$scriptsDir;$env:PATH"
+          $pythonRoot | Out-File `
+            -FilePath $env:GITHUB_PATH `
+            -Encoding utf8 `
+            -Append
+          $scriptsDir | Out-File `
+            -FilePath $env:GITHUB_PATH `
+            -Encoding utf8 `
+            -Append
+
+          $actualVersion = & $pythonExe -c `
+            "import sys; print('.'.join(map(str, sys.version_info[:3])))"
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Unable to execute $pythonExe"
+          }
+
+          if ($actualVersion.Trim() -ne $pythonVersion) {
+            throw "Expected Python $pythonVersion; found $actualVersion"
+          }
+
+          & $pythonExe -m pip --version
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "pip is missing; bootstrapping with ensurepip"
+            & $pythonExe -m ensurepip --upgrade
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to bootstrap pip"
+            }
+          }
+
+          Write-Host "Using Python: $pythonExe"
+          & $pythonExe --version
+          & $pythonExe -m pip --version
+
+      - name: Create isolated Python environment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bootstrap_python="$(command -v python)"
+          venv_dir="$RUNNER_TEMP/hth-python-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          echo "Bootstrap Python: $bootstrap_python"
+          "$bootstrap_python" --version
+          "$bootstrap_python" -m pip --version
+
+          rm -rf "$venv_dir"
+          "$bootstrap_python" -m venv "$venv_dir"
+
+          if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
+            venv_bin="$venv_dir/Scripts"
+            venv_python="$venv_bin/python.exe"
+            github_path_entry="$(cygpath -w "$venv_bin")"
+          else
+            venv_bin="$venv_dir/bin"
+            venv_python="$venv_bin/python"
+            github_path_entry="$venv_bin"
+          fi
+
+          if [[ ! -x "$venv_python" ]]; then
+            echo "::error::Virtual-environment Python is missing: $venv_python"
+            exit 1
+          fi
+
+          echo "$github_path_entry" >> "$GITHUB_PATH"
+          echo "HTH_VENV=$venv_dir" >> "$GITHUB_ENV"
+          echo "HTH_BOOTSTRAP_PYTHON=$bootstrap_python" >> "$GITHUB_ENV"
+
+          "$venv_python" -m pip install --upgrade pip
+
+          "$venv_python" - <<'PY'
+          import site
+          import sys
+
+          print(f"Venv executable : {sys.executable}")
+          print(f"sys.prefix      : {sys.prefix}")
+          print(f"sys.base_prefix : {sys.base_prefix}")
+          print(f"User site       : {site.USER_SITE}")
+          print(f"User site active: {site.ENABLE_USER_SITE}")
+
+          if sys.prefix == sys.base_prefix:
+              raise SystemExit("Virtual environment is not active")
+          if site.ENABLE_USER_SITE:
+              raise SystemExit("User site-packages unexpectedly enabled")
+          PY
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Active Python: $(command -v python)"
+          python --version
+          python -m pip --version
+          python -m pip install --requirement hth-pipeline/requirements.txt
+          python -m pip check
+
+      - name: Verify Python dependency ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import sys
+          import cv2
+          import numpy
+          import skimage
+
+          print(f"Python       : {sys.executable}")
+          print(f"NumPy        : {numpy.__version__} ({numpy.__file__})")
+          print(f"scikit-image : {skimage.__version__} ({skimage.__file__})")
+          print(f"OpenCV       : {cv2.__version__} ({cv2.__file__})")
+          PY
+
+      - name: Show toolchain environment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Toolchain Environment"
+          echo "====================="
+          echo "Runner name      : ${RUNNER_NAME:-unknown}"
+          echo "Runner OS        : ${RUNNER_OS:-unknown}"
+          echo "Runner arch      : ${RUNNER_ARCH:-unknown}"
+          echo "Runner toolcache : ${RUNNER_TOOL_CACHE:-unknown}"
+          echo "SHELL            : ${SHELL:-unset}"
+          echo "MSYSTEM          : ${MSYSTEM:-unset}"
+          echo "OSTYPE           : ${OSTYPE:-unset}"
+          echo
+
+          echo "Shell resolution"
+          echo "----------------"
+          echo "bash executable  : $(command -v bash)"
+          echo "sh executable    : $(command -v sh)"
+          type -a bash || true
+          type -a sh || true
+          bash --version | head -n 1
+          echo
+
+          echo "Tool resolution"
+          echo "---------------"
+          echo "git executable   : $(command -v git)"
+          type -a git || true
+          git --version
+          echo "bootstrap Python : ${HTH_BOOTSTRAP_PYTHON:-unknown}"
+          echo "virtual env      : ${HTH_VENV:-unknown}"
+          echo "active Python    : $(command -v python)"
+          type -a python || true
+          python --version
+          python -m pip --version
+          
+          python - <<'PY'
+          import os
+          import platform
+          import sys
+          import cv2
+          import numpy
+
+          print(f"OpenCV file      : {cv2.__file__}")
+          print(f"NumPy file       : {numpy.__file__}")
+          print(f"sys.executable   : {sys.executable}")
+          print(f"sys.version      : {sys.version.splitlines()[0]}")
+          print(f"platform         : {platform.platform()}")
+          print(f"process arch     : {platform.machine()}")
+          print(f"PYTHONPATH       : {os.environ.get('PYTHONPATH', 'unset')}")
+          PY
+
+          echo
+          echo "Filesystem"
+          echo "----------------------"
+          pwd
+
+          if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
+            echo "Native Windows cwd : $(pwd -W)"
+            echo "POSIX -> Windows   : $(cygpath -w .)"
+            echo "Workspace -> POSIX : $(cygpath -u "${GITHUB_WORKSPACE:-.}")"
+
+            echo
+            echo "Windows executable resolution"
+            echo "-----------------------------"
+            where.exe bash || true
+            where.exe sh || true
+            where.exe git || true
+            where.exe python || true
+            where.exe py || true
+
+            echo
+            echo "Git Bash path translation"
+            echo "-------------------------"
+            echo "cygpath executable : $(command -v cygpath)"
+            echo "POSIX root         : /"
+            echo "Windows root       : $(cygpath -w /)"
+          else
+            echo "Native POSIX filesystem; MSYS path translation not applicable."
+            echo "Workspace          : ${GITHUB_WORKSPACE:-unset}"
+          fi
+
+          echo
+          echo "PATH entries"
+          echo "------------"
+          tr ':' '\n' <<< "$PATH"
+
+      - name: Show OpenCV build
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          python - <<'EOF'
+          import cv2
+
+          print(f"OpenCV version: {cv2.__version__}")
+          print()
+
+          wanted = (
+              "CPU/HW",
+              "Baseline:",
+              "Dispatched code generation:",
+              "Parallel framework",
+              "Intel IPP",
+              "OpenCL",
+              "AVX",
+              "SSE",
+              "TBB",
+              "OpenMP",
+          )
+
+          for line in cv2.getBuildInformation().splitlines():
+              if any(token in line for token in wanted):
+                  print(line)
+          EOF
+ 
+      - name: Benchmark OpenCV
+        shell: bash
+        run: |
+          python - <<'EOF'
+          import os
+          import time
+          import cv2
+          import numpy as np
+
+          image = np.random.default_rng(12345).integers(
+              0, 256, size=(3000, 3000), dtype=np.uint8
+          )
+
+          # Warm-up
+          for _ in range(5):
+              cv2.GaussianBlur(image, (9, 9), 0)
+
+          started = time.perf_counter()
+          for _ in range(100):
+              cv2.GaussianBlur(image, (9, 9), 0)
+          elapsed = time.perf_counter() - started
+
+          average = elapsed / 100
+          print(f"GaussianBlur 100 iterations: {elapsed:.3f} seconds")
+          print(f"Average per iteration: {average:.6f} seconds")
+
+          github_env = os.environ.get("GITHUB_ENV")
+          if github_env:
+              with open(github_env, "a", encoding="utf-8") as stream:
+                  stream.write(f"HTH_OPENCV_BENCHMARK_SECONDS={elapsed:.9f}\n")
+                  stream.write(f"HTH_OPENCV_BENCHMARK_AVERAGE_SECONDS={average:.9f}\n")
+          EOF
+          
+
+      - name: Start execution optimizer heartbeat
+        shell: bash
+        run: |
+          set -euo pipefail
+          state_file="$RUNNER_TEMP/hth-execution-optimizer-state.txt"
+          pid_file="$RUNNER_TEMP/hth-execution-optimizer-heartbeat.pid"
+          echo "setup" > "$state_file"
+          (
+            while true; do
+              state="$(cat "$state_file" 2>/dev/null || echo unknown)"
+              echo "[execution optimizer heartbeat] time=$(date -u +%Y-%m-%dT%H:%M:%SZ) ${state}"
+              sleep 60
+            done
+          ) &
+          echo "$!" > "$pid_file"
+
+      - name: Build execution shape plan
+        id: plan
+        shell: bash
+        env:
+          RANGE_MODE: ${{ inputs.pipeline_range }}
+          PIPELINE_MIN: ${{ inputs.pipeline_min }}
+          PIPELINE_MAX: ${{ inputs.pipeline_max }}
+        run: |
+          set -euo pipefail
+          budget="$(PYTHONPATH=hth-pipeline python - "$HTH_RUNNER_LABEL" <<'PYPLAN'
+          import sys
+          from hth.regression.sharding import runner_max_threads
+          print(runner_max_threads(sys.argv[1]))
+          PYPLAN
+          )"
+
+          if [[ "$RANGE_MODE" == "manual" ]]; then
+            if [[ ! "$PIPELINE_MIN" =~ ^[1-9][0-9]*$ || ! "$PIPELINE_MAX" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::Manual pipeline minimum and maximum must be positive whole numbers"
+              exit 1
+            fi
+            if (( PIPELINE_MIN > PIPELINE_MAX || PIPELINE_MAX > budget )); then
+              echo "::error::Manual pipeline range must satisfy 1 <= min <= max <= runner budget $budget"
+              exit 1
+            fi
+            pipelines="$(seq -s, "$PIPELINE_MIN" "$PIPELINE_MAX")"
+          else
+            pipelines="$(python - "$budget" <<'PYCANDIDATES'
+          import sys
+          budget = int(sys.argv[1])
+          preferred = [1, 2, 4, 8, 16, 32, 64, 96, 128, 192]
+          values = [value for value in preferred if value <= budget]
+          if budget not in values:
+              values.append(budget)
+          print(",".join(str(value) for value in sorted(set(values))))
+          PYCANDIDATES
+            )"
+          fi
+
+          echo "runner_budget=$budget" >> "$GITHUB_OUTPUT"
+          echo "pipelines=$pipelines" >> "$GITHUB_OUTPUT"
+          echo "Execution Optimizer"
+          echo "==================="
+          echo "Detector      : $DETECTOR_ALGORITHM"
+          echo "Runner        : $HTH_RUNNER_LABEL"
+          echo "Thread budget : $budget"
+          echo "Shapes        : $pipelines"
+          echo "Model         : pipelines = shards; threads = auto"
+
+      - name: Optimize detector execution shapes
+        id: optimizer
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+          PIPELINES: ${{ steps.plan.outputs.pipelines }}
+          RUNNER_BUDGET: ${{ steps.plan.outputs.runner_budget }}
+        run: |
+          set -euo pipefail
+          state_file="$RUNNER_TEMP/hth-execution-optimizer-state.txt"
+          rm -rf optimizer-work
+          mkdir -p optimizer-work
+          : > optimizer-work/observations.jsonl
+
+          IFS=',' read -r -a candidates <<< "$PIPELINES"
+          total="${#candidates[@]}"
+          shape_number=0
+
+          for pipelines in "${candidates[@]}"; do
+            shape_number=$((shape_number + 1))
+            export DETECTOR_PIPELINES="$pipelines"
+            export SHARDS="$pipelines"
+            export THREADS="auto"
+            export HTH_REGRESSION_OUTPUT="optimizer-work/${pipelines}p"
+            rm -rf "$HTH_REGRESSION_OUTPUT"
+
+            effective_threads=$((RUNNER_BUDGET / pipelines))
+            (( effective_threads < 1 )) && effective_threads=1
+            echo "shape=$shape_number/$total detector=$DETECTOR_ALGORITHM pipelines=$pipelines shards=$pipelines threads=$effective_threads" > "$state_file"
+
+            echo
+            echo "########################################################################"
+            echo "Execution optimizer shape $shape_number/$total"
+            echo "Detector  : $DETECTOR_ALGORITHM"
+            echo "Pipelines : $pipelines"
+            echo "Shards    : $pipelines"
+            echo "Threads   : $effective_threads (auto from $RUNNER_BUDGET-thread budget)"
+            echo "########################################################################"
+
+            shape_started="$(date +%s)"
+            bash hth-pipeline/tools/run-detector-regressions.sh
+            shape_finished="$(date +%s)"
+            shape_wall=$((shape_finished - shape_started))
+
+            run_dir="$(tail -n 1 "$HTH_REGRESSION_OUTPUT/run-directories.txt")"
+            [[ -d "$run_dir" ]] || {
+              echo "::error::Optimizer run directory missing for pipelines=$pipelines: $run_dir"
+              exit 1
+            }
+
+            python -m hth.optimizer_capture \
+              --results-root results-repo \
+              --run-dir "$run_dir" \
+              --wall-clock-seconds "$shape_wall" \
+              --runner-label "$HTH_RUNNER_LABEL" \
+              --github-run-id "$GITHUB_RUN_ID" \
+              --shape-sequence "$shape_number" \
+              --observation-log optimizer-work/observations.jsonl
+
+            echo "Execution optimizer shape $shape_number/$total complete: pipelines=$pipelines threads=$effective_threads wall=${shape_wall}s"
+            rm -rf "$HTH_REGRESSION_OUTPUT"
+          done
+
+          echo "reporting" > "$state_file"
+          python -m hth.optimizer_store \
+            --results-root results-repo \
+            --detector "$DETECTOR_ALGORITHM"
+
+          cat "results-repo/execution-optimizer/$DETECTOR_ALGORITHM/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo
+            echo "### Execution optimizer heat map"
+            echo
+            echo "![Execution optimizer heat map](https://raw.githubusercontent.com/${RESULTS_REPOSITORY}/main/execution-optimizer/${DETECTOR_ALGORITHM}/heatmap.svg?run=${GITHUB_RUN_ID})"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish execution optimizer intelligence
+        if: ${{ steps.optimizer.outcome == 'success' }}
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+          HTH_RESULTS_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "${HTH_RESULTS_TOKEN:-}" ]] || {
+            echo "::error::HTH_RESULTS_TOKEN is required to publish optimizer intelligence"
+            exit 1
+          }
+
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C results-repo remote set-url origin \
+            "https://x-access-token:${HTH_RESULTS_TOKEN}@github.com/${RESULTS_REPOSITORY}.git"
+
+          observation_log="$GITHUB_WORKSPACE/optimizer-work/observations.jsonl"
+          max_publish_attempts=5
+          for attempt in $(seq 1 "$max_publish_attempts"); do
+            git -C results-repo fetch origin main
+            git -C results-repo reset --hard origin/main
+            git -C results-repo clean -fd -- optimizer-index.json execution-optimizer/
+            python -m hth.optimizer_capture \
+              --results-root results-repo \
+              --replay-log "$observation_log"
+            python -m hth.optimizer_store \
+              --results-root results-repo \
+              --detector "$DETECTOR_ALGORITHM"
+
+            git -C results-repo add \
+              parallelism-index.json \
+              optimizer-index.json \
+              "execution-optimizer/$DETECTOR_ALGORITHM/summary.md" \
+              "execution-optimizer/$DETECTOR_ALGORITHM/heatmap.svg"
+
+            if git -C results-repo diff --cached --quiet; then
+              echo "Execution optimizer intelligence is already current."
+              break
+            fi
+
+            git -C results-repo commit -m \
+              "Update $DETECTOR_ALGORITHM execution optimizer intelligence"
+            if git -C results-repo push origin HEAD:main; then
+              break
+            fi
+            if (( attempt == max_publish_attempts )); then
+              echo "::error::Unable to publish optimizer intelligence after $max_publish_attempts attempts"
+              exit 1
+            fi
+            sleep $((5 * attempt))
+          done
+
+      - name: Stop execution optimizer heartbeat
+        if: always()
+        shell: bash
+        run: |
+          pid_file="$RUNNER_TEMP/hth-execution-optimizer-heartbeat.pid"
+          if [[ -f "$pid_file" ]]; then
+            kill "$(cat "$pid_file")" 2>/dev/null || true
+            rm -f "$pid_file"
+          fi

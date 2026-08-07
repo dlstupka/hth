@@ -311,7 +311,7 @@ exists, the existing strategy fallback resolves to exhaustive.
 
 ## Automatic thread selection and bounded regression shards
 
-Full exhaustive regressions use smoke-test runtime history to estimate the detector's serial-equivalent workload. When `threads` is `auto`, the planner selects the smallest useful thread count: one thread below five minutes, up to four threads from five to fifteen minutes, up to eight threads from fifteen to thirty minutes, and the runner-profile maximum above thirty minutes. The initial runner-profile limits are 48 threads for `e7k` and 32 threads for `e9k`.
+Full exhaustive regressions use smoke-test runtime history to estimate the detector's serial-equivalent workload. When `threads` is `auto`, the planner selects the smallest useful thread count: one thread below five minutes, up to four threads from five to fifteen minutes, up to eight threads from fifteen to thirty minutes, and the runner-profile maximum above thirty minutes. Named optimization runner budgets are 192 threads for `e7k` and 64 threads for `e9k`; other runner profiles use their configured aggregate budgets.
 
 After conservative thread-speedup adjustment and a 20% planning margin, work estimated to exceed the configured 30-minute shard target is divided into deterministic interleaved parameter-set shards. Manual full exhaustive runs may instead provide an explicit shard count; that count takes precedence over wall-clock planning and is capped at the number of possible parameter sets so every shard receives at least one parameter set. Interleaving distributes clustered expensive configurations more evenly than contiguous parameter ranges. Smoke tests, limited searches, and non-exhaustive strategies remain unsharded.
 
@@ -324,7 +324,7 @@ Parallel parameter evaluation records `completion_index` in actual parameter-com
 
 ## Execution optimizer intelligence
 
-The manual `HTH execution optimizer` workflow evaluates execution shapes serially in one job on one selected runner. Shards equal detector pipelines and threads are allocated automatically from the selected runner budget. Each shape uses the same detector-regression execution driver as a normal full regression, but optimizer mode suppresses calibration persistence, manifests, and normal regression artifacts. After all shapes complete, it rebuilds three persistent artifacts in the results repository:
+The manual `HTH execution optimizer` workflow evaluates execution shapes serially in one direct job on one selected runner. It performs the same checkout, Python/ABI/toolchain/OpenCV setup and benchmark sequence as the normal detector regression once, then repeats the normal detector-regression execution driver for each shape. Shards equal detector pipelines and threads are allocated automatically from the selected runner budget. Optimizer execution does not publish calibration persistence, regression manifests, or normal regression artifacts. After all shapes complete, it rebuilds three persistent artifacts in the results repository:
 
 - `optimizer-index.json` — detector-scoped optimizer views grouped by concrete runner identity and labels;
 - `execution-optimizer/<detector>/summary.md` — a cross-runner execution-shape table; and
