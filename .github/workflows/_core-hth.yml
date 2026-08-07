@@ -6,7 +6,7 @@ on:
   workflow_call:
     inputs:
       mode:
-        description: "Execution mode: production, test, or calibration"
+        description: "Execution mode: production, test, calibration, or report"
         required: true
         type: string
       source_repository:
@@ -43,6 +43,26 @@ on:
         required: false
         type: number
         default: 7
+      runner:
+        description: "Execution runner"
+        required: false
+        type: string
+        default: "github-hosted"
+      report_type:
+        description: "Report to regenerate when mode is report"
+        required: false
+        type: string
+        default: "detector-calibration-manifest"
+      report_algorithm:
+        description: "Detector used by execution-optimizer report"
+        required: false
+        type: string
+        default: "adaptive_radial_edge"
+      report_golden_set:
+        description: "Golden Set used to select compatible detector calibrations"
+        required: false
+        type: string
+        default: "config/golden_set.json"
       geometry_fail_on:
         description: "Geometry validation failure policy"
         required: false
@@ -57,8 +77,15 @@ permissions:
 
 jobs:
   run-hth:
+    if: ${{ inputs.mode != 'report' }}
     name: ${{ inputs.mode == 'production' && 'Preprocess complete collection' || inputs.mode == 'calibration' && 'Calibrate physical geometry' || 'Test one DOCX master' }}
-    runs-on: ubuntu-latest
+    runs-on: >-
+      ${{    inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+          || inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
+          || inputs.runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
+          || inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
+          || inputs.runner == 'self-hosted-e9k'     && fromJSON('["self-hosted","Linux","X64","e9k"]')
+          || 'ubuntu-latest' }}
     timeout-minutes: ${{ inputs.mode == 'production' && 120 || 30 }}
 
     env:
@@ -999,4 +1026,126 @@ jobs:
           if-no-files-found: error
           retention-days: ${{ inputs.artifact_retention_days }}
           compression-level: ${{ inputs.mode == 'production' && 0 || 6 }}
+
+  generate-report:
+    if: ${{ inputs.mode == 'report' }}
+    name: Generate HTH report
+    runs-on: >-
+      ${{    inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+          || inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
+          || inputs.runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
+          || inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
+          || inputs.runner == 'self-hosted-e9k'     && fromJSON('["self-hosted","Linux","X64","e9k"]')
+          || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    env:
+      RESULTS_REPOSITORY: ${{ inputs.results_repository }}
+      PYTHONNOUSERSITE: "1"
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
+        with:
+          path: hth-pipeline
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout results repository
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.results_repository }}
+          path: results-repo
+          ref: main
+          token: ${{ secrets.HTH_RESULTS_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python
+        if: ${{ runner.os != 'Windows' }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Verify Python — Windows
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          python --version
+          python -m pip --version
+
+      - name: Generate selected report
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+          HTH_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
+          mkdir -p generated-report
+
+          if [[ "${{ inputs.report_type }}" == "detector-calibration-manifest" ]]; then
+            python -m hth.report_generator detector-calibration-manifest \
+              --results-root results-repo \
+              --golden-set "hth-pipeline/${{ inputs.report_golden_set }}" \
+              --output generated-report/detector-calibration-manifest.md \
+              --pipeline-repository "${{ github.repository }}" \
+              --results-repository "$RESULTS_REPOSITORY" \
+              --results-commit "$RESULTS_COMMIT" \
+              --run-url "$HTH_RUN_URL"
+            cat generated-report/detector-calibration-manifest.md >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "${{ inputs.report_type }}" == "execution-optimizer" ]]; then
+            python -m hth.report_generator execution-optimizer \
+              --results-root results-repo \
+              --detector "${{ inputs.report_algorithm }}" \
+              --output-dir "generated-report/execution-optimizer/${{ inputs.report_algorithm }}"
+            cat "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo
+              echo "### Execution processing profile"
+              echo
+              echo "![Execution processing profile](https://raw.githubusercontent.com/${RESULTS_REPOSITORY}/main/execution-optimizer/${{ inputs.report_algorithm }}/heatmap.svg?report-run=${GITHUB_RUN_ID})"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::Unsupported report type: ${{ inputs.report_type }}"
+            exit 1
+          fi
+
+      - name: Publish regenerated report
+        shell: bash
+        env:
+          HTH_RESULTS_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "${HTH_RESULTS_TOKEN:-}" ]] || {
+            echo "::error::HTH_RESULTS_TOKEN is required to publish generated reports"
+            exit 1
+          }
+
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C results-repo remote set-url origin \
+            "https://x-access-token:${HTH_RESULTS_TOKEN}@github.com/${RESULTS_REPOSITORY}.git"
+
+          if [[ "${{ inputs.report_type }}" == "detector-calibration-manifest" ]]; then
+            mkdir -p results-repo/reports
+            cp generated-report/detector-calibration-manifest.md results-repo/reports/detector-calibration-manifest.md
+            git -C results-repo add reports/detector-calibration-manifest.md
+          else
+            mkdir -p "results-repo/execution-optimizer/${{ inputs.report_algorithm }}"
+            cp "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/summary.md" \
+              "results-repo/execution-optimizer/${{ inputs.report_algorithm }}/summary.md"
+            cp "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/heatmap.svg" \
+              "results-repo/execution-optimizer/${{ inputs.report_algorithm }}/heatmap.svg"
+            git -C results-repo add \
+              "execution-optimizer/${{ inputs.report_algorithm }}/summary.md" \
+              "execution-optimizer/${{ inputs.report_algorithm }}/heatmap.svg"
+          fi
+
+          if git -C results-repo diff --cached --quiet; then
+            echo "Generated report is already current."
+            exit 0
+          fi
+          git -C results-repo commit -m "Regenerate ${{ inputs.report_type }} report"
+          git -C results-repo push origin HEAD:main
 

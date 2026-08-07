@@ -14,11 +14,10 @@ Thin entry workflows:
 .github/workflows/preprocess.yml
 .github/workflows/preprocess-test.yml
 .github/workflows/calibrate-geometry.yml
+.github/workflows/generate-report.yml
 ```
 
-The wrappers select mode, source, publication behavior, retention, and
-validation policy. Processing behavior remains centralized in the reusable
-core to prevent drift.
+The wrappers select mode, source, publication behavior, retention, validation policy, and runner. Manual core-backed workflows expose the common runner vocabulary and default to GitHub-hosted execution unless a different runner is selected. Processing and report-only behavior remain centralized in the reusable core where practical to prevent drift.
 
 ## Canonical workflow stages
 
@@ -80,10 +79,17 @@ STAGE_REASON
 STAGE_PUBLISH
 ```
 
+
+## Manual report regeneration
+
+`.github/workflows/generate-report.yml` is manual-only and delegates to `_core-hth.yml` in `report` mode. The report selector currently regenerates either the persisted detector-calibration manifest or the latest execution-optimizer report for a selected detector. Report generation performs no detector evaluation or preprocessing; it reads persisted intelligence from the results repository, writes the selected report to the Actions job summary, and republishes only the regenerated report files.
+
+The report workflow defaults to `github-hosted` but exposes the same manual runner choices as other HTH builds. Detector-calibration report generation selects one best compatible persisted calibration record per detector for the configured Golden Set. Execution-optimizer report generation renders only the latest persisted optimizer execution for the selected detector; historical optimizer observations remain available in the intelligence indexes but are not mixed into the regenerated current-execution report.
+
 ## Execution optimizer
 
-`.github/workflows/execution-optimizer.yml` is a thin manually dispatched wrapper around the reusable HTH core. The core holds the selected runner for the entire optimization experiment and serially executes the same detector regression workload across each requested execution shape. Shards equal pipelines and threads remain `auto`, so the canonical execution plan divides the runner's aggregate thread budget across the active pipelines.
+`.github/workflows/execution-optimizer.yml` is a direct manually dispatched job on the selected runner. It holds that runner for the entire optimization experiment and serially executes the same detector-regression workload across each requested execution shape. Shards equal pipelines, and the canonical execution plan divides the runner aggregate thread budget across active pipelines while honoring the configured per-pipeline thread bounds.
 
-Auto enumeration uses representative pipeline counts through the runner budget. Manual enumeration accepts an inclusive pipeline minimum and maximum. Each shape runs to completion before the next begins on the same physical runner, minimizing provisioning and environment variance. The optimizer captures only execution-shape observations into `parallelism-index.json`; it does not publish calibration intelligence, manifests, or normal regression artifacts.
+Pipeline enumeration defaults to exhaustive integer progression and also supports binary/power-of-two sampling. Each shape runs to completion before the next begins on the same physical runner, minimizing provisioning and environment variance. The optimizer captures only execution-shape observations into `parallelism-index.json` and derived optimizer intelligence; it does not publish calibration intelligence, regression manifests, or normal regression artifacts.
 
-The optimizer uses the same reusable core environment checks as normal HTH work: runner diagnostics, isolated Python, dependency ABI verification, toolchain reporting, OpenCV build reporting, OpenCV benchmark, and the core heartbeat. Its detector execution loop calls the same shared detector-regression shell driver as `.github/workflows/regress-detector.yml`, preserving the normal queue, shard, LOAD/START/UNLOAD, and detector log format for every repeated shape.
+The optimizer intentionally remains a direct job rather than routing detector execution through `_core-hth.yml`, because the experiment must keep one runner allocation and one environment alive while iterating shapes. It mirrors the normal regression setup sequence and calls the same shared detector-regression shell driver as `.github/workflows/regress-detector.yml`, preserving the normal queue, shard, LOAD/START/UNLOAD, heartbeat, and detector log format for every repeated shape. Core-backed preprocessing, geometry, and report workflows centralize their common behavior in `_core-hth.yml`.

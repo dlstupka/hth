@@ -3,6 +3,18 @@ name: HTH calibrate geometry
 on:
   workflow_dispatch:
     inputs:
+      runner:
+        description: "Execution runner"
+        required: true
+        default: github-hosted
+        type: choice
+        options:
+          - github-hosted
+          - self-hosted-hth
+          - self-hosted-windows
+          - self-hosted-rhel8
+          - self-hosted-e7k
+          - self-hosted-e9k
       test_file:
         description: "DOCX filename to use for detector calibration"
         required: true
@@ -35,6 +47,7 @@ jobs:
     uses: ./.github/workflows/_core-hth.yml
     with:
       mode: calibration
+      runner: ${{ inputs.runner }}
       source_repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898
       results_repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
       test_file: ${{ inputs.test_file }}

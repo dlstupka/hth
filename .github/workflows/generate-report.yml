@@ -1,0 +1,83 @@
+name: HTH generate report
+
+run-name: >-
+  Generate ${{ inputs.report }} report on ${{ inputs.runner }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      report:
+        description: Report to regenerate
+        required: true
+        default: detector-calibration-manifest
+        type: choice
+        options:
+          - detector-calibration-manifest
+          - execution-optimizer
+      algorithm:
+        description: Detector for execution-optimizer report; ignored by calibration manifest
+        required: true
+        default: adaptive_radial_edge
+        type: choice
+        options:
+          - contour
+          - contour_quad
+          - contour_components
+          - contour_projection
+          - contour_grabcut
+          - grabcut_contour
+          - consensus_quad
+          - edge_contour
+          - cross_edge_contour
+          - gradient_vote
+          - radial_edge
+          - adaptive_radial_edge
+          - border_energy
+          - components
+          - ransac
+          - grabcut
+          - hough
+          - lsd
+      results_repository:
+        description: Results repository containing persisted intelligence
+        required: true
+        default: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
+        type: string
+      golden_set:
+        description: Golden Set used to select compatible detector calibrations
+        required: true
+        default: config/golden_set.json
+        type: string
+      runner:
+        description: Execution runner
+        required: true
+        default: github-hosted
+        type: choice
+        options:
+          - github-hosted
+          - self-hosted-hth
+          - self-hosted-windows
+          - self-hosted-rhel8
+          - self-hosted-e7k
+          - self-hosted-e9k
+
+permissions:
+  contents: read
+
+concurrency:
+  group: generate-report-${{ github.ref }}-${{ inputs.report }}-${{ inputs.algorithm }}
+  cancel-in-progress: false
+
+jobs:
+  report:
+    uses: ./.github/workflows/_core-hth.yml
+    with:
+      mode: report
+      runner: ${{ inputs.runner }}
+      results_repository: ${{ inputs.results_repository }}
+      report_type: ${{ inputs.report }}
+      report_algorithm: ${{ inputs.algorithm }}
+      report_golden_set: ${{ inputs.golden_set }}
+      publish_results: true
+      upload_full_artifact: false
+    secrets: inherit

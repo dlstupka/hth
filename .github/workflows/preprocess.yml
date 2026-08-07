@@ -13,6 +13,18 @@ on:
         required: true
         type: string
         default: "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results"
+      runner:
+        description: "Execution runner"
+        required: true
+        default: github-hosted
+        type: choice
+        options:
+          - github-hosted
+          - self-hosted-hth
+          - self-hosted-windows
+          - self-hosted-rhel8
+          - self-hosted-e7k
+          - self-hosted-e9k
       upload_full_artifact:
         description: "Upload the complete generated build as a temporary artifact"
         required: true
@@ -31,6 +43,7 @@ jobs:
     uses: ./.github/workflows/_core-hth.yml
     with:
       mode: production
+      runner: ${{ inputs.runner }}
       source_repository: ${{ inputs.source_repository }}
       results_repository: ${{ inputs.results_repository }}
       output_directory: hth-pipeline/build/preprocessed

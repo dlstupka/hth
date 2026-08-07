@@ -19,6 +19,18 @@ on:
       - ".github/workflows/**"
   workflow_dispatch:
     inputs:
+      runner:
+        description: "Execution runner"
+        required: true
+        default: github-hosted
+        type: choice
+        options:
+          - github-hosted
+          - self-hosted-hth
+          - self-hosted-windows
+          - self-hosted-rhel8
+          - self-hosted-e7k
+          - self-hosted-e9k
       test_file:
         description: "DOCX filename to process"
         required: true
@@ -37,6 +49,7 @@ jobs:
     uses: ./.github/workflows/_core-hth.yml
     with:
       mode: test
+      runner: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'github-hosted' }}
       source_repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898
       results_repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
       test_file: ${{ inputs.test_file || 'Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx' }}

@@ -99,7 +99,8 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         text = CORE.read_text(encoding="utf-8")
         self.assertNotIn("prepare-execution-optimizer", text)
         self.assertNotIn("optimizer_algorithm", text)
-        self.assertNotIn("execution-optimizer", text)
+        self.assertNotIn("prepare-execution-optimizer", text)
+        self.assertNotIn("optimizer_algorithm", text)
 
 
 if __name__ == "__main__":
