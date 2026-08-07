@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.report_generator import calibration_run_dirs, generate_optimizer_report
+from hth.report_generator import calibration_run_dirs, generate_calibration_manifest, generate_optimizer_report
 
 
 class ReportGeneratorTests(unittest.TestCase):
@@ -25,6 +25,30 @@ class ReportGeneratorTests(unittest.TestCase):
             (root / "calibration-index.json").write_text(json.dumps(index), encoding="utf-8")
             runs = calibration_run_dirs(root)
             self.assertEqual([path.name for path in runs], ["a-full", "b-full"])
+
+
+    def test_calibration_manifest_reads_flattened_persisted_records(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            record = root / "records" / "a-full"
+            record.mkdir(parents=True)
+            (root / "calibration-index.json").write_text(json.dumps({"entries": [{
+                "detector_id": "a", "calibration_status": "authoritative",
+                "record_path": "records/a-full", "intelligence_path": "records/a-full/calibration-intelligence.json",
+                "created_at_utc": "2026-01-02", "golden_set_sha256": "unknown"
+            }]}), encoding="utf-8")
+            (record / "manifest.json").write_text(json.dumps({"detector": "a", "status": "passed"}), encoding="utf-8")
+            (record / "parameters.json").write_text(json.dumps({}), encoding="utf-8")
+            (record / "RUN-INFO.json").write_text(json.dumps({"elapsed_seconds": 1}), encoding="utf-8")
+            (record / "summary.json").write_text(json.dumps({
+                "winner": {"parameter_set_id": "p1", "summary": {"mean_iou": 0.9, "minimum_iou": 0.8, "stddev_iou": 0.01, "failure_count": 0}},
+                "baseline": {"summary": {"mean_iou": 0.7}}, "page_ordinals": [1], "parameter_set_count": 1
+            }), encoding="utf-8")
+            (record / "calibration-intelligence.json").write_text(json.dumps({"available": True, "detector": "a"}), encoding="utf-8")
+            output = root / "report.md"
+            generate_calibration_manifest(root, output, golden_set=None, pipeline_repository="", results_repository="", results_commit="", run_url="")
+            self.assertTrue(output.is_file())
+            self.assertIn("Regression Manifest", output.read_text(encoding="utf-8"))
 
     def test_optimizer_report_uses_latest_run_only(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

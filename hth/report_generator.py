@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -77,15 +79,44 @@ def generate_calibration_manifest(
     results_commit: str,
     run_url: str,
 ) -> Path:
-    run_dirs = calibration_run_dirs(results_root, golden_set)
-    text = build_combined_summary(
-        run_dirs,
-        run_url,
-        pipeline_repository=pipeline_repository,
-        results_repository=results_repository,
-        results_commit=results_commit,
-        calibration_index=results_root / "calibration-index.json",
-    )
+    persisted_dirs = calibration_run_dirs(results_root, golden_set)
+
+    # calibration_store intentionally persists a compact, flattened record:
+    # reports/summary.json becomes <record>/summary.json, etc.  The normal
+    # summary renderer consumes the live regression-run layout, so reconstruct
+    # only that tiny layout in a temporary directory for report generation.
+    # This also keeps report-only runs read-only with respect to persisted data.
+    with tempfile.TemporaryDirectory(prefix="hth-report-") as temp:
+        temp_root = Path(temp)
+        run_dirs: list[Path] = []
+        for ordinal, persisted in enumerate(persisted_dirs, start=1):
+            normalized = temp_root / f"run-{ordinal:03d}"
+            reports = normalized / "reports"
+            reports.mkdir(parents=True, exist_ok=True)
+            for name in ("manifest.json", "parameters.json", "RUN-INFO.json"):
+                source = persisted / name
+                if source.is_file():
+                    shutil.copy2(source, normalized / name)
+            for name in ("summary.json", "winner-pages.json", "calibration-intelligence.json"):
+                source = persisted / name
+                if source.is_file():
+                    shutil.copy2(source, reports / name)
+            required = (normalized / "manifest.json", normalized / "parameters.json", normalized / "RUN-INFO.json", reports / "summary.json")
+            missing = [path.name for path in required if not path.is_file()]
+            if missing:
+                raise FileNotFoundError(
+                    f"Persisted calibration record {persisted} is incomplete; missing: {', '.join(missing)}"
+                )
+            run_dirs.append(normalized)
+
+        text = build_combined_summary(
+            run_dirs,
+            run_url,
+            pipeline_repository=pipeline_repository,
+            results_repository=results_repository,
+            results_commit=results_commit,
+            calibration_index=results_root / "calibration-index.json",
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(text, encoding="utf-8")
     return output
