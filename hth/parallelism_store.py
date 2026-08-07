@@ -44,7 +44,12 @@ def _canonical_hash(payload: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, Any]:
+def observation_from_run(
+    run_dir: Path,
+    *,
+    build: dict[str, Any],
+    wall_clock_seconds: float | None = None,
+) -> dict[str, Any]:
     info = _read_json(run_dir / "RUN-INFO.json")
     summary = _read_json(run_dir / "reports" / "summary.json")
     pipeline = info.get("detector_pipeline") if isinstance(info.get("detector_pipeline"), dict) else {}
@@ -62,10 +67,14 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
     ) or 1)
     active_pipelines = min(pipelines, shards)
     allocated_threads = active_pipelines * threads
-    wall = _as_float(info.get("wall_elapsed_seconds") or info.get("elapsed_seconds") or summary.get("elapsed_seconds"))
+    wall = _as_float(wall_clock_seconds)
+    if wall is None:
+        wall = _as_float(info.get("wall_elapsed_seconds") or info.get("elapsed_seconds") or summary.get("elapsed_seconds"))
     serial = _as_float(info.get("estimated_serial_runtime_seconds") or summary.get("estimated_serial_runtime_seconds"))
     acceleration = _as_float(info.get("effective_acceleration") or summary.get("effective_acceleration"))
-    if acceleration is None and wall and serial and wall > 0:
+    if wall_clock_seconds is not None and wall and serial and wall > 0:
+        acceleration = serial / wall
+    elif acceleration is None and wall and serial and wall > 0:
         acceleration = serial / wall
 
     possible_sets = _as_int(info.get("possible_parameter_sets") or parameter_space.get("possible_parameter_sets"))

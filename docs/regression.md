@@ -324,7 +324,7 @@ Parallel parameter evaluation records `completion_index` in actual parameter-com
 
 ## Execution optimizer intelligence
 
-The manual `HTH execution optimizer` workflow evaluates full exhaustive execution shapes with shards equal to detector pipelines and threads allocated from the selected runner budget. After its child regressions complete, it rebuilds three persistent artifacts in the results repository:
+The manual `HTH execution optimizer` workflow evaluates execution shapes serially in one job on one selected runner. Shards equal detector pipelines and threads are allocated automatically from the selected runner budget. Each shape uses the same detector-regression execution driver as a normal full regression, but optimizer mode suppresses calibration persistence, manifests, and normal regression artifacts. After all shapes complete, it rebuilds three persistent artifacts in the results repository:
 
 - `optimizer-index.json` — detector-scoped optimizer views grouped by concrete runner identity and labels;
 - `execution-optimizer/<detector>/summary.md` — a cross-runner execution-shape table; and

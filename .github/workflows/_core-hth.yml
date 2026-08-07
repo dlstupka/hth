@@ -48,6 +48,36 @@ on:
         required: false
         type: string
         default: "never"
+      optimizer_algorithm:
+        description: "Single detector algorithm benchmarked by the execution optimizer"
+        required: false
+        type: string
+        default: "adaptive_radial_edge"
+      optimizer_golden_set:
+        description: "Golden Set configuration used by the execution optimizer"
+        required: false
+        type: string
+        default: "config/golden_set.json"
+      optimizer_image_root:
+        description: "Image directory inside the results repository used by the execution optimizer"
+        required: false
+        type: string
+        default: "test/latest/raw"
+      optimizer_max_dimension:
+        description: "Maximum analysis image dimension used by the execution optimizer"
+        required: false
+        type: string
+        default: "1800"
+      optimizer_strategy:
+        description: "Regression search strategy used by the execution optimizer"
+        required: false
+        type: string
+        default: "exhaustive"
+      optimizer_debug_level:
+        description: "Debug image detail used by execution optimizer experiments"
+        required: false
+        type: string
+        default: "none"
       optimizer_runner:
         description: "Runner profile validated for execution optimization"
         required: false
@@ -1033,7 +1063,7 @@ jobs:
 
   prepare-execution-optimizer:
     if: ${{ inputs.mode == 'execution-optimizer' }}
-    name: Validate selected runner and enumerate shapes
+    name: Optimize detector execution shapes
     runs-on: >-
       ${{    inputs.optimizer_runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
           || inputs.optimizer_runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
@@ -1041,13 +1071,26 @@ jobs:
           || inputs.optimizer_runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
           || inputs.optimizer_runner == 'self-hosted-e9k'     && fromJSON('["self-hosted","Linux","X64","e9k"]')
           || 'ubuntu-latest' }}
-    timeout-minutes: 30
+    timeout-minutes: 10080
     outputs:
       runner_label: ${{ steps.plan.outputs.runner_label }}
       runner_budget: ${{ steps.plan.outputs.runner_budget }}
       pipelines: ${{ steps.plan.outputs.pipelines }}
     env:
       RESULTS_REPOSITORY: ${{ inputs.results_repository }}
+      DETECTOR_ALGORITHM: ${{ inputs.optimizer_algorithm }}
+      GOLDEN_SET: ${{ inputs.optimizer_golden_set }}
+      IMAGE_ROOT: ${{ inputs.optimizer_image_root }}
+      REGRESSION_MODE: full
+      STRATEGY: ${{ inputs.optimizer_strategy }}
+      LIMIT: ""
+      MAX_DIMENSION: ${{ inputs.optimizer_max_dimension }}
+      TOP_COUNT: "20"
+      SHARD_TARGET_MINUTES: "30"
+      SHARD_LEASE_MINUTES: "5"
+      DETECTOR_LOADING_STRATEGY: lpt
+      PIPELINE_STAGGER_MINUTES: "0"
+      DEBUG_LEVEL: ${{ inputs.optimizer_debug_level }}
       PYTHONNOUSERSITE: "1"
       PYTHONUNBUFFERED: "1"
       HTH_RUNNER_LABELS: >-
@@ -1077,8 +1120,9 @@ jobs:
         with:
           repository: ${{ inputs.results_repository }}
           path: results-repo
-          fetch-depth: 1
-          persist-credentials: false
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
           token: ${{ secrets.HTH_RESULTS_TOKEN }}
 
       - name: Start HTH core heartbeat
@@ -1088,7 +1132,7 @@ jobs:
           heartbeat_file="$RUNNER_TEMP/hth-core-heartbeat.pid"
           (
             while true; do
-              echo "[hth core heartbeat] time=$(date -u +%Y-%m-%dT%H:%M:%SZ) mode=execution-optimizer runner=${HTH_RUNNER_LABEL} status=validating"
+              echo "[hth core heartbeat] time=$(date -u +%Y-%m-%dT%H:%M:%SZ) mode=execution-optimizer runner=${HTH_RUNNER_LABEL} status=running"
               sleep 60
             done
           ) &
@@ -1226,14 +1270,18 @@ jobs:
         shell: bash
         run: |
           python - <<'PYBENCH'
-          import time, cv2, numpy as np
+          import os, time, cv2, numpy as np
           image = np.random.default_rng(12345).integers(0, 256, size=(3000, 3000), dtype=np.uint8)
           for _ in range(5): cv2.GaussianBlur(image, (9, 9), 0)
           started = time.perf_counter()
           for _ in range(100): cv2.GaussianBlur(image, (9, 9), 0)
           elapsed = time.perf_counter() - started
+          average = elapsed / 100
           print(f"GaussianBlur 100 iterations: {elapsed:.3f} seconds")
-          print(f"Average per iteration: {elapsed / 100:.6f} seconds")
+          print(f"Average per iteration: {average:.6f} seconds")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as stream:
+              stream.write(f"HTH_OPENCV_BENCHMARK_SECONDS={elapsed:.9f}\n")
+              stream.write(f"HTH_OPENCV_BENCHMARK_AVERAGE_SECONDS={average:.9f}\n")
           PYBENCH
 
       - name: Build pipeline enumeration
@@ -1277,15 +1325,106 @@ jobs:
           echo "runner_budget=$budget" >> "$GITHUB_OUTPUT"
           echo "pipelines=$pipelines" >> "$GITHUB_OUTPUT"
           {
-            echo "### Selected runner validation and execution optimizer plan"
+            echo "### Execution optimizer plan"
             echo
             echo "- Runner: \`${{ runner.name }}\`"
             echo "- Runner profile: \`$runner_label\`"
             echo "- Aggregate detector-thread budget: **$budget**"
-            echo "- Pipeline candidates: \`$pipelines\`"
+            echo "- Pipeline/shard candidates: \`$pipelines\`"
             echo "- Threads: \`auto\` (budget divided across active pipelines)"
-            echo "- Shards: equal to requested pipelines"
+            echo "- Execution model: one job, one runner, serial execution shapes"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run execution optimizer experiments
+        id: optimizer
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+          PIPELINES: ${{ steps.plan.outputs.pipelines }}
+          RUNNER_BUDGET: ${{ steps.plan.outputs.runner_budget }}
+        run: |
+          set -euo pipefail
+          IFS=',' read -r -a candidates <<< "$PIPELINES"
+          total="${#candidates[@]}"
+          rm -rf optimizer-work
+          mkdir -p optimizer-work
+          : > optimizer-work/observations.jsonl
+          shape_number=0
+          for pipelines in "${candidates[@]}"; do
+            shape_number=$((shape_number + 1))
+            export DETECTOR_PIPELINES="$pipelines"
+            export SHARDS="$pipelines"
+            export THREADS="auto"
+            export HTH_REGRESSION_OUTPUT="optimizer-work/${pipelines}p"
+            rm -rf "$HTH_REGRESSION_OUTPUT"
+            echo
+            echo "########################################################################"
+            echo "Execution optimizer shape $shape_number/$total"
+            echo "Detector  : $DETECTOR_ALGORITHM"
+            echo "Pipelines : $pipelines"
+            echo "Shards    : $pipelines"
+            echo "Threads   : auto"
+            echo "########################################################################"
+            shape_started="$(date +%s)"
+            bash hth-pipeline/tools/run-detector-regressions.sh
+            shape_finished="$(date +%s)"
+            shape_wall=$((shape_finished - shape_started))
+            run_dir="$(tail -n 1 "$HTH_REGRESSION_OUTPUT/run-directories.txt")"
+            [[ -d "$run_dir" ]] || { echo "::error::Optimizer run directory missing for pipelines=$pipelines: $run_dir"; exit 1; }
+            python -m hth.optimizer_capture \
+              --results-root results-repo \
+              --run-dir "$run_dir" \
+              --wall-clock-seconds "$shape_wall" \
+              --runner-label "${HTH_RUNNER_LABEL}" \
+              --github-run-id "${GITHUB_RUN_ID}" \
+              --shape-sequence "$shape_number" \
+              --observation-log optimizer-work/observations.jsonl
+            echo "Execution optimizer shape $shape_number/$total complete: pipelines=$pipelines wall=${shape_wall}s"
+            rm -rf "$HTH_REGRESSION_OUTPUT"
+          done
+          python -m hth.optimizer_store --results-root results-repo --detector "$DETECTOR_ALGORITHM"
+          cat "results-repo/execution-optimizer/$DETECTOR_ALGORITHM/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo
+            echo "### Execution optimizer heat map"
+            echo
+            echo "![Execution optimizer heat map](https://raw.githubusercontent.com/${RESULTS_REPOSITORY}/main/execution-optimizer/${DETECTOR_ALGORITHM}/heatmap.svg?run=${GITHUB_RUN_ID})"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish execution optimizer intelligence
+        if: ${{ steps.optimizer.outcome == 'success' }}
+        shell: bash
+        env:
+          HTH_RESULTS_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "${HTH_RESULTS_TOKEN:-}" ]] || { echo "::error::HTH_RESULTS_TOKEN is required to publish optimizer intelligence"; exit 1; }
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C results-repo remote set-url origin "https://x-access-token:${HTH_RESULTS_TOKEN}@github.com/${RESULTS_REPOSITORY}.git"
+          observation_log="$GITHUB_WORKSPACE/optimizer-work/observations.jsonl"
+          max_publish_attempts=5
+          for attempt in $(seq 1 "$max_publish_attempts"); do
+            git -C results-repo fetch origin main
+            git -C results-repo reset --hard origin/main
+            git -C results-repo clean -fd -- optimizer-index.json execution-optimizer/
+            python -m hth.optimizer_capture --results-root results-repo --replay-log "$observation_log"
+            python -m hth.optimizer_store --results-root results-repo --detector "$DETECTOR_ALGORITHM"
+            git -C results-repo add parallelism-index.json optimizer-index.json "execution-optimizer/$DETECTOR_ALGORITHM/summary.md" "execution-optimizer/$DETECTOR_ALGORITHM/heatmap.svg"
+            if git -C results-repo diff --cached --quiet; then
+              echo "Execution optimizer intelligence is already current."
+              break
+            fi
+            git -C results-repo commit -m "Update $DETECTOR_ALGORITHM execution optimizer intelligence"
+            if git -C results-repo push origin HEAD:main; then
+              break
+            fi
+            if (( attempt == max_publish_attempts )); then
+              echo "::error::Unable to publish optimizer intelligence after $max_publish_attempts attempts"
+              exit 1
+            fi
+            sleep $((5 * attempt))
+          done
 
       - name: Stop HTH core heartbeat
         if: always()
@@ -1297,4 +1436,3 @@ jobs:
             kill "$heartbeat_pid" 2>/dev/null || true
             wait "$heartbeat_pid" 2>/dev/null || true
           fi
-

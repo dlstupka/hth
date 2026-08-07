@@ -104,157 +104,26 @@ on:
 
 permissions:
   contents: read
-  actions: write
 
 concurrency:
   group: execution-optimizer-${{ github.ref }}-${{ inputs.runner }}-${{ inputs.algorithm }}
   cancel-in-progress: false
 
-
 jobs:
-  prepare:
-    name: Validate selected runner and enumerate shapes
+  optimize:
+    name: Optimize execution shapes serially
     uses: ./.github/workflows/_core-hth.yml
     with:
       mode: execution-optimizer
       results_repository: ${{ inputs.results_repository }}
+      optimizer_algorithm: ${{ inputs.algorithm }}
       optimizer_runner: ${{ inputs.runner }}
       optimizer_pipeline_range: ${{ inputs.pipeline_range }}
       optimizer_pipeline_min: ${{ inputs.pipeline_min }}
       optimizer_pipeline_max: ${{ inputs.pipeline_max }}
+      optimizer_golden_set: ${{ inputs.golden_set }}
+      optimizer_image_root: ${{ inputs.image_root }}
+      optimizer_max_dimension: ${{ inputs.max_dimension }}
+      optimizer_strategy: ${{ inputs.strategy }}
+      optimizer_debug_level: ${{ inputs.debug_level }}
     secrets: inherit
-
-  optimize:
-    name: Dispatch and monitor execution shapes
-    needs: prepare
-    runs-on: ubuntu-latest
-    timeout-minutes: 10080
-    steps:
-      - name: Checkout HTH pipeline
-        uses: actions/checkout@v6
-        with:
-          path: hth-pipeline
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Checkout results repository
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ inputs.results_repository }}
-          path: results-repo
-          fetch-depth: 1
-          persist-credentials: false
-          token: ${{ secrets.HTH_RESULTS_TOKEN }}
-
-      - name: Set up optimizer controller Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: hth-pipeline/requirements.txt
-
-      - name: Install optimizer controller dependencies
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install --requirement hth-pipeline/requirements.txt
-          python -m pip check
-
-      - name: Run execution-shape experiments
-        shell: bash
-        working-directory: hth-pipeline
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PIPELINES: ${{ needs.prepare.outputs.optimizer_pipelines }}
-          RUNNER_BUDGET: ${{ needs.prepare.outputs.optimizer_runner_budget }}
-          ALGORITHM: ${{ inputs.algorithm }}
-          RUNNER: ${{ inputs.runner }}
-          RESULTS_REPOSITORY: ${{ inputs.results_repository }}
-          GOLDEN_SET: ${{ inputs.golden_set }}
-          IMAGE_ROOT: ${{ inputs.image_root }}
-          MAX_DIMENSION: ${{ inputs.max_dimension }}
-          STRATEGY: ${{ inputs.strategy }}
-          DEBUG_LEVEL: ${{ inputs.debug_level }}
-        run: |
-          set -euo pipefail
-          IFS=',' read -r -a candidates <<< "$PIPELINES"
-          failures=0
-          {
-            echo "### Execution optimizer results"
-            echo
-            echo "| Pipelines | Threads | Shards | Child run | Result |"
-            echo "|---:|---:|---:|---|---|"
-          } >> "$GITHUB_STEP_SUMMARY"
-          for pipelines in "${candidates[@]}"; do
-            dispatched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo "Dispatching $ALGORITHM with pipelines=$pipelines shards=$pipelines threads=auto"
-            gh workflow run regress-detector.yml --ref "$GITHUB_REF_NAME" \
-              -f algorithm="$ALGORITHM" -f golden_set="$GOLDEN_SET" \
-              -f results_repository="$RESULTS_REPOSITORY" -f image_root="$IMAGE_ROOT" \
-              -f strategy="$STRATEGY" -f limit="" -f max_dimension="$MAX_DIMENSION" \
-              -f threads=auto -f shards="$pipelines" -f shard_target_minutes=30 \
-              -f shard_lease_minutes=5 -f detector_pipelines="$pipelines" \
-              -f detector_loading_strategy=lpt -f pipeline_stagger_minutes=0 \
-              -f top=20 -f debug_level="$DEBUG_LEVEL" -f mode=full -f runner="$RUNNER"
-            run_id=""
-            for _ in {1..30}; do
-              run_id="$(gh run list --workflow regress-detector.yml --branch "$GITHUB_REF_NAME" --event workflow_dispatch --limit 20 --json databaseId,createdAt --jq ".[] | select(.createdAt >= \"$dispatched_at\") | .databaseId" | head -1)"
-              [[ -n "$run_id" ]] && break
-              sleep 2
-            done
-            if [[ -z "$run_id" ]]; then
-              echo "::error::Unable to identify child run for pipelines=$pipelines"
-              failures=$((failures + 1)); continue
-            fi
-            run_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$run_id"
-            heartbeat() {
-              while true; do
-                echo "[optimizer heartbeat] time=$(date -u +%Y-%m-%dT%H:%M:%SZ) child_run=$run_id pipelines=$pipelines status=waiting"
-                sleep 60
-              done
-            }
-            heartbeat & heartbeat_pid=$!
-            if gh run watch "$run_id" --exit-status; then result="success"; else result="failed"; failures=$((failures + 1)); fi
-            kill "$heartbeat_pid" 2>/dev/null || true
-            wait "$heartbeat_pid" 2>/dev/null || true
-            threads=$(( RUNNER_BUDGET / pipelines )); (( threads < 1 )) && threads=1
-            echo "| $pipelines | $threads | $pipelines | [#$run_id]($run_url) | $result |" >> "$GITHUB_STEP_SUMMARY"
-          done
-          if (( failures > 0 )); then echo "::error::$failures execution optimizer experiment(s) failed"; exit 1; fi
-
-      - name: Publish optimizer intelligence and heat map
-        if: ${{ always() }}
-        shell: bash
-        env:
-          PYTHONPATH: hth-pipeline
-          HTH_RESULTS_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN }}
-          RESULTS_REPOSITORY: ${{ inputs.results_repository }}
-          ALGORITHM: ${{ inputs.algorithm }}
-        run: |
-          set -euo pipefail
-          [[ -n "${HTH_RESULTS_TOKEN:-}" ]] || { echo "::error::HTH_RESULTS_TOKEN is required to publish optimizer intelligence"; exit 1; }
-          git -C results-repo config user.name "github-actions[bot]"
-          git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C results-repo remote set-url origin "https://x-access-token:${HTH_RESULTS_TOKEN}@github.com/${RESULTS_REPOSITORY}.git"
-          max_publish_attempts=5
-          for attempt in $(seq 1 "$max_publish_attempts"); do
-            git -C results-repo fetch origin main
-            git -C results-repo reset --hard origin/main
-            git -C results-repo clean -fd -- optimizer-index.json execution-optimizer/
-            python -m hth.optimizer_store --results-root results-repo --detector "$ALGORITHM"
-            git -C results-repo add optimizer-index.json "execution-optimizer/$ALGORITHM/summary.md" "execution-optimizer/$ALGORITHM/heatmap.svg"
-            if git -C results-repo diff --cached --quiet; then echo "Optimizer intelligence is already current."; break; fi
-            git -C results-repo commit -m "Update $ALGORITHM execution optimizer intelligence"
-            if git -C results-repo push origin HEAD:main; then break; fi
-            if (( attempt == max_publish_attempts )); then echo "::error::Unable to publish optimizer intelligence after $max_publish_attempts attempts"; exit 1; fi
-            sleep $((5 * attempt))
-          done
-          cat "results-repo/execution-optimizer/$ALGORITHM/summary.md" >> "$GITHUB_STEP_SUMMARY"
-          {
-            echo
-            echo "### Execution optimizer heat map"
-            echo
-            echo "![Execution optimizer heat map](https://raw.githubusercontent.com/${RESULTS_REPOSITORY}/main/execution-optimizer/${ALGORITHM}/heatmap.svg?run=${GITHUB_RUN_ID})"
-            echo
-            echo "The heat map uses a shared logarithmic wall-time scale across all compatible runner profiles and labels currently recorded in \`parallelism-index.json\`."
-          } >> "$GITHUB_STEP_SUMMARY"
