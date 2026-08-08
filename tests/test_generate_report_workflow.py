@@ -28,6 +28,13 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertIn("inputs.runner == 'self-hosted-e7k'", text)
         self.assertIn("inputs.runner == 'self-hosted-e9k'", text)
 
+    def test_core_report_summary_append_does_not_use_shell_heredoc(self) -> None:
+        text = CORE.read_text(encoding="utf-8")
+        report_step = text.split("- name: Generate selected report", 1)[1].split("- name: Publish regenerated report", 1)[0]
+        self.assertIn("python -c", report_step)
+        self.assertNotIn("PYSUMMARY", report_step)
+        self.assertIn("heatmap.svg?report-run={run_id}", report_step)
+
 
 if __name__ == "__main__":
     unittest.main()
