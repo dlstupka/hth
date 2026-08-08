@@ -127,6 +127,7 @@ class OptimizerStoreTests(unittest.TestCase):
             self.assertIn("execution data below contains only shapes completed in this execution", markdown)
             self.assertIn("e7k", markdown)
             self.assertIn("Preferred Detector Run Configuration", markdown)
+            self.assertIn("Preferred shape range (≤2%)", markdown)
             self.assertIn("Detector Run Profile Plot", markdown)
             self.assertIn("Detector Pipeline-Thread Shape Optimization Data", markdown)
             self.assertIn("<details>", markdown)

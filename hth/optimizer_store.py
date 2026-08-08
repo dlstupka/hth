@@ -231,12 +231,34 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, o
     }
 
 
+
+PREFERRED_SHAPE_RANGE_THRESHOLD_PCT = 2.0
+
+def _preferred_shape_range(runner: dict[str, Any]) -> str:
+    """Summarize measured shapes within 2% of the runner's best observed throughput."""
+    shapes = [shape for shape in runner.get("shapes", []) if isinstance(shape, dict)]
+    rates = [(shape, _as_float(shape.get("parameter_sets_per_second"))) for shape in shapes]
+    rates = [(shape, rate) for shape, rate in rates if rate is not None]
+    if not rates:
+        return "—"
+    best_rate = max(rate for _, rate in rates)
+    floor = best_rate * (1.0 - PREFERRED_SHAPE_RANGE_THRESHOLD_PCT / 100.0)
+    near_best = [shape for shape, rate in rates if rate >= floor]
+    pipelines = sorted({_as_int(shape.get("pipelines")) for shape in near_best if _as_int(shape.get("pipelines")) is not None})
+    threads = sorted({_as_int(shape.get("threads_per_pipeline")) for shape in near_best if _as_int(shape.get("threads_per_pipeline")) is not None})
+    if not pipelines or not threads:
+        return "—"
+    pipeline_text = str(pipelines[0]) if len(pipelines) == 1 else f"{pipelines[0]}–{pipelines[-1]}"
+    thread_text = str(threads[0]) if len(threads) == 1 else f"{threads[0]}–{threads[-1]}"
+    suffix = "shape" if len(near_best) == 1 else "shapes"
+    return f"{pipeline_text}p / {thread_text}t ({len(near_best)} {suffix})"
+
 def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
     lines = [
         "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is the fastest measured compatible shape.",
         "",
-        "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Allocated | Sets/s | Wall | Observations |",
-        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Allocated | Sets/s | Wall | Observations |",
+        "|---|---|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|",
     ]
     for runner in sorted(index.get("runners", []), key=lambda item: str(item.get("runner_title") or "")):
         best = runner.get("best_shape") if isinstance(runner.get("best_shape"), dict) else {}
@@ -246,7 +268,7 @@ def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
         rate = _as_float(best.get("parameter_sets_per_second"))
         memory = _as_float(specs.get("memory_gib"))
         lines.append(
-            "| {detector} | {runner} | {cpu} | {physical} | {logical} | {memory} | {pipelines} | {threads} | {allocated} | {rate} | {wall} | {observations} |".format(
+            "| {detector} | {runner} | {cpu} | {physical} | {logical} | {memory} | {pipelines} | {threads} | {shape_range} | {allocated} | {rate} | {wall} | {observations} |".format(
                 detector=index.get("detector_id") or "unknown",
                 runner=runner.get("runner_title") or "unknown",
                 cpu=str(specs.get("cpu_model") or "—").replace("|", "/"),
@@ -255,6 +277,7 @@ def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
                 memory=f"{memory:.1f} GiB" if memory is not None else "—",
                 pipelines=best.get("pipelines") or "?",
                 threads=best.get("threads_per_pipeline") or "?",
+                shape_range=_preferred_shape_range(runner),
                 allocated=best.get("allocated_threads") or "?",
                 rate=f"{rate:.2f}" if rate is not None else "unknown",
                 wall=_duration(best.get("fastest_wall_clock_seconds")),
@@ -406,8 +429,8 @@ def render_all_markdown(indices: list[dict[str, Any]]) -> str:
         "",
         "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is the fastest measured compatible shape.",
         "",
-        "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Allocated | Sets/s | Wall | Observations |",
-        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Allocated | Sets/s | Wall | Observations |",
+        "|---|---|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|",
     ]
     for index in indices:
         for row in _render_preferred_configuration(index)[4:-1]:

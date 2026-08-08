@@ -239,6 +239,7 @@ class ReportGeneratorTests(unittest.TestCase):
             summary = paths["summary"].read_text(encoding="utf-8")
             self.assertIn("<summary><strong>Navigation</strong></summary>", summary)
             self.assertIn("<summary><strong>1. Preferred Detector Run Configuration</strong></summary>", summary)
+            self.assertIn("Preferred shape range (≤2%)", summary)
             self.assertIn("<summary><strong>2. Detector Run Profile Plot</strong></summary>", summary)
             self.assertIn("<summary><strong>3. Detector Pipeline-Thread Shape Optimization Data</strong></summary>", summary)
             self.assertGreaterEqual(summary.count("<details open>"), 3)
