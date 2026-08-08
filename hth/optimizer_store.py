@@ -244,14 +244,18 @@ def _preferred_shape_range(runner: dict[str, Any]) -> str:
     best_rate = max(rate for _, rate in rates)
     floor = best_rate * (1.0 - PREFERRED_SHAPE_RANGE_THRESHOLD_PCT / 100.0)
     near_best = [shape for shape, rate in rates if rate >= floor]
-    pipelines = sorted({_as_int(shape.get("pipelines")) for shape in near_best if _as_int(shape.get("pipelines")) is not None})
-    threads = sorted({_as_int(shape.get("threads_per_pipeline")) for shape in near_best if _as_int(shape.get("threads_per_pipeline")) is not None})
-    if not pipelines or not threads:
+    measured_shapes = sorted(
+        {
+            (_as_int(shape.get("pipelines")), _as_int(shape.get("threads_per_pipeline")))
+            for shape in near_best
+            if _as_int(shape.get("pipelines")) is not None
+            and _as_int(shape.get("threads_per_pipeline")) is not None
+        },
+        key=lambda item: (item[0], item[1]),
+    )
+    if not measured_shapes:
         return "—"
-    pipeline_text = str(pipelines[0]) if len(pipelines) == 1 else f"{pipelines[0]}–{pipelines[-1]}"
-    thread_text = str(threads[0]) if len(threads) == 1 else f"{threads[0]}–{threads[-1]}"
-    suffix = "shape" if len(near_best) == 1 else "shapes"
-    return f"{pipeline_text}p / {thread_text}t ({len(near_best)} {suffix})"
+    return ", ".join(f"{pipelines}p/{threads}t" for pipelines, threads in measured_shapes)
 
 def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
     lines = [
