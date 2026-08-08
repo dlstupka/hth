@@ -205,41 +205,66 @@ def _legacy_completed_index_from_summary(path: Path, detector: str) -> dict[str,
     """Recover one completed execution profile from a pre-run-id published summary.
 
     Legacy optimizer reports are completion artifacts but may predate run tagging.
-    Their table can contain historical compatibility rows.  Recover only the
+    Their table can contain historical compatibility rows. Recover only the
     concrete runner profile with the most measured shapes; never import rows
-    whose runner identity is unknown.  This is intentionally a report-only
-    compatibility path and does not rewrite optimizer intelligence.
+    whose runner identity is unknown. The legacy table schema changed over time,
+    so resolve fields by column heading rather than fixed position.
     """
     if not path.is_file():
         return None
+
+    def key(text: str) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+    def seconds(text: str) -> float:
+        total = 0.0
+        for value, unit in re.findall(r"(\d+(?:\.\d+)?)\s*([hms])", text):
+            total += float(value) * {"h": 3600.0, "m": 60.0, "s": 1.0}[unit]
+        return total
+
+    header: dict[str, int] | None = None
     groups: dict[str, list[dict[str, Any]]] = {}
     for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if not raw.startswith("|") or raw.startswith("|---") or "Runner" in raw:
+        if not raw.startswith("|") or raw.startswith("|---"):
             continue
         cells = [cell.strip() for cell in raw.strip().strip("|").split("|")]
-        if len(cells) < 8:
+        normalized = [key(cell.replace("**", "")) for cell in cells]
+        if "runner" in normalized and "pipelines" in normalized:
+            header = {name: idx for idx, name in enumerate(normalized)}
             continue
-        runner = cells[0].replace("**", "").strip()
+        if header is None:
+            continue
+
+        def field(*names: str) -> str:
+            for name in names:
+                idx = header.get(key(name))
+                if idx is not None and idx < len(cells):
+                    return cells[idx].replace("**", "").strip()
+            return ""
+
+        runner = field("runner")
         if not runner or runner.lower().startswith("unknown"):
             continue
         try:
-            pipelines, shards, threads, allocated = map(int, cells[1:5])
-            rate = float(cells[6])
+            pipelines = int(field("pipelines"))
+            shards = int(field("shards"))
+            threads = int(field("threads / pipeline", "threads per pipeline"))
+            allocated = int(field("allocated threads", "allocated"))
+            rate = float(field("sets/s", "parameter sets / second"))
         except (TypeError, ValueError):
             continue
-        wall_text = cells[5]
-        seconds = 0.0
-        for value, unit in re.findall(r"(\d+(?:\.\d+)?)\s*([hms])", wall_text):
-            seconds += float(value) * {"h": 3600.0, "m": 60.0, "s": 1.0}[unit]
+        wall = seconds(field("fastest wall", "wall"))
+        if wall <= 0.0 or rate <= 0.0:
+            continue
         speedup = None
         try:
-            speedup = float(cells[7].rstrip("×x"))
+            speedup = float(field("speedup vs 1 pipeline", "speedup").rstrip("×x"))
         except ValueError:
             pass
         groups.setdefault(runner, []).append({
             "pipelines": pipelines, "shards": shards,
             "threads_per_pipeline": threads, "allocated_threads": allocated,
-            "fastest_wall_clock_seconds": seconds,
+            "fastest_wall_clock_seconds": wall,
             "parameter_sets_per_second": rate,
             "observed_speedup_vs_one_pipeline": speedup,
             "execution_shape": f"{pipelines}p/{shards}s/{threads}t",
