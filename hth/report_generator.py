@@ -158,6 +158,33 @@ def _latest_completed_run_from_index(index: dict[str, Any], detector: str) -> st
     return matches[0][1]
 
 
+def _latest_legacy_published_run_from_parallelism(parallelism: dict[str, Any], detector: str) -> str | None:
+    """Recover the run id behind a legacy published optimizer report.
+
+    Older optimizer summaries did not embed their optimizer run id.  A persisted
+    summary/profile pair still proves that an optimizer execution completed and
+    was published.  Under the legacy publication contract, aggregate optimizer
+    observations reached the results repository only at successful end-of-run
+    publication, so the newest run-tagged aggregate observation for this detector
+    identifies that published execution.  Shard checkpoints are intentionally
+    ignored: they are not completion evidence.
+    """
+    candidates: dict[str, str] = {}
+    for row in parallelism.get("observations", []):
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("detector_id")) != detector or row.get("source") != "execution-optimizer":
+            continue
+        run_id = str(row.get("optimizer_run_id") or "").strip()
+        if not run_id:
+            continue
+        stamp = str(row.get("captured_at_utc") or row.get("observed_at_utc") or row.get("created_at_utc") or "")
+        candidates[run_id] = max(candidates.get(run_id, ""), stamp)
+    if not candidates:
+        return None
+    return max(candidates.items(), key=lambda item: (item[1], item[0]))[0]
+
+
 def _completed_run_payload(index: dict[str, Any], detector: str, run_id: str) -> dict[str, Any]:
     runs = index.get("runs") if isinstance(index.get("runs"), dict) else {}
     payload = runs.get(str(run_id))
@@ -191,18 +218,12 @@ def generate_optimizer_report(results_root: Path, detector: str, output_dir: Pat
     run_id = _completed_optimizer_run_id(results_root, detector)
     if run_id is None:
         run_id = _latest_completed_run_from_index(optimizer, detector)
+    if run_id is None and persisted_summary.is_file() and persisted_profile.is_file():
+        # Legacy published summaries prove completion but did not identify the run.
+        # Recover the newest run-tagged aggregate observation and regenerate the
+        # report with the current renderer.  Never use shard checkpoints here.
+        run_id = _latest_legacy_published_run_from_parallelism(parallelism, detector)
     if run_id is None:
-        # Optimizer reports published before run IDs were embedded in the summary
-        # are still completed artifacts: the optimizer workflow publishes this
-        # directory only after the optimizer step succeeds.  Preserve that legacy
-        # completed report verbatim rather than guessing a run from observations.
-        if persisted_summary.is_file() and persisted_profile.is_file():
-            output_dir.mkdir(parents=True, exist_ok=True)
-            summary = output_dir / "summary.md"
-            profile = output_dir / "heatmap.svg"
-            shutil.copy2(persisted_summary, summary)
-            shutil.copy2(persisted_profile, profile)
-            return {"summary": summary, "profile": profile}
         raise ValueError(f"No completed persisted optimizer run found for detector {detector}")
 
     run_payload = _completed_run_payload(optimizer, detector, run_id)

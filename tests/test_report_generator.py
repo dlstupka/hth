@@ -102,7 +102,30 @@ class ReportGeneratorTests(unittest.TestCase):
             self.assertIn("| 2 | 2 | 1 |", text)
             self.assertNotIn("| 1 | 1 | 1 |", text)
 
-    def test_optimizer_report_accepts_legacy_completed_persisted_report(self) -> None:
+    def test_optimizer_report_regenerates_legacy_completed_report_from_latest_run_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "optimizer-index.json").write_text(json.dumps({"schema_version": 1, "detectors": {}}), encoding="utf-8")
+            parallelism = {"observations": [
+                {"detector_id": "adaptive_radial_edge", "optimizer_run_id": "100", "source": "execution-optimizer", "mode": "full", "strategy": "exhaustive", "actual_parameter_sets": 10, "possible_parameter_sets": 10, "active_pipelines": 1, "shards": 1, "threads_per_pipeline": 192, "allocated_threads": 192, "wall_clock_seconds": 2700, "parameter_sets_per_second": 2.4, "execution_shape": "1p/1s/192t", "optimizer_shape_sequence": 1, "captured_at_utc": "2026-01-01T00:00:00Z", "runner": {"runner_label": "unknown", "runner_name": "host", "logical_cpu_count": 96}},
+                {"detector_id": "adaptive_radial_edge", "optimizer_run_id": "200", "source": "execution-optimizer", "mode": "full", "strategy": "exhaustive", "actual_parameter_sets": 10, "possible_parameter_sets": 10, "active_pipelines": 2, "shards": 2, "threads_per_pipeline": 96, "allocated_threads": 192, "wall_clock_seconds": 1200, "parameter_sets_per_second": 5.5, "execution_shape": "2p/2s/96t", "optimizer_shape_sequence": 2, "captured_at_utc": "2026-01-02T00:00:00Z", "runner": {"runner_label": "e7k", "runner_name": "host", "logical_cpu_count": 96}},
+            ]}
+            (root / "parallelism-index.json").write_text(json.dumps(parallelism), encoding="utf-8")
+            persisted = root / "execution-optimizer" / "adaptive_radial_edge"
+            persisted.mkdir(parents=True)
+            (persisted / "summary.md").write_text("legacy completed optimizer report\n", encoding="utf-8")
+            (persisted / "heatmap.svg").write_text("<svg>legacy</svg>\n", encoding="utf-8")
+            paths = generate_optimizer_report(root, "adaptive_radial_edge", root / "out")
+            summary = paths["summary"].read_text(encoding="utf-8")
+            profile = paths["profile"].read_text(encoding="utf-8")
+            self.assertIn("Optimizer run: **200**", summary)
+            self.assertIn("| **e7k — host (96 vCPU)** | 2 | 2 | 96 |", summary)
+            self.assertNotIn("unknown", summary)
+            self.assertIn("detector pipelines (log₂ scale)", profile)
+            self.assertIn("parameter sets / second", profile)
+            self.assertNotIn("<svg>legacy</svg>", profile)
+
+    def test_optimizer_report_rejects_legacy_completion_marker_without_run_tagged_shapes(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "optimizer-index.json").write_text(json.dumps({"schema_version": 1, "detectors": {}}), encoding="utf-8")
@@ -111,9 +134,8 @@ class ReportGeneratorTests(unittest.TestCase):
             persisted.mkdir(parents=True)
             (persisted / "summary.md").write_text("legacy completed optimizer report\n", encoding="utf-8")
             (persisted / "heatmap.svg").write_text("<svg>legacy</svg>\n", encoding="utf-8")
-            paths = generate_optimizer_report(root, "adaptive_radial_edge", root / "out")
-            self.assertEqual(paths["summary"].read_text(encoding="utf-8"), "legacy completed optimizer report\n")
-            self.assertEqual(paths["profile"].read_text(encoding="utf-8"), "<svg>legacy</svg>\n")
+            with self.assertRaisesRegex(ValueError, "No completed persisted optimizer run"):
+                generate_optimizer_report(root, "adaptive_radial_edge", root / "out")
 
     def test_optimizer_report_does_not_report_incomplete_shard_only_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
