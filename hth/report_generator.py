@@ -185,10 +185,24 @@ def generate_optimizer_report(results_root: Path, detector: str, output_dir: Pat
     # shard checkpoints or partially completed shape observations.
     optimizer = _read_json(optimizer_path)
     parallelism = _read_json(parallelism_path)
+    persisted_report_dir = results_root / "execution-optimizer" / detector
+    persisted_summary = persisted_report_dir / "summary.md"
+    persisted_profile = persisted_report_dir / "heatmap.svg"
     run_id = _completed_optimizer_run_id(results_root, detector)
     if run_id is None:
         run_id = _latest_completed_run_from_index(optimizer, detector)
     if run_id is None:
+        # Optimizer reports published before run IDs were embedded in the summary
+        # are still completed artifacts: the optimizer workflow publishes this
+        # directory only after the optimizer step succeeds.  Preserve that legacy
+        # completed report verbatim rather than guessing a run from observations.
+        if persisted_summary.is_file() and persisted_profile.is_file():
+            output_dir.mkdir(parents=True, exist_ok=True)
+            summary = output_dir / "summary.md"
+            profile = output_dir / "heatmap.svg"
+            shutil.copy2(persisted_summary, summary)
+            shutil.copy2(persisted_profile, profile)
+            return {"summary": summary, "profile": profile}
         raise ValueError(f"No completed persisted optimizer run found for detector {detector}")
 
     run_payload = _completed_run_payload(optimizer, detector, run_id)

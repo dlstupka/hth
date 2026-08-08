@@ -102,6 +102,19 @@ class ReportGeneratorTests(unittest.TestCase):
             self.assertIn("| 2 | 2 | 1 |", text)
             self.assertNotIn("| 1 | 1 | 1 |", text)
 
+    def test_optimizer_report_accepts_legacy_completed_persisted_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "optimizer-index.json").write_text(json.dumps({"schema_version": 1, "detectors": {}}), encoding="utf-8")
+            (root / "parallelism-index.json").write_text(json.dumps({"observations": []}), encoding="utf-8")
+            persisted = root / "execution-optimizer" / "adaptive_radial_edge"
+            persisted.mkdir(parents=True)
+            (persisted / "summary.md").write_text("legacy completed optimizer report\n", encoding="utf-8")
+            (persisted / "heatmap.svg").write_text("<svg>legacy</svg>\n", encoding="utf-8")
+            paths = generate_optimizer_report(root, "adaptive_radial_edge", root / "out")
+            self.assertEqual(paths["summary"].read_text(encoding="utf-8"), "legacy completed optimizer report\n")
+            self.assertEqual(paths["profile"].read_text(encoding="utf-8"), "<svg>legacy</svg>\n")
+
     def test_optimizer_report_does_not_report_incomplete_shard_only_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
