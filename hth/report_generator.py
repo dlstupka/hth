@@ -200,6 +200,63 @@ def _completed_run_payload(index: dict[str, Any], detector: str, run_id: str) ->
     }
 
 
+
+def _legacy_completed_index_from_summary(path: Path, detector: str) -> dict[str, Any] | None:
+    """Recover one completed execution profile from a pre-run-id published summary.
+
+    Legacy optimizer reports are completion artifacts but may predate run tagging.
+    Their table can contain historical compatibility rows.  Recover only the
+    concrete runner profile with the most measured shapes; never import rows
+    whose runner identity is unknown.  This is intentionally a report-only
+    compatibility path and does not rewrite optimizer intelligence.
+    """
+    if not path.is_file():
+        return None
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not raw.startswith("|") or raw.startswith("|---") or "Runner" in raw:
+            continue
+        cells = [cell.strip() for cell in raw.strip().strip("|").split("|")]
+        if len(cells) < 8:
+            continue
+        runner = cells[0].replace("**", "").strip()
+        if not runner or runner.lower().startswith("unknown"):
+            continue
+        try:
+            pipelines, shards, threads, allocated = map(int, cells[1:5])
+            rate = float(cells[6])
+        except (TypeError, ValueError):
+            continue
+        wall_text = cells[5]
+        seconds = 0.0
+        for value, unit in re.findall(r"(\d+(?:\.\d+)?)\s*([hms])", wall_text):
+            seconds += float(value) * {"h": 3600.0, "m": 60.0, "s": 1.0}[unit]
+        speedup = None
+        try:
+            speedup = float(cells[7].rstrip("×x"))
+        except ValueError:
+            pass
+        groups.setdefault(runner, []).append({
+            "pipelines": pipelines, "shards": shards,
+            "threads_per_pipeline": threads, "allocated_threads": allocated,
+            "fastest_wall_clock_seconds": seconds,
+            "parameter_sets_per_second": rate,
+            "observed_speedup_vs_one_pipeline": speedup,
+            "execution_shape": f"{pipelines}p/{shards}s/{threads}t",
+            "optimizer_shape_sequence": pipelines,
+        })
+    if not groups:
+        return None
+    runner_title, shapes = max(groups.items(), key=lambda item: (len(item[1]), max((x["pipelines"] for x in item[1]), default=0)))
+    shapes.sort(key=lambda shape: shape["pipelines"])
+    best = max(shapes, key=lambda shape: shape["parameter_sets_per_second"])
+    return {
+        "schema_version": 1, "detector_id": detector,
+        "optimizer_run_id": "legacy-published", "runner_count": 1,
+        "observation_count": len(shapes), "best_across_runners": best,
+        "runners": [{"runner_title": runner_title, "shapes": shapes, "best_shape": best}],
+    }
+
 def generate_optimizer_report(results_root: Path, detector: str, output_dir: Path) -> dict[str, Path]:
     optimizer_path = results_root / "optimizer-index.json"
     parallelism_path = results_root / "parallelism-index.json"
@@ -223,16 +280,26 @@ def generate_optimizer_report(results_root: Path, detector: str, output_dir: Pat
         # Recover the newest run-tagged aggregate observation and regenerate the
         # report with the current renderer.  Never use shard checkpoints here.
         run_id = _latest_legacy_published_run_from_parallelism(parallelism, detector)
-    if run_id is None:
+    legacy_current = None
+    if run_id is None and persisted_summary.is_file() and persisted_profile.is_file():
+        # Very old completed reports predate optimizer_run_id on both the report
+        # and observations.  Recover the completed execution from the published
+        # table itself, while dropping its historical/unknown compatibility rows.
+        legacy_current = _legacy_completed_index_from_summary(persisted_summary, detector)
+    if run_id is None and legacy_current is None:
         raise ValueError(f"No completed persisted optimizer run found for detector {detector}")
 
-    run_payload = _completed_run_payload(optimizer, detector, run_id)
-    current = build_optimizer_index(parallelism, detector, run_id)
-    if not current.get("observation_count"):
-        raise ValueError(
-            f"Completed optimizer run {run_id} has no persisted completed shape observations for {detector}"
-        )
-    run_metadata = run_payload.get("run_metadata") if isinstance(run_payload.get("run_metadata"), dict) else {}
+    if legacy_current is not None:
+        current = legacy_current
+        run_metadata = {}
+    else:
+        run_payload = _completed_run_payload(optimizer, detector, run_id)
+        current = build_optimizer_index(parallelism, detector, run_id)
+        if not current.get("observation_count"):
+            raise ValueError(
+                f"Completed optimizer run {run_id} has no persisted completed shape observations for {detector}"
+            )
+        run_metadata = run_payload.get("run_metadata") if isinstance(run_payload.get("run_metadata"), dict) else {}
     output_dir.mkdir(parents=True, exist_ok=True)
     summary = output_dir / "summary.md"
     profile = output_dir / "heatmap.svg"

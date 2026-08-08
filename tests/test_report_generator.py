@@ -125,6 +125,32 @@ class ReportGeneratorTests(unittest.TestCase):
             self.assertIn("parameter sets / second", profile)
             self.assertNotIn("<svg>legacy</svg>", profile)
 
+    def test_optimizer_report_recovers_pre_run_id_published_table_without_history_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "optimizer-index.json").write_text(json.dumps({"schema_version": 1, "detectors": {}}), encoding="utf-8")
+            (root / "parallelism-index.json").write_text(json.dumps({"observations": []}), encoding="utf-8")
+            persisted = root / "execution-optimizer" / "adaptive_radial_edge"
+            persisted.mkdir(parents=True)
+            persisted.joinpath("summary.md").write_text("""### Execution optimizer summary
+
+| Runner | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Sets/s | Speedup | Efficiency | Runs |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| e7k — rh8-a197 (96 vCPU) | 1 | 1 | 192 | 192 | 44m 32s | 2.46 | 1.00× | unknown | 1 |
+| **e7k — rh8-a197 (96 vCPU)** | 64 | 64 | 3 | 192 | 1m 32s | 71.33 | 29.04× | 84.9% | 1 |
+| unknown — rh8-a197 (96 vCPU) | 1 | 1 | 192 | 192 | 45m 27s | 2.41 | 1.00× | unknown | 1 |
+| **unknown — rh8-a197 (96 vCPU)** | 64 | 64 | 1 | 64 | 1m 28s | unknown | 31.02× | unknown | 4 |
+""", encoding="utf-8")
+            persisted.joinpath("heatmap.svg").write_text("<svg>legacy</svg>\n", encoding="utf-8")
+            paths = generate_optimizer_report(root, "adaptive_radial_edge", root / "out")
+            summary = paths["summary"].read_text(encoding="utf-8")
+            profile = paths["profile"].read_text(encoding="utf-8")
+            self.assertIn("Optimizer run: **legacy-published**", summary)
+            self.assertIn("e7k — rh8-a197", summary)
+            self.assertNotIn("unknown — rh8-a197", summary)
+            self.assertIn("detector pipelines (log₂ scale)", profile)
+            self.assertIn("parameter sets / second", profile)
+
     def test_optimizer_report_rejects_legacy_completion_marker_without_run_tagged_shapes(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
