@@ -232,8 +232,6 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, o
 
 def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
     lines = [
-        "#### Preferred optimizer executor configuration",
-        "",
         "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is the fastest measured compatible shape.",
         "",
         "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Allocated | Sets/s | Wall | Observations |",
@@ -270,16 +268,41 @@ def render_markdown(index: dict[str, Any], run_metadata: dict[str, Any] | None =
     lines = [
         "### Execution optimizer summary",
         "",
+        '<a id="navigation"></a>',
+        "**Navigation:** [Preferred Detector Run Configuration](#preferred-detector-run-configuration) · [Detector Run Profile Plot](#detector-run-profile-plot) · [Detector Pipeline-Thread Shape Optimization Data](#detector-pipeline-thread-shape-optimization-data)",
+        "",
         f"Detector: `{index.get('detector_id')}`  ",
     ]
     if index.get("optimizer_run_id") is not None:
-        lines.append(f"Optimizer run: **{index.get('optimizer_run_id')}** — this table contains only shapes completed in this execution.")
-    lines.append("")
+        lines.append(f"Optimizer run: **{index.get('optimizer_run_id')}** — execution data below contains only shapes completed in this execution; the preferred configuration may use all compatible completed optimizer evidence.")
+    lines.extend([
+        "",
+        '<a id="preferred-detector-run-configuration"></a>',
+        "#### 1. Preferred Detector Run Configuration",
+        "",
+    ])
     lines.extend(_render_preferred_configuration(preferred_index or index))
+    lines.extend([
+        "[Back to navigation](#navigation)",
+        "",
+        '<a id="detector-run-profile-plot"></a>',
+        "#### 2. Detector Run Profile Plot",
+        "",
+        "Compatible completed measurements are plotted as detector pipelines versus parameter sets/second; thread count is annotated at each measured shape.",
+        "",
+        "![Detector Run Profile Plot](heatmap.svg)",
+        "",
+        "[Back to navigation](#navigation)",
+        "",
+        '<a id="detector-pipeline-thread-shape-optimization-data"></a>',
+        "<details>",
+        "<summary><strong>3. Detector Pipeline-Thread Shape Optimization Data</strong></summary>",
+        "",
+    ])
     if index.get("optimizer_run_id") is not None:
-        lines.extend(["#### Shapes completed in this execution", ""])
+        lines.extend(["Shapes completed in this execution are shown below.", ""])
     else:
-        lines.extend(["#### Coalesced compatible shape measurements", ""])
+        lines.extend(["Coalesced compatible shape measurements are shown below.", ""])
     lines.extend([
         "| Runner | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Sets/s | Speedup | Avg load | Peak load | Avg CPU | Peak RAM |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
@@ -328,6 +351,12 @@ def render_markdown(index: dict[str, Any], run_metadata: dict[str, Any] | None =
             ])
         elif run_metadata.get("stop_reason"):
             lines.extend([f"**Stop reason:** `{run_metadata.get('stop_reason')}`", ""])
+    lines.extend([
+        "[Back to navigation](#navigation)",
+        "",
+        "</details>",
+        "",
+    ])
     return "\n".join(lines)
 
 

@@ -1099,13 +1099,18 @@ jobs:
               --results-root results-repo \
               --detector "${{ inputs.report_algorithm }}" \
               --output-dir "generated-report/execution-optimizer/${{ inputs.report_algorithm }}"
-            cat "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
-            {
-              echo
-              echo "### Execution processing profile"
-              echo
-              echo "![Execution processing profile](https://raw.githubusercontent.com/${RESULTS_REPOSITORY}/main/execution-optimizer/${{ inputs.report_algorithm }}/heatmap.svg?report-run=${GITHUB_RUN_ID})"
-            } >> "$GITHUB_STEP_SUMMARY"
+            python - "$GITHUB_STEP_SUMMARY" "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/summary.md" "$RESULTS_REPOSITORY" "${{ inputs.report_algorithm }}" "$GITHUB_RUN_ID" <<'PYSUMMARY'
+            import sys
+            from pathlib import Path
+            destination, source, repository, detector, run_id = sys.argv[1:]
+            text = Path(source).read_text(encoding="utf-8")
+            raw = f"https://raw.githubusercontent.com/{repository}/main/execution-optimizer/{detector}/heatmap.svg?report-run={run_id}"
+            text = text.replace("(heatmap.svg)", f"({raw})")
+            with Path(destination).open("a", encoding="utf-8") as handle:
+                handle.write(text)
+                if not text.endswith("\n"):
+                    handle.write("\n")
+            PYSUMMARY
           else
             echo "::error::Unsupported report type: ${{ inputs.report_type }}"
             exit 1

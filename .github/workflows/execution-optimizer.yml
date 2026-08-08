@@ -49,7 +49,8 @@ on:
         type: choice
         options:
           - exhaustive
-          - binary
+          - powers-of-2
+          - adaptive
       pipeline_min:
         description: Minimum detector pipelines, inclusive
         required: true
@@ -616,24 +617,19 @@ jobs:
             exit 1
           fi
 
-          if [[ "$ENUMERATION" == "exhaustive" ]]; then
-            pipelines="$(seq -s, "$PIPELINE_MIN" "$effective_pipeline_max")"
-          else
-            pipelines="$(python - "$PIPELINE_MIN" "$effective_pipeline_max" <<'PYCANDIDATES'
-          import sys
-          low, high = map(int, sys.argv[1:])
-          values = {low, high}
-          power = 1
-          while power <= high:
-              if power >= low:
-                  values.add(power)
-              power *= 2
-          print(",".join(str(value) for value in sorted(values)))
-          PYCANDIDATES
-            )"
+          pipelines="$(PYTHONPATH=hth-pipeline python -m hth.optimizer_search \
+            --mode "$ENUMERATION" \
+            --pipeline-min "$PIPELINE_MIN" \
+            --pipeline-max "$effective_pipeline_max" \
+            --runner-budget "$budget" \
+            --thread-min "$THREAD_MIN")"
+          if [[ "$ENUMERATION" == "adaptive" ]]; then
+            pipelines="adaptive"
           fi
 
           echo "runner_budget=$budget" >> "$GITHUB_OUTPUT"
+          echo "pipeline_min=$PIPELINE_MIN" >> "$GITHUB_OUTPUT"
+          echo "pipeline_max=$effective_pipeline_max" >> "$GITHUB_OUTPUT"
           echo "pipelines=$pipelines" >> "$GITHUB_OUTPUT"
           echo "thread_min=$THREAD_MIN" >> "$GITHUB_OUTPUT"
           echo "thread_max=$effective_thread_max" >> "$GITHUB_OUTPUT"
@@ -655,6 +651,8 @@ jobs:
         env:
           PYTHONPATH: hth-pipeline
           PIPELINES: ${{ steps.plan.outputs.pipelines }}
+          PIPELINE_MIN: ${{ steps.plan.outputs.pipeline_min }}
+          PIPELINE_MAX: ${{ steps.plan.outputs.pipeline_max }}
           RUNNER_BUDGET: ${{ steps.plan.outputs.runner_budget }}
           THREAD_MIN: ${{ steps.plan.outputs.thread_min }}
           THREAD_MAX: ${{ steps.plan.outputs.thread_max }}
@@ -670,8 +668,13 @@ jobs:
           observation_log="$GITHUB_WORKSPACE/optimizer-work/observations.jsonl"
           shard_log="$GITHUB_WORKSPACE/optimizer-work/shards.jsonl"
 
-          IFS=',' read -r -a candidates <<< "$PIPELINES"
-          total="${#candidates[@]}"
+          if [[ "$ENUMERATION" == "adaptive" ]]; then
+            candidates=()
+            total=$((PIPELINE_MAX - PIPELINE_MIN + 1))
+          else
+            IFS=',' read -r -a candidates <<< "$PIPELINES"
+            total="${#candidates[@]}"
+          fi
           shape_number=0
           stop_reason="shape_range_complete"
 
@@ -694,7 +697,29 @@ jobs:
           }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
           PYMETA
 
-          for pipelines in "${candidates[@]}"; do
+          candidate_index=0
+          while true; do
+            if [[ "$ENUMERATION" == "adaptive" ]]; then
+              pipelines="$(python -m hth.optimizer_search \
+                --mode adaptive \
+                --pipeline-min "$PIPELINE_MIN" \
+                --pipeline-max "$PIPELINE_MAX" \
+                --runner-budget "$RUNNER_BUDGET" \
+                --thread-min "$THREAD_MIN" \
+                --observation-log "$observation_log")"
+              if [[ -z "$pipelines" ]]; then
+                stop_reason="adaptive_search_complete"
+                echo "Adaptive optimizer search has bracketed/refined the preferred near-best region; no further informative shape remains."
+                break
+              fi
+            else
+              if (( candidate_index >= ${#candidates[@]} )); then
+                break
+              fi
+              pipelines="${candidates[$candidate_index]}"
+              candidate_index=$((candidate_index + 1))
+            fi
+
             effective_threads=$((RUNNER_BUDGET / pipelines))
             (( effective_threads > THREAD_MAX )) && effective_threads="$THREAD_MAX"
             if (( effective_threads < THREAD_MIN )); then
@@ -819,13 +844,18 @@ jobs:
             --run-metadata "$run_metadata" \
             --runner-metrics-log "$HTH_OPTIMIZER_RUNNER_METRICS_LOG"
 
-          cat "results-repo/execution-optimizer/$DETECTOR_ALGORITHM/summary.md" >> "$GITHUB_STEP_SUMMARY"
-          {
-            echo
-            echo "### Execution processing profile"
-            echo
-            echo "![Execution processing profile](https://raw.githubusercontent.com/${RESULTS_REPOSITORY}/main/execution-optimizer/${DETECTOR_ALGORITHM}/heatmap.svg?run=${GITHUB_RUN_ID})"
-          } >> "$GITHUB_STEP_SUMMARY"
+          python - "$GITHUB_STEP_SUMMARY" "results-repo/execution-optimizer/$DETECTOR_ALGORITHM/summary.md" "$RESULTS_REPOSITORY" "$DETECTOR_ALGORITHM" "$GITHUB_RUN_ID" <<'PYSUMMARY'
+          import sys
+          from pathlib import Path
+          destination, source, repository, detector, run_id = sys.argv[1:]
+          text = Path(source).read_text(encoding="utf-8")
+          raw = f"https://raw.githubusercontent.com/{repository}/main/execution-optimizer/{detector}/heatmap.svg?run={run_id}"
+          text = text.replace("(heatmap.svg)", f"({raw})")
+          with Path(destination).open("a", encoding="utf-8") as handle:
+              handle.write(text)
+              if not text.endswith("\n"):
+                  handle.write("\n")
+          PYSUMMARY
 
       - name: Publish execution optimizer intelligence
         if: ${{ steps.optimizer.outcome == 'success' }}

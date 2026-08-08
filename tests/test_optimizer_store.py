@@ -124,11 +124,15 @@ class OptimizerStoreTests(unittest.TestCase):
             preferred = payload["preferred_executor_configurations"]
             self.assertTrue(any(row["detector_id"] == "adaptive_radial_edge" and row["preferred_shape"]["pipelines"] == 8 for row in preferred))
             markdown = paths["markdown"].read_text(encoding="utf-8")
-            self.assertIn("this table contains only shapes completed in this execution", markdown)
+            self.assertIn("execution data below contains only shapes completed in this execution", markdown)
             self.assertIn("e7k", markdown)
-            self.assertIn("Preferred optimizer executor configuration", markdown)
+            self.assertIn("Preferred Detector Run Configuration", markdown)
+            self.assertIn("Detector Run Profile Plot", markdown)
+            self.assertIn("Detector Pipeline-Thread Shape Optimization Data", markdown)
+            self.assertIn("<details>", markdown)
+            self.assertIn("**Navigation:**", markdown)
             self.assertIn("e9k", markdown)
-            current_section = markdown.split("#### Shapes completed in this execution", 1)[1]
+            current_section = markdown.split("<summary><strong>3. Detector Pipeline-Thread Shape Optimization Data</strong></summary>", 1)[1]
             self.assertNotIn("e9k", current_section)
             svg = paths["heatmap"].read_text(encoding="utf-8")
             self.assertTrue(svg.startswith("<svg"))

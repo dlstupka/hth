@@ -12,14 +12,15 @@ DRIVER = ROOT / "tools" / "run-detector-regressions.sh"
 
 
 class ExecutionOptimizerWorkflowTests(unittest.TestCase):
-    def test_execution_optimizer_is_manual_and_supports_exhaustive_or_binary_enumeration(self) -> None:
+    def test_execution_optimizer_is_manual_and_supports_exhaustive_powers_of_two_or_adaptive_enumeration(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("name: HTH execution optimizer", text)
         self.assertIn("workflow_dispatch:", text)
         self.assertIn("pipeline_enumeration:", text)
         self.assertIn("default: exhaustive", text)
         self.assertIn("- exhaustive", text)
-        self.assertIn("- binary", text)
+        self.assertIn("- powers-of-2", text)
+        self.assertIn("- adaptive", text)
         self.assertIn("pipeline_min:", text)
         self.assertIn("pipeline_max:", text)
         self.assertIn("thread_min:", text)
@@ -53,7 +54,9 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
 
     def test_execution_optimizer_serially_reuses_normal_regression_driver(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn('for pipelines in "${candidates[@]}"; do', text)
+        self.assertIn("while true; do", text)
+        self.assertIn("python -m hth.optimizer_search", text)
+        self.assertIn("--mode adaptive", text)
         self.assertIn('export DETECTOR_PIPELINES="$pipelines"', text)
         self.assertIn('export SHARDS="$pipelines"', text)
         self.assertIn('export THREADS="$effective_threads"', text)
