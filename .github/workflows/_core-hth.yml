@@ -54,10 +54,10 @@ on:
         type: string
         default: "detector-calibration-manifest"
       report_algorithm:
-        description: "Detector used by execution-optimizer report"
+        description: "Detector used by execution-optimizer report, or all for the accumulated summary"
         required: false
         type: string
-        default: "adaptive_radial_edge"
+        default: "all"
       report_golden_set:
         description: "Golden Set used to select compatible detector calibrations"
         required: false
@@ -1099,7 +1099,7 @@ jobs:
               --results-root results-repo \
               --detector "${{ inputs.report_algorithm }}" \
               --output-dir "generated-report/execution-optimizer/${{ inputs.report_algorithm }}"
-            python -c 'import sys; from pathlib import Path; destination, source, repository, detector, run_id = sys.argv[1:]; text = Path(source).read_text(encoding="utf-8"); raw = f"https://raw.githubusercontent.com/{repository}/main/execution-optimizer/{detector}/heatmap.svg?report-run={run_id}"; text = text.replace("(heatmap.svg)", f"({raw})"); Path(destination).open("a", encoding="utf-8").write(text + ("" if text.endswith("\n") else "\n"))' \
+            python -c 'import re, sys; from pathlib import Path; destination, source, repository, detector, run_id = sys.argv[1:]; text = Path(source).read_text(encoding="utf-8"); base = f"https://raw.githubusercontent.com/{repository}/main/execution-optimizer/{detector}/"; text = re.sub(r"\(([^)]+\.svg)\)", lambda m: f"({base}{m.group(1)}?report-run={run_id})", text); Path(destination).open("a", encoding="utf-8").write(text + ("" if text.endswith("\n") else "\n"))' \
               "$GITHUB_STEP_SUMMARY" \
               "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/summary.md" \
               "$RESULTS_REPOSITORY" \
@@ -1131,14 +1131,11 @@ jobs:
             cp generated-report/detector-calibration-manifest.md results-repo/reports/detector-calibration-manifest.md
             git -C results-repo add reports/detector-calibration-manifest.md
           else
+            rm -rf "results-repo/execution-optimizer/${{ inputs.report_algorithm }}"
             mkdir -p "results-repo/execution-optimizer/${{ inputs.report_algorithm }}"
-            cp "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/summary.md" \
-              "results-repo/execution-optimizer/${{ inputs.report_algorithm }}/summary.md"
-            cp "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/heatmap.svg" \
-              "results-repo/execution-optimizer/${{ inputs.report_algorithm }}/heatmap.svg"
-            git -C results-repo add \
-              "execution-optimizer/${{ inputs.report_algorithm }}/summary.md" \
-              "execution-optimizer/${{ inputs.report_algorithm }}/heatmap.svg"
+            cp -a "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/." \
+              "results-repo/execution-optimizer/${{ inputs.report_algorithm }}/"
+            git -C results-repo add "execution-optimizer/${{ inputs.report_algorithm }}"
           fi
 
           if git -C results-repo diff --cached --quiet; then

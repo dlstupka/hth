@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from hth.optimizer_store import build_optimizer_index, render_heatmap_svg, render_markdown
+from hth.optimizer_store import build_optimizer_index, render_all_markdown, render_heatmap_svg, render_markdown
 from hth.write_regression_summary import build_combined_summary
 
 _STATUS_PRIORITY = {"authoritative": 3, "partial": 2, "provisional": 1}
@@ -296,7 +296,7 @@ def _legacy_completed_index_from_summary(path: Path, detector: str) -> dict[str,
         "runners": [{"runner_title": runner_title, "shapes": shapes, "best_shape": best}],
     }
 
-def generate_optimizer_report(results_root: Path, detector: str, output_dir: Path) -> dict[str, Path]:
+def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     optimizer_path = results_root / "optimizer-index.json"
     parallelism_path = results_root / "parallelism-index.json"
     if not optimizer_path.is_file():
@@ -304,8 +304,8 @@ def generate_optimizer_report(results_root: Path, detector: str, output_dir: Pat
     if not parallelism_path.is_file():
         raise FileNotFoundError(f"Missing {parallelism_path}")
 
-    # Report ONLY a fully published optimizer execution.  Do not infer a run from
-    # shard checkpoints or partially completed shape observations.
+    # Report ONLY fully published optimizer executions. Never infer completion
+    # from shard checkpoints or partial shape observations.
     optimizer = _read_json(optimizer_path)
     parallelism = _read_json(parallelism_path)
     persisted_report_dir = results_root / "execution-optimizer" / detector
@@ -315,45 +315,87 @@ def generate_optimizer_report(results_root: Path, detector: str, output_dir: Pat
     if run_id is None:
         run_id = _latest_completed_run_from_index(optimizer, detector)
     if run_id is None and persisted_summary.is_file() and persisted_profile.is_file():
-        # Legacy published summaries prove completion but did not identify the run.
-        # Recover the newest run-tagged aggregate observation and regenerate the
-        # report with the current renderer.  Never use shard checkpoints here.
         run_id = _latest_legacy_published_run_from_parallelism(parallelism, detector)
     legacy_current = None
     if run_id is None and persisted_summary.is_file() and persisted_profile.is_file():
-        # Very old completed reports predate optimizer_run_id on both the report
-        # and observations.  Recover the completed execution from the published
-        # table itself, while dropping its historical/unknown compatibility rows.
         legacy_current = _legacy_completed_index_from_summary(persisted_summary, detector)
     if run_id is None and legacy_current is None:
         raise ValueError(f"No completed persisted optimizer run found for detector {detector}")
 
     if legacy_current is not None:
-        current = legacy_current
-        preferred = legacy_current
-        run_metadata = {}
-    else:
-        run_payload = _completed_run_payload(optimizer, detector, run_id)
-        current = build_optimizer_index(parallelism, detector, run_id)
-        if not current.get("observation_count"):
-            raise ValueError(
-                f"Completed optimizer run {run_id} has no persisted completed shape observations for {detector}"
-            )
-        completed_ids = _completed_optimizer_run_ids(optimizer, detector)
-        # A legacy published run may be identified by the report completion marker
-        # even if the per-run map predates explicit stop metadata. Include that
-        # completed run while still excluding any incomplete/current execution.
-        completed_ids.add(str(run_id))
-        preferred = build_optimizer_index(parallelism, detector, optimizer_run_ids=completed_ids)
-        if not preferred.get("observation_count"):
-            preferred = current
-        run_metadata = run_payload.get("run_metadata") if isinstance(run_payload.get("run_metadata"), dict) else {}
+        return legacy_current, legacy_current, {}
+
+    run_payload = _completed_run_payload(optimizer, detector, run_id)
+    current = build_optimizer_index(parallelism, detector, run_id)
+    if not current.get("observation_count"):
+        raise ValueError(
+            f"Completed optimizer run {run_id} has no persisted completed shape observations for {detector}"
+        )
+    completed_ids = _completed_optimizer_run_ids(optimizer, detector)
+    completed_ids.add(str(run_id))
+    preferred = build_optimizer_index(parallelism, detector, optimizer_run_ids=completed_ids)
+    if not preferred.get("observation_count"):
+        preferred = current
+    run_metadata = run_payload.get("run_metadata") if isinstance(run_payload.get("run_metadata"), dict) else {}
+    return current, preferred, run_metadata
+
+
+def _completed_optimizer_detectors(results_root: Path) -> list[str]:
+    optimizer_path = results_root / "optimizer-index.json"
+    if not optimizer_path.is_file():
+        raise FileNotFoundError(f"Missing {optimizer_path}")
+    optimizer = _read_json(optimizer_path)
+    candidates: set[str] = set()
+    detectors = optimizer.get("detectors") if isinstance(optimizer.get("detectors"), dict) else {}
+    candidates.update(str(detector) for detector in detectors if str(detector).strip())
+    runs = optimizer.get("runs") if isinstance(optimizer.get("runs"), dict) else {}
+    for payload in runs.values():
+        if isinstance(payload, dict) and str(payload.get("detector_id") or "").strip():
+            candidates.add(str(payload["detector_id"]))
+    persisted = results_root / "execution-optimizer"
+    if persisted.is_dir():
+        candidates.update(path.name for path in persisted.iterdir() if path.is_dir() and path.name != "all")
+
+    completed: list[str] = []
+    for detector in sorted(candidates):
+        try:
+            _optimizer_report_components(results_root, detector)
+        except (FileNotFoundError, ValueError):
+            continue
+        completed.append(detector)
+    if not completed:
+        raise ValueError("No completed persisted optimizer runs found")
+    return completed
+
+
+def generate_optimizer_report_all(results_root: Path, output_dir: Path) -> dict[str, Path]:
+    detectors = _completed_optimizer_detectors(results_root)
+    preferred_indices: list[dict[str, Any]] = []
+    profiles_dir = output_dir / "profiles"
+    profiles_dir.mkdir(parents=True, exist_ok=True)
+    for detector in detectors:
+        _, preferred, _ = _optimizer_report_components(results_root, detector)
+        preferred_indices.append(preferred)
+        (profiles_dir / f"{detector}.svg").write_text(render_heatmap_svg(preferred), encoding="utf-8")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary = output_dir / "summary.md"
+    summary.write_text(render_all_markdown(preferred_indices), encoding="utf-8")
+    return {"summary": summary, "profiles": profiles_dir}
+
+
+def generate_optimizer_report(results_root: Path, detector: str, output_dir: Path) -> dict[str, Path]:
+    if detector == "all":
+        return generate_optimizer_report_all(results_root, output_dir)
+
+    current, preferred, run_metadata = _optimizer_report_components(results_root, detector)
     output_dir.mkdir(parents=True, exist_ok=True)
     summary = output_dir / "summary.md"
     profile = output_dir / "heatmap.svg"
     summary.write_text(render_markdown(current, run_metadata, preferred_index=preferred), encoding="utf-8")
     profile.write_text(render_heatmap_svg(preferred), encoding="utf-8")
     return {"summary": summary, "profile": profile}
+
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)

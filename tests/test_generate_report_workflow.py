@@ -16,6 +16,8 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertNotIn("push:", text)
         self.assertIn("detector-calibration-manifest", text)
         self.assertIn("execution-optimizer", text)
+        self.assertIn("default: all", text)
+        self.assertIn("          - all", text)
         self.assertIn("default: github-hosted", text)
         self.assertIn("uses: ./.github/workflows/_core-hth.yml", text)
         self.assertIn("mode: report", text)
@@ -33,7 +35,14 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         report_step = text.split("- name: Generate selected report", 1)[1].split("- name: Publish regenerated report", 1)[0]
         self.assertIn("python -c", report_step)
         self.assertNotIn("PYSUMMARY", report_step)
-        self.assertIn("heatmap.svg?report-run={run_id}", report_step)
+        self.assertIn("report-run={run_id}", report_step)
+        self.assertIn("re.sub", report_step)
+
+    def test_core_publishes_optimizer_report_directory_recursively(self) -> None:
+        text = CORE.read_text(encoding="utf-8")
+        publish_step = text.split("- name: Publish regenerated report", 1)[1]
+        self.assertIn('cp -a "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/."', publish_step)
+        self.assertIn('git -C results-repo add "execution-optimizer/${{ inputs.report_algorithm }}"', publish_step)
 
 
 if __name__ == "__main__":

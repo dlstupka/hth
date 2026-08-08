@@ -220,6 +220,66 @@ class ReportGeneratorTests(unittest.TestCase):
             paths = generate_optimizer_report(root, "adaptive_radial_edge", root / "out")
             self.assertIn("Optimizer run: **42**", paths["summary"].read_text(encoding="utf-8"))
 
+    def test_optimizer_report_uses_manifest_style_navigation_and_collapsible_sections(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            optimizer = {"runs": {"42": {
+                "detector_id": "adaptive_radial_edge",
+                "updated_at_utc": "2026-01-04T00:00:00Z",
+                "run_metadata": {"stop_reason": "range_complete"},
+            }}}
+            row = {"detector_id": "adaptive_radial_edge", "optimizer_run_id": "42", "source": "execution-optimizer",
+                   "mode": "full", "strategy": "exhaustive", "actual_parameter_sets": 10, "possible_parameter_sets": 10,
+                   "active_pipelines": 4, "shards": 4, "threads_per_pipeline": 2, "allocated_threads": 8,
+                   "wall_clock_seconds": 5, "parameter_sets_per_second": 2.0, "execution_shape": "4p/4s/2t",
+                   "optimizer_shape_sequence": 1, "runner": {"runner_label": "e7k", "runner_name": "host", "logical_cpu_count": 96}}
+            (root / "optimizer-index.json").write_text(json.dumps(optimizer), encoding="utf-8")
+            (root / "parallelism-index.json").write_text(json.dumps({"observations": [row]}), encoding="utf-8")
+            paths = generate_optimizer_report(root, "adaptive_radial_edge", root / "out")
+            summary = paths["summary"].read_text(encoding="utf-8")
+            self.assertIn("<summary><strong>Navigation</strong></summary>", summary)
+            self.assertIn("<summary><strong>1. Preferred Detector Run Configuration</strong></summary>", summary)
+            self.assertIn("<summary><strong>2. Detector Run Profile Plot</strong></summary>", summary)
+            self.assertIn("<summary><strong>3. Detector Pipeline-Thread Shape Optimization Data</strong></summary>", summary)
+            self.assertGreaterEqual(summary.count("<details open>"), 3)
+            self.assertIn("[↑ Back to Navigation](#table-of-contents)", summary)
+
+    def test_optimizer_report_all_coalesces_completed_detectors(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            optimizer = {"runs": {}}
+            observations = []
+            for ordinal, detector in enumerate(("adaptive_radial_edge", "grabcut"), start=1):
+                run_id = str(40 + ordinal)
+                optimizer["runs"][run_id] = {
+                    "detector_id": detector,
+                    "updated_at_utc": f"2026-01-04T00:00:0{ordinal}Z",
+                    "run_metadata": {"stop_reason": "range_complete"},
+                }
+                observations.append({
+                    "detector_id": detector, "optimizer_run_id": run_id, "source": "execution-optimizer",
+                    "mode": "full", "strategy": "exhaustive", "actual_parameter_sets": 10, "possible_parameter_sets": 10,
+                    "active_pipelines": ordinal * 2, "shards": ordinal * 2, "threads_per_pipeline": 4,
+                    "allocated_threads": ordinal * 8, "wall_clock_seconds": 10 - ordinal,
+                    "parameter_sets_per_second": float(ordinal), "execution_shape": f"{ordinal * 2}p/{ordinal * 2}s/4t",
+                    "optimizer_shape_sequence": 1,
+                    "runner": {"runner_label": "e7k", "runner_name": "host", "logical_cpu_count": 96,
+                               "cpu_model": "Example CPU", "physical_core_count": 48, "memory_gib": 2000.0},
+                })
+            (root / "optimizer-index.json").write_text(json.dumps(optimizer), encoding="utf-8")
+            (root / "parallelism-index.json").write_text(json.dumps({"observations": observations}), encoding="utf-8")
+            paths = generate_optimizer_report(root, "all", root / "out")
+            summary = paths["summary"].read_text(encoding="utf-8")
+            self.assertIn("Detector: `all`", summary)
+            self.assertIn("| adaptive_radial_edge |", summary)
+            self.assertIn("| grabcut |", summary)
+            self.assertIn("profiles/adaptive_radial_edge.svg", summary)
+            self.assertIn("profiles/grabcut.svg", summary)
+            self.assertTrue((root / "out" / "profiles" / "adaptive_radial_edge.svg").is_file())
+            self.assertTrue((root / "out" / "profiles" / "grabcut.svg").is_file())
+            self.assertIn("  - [grabcut](#detector-run-profile-grabcut)", summary)
+
+
 
 if __name__ == "__main__":
     unittest.main()

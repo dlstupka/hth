@@ -7,6 +7,7 @@ import hashlib
 import html
 import json
 import math
+import re
 import statistics
 from datetime import datetime, timezone
 from pathlib import Path
@@ -264,49 +265,37 @@ def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
     return lines
 
 
-def render_markdown(index: dict[str, Any], run_metadata: dict[str, Any] | None = None, preferred_index: dict[str, Any] | None = None) -> str:
+def _nav_slug(text: str) -> str:
+    slug = "-".join(part for part in re.sub(r"[^a-zA-Z0-9]+", " ", text).lower().split() if part)
+    return slug or "section"
+
+
+def _render_optimizer_navigation(*, detectors: list[str] | None = None) -> list[str]:
     lines = [
-        "### Execution optimizer summary",
+        '<a id="table-of-contents"></a>',
         "",
-        '<a id="navigation"></a>',
-        "**Navigation:** [Preferred Detector Run Configuration](#preferred-detector-run-configuration) · [Detector Run Profile Plot](#detector-run-profile-plot) · [Detector Pipeline-Thread Shape Optimization Data](#detector-pipeline-thread-shape-optimization-data)",
+        "<details open>",
+        "<summary><strong>Navigation</strong></summary>",
         "",
-        f"Detector: `{index.get('detector_id')}`  ",
+        "- [Preferred Detector Run Configuration](#preferred-detector-run-configuration)",
+        "- [Detector Run Profile Plot](#detector-run-profile-plot)",
     ]
-    if index.get("optimizer_run_id") is not None:
-        lines.append(f"Optimizer run: **{index.get('optimizer_run_id')}** — execution data below contains only shapes completed in this execution; the preferred configuration may use all compatible completed optimizer evidence.")
-    lines.extend([
-        "",
-        '<a id="preferred-detector-run-configuration"></a>',
-        "#### 1. Preferred Detector Run Configuration",
-        "",
-    ])
-    lines.extend(_render_preferred_configuration(preferred_index or index))
-    lines.extend([
-        "[Back to navigation](#navigation)",
-        "",
-        '<a id="detector-run-profile-plot"></a>',
-        "#### 2. Detector Run Profile Plot",
-        "",
-        "Compatible completed measurements are plotted as detector pipelines versus parameter sets/second; thread count is annotated at each measured shape.",
-        "",
-        "![Detector Run Profile Plot](heatmap.svg)",
-        "",
-        "[Back to navigation](#navigation)",
-        "",
-        '<a id="detector-pipeline-thread-shape-optimization-data"></a>',
-        "<details>",
-        "<summary><strong>3. Detector Pipeline-Thread Shape Optimization Data</strong></summary>",
-        "",
-    ])
-    if index.get("optimizer_run_id") is not None:
-        lines.extend(["Shapes completed in this execution are shown below.", ""])
-    else:
-        lines.extend(["Coalesced compatible shape measurements are shown below.", ""])
-    lines.extend([
+    if detectors:
+        for detector in detectors:
+            lines.append(f"  - [{detector}](#detector-run-profile-{_nav_slug(detector)})")
+    lines.append("- [Detector Pipeline-Thread Shape Optimization Data](#detector-pipeline-thread-shape-optimization-data)")
+    if detectors:
+        for detector in detectors:
+            lines.append(f"  - [{detector}](#detector-shape-data-{_nav_slug(detector)})")
+    lines.extend(["", "</details>", ""])
+    return lines
+
+
+def _render_shape_table(index: dict[str, Any]) -> list[str]:
+    lines = [
         "| Runner | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Sets/s | Speedup | Avg load | Peak load | Avg CPU | Peak RAM |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
-    ])
+    ]
     rows: list[tuple[str, dict[str, Any], bool]] = []
     for runner in index.get("runners", []):
         best_shape = (runner.get("best_shape") or {}).get("execution_shape")
@@ -340,6 +329,51 @@ def render_markdown(index: dict[str, Any], run_metadata: dict[str, Any] | None =
             )
         )
     lines.append("")
+    return lines
+
+
+def render_markdown(index: dict[str, Any], run_metadata: dict[str, Any] | None = None, preferred_index: dict[str, Any] | None = None) -> str:
+    lines = [
+        "### Execution optimizer summary",
+        "",
+        f"Detector: `{index.get('detector_id')}`  ",
+    ]
+    if index.get("optimizer_run_id") is not None:
+        lines.append(f"Optimizer run: **{index.get('optimizer_run_id')}** — execution data below contains only shapes completed in this execution; the preferred configuration may use all compatible completed optimizer evidence.")
+    lines.extend(["", *_render_optimizer_navigation()])
+
+    lines.extend([
+        '<a id="preferred-detector-run-configuration"></a>',
+        "<details open>",
+        "<summary><strong>1. Preferred Detector Run Configuration</strong></summary>",
+        "",
+    ])
+    lines.extend(_render_preferred_configuration(preferred_index or index))
+    lines.extend(["</details>", "", "[↑ Back to Navigation](#table-of-contents)", ""])
+
+    lines.extend([
+        '<a id="detector-run-profile-plot"></a>',
+        "<details open>",
+        "<summary><strong>2. Detector Run Profile Plot</strong></summary>",
+        "",
+        "Compatible completed measurements are plotted as detector pipelines versus parameter sets/second; thread count is annotated at each measured shape.",
+        "",
+        "![Detector Run Profile Plot](heatmap.svg)",
+        "",
+        "</details>",
+        "",
+        "[↑ Back to Navigation](#table-of-contents)",
+        "",
+        '<a id="detector-pipeline-thread-shape-optimization-data"></a>',
+        "<details>",
+        "<summary><strong>3. Detector Pipeline-Thread Shape Optimization Data</strong></summary>",
+        "",
+    ])
+    if index.get("optimizer_run_id") is not None:
+        lines.extend(["Shapes completed in this execution are shown below.", ""])
+    else:
+        lines.extend(["Coalesced compatible shape measurements are shown below.", ""])
+    lines.extend(_render_shape_table(index))
     if run_metadata:
         early = run_metadata.get("early_stop") if isinstance(run_metadata.get("early_stop"), dict) else {}
         if early.get("stop_reason") == "throughput_plateau":
@@ -351,13 +385,81 @@ def render_markdown(index: dict[str, Any], run_metadata: dict[str, Any] | None =
             ])
         elif run_metadata.get("stop_reason"):
             lines.extend([f"**Stop reason:** `{run_metadata.get('stop_reason')}`", ""])
-    lines.extend([
-        "[Back to navigation](#navigation)",
+    lines.extend(["</details>", "", "[↑ Back to Navigation](#table-of-contents)", ""])
+    return "\n".join(lines)
+
+
+def render_all_markdown(indices: list[dict[str, Any]]) -> str:
+    """Render the accumulated completed optimizer intelligence for all detectors."""
+    indices = sorted(indices, key=lambda item: str(item.get("detector_id") or ""))
+    detectors = [str(item.get("detector_id") or "unknown") for item in indices]
+    lines = [
+        "### Execution optimizer summary",
         "",
-        "</details>",
+        "Detector: `all`  ",
+        "This report coalesces compatible measurements from completed optimizer runs only.",
+        "",
+        *_render_optimizer_navigation(detectors=detectors),
+        '<a id="preferred-detector-run-configuration"></a>',
+        "<details open>",
+        "<summary><strong>1. Preferred Detector Run Configuration</strong></summary>",
+        "",
+        "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is the fastest measured compatible shape.",
+        "",
+        "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Allocated | Sets/s | Wall | Observations |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for index in indices:
+        for row in _render_preferred_configuration(index)[4:-1]:
+            if row:
+                lines.append(row)
+    lines.extend(["", "</details>", "", "[↑ Back to Navigation](#table-of-contents)", ""])
+
+    lines.extend([
+        '<a id="detector-run-profile-plot"></a>',
+        "<details open>",
+        "<summary><strong>2. Detector Run Profile Plot</strong></summary>",
+        "",
+        "Compatible completed measurements are plotted by detector; thread count is annotated at each measured shape.",
         "",
     ])
+    for detector in detectors:
+        slug = _nav_slug(detector)
+        lines.extend([
+            f'<a id="detector-run-profile-{slug}"></a>',
+            "<details>",
+            f"<summary><strong>{detector}</strong></summary>",
+            "",
+            f"![{detector} Detector Run Profile Plot](profiles/{detector}.svg)",
+            "",
+            "</details>",
+            "",
+        ])
+    lines.extend(["</details>", "", "[↑ Back to Navigation](#table-of-contents)", ""])
+
+    lines.extend([
+        '<a id="detector-pipeline-thread-shape-optimization-data"></a>',
+        "<details>",
+        "<summary><strong>3. Detector Pipeline-Thread Shape Optimization Data</strong></summary>",
+        "",
+        "Coalesced compatible shape measurements from completed optimizer runs are shown below.",
+        "",
+    ])
+    for index in indices:
+        detector = str(index.get("detector_id") or "unknown")
+        slug = _nav_slug(detector)
+        lines.extend([
+            f'<a id="detector-shape-data-{slug}"></a>',
+            "<details>",
+            f"<summary><strong>{detector}</strong></summary>",
+            "",
+            *_render_shape_table(index),
+            "</details>",
+            "",
+        ])
+    lines.extend(["</details>", "", "[↑ Back to Navigation](#table-of-contents)", ""])
     return "\n".join(lines)
+
 
 
 def render_heatmap_svg(index: dict[str, Any]) -> str:

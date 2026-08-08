@@ -82,7 +82,7 @@ STAGE_PUBLISH
 
 ## Manual report regeneration
 
-`.github/workflows/generate-report.yml` is manual-only and delegates to `_core-hth.yml` in `report` mode. The report selector currently regenerates either the persisted detector-calibration manifest or the latest execution-optimizer report for a selected detector. Report generation performs no detector evaluation or preprocessing; it reads persisted intelligence from the results repository, writes the selected report to the Actions job summary, and republishes only the regenerated report files.
+`.github/workflows/generate-report.yml` is manual-only and delegates to `_core-hth.yml` in `report` mode. The report selector currently regenerates either the persisted detector-calibration manifest or execution-optimizer intelligence. Optimizer reporting defaults to all detectors with completed persisted evidence and may be narrowed to one detector. Report generation performs no detector evaluation or preprocessing; it reads persisted intelligence from the results repository, writes the selected report to the Actions job summary, and republishes only the regenerated report files.
 
 The report workflow defaults to `github-hosted` but exposes the same manual runner choices as other HTH builds. Detector-calibration report generation selects one best compatible persisted calibration record per detector for the configured Golden Set. Execution-optimizer report generation renders only the latest persisted optimizer execution for the selected detector; historical optimizer observations remain available in the intelligence indexes but are not mixed into the regenerated current-execution report.
 

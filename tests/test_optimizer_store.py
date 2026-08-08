@@ -130,7 +130,7 @@ class OptimizerStoreTests(unittest.TestCase):
             self.assertIn("Detector Run Profile Plot", markdown)
             self.assertIn("Detector Pipeline-Thread Shape Optimization Data", markdown)
             self.assertIn("<details>", markdown)
-            self.assertIn("**Navigation:**", markdown)
+            self.assertIn("<summary><strong>Navigation</strong></summary>", markdown)
             self.assertIn("e9k", markdown)
             current_section = markdown.split("<summary><strong>3. Detector Pipeline-Thread Shape Optimization Data</strong></summary>", 1)[1]
             self.assertNotIn("e9k", current_section)

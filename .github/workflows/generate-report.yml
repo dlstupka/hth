@@ -15,11 +15,12 @@ on:
           - detector-calibration-manifest
           - execution-optimizer
       algorithm:
-        description: Detector for execution-optimizer report; ignored by calibration manifest
+        description: Detector for execution-optimizer report; choose all for the accumulated optimizer summary; ignored by calibration manifest
         required: true
-        default: adaptive_radial_edge
+        default: all
         type: choice
         options:
+          - all
           - contour
           - contour_quad
           - contour_components
