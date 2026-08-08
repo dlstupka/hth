@@ -12,7 +12,7 @@ import os
 import time
 from contextlib import contextmanager
 
-PARALLELISM_INDEX_SCHEMA_VERSION = "2.2"
+PARALLELISM_INDEX_SCHEMA_VERSION = "2.3"
 MAX_OBSERVATIONS_PER_DETECTOR = 500
 
 
@@ -90,9 +90,14 @@ def update_parallelism_shards(results_root: Path, shard_observations: Iterable[d
             by_id[str(observation["observation_id"])] = observation
         rows = list(by_id.values())
         rows.sort(key=lambda row: (str(row.get("detector_id") or ""), str(row.get("optimizer_run_id") or ""), int(row.get("shape_sequence") or 0), int(row.get("shard_index") or 0)))
+        # Optimizer shard observations are durable experiment evidence.  Never
+        # age them out: later optimizer runs may deliberately fill missing
+        # pipeline shapes and need the earlier shard evidence for audit/recovery.
+        optimizer_rows = [row for row in rows if row.get("source") == "execution-optimizer"]
+        other_rows = [row for row in rows if row.get("source") != "execution-optimizer"][-5000:]
         index["schema_version"] = PARALLELISM_INDEX_SCHEMA_VERSION
         index["updated_at_utc"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        index["shard_observations"] = rows[-5000:]
+        index["shard_observations"] = optimizer_rows + other_rows
         index.setdefault("observations", [])
         _write_json(path, index)
         return index
@@ -244,7 +249,13 @@ def _update_parallelism_index_locked(path: Path, observations: Iterable[dict[str
     trimmed: list[dict[str, Any]] = []
     for items in grouped_by_detector.values():
         items.sort(key=lambda row: str(row.get("observed_at_utc") or ""), reverse=True)
-        trimmed.extend(items[:MAX_OBSERVATIONS_PER_DETECTOR])
+        # Execution-optimizer observations are intentionally cumulative.  A
+        # later run can fill a sparse 3-7 pipeline interval and must coalesce
+        # with compatible shapes measured in earlier completed runs.
+        optimizer_items = [row for row in items if row.get("source") == "execution-optimizer"]
+        other_items = [row for row in items if row.get("source") != "execution-optimizer"][:MAX_OBSERVATIONS_PER_DETECTOR]
+        trimmed.extend(optimizer_items)
+        trimmed.extend(other_items)
 
     comparable = [row for row in trimmed if _is_comparable(row)]
     best_by_compatibility: dict[str, dict[str, Any]] = {}

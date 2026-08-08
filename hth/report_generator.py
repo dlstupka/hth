@@ -185,6 +185,20 @@ def _latest_legacy_published_run_from_parallelism(parallelism: dict[str, Any], d
     return max(candidates.items(), key=lambda item: (item[1], item[0]))[0]
 
 
+
+
+def _completed_optimizer_run_ids(index: dict[str, Any], detector: str) -> set[str]:
+    """Return only optimizer runs explicitly finalized for this detector."""
+    runs = index.get("runs") if isinstance(index.get("runs"), dict) else {}
+    completed: set[str] = set()
+    for run_id, payload in runs.items():
+        if not isinstance(payload, dict) or str(payload.get("detector_id")) != detector:
+            continue
+        metadata = payload.get("run_metadata") if isinstance(payload.get("run_metadata"), dict) else {}
+        if str(metadata.get("stop_reason") or "").strip():
+            completed.add(str(run_id))
+    return completed
+
 def _completed_run_payload(index: dict[str, Any], detector: str, run_id: str) -> dict[str, Any]:
     runs = index.get("runs") if isinstance(index.get("runs"), dict) else {}
     payload = runs.get(str(run_id))
@@ -316,6 +330,7 @@ def generate_optimizer_report(results_root: Path, detector: str, output_dir: Pat
 
     if legacy_current is not None:
         current = legacy_current
+        preferred = legacy_current
         run_metadata = {}
     else:
         run_payload = _completed_run_payload(optimizer, detector, run_id)
@@ -324,12 +339,20 @@ def generate_optimizer_report(results_root: Path, detector: str, output_dir: Pat
             raise ValueError(
                 f"Completed optimizer run {run_id} has no persisted completed shape observations for {detector}"
             )
+        completed_ids = _completed_optimizer_run_ids(optimizer, detector)
+        # A legacy published run may be identified by the report completion marker
+        # even if the per-run map predates explicit stop metadata. Include that
+        # completed run while still excluding any incomplete/current execution.
+        completed_ids.add(str(run_id))
+        preferred = build_optimizer_index(parallelism, detector, optimizer_run_ids=completed_ids)
+        if not preferred.get("observation_count"):
+            preferred = current
         run_metadata = run_payload.get("run_metadata") if isinstance(run_payload.get("run_metadata"), dict) else {}
     output_dir.mkdir(parents=True, exist_ok=True)
     summary = output_dir / "summary.md"
     profile = output_dir / "heatmap.svg"
-    summary.write_text(render_markdown(current, run_metadata), encoding="utf-8")
-    profile.write_text(render_heatmap_svg(current), encoding="utf-8")
+    summary.write_text(render_markdown(current, run_metadata, preferred_index=preferred), encoding="utf-8")
+    profile.write_text(render_heatmap_svg(preferred), encoding="utf-8")
     return {"summary": summary, "profile": profile}
 
 def parser() -> argparse.ArgumentParser:

@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-OPTIMIZER_INDEX_SCHEMA_VERSION = "2.0"
+OPTIMIZER_INDEX_SCHEMA_VERSION = "2.1"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -117,7 +117,7 @@ def _runner_labels(row: dict[str, Any]) -> str:
     return str(labels or runner.get("runner_label") or "unknown")
 
 
-def _comparable(rows: Iterable[dict[str, Any]], detector_id: str, optimizer_run_id: str | None = None) -> list[dict[str, Any]]:
+def _comparable(rows: Iterable[dict[str, Any]], detector_id: str, optimizer_run_id: str | None = None, optimizer_run_ids: set[str] | None = None) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for row in rows:
         if str(row.get("detector_id")) != detector_id:
@@ -125,6 +125,8 @@ def _comparable(rows: Iterable[dict[str, Any]], detector_id: str, optimizer_run_
         if row.get("source") != "execution-optimizer":
             continue
         if optimizer_run_id is not None and str(row.get("optimizer_run_id")) != str(optimizer_run_id):
+            continue
+        if optimizer_run_ids is not None and str(row.get("optimizer_run_id") or "") not in optimizer_run_ids:
             continue
         if row.get("mode") != "full" or row.get("strategy") != "exhaustive":
             continue
@@ -158,15 +160,21 @@ def _shape_from_row(row: dict[str, Any], *, baseline_wall: float | None, observa
     }
 
 
-def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, optimizer_run_id: str | None = None) -> dict[str, Any]:
+def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, optimizer_run_id: str | None = None, optimizer_run_ids: set[str] | None = None) -> dict[str, Any]:
     rows = _comparable(
         (row for row in parallelism_index.get("observations", []) if isinstance(row, dict)),
         detector_id,
         optimizer_run_id,
+        optimizer_run_ids,
     )
     runner_groups: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
-        runner_groups.setdefault(_runner_key(row), []).append(row)
+        # Historical optimizer intelligence is compatibility scoped, not merely
+        # runner-label scoped.  This prevents a changed Golden Set/grid from
+        # contaminating a detector's execution preference while still allowing
+        # compatible shapes from separate runs to coalesce.
+        group_key = str(row.get("compatibility_key") or _runner_key(row))
+        runner_groups.setdefault(group_key, []).append(row)
 
     runners: list[dict[str, Any]] = []
     for runner_key, runner_rows in runner_groups.items():
@@ -190,11 +198,20 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, o
 
         best_shape = min(shapes, key=lambda shape: float(shape.get("fastest_wall_clock_seconds") or math.inf), default=None)
         sample = runner_rows[0]
+        sample_runner = sample.get("runner") if isinstance(sample.get("runner"), dict) else {}
         runners.append({
-            "runner_key": runner_key,
-            "runner_label": (sample.get("runner") or {}).get("runner_label"),
+            "runner_key": _runner_key(sample),
+            "compatibility_key": sample.get("compatibility_key"),
+            "workload_key": sample.get("workload_key"),
+            "runner_label": sample_runner.get("runner_label"),
             "runner_title": _runner_title(sample),
             "runner_labels": _runner_labels(sample),
+            "runner_specs": {
+                "cpu_model": sample_runner.get("cpu_model"),
+                "physical_core_count": _as_int(sample_runner.get("physical_core_count")),
+                "logical_cpu_count": _as_int(sample_runner.get("logical_cpu_count")),
+                "memory_gib": _as_float(sample_runner.get("memory_gib")),
+            },
             "best_shape": best_shape,
             "shapes": shapes,
         })
@@ -213,7 +230,43 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, o
     }
 
 
-def render_markdown(index: dict[str, Any], run_metadata: dict[str, Any] | None = None) -> str:
+def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
+    lines = [
+        "#### Preferred optimizer executor configuration",
+        "",
+        "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is the fastest measured compatible shape.",
+        "",
+        "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Allocated | Sets/s | Wall | Observations |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for runner in sorted(index.get("runners", []), key=lambda item: str(item.get("runner_title") or "")):
+        best = runner.get("best_shape") if isinstance(runner.get("best_shape"), dict) else {}
+        if not best:
+            continue
+        specs = runner.get("runner_specs") if isinstance(runner.get("runner_specs"), dict) else {}
+        rate = _as_float(best.get("parameter_sets_per_second"))
+        memory = _as_float(specs.get("memory_gib"))
+        lines.append(
+            "| {detector} | {runner} | {cpu} | {physical} | {logical} | {memory} | {pipelines} | {threads} | {allocated} | {rate} | {wall} | {observations} |".format(
+                detector=index.get("detector_id") or "unknown",
+                runner=runner.get("runner_title") or "unknown",
+                cpu=str(specs.get("cpu_model") or "—").replace("|", "/"),
+                physical=specs.get("physical_core_count") or "—",
+                logical=specs.get("logical_cpu_count") or "—",
+                memory=f"{memory:.1f} GiB" if memory is not None else "—",
+                pipelines=best.get("pipelines") or "?",
+                threads=best.get("threads_per_pipeline") or "?",
+                allocated=best.get("allocated_threads") or "?",
+                rate=f"{rate:.2f}" if rate is not None else "unknown",
+                wall=_duration(best.get("fastest_wall_clock_seconds")),
+                observations=best.get("observation_count") or 1,
+            )
+        )
+    lines.append("")
+    return lines
+
+
+def render_markdown(index: dict[str, Any], run_metadata: dict[str, Any] | None = None, preferred_index: dict[str, Any] | None = None) -> str:
     lines = [
         "### Execution optimizer summary",
         "",
@@ -221,8 +274,13 @@ def render_markdown(index: dict[str, Any], run_metadata: dict[str, Any] | None =
     ]
     if index.get("optimizer_run_id") is not None:
         lines.append(f"Optimizer run: **{index.get('optimizer_run_id')}** — this table contains only shapes completed in this execution.")
+    lines.append("")
+    lines.extend(_render_preferred_configuration(preferred_index or index))
+    if index.get("optimizer_run_id") is not None:
+        lines.extend(["#### Shapes completed in this execution", ""])
+    else:
+        lines.extend(["#### Coalesced compatible shape measurements", ""])
     lines.extend([
-        "",
         "| Runner | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Sets/s | Speedup | Avg load | Peak load | Avg CPU | Peak RAM |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ])
@@ -363,8 +421,36 @@ def _read_jsonl(path: Path | None, optimizer_run_id: str | None = None) -> list[
             continue
         if optimizer_run_id is not None and str(row.get("optimizer_run_id")) != str(optimizer_run_id):
             continue
+        if optimizer_run_ids is not None and str(row.get("optimizer_run_id") or "") not in optimizer_run_ids:
+            continue
         rows.append(row)
     return rows
+
+
+def _preferred_executor_records(detectors: dict[str, Any]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for detector_id, detector_index in detectors.items():
+        if not isinstance(detector_index, dict):
+            continue
+        for runner in detector_index.get("runners", []):
+            if not isinstance(runner, dict):
+                continue
+            best = runner.get("best_shape") if isinstance(runner.get("best_shape"), dict) else {}
+            if not best:
+                continue
+            records.append({
+                "detector_id": detector_id,
+                "runner_key": runner.get("runner_key"),
+                "compatibility_key": runner.get("compatibility_key"),
+                "workload_key": runner.get("workload_key"),
+                "runner_label": runner.get("runner_label"),
+                "runner_title": runner.get("runner_title"),
+                "runner_labels": runner.get("runner_labels"),
+                "runner_specs": runner.get("runner_specs") or {},
+                "preferred_shape": best,
+            })
+    records.sort(key=lambda row: (str(row.get("detector_id")), str(row.get("runner_title"))))
+    return records
 
 
 def update_optimizer_artifacts(
@@ -416,6 +502,7 @@ def update_optimizer_artifacts(
         "schema_version": OPTIMIZER_INDEX_SCHEMA_VERSION,
         "updated_at_utc": current["updated_at_utc"],
         "detectors": detectors,
+        "preferred_executor_configurations": _preferred_executor_records(detectors),
         "runs": runs,
     })
     _write_json(index_path, existing)
@@ -424,8 +511,8 @@ def update_optimizer_artifacts(
     output_dir.mkdir(parents=True, exist_ok=True)
     markdown_path = output_dir / "summary.md"
     svg_path = output_dir / "heatmap.svg"
-    markdown_path.write_text(render_markdown(current, run_metadata), encoding="utf-8")
-    svg_path.write_text(render_heatmap_svg(current), encoding="utf-8")
+    markdown_path.write_text(render_markdown(current, run_metadata, preferred_index=historical), encoding="utf-8")
+    svg_path.write_text(render_heatmap_svg(historical), encoding="utf-8")
     return {"index": index_path, "markdown": markdown_path, "heatmap": svg_path}
 
 

@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from hth.optimizer_store import build_optimizer_index, update_optimizer_artifacts
+from hth.parallelism_store import update_parallelism_index, update_parallelism_shards
 
 
 def _row(identifier: str, runner: str, pipelines: int, threads: int, wall: float, *, optimizer_run_id: str = "100") -> dict:
@@ -59,6 +60,49 @@ class OptimizerStoreTests(unittest.TestCase):
         e7k = index["runners"][0]
         self.assertEqual(e7k["best_shape"]["pipelines"], 8)
 
+    def test_historical_optimizer_profile_coalesces_compatible_shapes_across_runs(self) -> None:
+        rows = [
+            _row("r1-p2", "e7k", 2, 96, 1200, optimizer_run_id="100"),
+            _row("r2-p3", "e7k", 3, 64, 900, optimizer_run_id="101"),
+            _row("r2-p4", "e7k", 4, 48, 700, optimizer_run_id="101"),
+            _row("r2-p5", "e7k", 5, 38, 650, optimizer_run_id="101"),
+            _row("r2-p6", "e7k", 6, 32, 600, optimizer_run_id="101"),
+            _row("r2-p7", "e7k", 7, 27, 590, optimizer_run_id="101"),
+            _row("r1-p8", "e7k", 8, 24, 580, optimizer_run_id="100"),
+        ]
+        index = build_optimizer_index({"observations": rows}, "adaptive_radial_edge", optimizer_run_ids={"100", "101"})
+        shapes = index["runners"][0]["shapes"]
+        self.assertEqual([shape["pipelines"] for shape in shapes], [2, 3, 4, 5, 6, 7, 8])
+        self.assertEqual(index["runners"][0]["best_shape"]["pipelines"], 8)
+
+    def test_historical_optimizer_profile_keeps_all_repeated_shape_observations(self) -> None:
+        first = _row("r1-p4", "e7k", 4, 48, 700, optimizer_run_id="100")
+        second = _row("r2-p4", "e7k", 4, 48, 680, optimizer_run_id="101")
+        index = build_optimizer_index({"observations": [first, second]}, "adaptive_radial_edge", optimizer_run_ids={"100", "101"})
+        shape = index["runners"][0]["shapes"][0]
+        self.assertEqual(shape["observation_count"], 2)
+        self.assertEqual(shape["fastest_wall_clock_seconds"], 680)
+        self.assertEqual(shape["median_wall_clock_seconds"], 690)
+
+
+    def test_optimizer_persistence_does_not_age_out_aggregate_or_shard_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            aggregates = []
+            for idx in range(520):
+                row = _row(f"agg-{idx}", "e7k", idx + 1, 1, 100 + idx, optimizer_run_id=str(1000 + idx))
+                aggregates.append(row)
+            update_parallelism_index(root, aggregates)
+            shards = [{
+                "observation_id": f"shard-{idx}", "source": "execution-optimizer",
+                "detector_id": "adaptive_radial_edge", "optimizer_run_id": "2000",
+                "shape_sequence": idx // 100, "shard_index": idx,
+            } for idx in range(5005)]
+            update_parallelism_shards(root, shards)
+            payload = json.loads((root / "parallelism-index.json").read_text(encoding="utf-8"))
+            self.assertEqual(len([row for row in payload["observations"] if row.get("source") == "execution-optimizer"]), 520)
+            self.assertEqual(len([row for row in payload["shard_observations"] if row.get("source") == "execution-optimizer"]), 5005)
+
     def test_optimizer_artifacts_use_current_run_table_and_pipeline_sets_per_second_profile(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -77,10 +121,15 @@ class OptimizerStoreTests(unittest.TestCase):
             payload = json.loads(paths["index"].read_text(encoding="utf-8"))
             self.assertIn("adaptive_radial_edge", payload["detectors"])
             self.assertEqual(payload["runs"]["100"]["shard_observation_count"], 1)
+            preferred = payload["preferred_executor_configurations"]
+            self.assertTrue(any(row["detector_id"] == "adaptive_radial_edge" and row["preferred_shape"]["pipelines"] == 8 for row in preferred))
             markdown = paths["markdown"].read_text(encoding="utf-8")
             self.assertIn("this table contains only shapes completed in this execution", markdown)
             self.assertIn("e7k", markdown)
-            self.assertNotIn("e9k", markdown)
+            self.assertIn("Preferred optimizer executor configuration", markdown)
+            self.assertIn("e9k", markdown)
+            current_section = markdown.split("#### Shapes completed in this execution", 1)[1]
+            self.assertNotIn("e9k", current_section)
             svg = paths["heatmap"].read_text(encoding="utf-8")
             self.assertTrue(svg.startswith("<svg"))
             self.assertIn("detector pipelines (log₂ scale)", svg)
