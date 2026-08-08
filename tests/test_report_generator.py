@@ -9,6 +9,15 @@ from hth.report_generator import calibration_run_dirs, generate_calibration_mani
 
 
 class ReportGeneratorTests(unittest.TestCase):
+    @staticmethod
+    def _write_completed_optimizer_summary(root: Path, detector: str, run_id: str) -> None:
+        path = root / "execution-optimizer" / detector / "summary.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            f"### Execution optimizer summary\n\nDetector: `{detector}`  \nOptimizer run: **{run_id}** — this table contains only shapes completed in this execution.\n",
+            encoding="utf-8",
+        )
+
     def test_calibration_manifest_resolves_best_record_per_detector(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -62,6 +71,7 @@ class ReportGeneratorTests(unittest.TestCase):
             }
             (root / "optimizer-index.json").write_text(json.dumps(optimizer), encoding="utf-8")
             (root / "parallelism-index.json").write_text(json.dumps(parallelism), encoding="utf-8")
+            self._write_completed_optimizer_summary(root, "adaptive_radial_edge", "200")
             paths = generate_optimizer_report(root, "adaptive_radial_edge", root / "out")
             text = paths["summary"].read_text(encoding="utf-8")
             self.assertIn("Optimizer run: **200**", text)
@@ -85,13 +95,14 @@ class ReportGeneratorTests(unittest.TestCase):
             }
             (root / "optimizer-index.json").write_text(json.dumps(optimizer), encoding="utf-8")
             (root / "parallelism-index.json").write_text(json.dumps(parallelism), encoding="utf-8")
+            self._write_completed_optimizer_summary(root, "adaptive_radial_edge", "2")
             paths = generate_optimizer_report(root, "adaptive_radial_edge", root / "out")
             text = paths["summary"].read_text(encoding="utf-8")
             self.assertIn("Optimizer run: **2**", text)
             self.assertIn("| 2 | 2 | 1 |", text)
             self.assertNotIn("| 1 | 1 | 1 |", text)
 
-    def test_optimizer_report_recovers_latest_run_from_shard_observations(self) -> None:
+    def test_optimizer_report_does_not_report_incomplete_shard_only_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "optimizer-index.json").write_text(json.dumps({"detectors": {"adaptive_radial_edge": {}}}), encoding="utf-8")
@@ -102,10 +113,26 @@ class ReportGeneratorTests(unittest.TestCase):
                     "actual_parameter_sets": 50, "observed_at_utc": f"2026-01-03T00:00:0{idx}Z",
                     "runner": {"runner_label": "e7k", "runner_name": "host", "logical_cpu_count": 96}})
             (root / "parallelism-index.json").write_text(json.dumps({"observations": [], "shard_observations": shards}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "No completed persisted optimizer run"):
+                generate_optimizer_report(root, "adaptive_radial_edge", root / "out")
+
+    def test_optimizer_report_accepts_completed_run_marker_from_index(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            optimizer = {"runs": {"42": {
+                "detector_id": "adaptive_radial_edge",
+                "updated_at_utc": "2026-01-04T00:00:00Z",
+                "run_metadata": {"stop_reason": "throughput_plateau"},
+            }}}
+            row = {"detector_id": "adaptive_radial_edge", "optimizer_run_id": "42", "source": "execution-optimizer",
+                   "mode": "full", "strategy": "exhaustive", "actual_parameter_sets": 10, "possible_parameter_sets": 10,
+                   "active_pipelines": 4, "shards": 4, "threads_per_pipeline": 2, "allocated_threads": 8,
+                   "wall_clock_seconds": 5, "parameter_sets_per_second": 2.0, "execution_shape": "4p/4s/2t",
+                   "optimizer_shape_sequence": 1, "runner": {"runner_label": "e7k", "runner_name": "host", "logical_cpu_count": 96}}
+            (root / "optimizer-index.json").write_text(json.dumps(optimizer), encoding="utf-8")
+            (root / "parallelism-index.json").write_text(json.dumps({"observations": [row]}), encoding="utf-8")
             paths = generate_optimizer_report(root, "adaptive_radial_edge", root / "out")
-            text = paths["summary"].read_text(encoding="utf-8")
-            self.assertIn("Optimizer run: **777**", text)
-            self.assertIn("| 2 | 2 | 48 |", text)
+            self.assertIn("Optimizer run: **42**", paths["summary"].read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
