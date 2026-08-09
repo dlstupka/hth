@@ -928,10 +928,12 @@ jobs:
           print("true" if json.loads(sys.argv[1]).get("should_stop") else "false")
           PYSTOP
             )"
-            if [[ "$EARLY_STOP" == "true" && "$should_stop" == "true" ]]; then
+            if [[ "$ENUMERATION" != "adaptive" && "$EARLY_STOP" == "true" && "$should_stop" == "true" ]]; then
               stop_reason="throughput_plateau"
               echo "Optimizer early stop: 3 consecutive completed shapes improved throughput by <1% from the perceived maximum."
               break
+            elif [[ "$ENUMERATION" == "adaptive" && "$EARLY_STOP" == "true" && "$should_stop" == "true" ]]; then
+              echo "Adaptive optimizer: generic <1% plateau stop deferred until the <=2% preferred-shape boundaries are resolved."
             fi
           done
 

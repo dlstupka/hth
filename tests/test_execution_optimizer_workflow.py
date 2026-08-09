@@ -118,6 +118,8 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn("--consecutive 3", text)
         self.assertIn("throughput_plateau", text)
         self.assertIn("3 consecutive completed shapes improved throughput by <1%", text)
+        self.assertIn('ENUMERATION" != "adaptive"', text)
+        self.assertIn("generic <1% plateau stop deferred until the <=2% preferred-shape boundaries are resolved", text)
 
     def test_core_has_no_execution_optimizer_orchestration(self) -> None:
         text = CORE.read_text(encoding="utf-8")

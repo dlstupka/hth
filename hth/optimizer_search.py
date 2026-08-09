@@ -93,7 +93,7 @@ def adaptive_next_pipeline(
     thread_min: int,
     observations: list[dict[str, Any]],
     *,
-    near_best_fraction: float = 0.99,
+    near_best_fraction: float = 0.98,
     allow_oversubscription: bool = False,
 ) -> int | None:
     """Return the next pipeline count for a sparse peak/plateau search.
@@ -139,9 +139,66 @@ def adaptive_next_pipeline(
 
     tested = sorted(measured)
     near_low, near_high = near_best[0], near_best[-1]
+    best_pipeline = min(
+        (pipeline for pipeline, rate in measured.items() if rate == best_rate),
+        default=max(measured, key=measured.get),
+    )
 
-    # First preference: refine immediately beside the near-best region.  This
-    # brackets a broad plateau without wasting runs in already-inferior space.
+    # Once the current best is bracketed by completed measurements on both
+    # sides, switch from coarse bracketing to exact local refinement.  The
+    # preferred-shape report uses a <=2% band, so adaptive must measure the
+    # immediate neighbors around the near-best region and continue outward
+    # until each side has a completed shape outside that band.  This makes the
+    # reported shape range evidence-based instead of stopping at a sparse peak.
+    lower_tested = [p for p in tested if p < best_pipeline]
+    upper_tested = [p for p in tested if p > best_pipeline]
+    if lower_tested and upper_tested:
+        legal_set = set(legal)
+        threshold = best_rate * near_best_fraction
+
+        # Grow the measured near-best region contiguously from the best shape.
+        left = best_pipeline
+        while left - 1 in legal_set:
+            candidate = left - 1
+            if candidate not in measured:
+                break
+            if measured[candidate] < threshold:
+                break
+            left = candidate
+
+        right = best_pipeline
+        while right + 1 in legal_set:
+            candidate = right + 1
+            if candidate not in measured:
+                break
+            if measured[candidate] < threshold:
+                break
+            right = candidate
+
+        boundary_candidates: list[tuple[int, int]] = []
+
+        left_candidate = left - 1
+        if left_candidate in legal_set and left_candidate not in measured:
+            boundary_candidates.append((abs(best_pipeline - left_candidate), left_candidate))
+
+        right_candidate = right + 1
+        if right_candidate in legal_set and right_candidate not in measured:
+            boundary_candidates.append((abs(best_pipeline - right_candidate), right_candidate))
+
+        if boundary_candidates:
+            # Always resolve the nearest edge of the <=2% region first.  For
+            # an isolated peak at 8p this guarantees 7p and 9p are sampled
+            # before searching farther away.
+            return min(boundary_candidates, key=lambda item: (item[0], item[1]))[1]
+
+        # Both immediate outer boundaries are already measured (or the legal
+        # range itself is the boundary), so the local <=2% shape range is
+        # resolved and no additional adaptive samples are required.
+        return None
+
+    # The best point is still on an unbracketed edge.  Continue coarse
+    # logarithmic narrowing toward it until completed measurements exist on
+    # both sides, then the local refinement above takes over.
     intervals: list[tuple[int, int]] = []
     lower_tested = [p for p in tested if p < near_low]
     upper_tested = [p for p in tested if p > near_high]
@@ -160,18 +217,7 @@ def adaptive_next_pipeline(
         if candidate is not None:
             candidates.append((right - left, candidate))
     if candidates:
-        # Refine the widest unresolved side first.
         return max(candidates, key=lambda item: (item[0], -item[1]))[1]
-
-    # If the near-best interval itself is sparse, fill its largest internal gap.
-    boundary = sorted(set(near_best))
-    internal: list[tuple[int, int]] = []
-    for left, right in zip(boundary, boundary[1:]):
-        candidate = _midpoint_candidate(left, right, untested)
-        if candidate is not None:
-            internal.append((right - left, candidate))
-    if internal:
-        return max(internal, key=lambda item: (item[0], -item[1]))[1]
 
     return None
 

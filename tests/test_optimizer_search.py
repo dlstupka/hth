@@ -30,6 +30,39 @@ class OptimizerSearchTests(unittest.TestCase):
         self.assertIn(candidate, range(3, 192))
         self.assertNotIn(candidate, {2, 20, 192})
 
+
+    def test_adaptive_resolves_immediate_neighbors_of_bracketed_peak(self) -> None:
+        observations = [
+            row(1, 40.0),
+            row(3, 92.0),
+            row(8, 122.26),
+            row(16, 110.0),
+            row(24, 84.0),
+            row(64, 70.0),
+        ]
+        self.assertEqual(adaptive_next_pipeline(1, 64, 64, 1, observations), 7)
+
+        observations.append(row(7, 120.5))
+        self.assertEqual(adaptive_next_pipeline(1, 64, 64, 1, observations), 9)
+
+    def test_adaptive_expands_two_percent_region_until_bounded(self) -> None:
+        observations = [
+            row(1, 40.0),
+            row(3, 92.0),
+            row(8, 100.0),
+            row(16, 90.0),
+            row(64, 60.0),
+            row(7, 99.0),
+            row(9, 99.5),
+        ]
+        self.assertEqual(adaptive_next_pipeline(1, 64, 64, 1, observations), 6)
+
+        observations.append(row(6, 96.0))
+        self.assertEqual(adaptive_next_pipeline(1, 64, 64, 1, observations), 10)
+
+        observations.append(row(10, 97.0))
+        self.assertIsNone(adaptive_next_pipeline(1, 64, 64, 1, observations))
+
     def test_manual_oversubscription_keeps_shapes_beyond_runner_budget(self) -> None:
         self.assertEqual(
             powers_of_two_pipelines(49, 49, 192, 4, allow_oversubscription=True),

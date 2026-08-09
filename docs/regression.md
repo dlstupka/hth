@@ -251,6 +251,12 @@ For exhaustive search, the planned count is exact. Smoke runs are exhaustive run
 with a parameter-set limit. For adaptive strategies, the actual count is recorded
 when the run finishes.
 
+### Execution optimizer adaptive shape refinement
+
+The execution optimizer's `adaptive` pipeline enumeration is designed to find a preferred runtime shape without filling the complete pipeline-count curve. It first brackets a promising peak using sparse measurements. Once the current best shape has completed measurements on both sides, adaptive measures the immediately adjacent pipeline counts (for example, a peak at 8 pipelines requires 7- and 9-pipeline measurements) and continues outward while shapes remain within 2% of the measured peak. Refinement stops only after each side of that <=2% preferred-shape region is bounded by a completed shape outside the band or by the requested pipeline limit.
+
+The generic three-shape / 1% throughput early-stop assessment remains recorded for adaptive runs, but it does not terminate an adaptive run before this 2% boundary refinement is complete.
+
 ## Runner performance telemetry
 
 Every regression writes periodic machine-readable samples to:
