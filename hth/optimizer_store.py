@@ -320,8 +320,8 @@ def _render_optimizer_navigation(*, detectors: list[str] | None = None) -> list[
 
 def _render_shape_table(index: dict[str, Any]) -> list[str]:
     lines = [
-        "| Runner | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Sets/s | Speedup | Avg load | Peak load | Avg CPU | Peak RAM |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Runner | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Sets/s | Speedup | Δ from best | Avg load | Peak load | Avg CPU | Peak RAM |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     rows: list[tuple[str, dict[str, Any], bool]] = []
     for runner in index.get("runners", []):
@@ -331,6 +331,11 @@ def _render_shape_table(index: dict[str, Any]) -> list[str]:
             best = shape.get("execution_shape") == best_shape and shape.get("optimizer_shape_sequence") == best_seq
             rows.append((str(runner.get("runner_title") or "unknown"), shape, best))
     rows.sort(key=lambda item: (int(item[1].get("optimizer_shape_sequence") or 10**9), item[0], int(item[1].get("pipelines") or 0)))
+    best_rates: dict[str, float] = {}
+    for runner_title, shape, _ in rows:
+        rate = _as_float(shape.get("parameter_sets_per_second"))
+        if rate is not None:
+            best_rates[runner_title] = max(best_rates.get(runner_title, rate), rate)
     for runner_title, shape, best in rows:
         metrics = shape.get("runner_metrics") if isinstance(shape.get("runner_metrics"), dict) else {}
         speedup = _as_float(shape.get("observed_speedup_vs_one_pipeline"))
@@ -339,8 +344,13 @@ def _render_shape_table(index: dict[str, Any]) -> list[str]:
         peak_load = _as_float(metrics.get("peak_load1"))
         avg_cpu = _as_float(metrics.get("avg_cpu_pct"))
         peak_ram = metrics.get("peak_ram_used_bytes")
+        best_rate = best_rates.get(runner_title)
+        delta_from_best = ((rate / best_rate) - 1.0) * 100.0 if rate is not None and best_rate else None
+        # The best shape is exactly zero; all other valid deltas are non-positive by definition.
+        if delta_from_best is not None and abs(delta_from_best) < 0.005:
+            delta_from_best = 0.0
         lines.append(
-            "| {runner} | {pipelines} | {shards} | {threads} | {allocated} | {wall} | {rate} | {speedup} | {avg_load} | {peak_load} | {avg_cpu} | {peak_ram} |".format(
+            "| {runner} | {pipelines} | {shards} | {threads} | {allocated} | {wall} | {rate} | {speedup} | {delta_from_best} | {avg_load} | {peak_load} | {avg_cpu} | {peak_ram} |".format(
                 runner=f"**{runner_title}**" if best else runner_title,
                 pipelines=shape.get("pipelines") or "?",
                 shards=shape.get("shards") or "?",
@@ -349,6 +359,7 @@ def _render_shape_table(index: dict[str, Any]) -> list[str]:
                 wall=_duration(shape.get("fastest_wall_clock_seconds")),
                 rate=f"{rate:.2f}" if rate is not None else "unknown",
                 speedup=f"{speedup:.2f}×" if speedup is not None else "—",
+                delta_from_best=f"{delta_from_best:.2f}%" if delta_from_best is not None else "—",
                 avg_load=f"{avg_load:.1f}" if avg_load is not None else "—",
                 peak_load=f"{peak_load:.1f}" if peak_load is not None else "—",
                 avg_cpu=f"{avg_cpu:.1f}%" if avg_cpu is not None else "—",
