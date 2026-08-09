@@ -366,7 +366,16 @@ def render_markdown(index: dict[str, Any], run_metadata: dict[str, Any] | None =
         f"Detector: `{index.get('detector_id')}`  ",
     ]
     if index.get("optimizer_run_id") is not None:
-        lines.append(f"Optimizer run: **{index.get('optimizer_run_id')}** — execution data below contains only shapes completed in this execution; the preferred configuration may use all compatible completed optimizer evidence.")
+        metadata = run_metadata or {}
+        resumed_from = metadata.get("resumed_from_optimizer_run_id")
+        if resumed_from:
+            lines.append(
+                f"Optimizer run: **{index.get('optimizer_run_id')}** — resumed from optimizer run **{resumed_from}**; "
+                "execution data below contains shapes completed in this execution or reused from that compatible local checkpoint; "
+                "the preferred configuration may use all compatible completed optimizer evidence."
+            )
+        else:
+            lines.append(f"Optimizer run: **{index.get('optimizer_run_id')}** — execution data below contains only shapes completed in this execution; the preferred configuration may use all compatible completed optimizer evidence.")
     lines.extend(["", *_render_optimizer_navigation()])
 
     lines.extend([

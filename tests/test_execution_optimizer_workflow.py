@@ -27,6 +27,8 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn("thread_max:", text)
         self.assertIn("early_stop:", text)
         self.assertIn("default: true", text)
+        self.assertIn("resume:", text)
+        self.assertIn("default: auto", text)
 
     def test_execution_optimizer_is_one_direct_job_on_selected_runner(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -82,6 +84,13 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn("execution-optimizer/$DETECTOR_ALGORITHM/summary.md", text)
         self.assertIn("execution-optimizer/$DETECTOR_ALGORITHM/heatmap.svg", text)
         self.assertNotIn("upload-artifact", text)
+
+    def test_execution_optimizer_resume_reuses_only_completed_compatible_shapes(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("python -m hth.optimizer_resume prepare", text)
+        self.assertIn("python -m hth.optimizer_resume shape-completed", text)
+        self.assertIn("resumed_from_optimizer_run_id", text)
+        self.assertIn("completed shape pipelines=$pipelines threads=$effective_threads is already checkpointed", text)
 
     def test_execution_optimizer_collects_proc_metrics_only_with_heartbeat(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")

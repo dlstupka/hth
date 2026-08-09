@@ -76,6 +76,11 @@ on:
         required: true
         default: true
         type: boolean
+      resume:
+        description: Resume completed shapes from the latest compatible local checkpoint; use no to force a fresh run, or enter a prior optimizer run ID
+        required: true
+        default: auto
+        type: string
       results_repository:
         description: Repository containing preprocessed images and intelligence indexes
         required: true
@@ -658,15 +663,52 @@ jobs:
           THREAD_MAX: ${{ steps.plan.outputs.thread_max }}
           EARLY_STOP: ${{ inputs.early_stop }}
           ENUMERATION: ${{ inputs.pipeline_enumeration }}
+          RESUME: ${{ inputs.resume }}
         run: |
           set -euo pipefail
+          resume_stage="$RUNNER_TEMP/hth-optimizer-resume-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$resume_stage"
+          resume_json="$(python -m hth.optimizer_resume prepare \
+            --source-dir optimizer-work \
+            --destination-dir "$resume_stage" \
+            --results-root results-repo \
+            --mode "$RESUME" \
+            --current-run-id "$GITHUB_RUN_ID" \
+            --detector "$DETECTOR_ALGORITHM" \
+            --runner-label "$HTH_RUNNER_LABEL" \
+            --runner-budget "$RUNNER_BUDGET" \
+            --thread-min "$THREAD_MIN" \
+            --thread-max "$THREAD_MAX" \
+            --enumeration "$ENUMERATION" \
+            --pipeline-min "$PIPELINE_MIN" \
+            --pipeline-max "$PIPELINE_MAX")"
+          echo "Optimizer resume: $resume_json"
+
           rm -rf optimizer-work
           mkdir -p optimizer-work
-          : > optimizer-work/observations.jsonl
-          : > optimizer-work/shards.jsonl
+          if [[ -f "$resume_stage/observations.jsonl" ]]; then
+            cp "$resume_stage/observations.jsonl" optimizer-work/observations.jsonl
+            cp "$resume_stage/shards.jsonl" optimizer-work/shards.jsonl
+          else
+            : > optimizer-work/observations.jsonl
+            : > optimizer-work/shards.jsonl
+          fi
           run_metadata="$GITHUB_WORKSPACE/optimizer-work/run-metadata.json"
           observation_log="$GITHUB_WORKSPACE/optimizer-work/observations.jsonl"
           shard_log="$GITHUB_WORKSPACE/optimizer-work/shards.jsonl"
+
+          resumed_from="$(python - "$resume_json" <<'PYRESUME'
+          import json, sys
+          payload = json.loads(sys.argv[1])
+          print(payload.get("resumed_from_optimizer_run_id") or "")
+          PYRESUME
+          )"
+          resumed_shapes="$(python - "$resume_json" <<'PYRESUME'
+          import json, sys
+          payload = json.loads(sys.argv[1])
+          print(int(payload.get("completed_shapes") or 0))
+          PYRESUME
+          )"
 
           if [[ "$ENUMERATION" == "adaptive" ]]; then
             candidates=()
@@ -675,10 +717,10 @@ jobs:
             IFS=',' read -r -a candidates <<< "$PIPELINES"
             total="${#candidates[@]}"
           fi
-          shape_number=0
+          shape_number="$resumed_shapes"
           stop_reason="shape_range_complete"
 
-          python - "$run_metadata" "$GITHUB_RUN_ID" "$DETECTOR_ALGORITHM" "$HTH_RUNNER_LABEL" "$RUNNER_BUDGET" "$THREAD_MIN" "$THREAD_MAX" "$ENUMERATION" "$EARLY_STOP" <<'PYMETA'
+          python - "$run_metadata" "$GITHUB_RUN_ID" "$DETECTOR_ALGORITHM" "$HTH_RUNNER_LABEL" "$RUNNER_BUDGET" "$THREAD_MIN" "$THREAD_MAX" "$ENUMERATION" "$EARLY_STOP" "$PIPELINE_MIN" "$PIPELINE_MAX" "$resumed_from" "$resumed_shapes" <<'PYMETA'
           import json, sys
           from pathlib import Path
           path = Path(sys.argv[1])
@@ -691,8 +733,12 @@ jobs:
               "thread_max": int(sys.argv[7]),
               "pipeline_enumeration": sys.argv[8],
               "early_stop_enabled": sys.argv[9].lower() == "true",
+              "pipeline_min": int(sys.argv[10]),
+              "pipeline_max": int(sys.argv[11]),
+              "resumed_from_optimizer_run_id": sys.argv[12] or None,
+              "resumed_shape_count": int(sys.argv[13]),
               "early_stop": {"threshold_pct": 1.0, "required_consecutive_shapes": 3},
-              "completed_shapes": 0,
+              "completed_shapes": int(sys.argv[13]),
               "stop_reason": None,
           }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
           PYMETA
@@ -724,6 +770,13 @@ jobs:
             (( effective_threads > THREAD_MAX )) && effective_threads="$THREAD_MAX"
             if (( effective_threads < THREAD_MIN )); then
               echo "Skipping pipelines=$pipelines because computed threads=$effective_threads is below thread minimum $THREAD_MIN"
+              continue
+            fi
+            if python -m hth.optimizer_resume shape-completed \
+              --observation-log "$observation_log" \
+              --pipelines "$pipelines" \
+              --threads "$effective_threads"; then
+              echo "Resuming optimizer: completed shape pipelines=$pipelines threads=$effective_threads is already checkpointed; skipping execution."
               continue
             fi
 
