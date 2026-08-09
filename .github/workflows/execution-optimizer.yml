@@ -71,6 +71,11 @@ on:
         required: true
         default: "96"
         type: string
+      allow_thread_oversubscription:
+        description: Manual exception — allow requested shapes to exceed the detected runner thread budget
+        required: true
+        default: false
+        type: boolean
       early_stop:
         description: Stop after 3 consecutive shapes improve sets/s by less than 1% from the perceived maximum
         required: true
@@ -583,6 +588,7 @@ jobs:
           PIPELINE_MAX: ${{ inputs.pipeline_max }}
           THREAD_MIN: ${{ inputs.thread_min }}
           THREAD_MAX: ${{ inputs.thread_max }}
+          ALLOW_THREAD_OVERSUBSCRIPTION: ${{ inputs.allow_thread_oversubscription }}
         run: |
           set -euo pipefail
           budget="$(PYTHONPATH=hth-pipeline python - "$HTH_RUNNER_LABEL" <<'PYPLAN'
@@ -613,13 +619,17 @@ jobs:
           fi
 
           effective_thread_max="$THREAD_MAX"
-          (( effective_thread_max > budget )) && effective_thread_max="$budget"
-          feasible_pipeline_max=$((budget / THREAD_MIN))
           effective_pipeline_max="$PIPELINE_MAX"
-          (( effective_pipeline_max > feasible_pipeline_max )) && effective_pipeline_max="$feasible_pipeline_max"
-          if (( PIPELINE_MIN > effective_pipeline_max )); then
-            echo "::error::No legal execution shape: pipeline minimum $PIPELINE_MIN with thread minimum $THREAD_MIN exceeds runner budget $budget"
-            exit 1
+          if [[ "$ALLOW_THREAD_OVERSUBSCRIPTION" != "true" ]]; then
+            (( effective_thread_max > budget )) && effective_thread_max="$budget"
+            feasible_pipeline_max=$((budget / THREAD_MIN))
+            (( effective_pipeline_max > feasible_pipeline_max )) && effective_pipeline_max="$feasible_pipeline_max"
+            if (( PIPELINE_MIN > effective_pipeline_max )); then
+              echo "::error::No legal execution shape: pipeline minimum $PIPELINE_MIN with thread minimum $THREAD_MIN exceeds runner budget $budget"
+              exit 1
+            fi
+          else
+            echo "::warning::Thread-budget enforcement is disabled by explicit manual allow_thread_oversubscription=true override."
           fi
 
           pipelines="$(PYTHONPATH=hth-pipeline python -m hth.optimizer_search \
@@ -627,7 +637,8 @@ jobs:
             --pipeline-min "$PIPELINE_MIN" \
             --pipeline-max "$effective_pipeline_max" \
             --runner-budget "$budget" \
-            --thread-min "$THREAD_MIN")"
+            --thread-min "$THREAD_MIN" \
+            $([[ "$ALLOW_THREAD_OVERSUBSCRIPTION" == "true" ]] && printf '%s' '--allow-oversubscription'))"
           if [[ "$ENUMERATION" == "adaptive" ]]; then
             pipelines="adaptive"
           fi
@@ -638,6 +649,7 @@ jobs:
           echo "pipelines=$pipelines" >> "$GITHUB_OUTPUT"
           echo "thread_min=$THREAD_MIN" >> "$GITHUB_OUTPUT"
           echo "thread_max=$effective_thread_max" >> "$GITHUB_OUTPUT"
+          echo "allow_thread_oversubscription=$ALLOW_THREAD_OVERSUBSCRIPTION" >> "$GITHUB_OUTPUT"
           echo "Execution Optimizer"
           echo "==================="
           echo "Detector             : $DETECTOR_ALGORITHM"
@@ -647,7 +659,12 @@ jobs:
           echo "Pipeline range       : $PIPELINE_MIN-$effective_pipeline_max"
           echo "Thread range         : $THREAD_MIN-$effective_thread_max per pipeline"
           echo "Shapes               : $pipelines"
-          echo "Model                : shards = pipelines; threads = min(thread max, floor(runner budget / pipelines))"
+          echo "Oversubscription     : $ALLOW_THREAD_OVERSUBSCRIPTION"
+          if [[ "$ALLOW_THREAD_OVERSUBSCRIPTION" == "true" ]]; then
+            echo "Model                : shards = pipelines; threads = max(thread min, min(thread max, floor(runner budget / pipelines))); runner budget may be exceeded"
+          else
+            echo "Model                : shards = pipelines; threads = min(thread max, floor(runner budget / pipelines))"
+          fi
           echo "Early stop           : ${{ inputs.early_stop }} (3 consecutive completed shapes <1% improvement from perceived max)"
 
       - name: Optimize detector execution shapes
@@ -664,6 +681,7 @@ jobs:
           EARLY_STOP: ${{ inputs.early_stop }}
           ENUMERATION: ${{ inputs.pipeline_enumeration }}
           RESUME: ${{ inputs.resume }}
+          ALLOW_THREAD_OVERSUBSCRIPTION: ${{ steps.plan.outputs.allow_thread_oversubscription }}
         run: |
           set -euo pipefail
           resume_stage="$RUNNER_TEMP/hth-optimizer-resume-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -680,6 +698,7 @@ jobs:
             --thread-min "$THREAD_MIN" \
             --thread-max "$THREAD_MAX" \
             --enumeration "$ENUMERATION" \
+            --allow-thread-oversubscription "$ALLOW_THREAD_OVERSUBSCRIPTION" \
             --pipeline-min "$PIPELINE_MIN" \
             --pipeline-max "$PIPELINE_MAX")"
           echo "Optimizer resume: $resume_json"
@@ -720,7 +739,7 @@ jobs:
           shape_number="$resumed_shapes"
           stop_reason="shape_range_complete"
 
-          python - "$run_metadata" "$GITHUB_RUN_ID" "$DETECTOR_ALGORITHM" "$HTH_RUNNER_LABEL" "$RUNNER_BUDGET" "$THREAD_MIN" "$THREAD_MAX" "$ENUMERATION" "$EARLY_STOP" "$PIPELINE_MIN" "$PIPELINE_MAX" "$resumed_from" "$resumed_shapes" <<'PYMETA'
+          python - "$run_metadata" "$GITHUB_RUN_ID" "$DETECTOR_ALGORITHM" "$HTH_RUNNER_LABEL" "$RUNNER_BUDGET" "$THREAD_MIN" "$THREAD_MAX" "$ENUMERATION" "$EARLY_STOP" "$PIPELINE_MIN" "$PIPELINE_MAX" "$resumed_from" "$resumed_shapes" "$ALLOW_THREAD_OVERSUBSCRIPTION" <<'PYMETA'
           import json, sys
           from pathlib import Path
           path = Path(sys.argv[1])
@@ -737,6 +756,7 @@ jobs:
               "pipeline_max": int(sys.argv[11]),
               "resumed_from_optimizer_run_id": sys.argv[12] or None,
               "resumed_shape_count": int(sys.argv[13]),
+              "allow_thread_oversubscription": sys.argv[14].lower() == "true",
               "early_stop": {"threshold_pct": 1.0, "required_consecutive_shapes": 3},
               "completed_shapes": int(sys.argv[13]),
               "stop_reason": None,
@@ -752,7 +772,8 @@ jobs:
                 --pipeline-max "$PIPELINE_MAX" \
                 --runner-budget "$RUNNER_BUDGET" \
                 --thread-min "$THREAD_MIN" \
-                --observation-log "$observation_log")"
+                --observation-log "$observation_log" \
+                $([[ "$ALLOW_THREAD_OVERSUBSCRIPTION" == "true" ]] && printf '%s' '--allow-oversubscription'))"
               if [[ -z "$pipelines" ]]; then
                 stop_reason="adaptive_search_complete"
                 echo "Adaptive optimizer search has bracketed/refined the preferred near-best region; no further informative shape remains."
@@ -769,8 +790,22 @@ jobs:
             effective_threads=$((RUNNER_BUDGET / pipelines))
             (( effective_threads > THREAD_MAX )) && effective_threads="$THREAD_MAX"
             if (( effective_threads < THREAD_MIN )); then
-              echo "Skipping pipelines=$pipelines because computed threads=$effective_threads is below thread minimum $THREAD_MIN"
-              continue
+              if [[ "$ALLOW_THREAD_OVERSUBSCRIPTION" == "true" ]]; then
+                effective_threads="$THREAD_MIN"
+              else
+                echo "Skipping pipelines=$pipelines because computed threads=$effective_threads is below thread minimum $THREAD_MIN"
+                continue
+              fi
+            fi
+            allocated_threads=$((pipelines * effective_threads))
+            if (( allocated_threads > RUNNER_BUDGET )); then
+              over_threads=$((allocated_threads - RUNNER_BUDGET))
+              over_pct="$(python - "$over_threads" "$RUNNER_BUDGET" <<'PYOVER'
+          import sys
+          print(f"{(int(sys.argv[1]) / int(sys.argv[2])) * 100:.1f}")
+          PYOVER
+          )"
+              echo "::warning::OVERSUBSCRIBED execution shape: ${pipelines}p/${effective_threads}t allocates ${allocated_threads} threads against runner budget ${RUNNER_BUDGET} (+${over_threads}, +${over_pct}%) — explicit manual override."
             fi
             if python -m hth.optimizer_resume shape-completed \
               --observation-log "$observation_log" \

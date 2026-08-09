@@ -30,6 +30,12 @@ class OptimizerSearchTests(unittest.TestCase):
         self.assertIn(candidate, range(3, 192))
         self.assertNotIn(candidate, {2, 20, 192})
 
+    def test_manual_oversubscription_keeps_shapes_beyond_runner_budget(self) -> None:
+        self.assertEqual(
+            powers_of_two_pipelines(49, 49, 192, 4, allow_oversubscription=True),
+            [49],
+        )
+
     def test_adaptive_returns_none_when_range_is_exhausted(self) -> None:
         observations = [row(p, float(p)) for p in range(2, 6)]
         self.assertIsNone(adaptive_next_pipeline(2, 5, 192, 1, observations))

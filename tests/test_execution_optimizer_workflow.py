@@ -29,6 +29,8 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn("default: true", text)
         self.assertIn("resume:", text)
         self.assertIn("default: auto", text)
+        self.assertIn("allow_thread_oversubscription:", text)
+        self.assertIn("Manual exception — allow requested shapes to exceed the detected runner thread budget", text)
 
     def test_execution_optimizer_is_one_direct_job_on_selected_runner(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -72,6 +74,9 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn('effective_threads > THREAD_MAX', text)
         self.assertIn('effective_threads < THREAD_MIN', text)
         self.assertIn('feasible_pipeline_max=$((budget / THREAD_MIN))', text)
+        self.assertIn('ALLOW_THREAD_OVERSUBSCRIPTION', text)
+        self.assertIn('effective_threads="$THREAD_MIN"', text)
+        self.assertIn('OVERSUBSCRIBED execution shape', text)
 
     def test_execution_optimizer_records_shards_and_current_run_only_reports(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")

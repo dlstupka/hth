@@ -48,13 +48,13 @@ def _rate_from_row(row: dict[str, Any]) -> float | None:
     return value if value > 0 else None
 
 
-def legal_pipelines(low: int, high: int, budget: int, thread_min: int) -> list[int]:
-    upper = min(high, budget // thread_min)
+def legal_pipelines(low: int, high: int, budget: int, thread_min: int, *, allow_oversubscription: bool = False) -> list[int]:
+    upper = high if allow_oversubscription else min(high, budget // thread_min)
     return list(range(low, upper + 1)) if low <= upper else []
 
 
-def powers_of_two_pipelines(low: int, high: int, budget: int, thread_min: int) -> list[int]:
-    legal = legal_pipelines(low, high, budget, thread_min)
+def powers_of_two_pipelines(low: int, high: int, budget: int, thread_min: int, *, allow_oversubscription: bool = False) -> list[int]:
+    legal = legal_pipelines(low, high, budget, thread_min, allow_oversubscription=allow_oversubscription)
     if not legal:
         return []
     upper = legal[-1]
@@ -94,6 +94,7 @@ def adaptive_next_pipeline(
     observations: list[dict[str, Any]],
     *,
     near_best_fraction: float = 0.99,
+    allow_oversubscription: bool = False,
 ) -> int | None:
     """Return the next pipeline count for a sparse peak/plateau search.
 
@@ -102,7 +103,7 @@ def adaptive_next_pipeline(
     throughput.  It is intentionally heuristic: the optimizer's product is a
     preferred near-best execution region, not a complete curve.
     """
-    legal = legal_pipelines(low, high, budget, thread_min)
+    legal = legal_pipelines(low, high, budget, thread_min, allow_oversubscription=allow_oversubscription)
     if not legal:
         return None
 
@@ -183,13 +184,14 @@ def _main() -> int:
     parser.add_argument("--runner-budget", type=int, required=True)
     parser.add_argument("--thread-min", type=int, required=True)
     parser.add_argument("--observation-log", type=Path)
+    parser.add_argument("--allow-oversubscription", action="store_true")
     args = parser.parse_args()
 
     if args.mode == "exhaustive":
-        print(",".join(map(str, legal_pipelines(args.pipeline_min, args.pipeline_max, args.runner_budget, args.thread_min))))
+        print(",".join(map(str, legal_pipelines(args.pipeline_min, args.pipeline_max, args.runner_budget, args.thread_min, allow_oversubscription=args.allow_oversubscription))))
         return 0
     if args.mode == "powers-of-2":
-        print(",".join(map(str, powers_of_two_pipelines(args.pipeline_min, args.pipeline_max, args.runner_budget, args.thread_min))))
+        print(",".join(map(str, powers_of_two_pipelines(args.pipeline_min, args.pipeline_max, args.runner_budget, args.thread_min, allow_oversubscription=args.allow_oversubscription))))
         return 0
 
     candidate = adaptive_next_pipeline(
@@ -198,6 +200,7 @@ def _main() -> int:
         args.runner_budget,
         args.thread_min,
         _read_observations(args.observation_log),
+        allow_oversubscription=args.allow_oversubscription,
     )
     print("" if candidate is None else candidate)
     return 0

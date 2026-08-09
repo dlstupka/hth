@@ -48,7 +48,8 @@ def _published_run_ids(results_root: Path) -> set[str]:
 
 
 def _matches(metadata: dict[str, Any], *, detector: str, runner_label: str, runner_budget: int,
-             thread_min: int, thread_max: int, enumeration: str) -> bool:
+             thread_min: int, thread_max: int, enumeration: str,
+             allow_thread_oversubscription: bool = False) -> bool:
     expected = {
         "detector_id": detector,
         "runner_label": runner_label,
@@ -56,9 +57,11 @@ def _matches(metadata: dict[str, Any], *, detector: str, runner_label: str, runn
         "thread_min": thread_min,
         "thread_max": thread_max,
         "pipeline_enumeration": enumeration,
+        "allow_thread_oversubscription": allow_thread_oversubscription,
     }
     for key, value in expected.items():
-        if metadata.get(key) != value:
+        actual = metadata.get(key, False) if key == "allow_thread_oversubscription" else metadata.get(key)
+        if actual != value:
             return False
     return True
 
@@ -86,7 +89,8 @@ def _rewrite_run(rows: list[dict[str, Any]], *, old_run_id: str, new_run_id: str
 def prepare_resume(*, source_dir: Path, destination_dir: Path, results_root: Path, mode: str,
                    current_run_id: str, detector: str, runner_label: str, runner_budget: int,
                    thread_min: int, thread_max: int, enumeration: str,
-                   pipeline_min: int, pipeline_max: int) -> dict[str, Any]:
+                   pipeline_min: int, pipeline_max: int,
+                   allow_thread_oversubscription: bool = False) -> dict[str, Any]:
     mode = mode.strip()
     if mode == "no":
         return {"resumed": False, "reason": "disabled", "completed_shapes": 0}
@@ -106,7 +110,8 @@ def prepare_resume(*, source_dir: Path, destination_dir: Path, results_root: Pat
     if old_run_id in _published_run_ids(results_root):
         return {"resumed": False, "reason": "checkpoint-already-published", "completed_shapes": 0}
     if not _matches(metadata, detector=detector, runner_label=runner_label, runner_budget=runner_budget,
-                    thread_min=thread_min, thread_max=thread_max, enumeration=enumeration):
+                    thread_min=thread_min, thread_max=thread_max, enumeration=enumeration,
+                    allow_thread_oversubscription=allow_thread_oversubscription):
         return {"resumed": False, "reason": "checkpoint-incompatible", "completed_shapes": 0}
 
     observations = _rewrite_run(_read_jsonl(observations_path), old_run_id=old_run_id, new_run_id=current_run_id)
@@ -160,6 +165,7 @@ def main() -> int:
     prepare.add_argument("--enumeration", required=True)
     prepare.add_argument("--pipeline-min", type=int, required=True)
     prepare.add_argument("--pipeline-max", type=int, required=True)
+    prepare.add_argument("--allow-thread-oversubscription", choices=("true", "false"), default="false")
 
     completed = subparsers.add_parser("shape-completed")
     completed.add_argument("--observation-log", type=Path, required=True)
@@ -184,6 +190,7 @@ def main() -> int:
         enumeration=args.enumeration,
         pipeline_min=args.pipeline_min,
         pipeline_max=args.pipeline_max,
+        allow_thread_oversubscription=args.allow_thread_oversubscription == "true",
     )
     print(json.dumps(result, sort_keys=True))
     return 0
