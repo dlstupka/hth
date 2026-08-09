@@ -64,6 +64,9 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn('export DETECTOR_PIPELINES="$pipelines"', text)
         self.assertIn('export SHARDS="$pipelines"', text)
         self.assertIn('export THREADS="$effective_threads"', text)
+        self.assertIn('export HTH_EXACT_EXECUTION_SHAPE=1', text)
+        self.assertIn('export HTH_EXECUTION_THREAD_BUDGET="$RUNNER_BUDGET"', text)
+        self.assertIn('export HTH_ALLOW_THREAD_OVERSUBSCRIPTION="$ALLOW_THREAD_OVERSUBSCRIPTION"', text)
         self.assertIn('bash hth-pipeline/tools/run-detector-regressions.sh', text)
         self.assertIn("Execution optimizer shape $shape_number/$total", text)
         self.assertTrue(DRIVER.is_file())
@@ -79,6 +82,16 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn('ALLOW_THREAD_OVERSUBSCRIPTION', text)
         self.assertIn('effective_threads="$THREAD_MIN"', text)
         self.assertIn('OVERSUBSCRIBED execution shape', text)
+
+
+    def test_regression_driver_honors_optimizer_owned_execution_shape(self) -> None:
+        text = DRIVER.read_text(encoding="utf-8")
+        self.assertIn('HTH_EXACT_EXECUTION_SHAPE', text)
+        self.assertIn('HTH_EXECUTION_THREAD_BUDGET', text)
+        self.assertIn('planned_threads="$THREADS"', text)
+        self.assertIn('effective_threads_per_pipeline="$THREADS"', text)
+        self.assertIn('Execution shape    : optimizer-exact', text)
+        self.assertIn('Optimizer requested ${THREADS} threads/pipeline but regression executor resolved', text)
 
     def test_execution_optimizer_records_shards_and_current_run_only_reports(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")

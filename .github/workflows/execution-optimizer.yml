@@ -845,6 +845,12 @@ jobs:
             export HTH_OPTIMIZER_SHAPE_SEQUENCE="$shape_number"
             export HTH_OPTIMIZER_SHARD_LOG="$shard_log"
             export HTH_OPTIMIZER_RUNNER_METRICS_LOG
+            # The optimizer owns the execution shape. The regression driver must
+            # execute these exact pipeline/thread values rather than applying its
+            # normal standalone regression budget heuristics a second time.
+            export HTH_EXACT_EXECUTION_SHAPE=1
+            export HTH_EXECUTION_THREAD_BUDGET="$RUNNER_BUDGET"
+            export HTH_ALLOW_THREAD_OVERSUBSCRIPTION="$ALLOW_THREAD_OVERSUBSCRIPTION"
             rm -rf "$HTH_REGRESSION_OUTPUT"
 
             python - "$HTH_OPTIMIZER_STATE_FILE" "$GITHUB_RUN_ID" "$shape_number" "$total" "$DETECTOR_ALGORITHM" "$pipelines" "$effective_threads" <<'PYSTATE'

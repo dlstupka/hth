@@ -47,12 +47,16 @@ if [[ ! "${DETECTOR_LOADING_STRATEGY:-lpt}" =~ ^(lpt|fifo|ranked)$ ]]; then
 fi
 
 requested_pipelines="$DETECTOR_PIPELINES"
-runner_pipeline_max="$(python - "${HTH_RUNNER_LABEL:-}" <<'PYMAX'
+if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
+  runner_pipeline_max="${HTH_EXECUTION_THREAD_BUDGET:?HTH_EXECUTION_THREAD_BUDGET is required for exact execution shapes}"
+else
+  runner_pipeline_max="$(python - "${HTH_RUNNER_LABEL:-}" <<'PYMAX'
 import sys
 from hth.regression.sharding import runner_max_threads
 print(runner_max_threads(sys.argv[1]))
 PYMAX
-)"
+  )"
+fi
 if [[ ! "$requested_pipelines" =~ ^[0-9]+$ ]] || (( requested_pipelines < 1 || requested_pipelines > runner_pipeline_max )); then
   echo "::error::Detector pipelines must be an integer from 1 through runner budget $runner_pipeline_max: $requested_pipelines"
   exit 1
@@ -133,8 +137,14 @@ from pathlib import Path
 print(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["detector"])
 PYPLAN
   )"
-  read -r planned_threads planned_shards serial_estimate plan_source < <(
-    python - "$detector_config" "results-repo/runtime-index.json" "$detector_name" "${HTH_RUNNER_LABEL:-}" "$THREADS" "$SHARD_TARGET_MINUTES" "${SHARDS:-}" <<'PYPLAN'
+  if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
+    planned_threads="$THREADS"
+    planned_shards="${SHARDS:-1}"
+    serial_estimate="unknown"
+    plan_source="optimizer-exact-shape"
+  else
+    read -r planned_threads planned_shards serial_estimate plan_source < <(
+      python - "$detector_config" "results-repo/runtime-index.json" "$detector_name" "${HTH_RUNNER_LABEL:-}" "$THREADS" "$SHARD_TARGET_MINUTES" "${SHARDS:-}" <<'PYPLAN'
 import json, sys
 from pathlib import Path
 from hth.regression.sharding import best_smoke_observation, estimate_serial_runtime, plan_shards
@@ -147,7 +157,8 @@ serial = estimate_serial_runtime(observation, possible) if observation else None
 plan = plan_shards(serial, runner_label=runner_label, requested_threads=requested_threads, target_shard_seconds=int(target_minutes) * 60, maximum_shards=possible, requested_shards=int(requested_shards) if requested_shards else None, possible_parameter_sets=possible, estimate_source="smoke-runtime-index" if observation else "no-smoke-history")
 print(plan.threads, plan.shard_count, "unknown" if serial is None else f"{serial:.3f}", plan.estimate_source)
 PYPLAN
-  )
+    )
+  fi
   # User limits and smoke runs are already bounded; do not shard them.
   if [[ "$REGRESSION_MODE" != "full" || -n "${effective_limit:-}" || "$effective_strategy" != "exhaustive" ]]; then
     planned_shards=1
@@ -173,8 +184,22 @@ else
   effective_pipelines=$requested_pipelines
 fi
 
-read -r runner_thread_budget effective_threads_per_pipeline allocated_threads unused_threads < <(
-  python - "$THREADS" "${HTH_RUNNER_LABEL:-}" "$effective_pipelines" <<'PYBUDGET'
+if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
+  runner_thread_budget="${HTH_EXECUTION_THREAD_BUDGET:?HTH_EXECUTION_THREAD_BUDGET is required for exact execution shapes}"
+  effective_threads_per_pipeline="$THREADS"
+  allocated_threads=$((effective_pipelines * effective_threads_per_pipeline))
+  if (( allocated_threads > runner_thread_budget )) && [[ "${HTH_ALLOW_THREAD_OVERSUBSCRIPTION:-false}" != "true" ]]; then
+    echo "::error::Exact optimizer shape requests ${allocated_threads} threads (${effective_pipelines}p x ${effective_threads_per_pipeline}t) against runner budget ${runner_thread_budget} without oversubscription enabled"
+    exit 1
+  fi
+  if (( allocated_threads > runner_thread_budget )); then
+    unused_threads=0
+  else
+    unused_threads=$((runner_thread_budget - allocated_threads))
+  fi
+else
+  read -r runner_thread_budget effective_threads_per_pipeline allocated_threads unused_threads < <(
+    python - "$THREADS" "${HTH_RUNNER_LABEL:-}" "$effective_pipelines" <<'PYBUDGET'
 import sys
 from hth.regression.sharding import plan_execution
 plan = plan_execution(
@@ -189,7 +214,8 @@ print(
     plan.unused_threads,
 )
 PYBUDGET
-)
+  )
+fi
 for ((task_index = 0; task_index < ${#task_threads[@]}; task_index++)); do
   task_threads[$task_index]="$effective_threads_per_pipeline"
 done
@@ -201,6 +227,13 @@ echo "Detectors          : $detector_count"
 echo "Detector pipelines : $effective_pipelines (requested $requested_pipelines)"
 echo "Shards             : ${#detector_configs[@]}${SHARDS:+ (explicit request $SHARDS; capped at one parameter set per shard)}"
 echo "Thread budget      : $runner_thread_budget total; $effective_threads_per_pipeline per active pipeline; $allocated_threads allocated; $unused_threads free"
+if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
+  echo "Execution shape    : optimizer-exact (${effective_pipelines}p/${effective_threads_per_pipeline}t)"
+  if [[ "$effective_threads_per_pipeline" != "$THREADS" ]]; then
+    echo "::error::Optimizer requested ${THREADS} threads/pipeline but regression executor resolved ${effective_threads_per_pipeline}"
+    exit 1
+  fi
+fi
 echo "Loading strategy   : ${DETECTOR_LOADING_STRATEGY}"
 echo "Pipeline stagger   : ${PIPELINE_STAGGER_MINUTES} minute(s)"
 echo

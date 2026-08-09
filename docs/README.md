@@ -285,3 +285,5 @@ unchanged in run metadata and display. Without `allow_thread_oversubscription`,
 only legal shapes within the detected runner budget are executed; with the
 explicit override enabled, oversubscribed shapes are allowed and reported as
 such.
+
+- Optimizer measurements use an optimizer-owned exact execution-shape contract: the optimizer selects the pipeline/thread shape and the regression driver executes it without applying a second thread clamp.

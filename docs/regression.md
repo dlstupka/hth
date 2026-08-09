@@ -351,3 +351,9 @@ Persistent artifacts are:
 
 Historical observations remain available to derive future detector-specific recommendations, but they are never mixed into the current-run table or processing profile.
 
+
+### Optimizer-owned execution shapes
+
+The execution optimizer is the authoritative planner for a measured pipeline/thread shape. When it invokes the regression driver it exports `HTH_EXACT_EXECUTION_SHAPE=1`, the runner thread budget, and the requested per-pipeline thread count. In that mode the regression driver must execute the supplied shape exactly; it must not reapply standalone regression thread heuristics or silently clamp the requested thread count. Normal regression runs continue to use the regular bounded thread/shard planner.
+
+This ownership boundary keeps policy in one layer: the optimizer chooses a legal experimental shape, while the regression driver executes and measures it. The driver still validates that an exact shape does not exceed the supplied runner budget unless the optimizer explicitly enabled oversubscription.
