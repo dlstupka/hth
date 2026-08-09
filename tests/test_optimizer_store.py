@@ -142,7 +142,7 @@ class OptimizerStoreTests(unittest.TestCase):
                 "shard_observations": [{"optimizer_run_id": "100", "detector_id": "adaptive_radial_edge", "observation_id": "s1"}],
             }), encoding="utf-8")
             metadata = root / "run.json"
-            metadata.write_text(json.dumps({"stop_reason": "throughput_plateau", "early_stop": {"stop_reason": "throughput_plateau", "required_consecutive_shapes": 3, "threshold_pct": 1.0}}), encoding="utf-8")
+            metadata.write_text(json.dumps({"stop_reason": "throughput_plateau", "pipeline_enumeration": "adaptive", "optimization_wall_seconds": 302, "early_stop": {"stop_reason": "throughput_plateau", "required_consecutive_shapes": 3, "threshold_pct": 2.0}}), encoding="utf-8")
             paths = update_optimizer_artifacts(root, "adaptive_radial_edge", optimizer_run_id="100", run_metadata_path=metadata)
             payload = json.loads(paths["index"].read_text(encoding="utf-8"))
             self.assertIn("adaptive_radial_edge", payload["detectors"])
@@ -154,6 +154,10 @@ class OptimizerStoreTests(unittest.TestCase):
             self.assertIn("e7k", markdown)
             self.assertIn("Preferred Detector Run Configuration", markdown)
             self.assertIn("Preferred shape range (≤2%)", markdown)
+            self.assertIn("Search method", markdown)
+            self.assertIn("Optimization time", markdown)
+            self.assertIn("adaptive", markdown)
+            self.assertIn("5m 2s", markdown)
             self.assertIn("8p/8t", markdown)
             self.assertIn("Detector Run Profile Plot", markdown)
             self.assertIn("Detector Pipeline-Thread Shape Optimization Data", markdown)
@@ -169,6 +173,27 @@ class OptimizerStoreTests(unittest.TestCase):
             self.assertIn("detector pipelines (log₂ scale)", svg)
             self.assertIn("parameter sets / second", svg)
             self.assertIn("8t", svg)
+
+
+    def test_shape_data_table_sorts_pipeline_count_least_to_greatest(self) -> None:
+        index = build_optimizer_index(
+            {"schema_version": "2.2", "observations": [
+                _row("p8", "e7k", 8, 8, 420, optimizer_run_id="100"),
+                _row("p4", "e7k", 4, 16, 500, optimizer_run_id="100"),
+                _row("p7", "e7k", 7, 9, 430, optimizer_run_id="100"),
+            ]},
+            "adaptive_radial_edge",
+            "100",
+        )
+        markdown = render_markdown(
+            index,
+            {"pipeline_enumeration": "adaptive", "optimization_wall_seconds": 1350},
+            preferred_index=index,
+        )
+        section = markdown.split("<summary><strong>3. Detector Pipeline-Thread Shape Optimization Data</strong></summary>", 1)[1]
+        self.assertLess(section.index("| 4 | 4 | 16 |"), section.index("| 7 | 7 | 9 |"))
+        self.assertLess(section.index("| 7 | 7 | 9 |"), section.index("| 8 | 8 | 8 |"))
+        self.assertIn("**Search method:** `adaptive`", markdown)
 
 
     def test_resumed_run_shape_section_describes_reused_checkpoint_shapes(self) -> None:

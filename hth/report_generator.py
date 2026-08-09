@@ -296,6 +296,19 @@ def _legacy_completed_index_from_summary(path: Path, detector: str) -> dict[str,
         "runners": [{"runner_title": runner_title, "shapes": shapes, "best_shape": best}],
     }
 
+def _attach_optimizer_run_metadata(index: dict[str, Any], optimizer: dict[str, Any], detector: str) -> dict[str, Any]:
+    runs = optimizer.get("runs") if isinstance(optimizer.get("runs"), dict) else {}
+    metadata_by_id: dict[str, dict[str, Any]] = {}
+    for run_id, payload in runs.items():
+        if not isinstance(payload, dict) or str(payload.get("detector_id") or "") != detector:
+            continue
+        metadata = payload.get("run_metadata")
+        if isinstance(metadata, dict):
+            metadata_by_id[str(run_id)] = metadata
+    index["run_metadata_by_id"] = metadata_by_id
+    return index
+
+
 def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     optimizer_path = results_root / "optimizer-index.json"
     parallelism_path = results_root / "parallelism-index.json"
@@ -326,14 +339,14 @@ def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dic
         return legacy_current, legacy_current, {}
 
     run_payload = _completed_run_payload(optimizer, detector, run_id)
-    current = build_optimizer_index(parallelism, detector, run_id)
+    current = _attach_optimizer_run_metadata(build_optimizer_index(parallelism, detector, run_id), optimizer, detector)
     if not current.get("observation_count"):
         raise ValueError(
             f"Completed optimizer run {run_id} has no persisted completed shape observations for {detector}"
         )
     completed_ids = _completed_optimizer_run_ids(optimizer, detector)
     completed_ids.add(str(run_id))
-    preferred = build_optimizer_index(parallelism, detector, optimizer_run_ids=completed_ids)
+    preferred = _attach_optimizer_run_metadata(build_optimizer_index(parallelism, detector, optimizer_run_ids=completed_ids), optimizer, detector)
     if not preferred.get("observation_count"):
         preferred = current
     run_metadata = run_payload.get("run_metadata") if isinstance(run_payload.get("run_metadata"), dict) else {}

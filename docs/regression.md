@@ -255,7 +255,7 @@ when the run finishes.
 
 The execution optimizer's `adaptive` pipeline enumeration is designed to find a preferred runtime shape without filling the complete pipeline-count curve. It first brackets a promising peak using sparse measurements. Once the current best shape has completed measurements on both sides, adaptive measures the immediately adjacent pipeline counts (for example, a peak at 8 pipelines requires 7- and 9-pipeline measurements) and continues outward while shapes remain within 2% of the measured peak. Refinement stops only after each side of that <=2% preferred-shape region is bounded by a completed shape outside the band or by the requested pipeline limit.
 
-The generic three-shape / 1% throughput early-stop assessment remains recorded for adaptive runs, but it does not terminate an adaptive run before this 2% boundary refinement is complete.
+The generic three-shape / 2% throughput early-stop assessment remains recorded for adaptive runs, but it does not terminate an adaptive run before this 2% boundary refinement is complete.
 
 ## Runner performance telemetry
 
@@ -336,7 +336,7 @@ Pipeline enumeration supports exhaustive integer progression, `powers-of-2` samp
 
 Optimizer resume is shape-level. The manual `resume` input defaults to `auto` and can reuse completed shapes from a compatible unpublished local checkpoint left by a failed optimizer job on the same self-hosted runner; `no` forces a fresh run and an explicit prior optimizer run ID requires that checkpoint. Completed shapes are imported into the new optimizer execution and skipped, while incomplete shapes are rerun. Resume does not yet join a live optimizer or partially completed shape. Run-local optimizer reporting includes both newly completed shapes and compatible completed shapes reused from the checkpoint.
 
-After every successfully completed shape, the optimizer compares parameter sets/second with the best throughput seen so far. By default, three consecutive shapes that improve by less than 1% from that perceived maximum stop the remaining sweep. The stop rule is evaluated only after a complete shape and its state is retained in `optimizer-index.json`.
+After every successfully completed shape, the optimizer compares parameter sets/second with the best throughput seen so far. By default, three consecutive shapes that improve by no more than 2% from that perceived maximum stop the remaining sweep. The stop rule is evaluated only after a complete shape and its state is retained in `optimizer-index.json`.
 
 Every optimizer shard writes a shard-completion checkpoint into the raw optimizer parallelism data as soon as that shard finishes. Shape aggregates are written after merge. This preserves partial experimental evidence without turning optimizer runs into calibration runs. Optimizer execution does not publish calibration intelligence, regression manifests, or normal regression artifacts.
 

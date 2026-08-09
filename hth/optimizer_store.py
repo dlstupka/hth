@@ -157,6 +157,7 @@ def _shape_from_row(row: dict[str, Any], *, baseline_wall: float | None, observa
         "parallel_efficiency": _as_float(row.get("parallel_efficiency")),
         "observed_speedup_vs_one_pipeline": (baseline_wall / wall) if baseline_wall and wall > 0 else None,
         "optimizer_shape_sequence": _as_int(row.get("optimizer_shape_sequence")),
+        "optimizer_run_id": str(row.get("optimizer_run_id")) if row.get("optimizer_run_id") is not None else None,
         "runner_metrics": metrics,
     }
 
@@ -257,12 +258,55 @@ def _preferred_shape_range(runner: dict[str, Any]) -> str:
         return "—"
     return ", ".join(f"{pipelines}p/{threads}t" for pipelines, threads in measured_shapes)
 
+def _run_metadata_lookup(index: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    value = index.get("run_metadata_by_id")
+    return value if isinstance(value, dict) else {}
+
+
+def _shape_search_method(index: dict[str, Any], shape: dict[str, Any]) -> str:
+    run_id = shape.get("optimizer_run_id")
+    metadata = _run_metadata_lookup(index).get(str(run_id)) if run_id is not None else None
+    if isinstance(metadata, dict):
+        return str(metadata.get("pipeline_enumeration") or "unknown")
+    return "legacy"
+
+
+def _shape_optimization_time(index: dict[str, Any], shape: dict[str, Any]) -> str:
+    run_id = shape.get("optimizer_run_id")
+    metadata = _run_metadata_lookup(index).get(str(run_id)) if run_id is not None else None
+    if isinstance(metadata, dict) and metadata.get("optimization_wall_seconds") is not None:
+        return _duration(metadata.get("optimization_wall_seconds"))
+    if run_id is not None:
+        walls = [
+            _as_float(candidate.get("fastest_wall_clock_seconds"))
+            for runner in index.get("runners", [])
+            for candidate in runner.get("shapes", [])
+            if str(candidate.get("optimizer_run_id") or "") == str(run_id)
+        ]
+        walls = [wall for wall in walls if wall is not None]
+        if walls:
+            return _duration(sum(walls))
+    return "—"
+
+
+def _represented_search_methods(index: dict[str, Any]) -> str:
+    methods: set[str] = set()
+    metadata_by_id = _run_metadata_lookup(index)
+    for runner in index.get("runners", []):
+        for shape in runner.get("shapes", []):
+            run_id = shape.get("optimizer_run_id")
+            metadata = metadata_by_id.get(str(run_id)) if run_id is not None else None
+            if isinstance(metadata, dict) and metadata.get("pipeline_enumeration"):
+                methods.add(str(metadata["pipeline_enumeration"]))
+    return ", ".join(sorted(methods)) if methods else "legacy"
+
+
 def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
     lines = [
         "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is the fastest measured compatible shape.",
         "",
-        "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Allocated | Sets/s | Wall | Observations |",
-        "|---|---|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|",
+        "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Search method | Optimization time | Allocated | Sets/s | Wall | Observations |",
+        "|---|---|---|---:|---:|---:|---:|---:|---|---|---:|---:|---:|---:|---:|",
     ]
     for runner in sorted(index.get("runners", []), key=lambda item: str(item.get("runner_title") or "")):
         best = runner.get("best_shape") if isinstance(runner.get("best_shape"), dict) else {}
@@ -272,7 +316,7 @@ def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
         rate = _as_float(best.get("parameter_sets_per_second"))
         memory = _as_float(specs.get("memory_gib"))
         lines.append(
-            "| {detector} | {runner} | {cpu} | {physical} | {logical} | {memory} | {pipelines} | {threads} | {shape_range} | {allocated} | {rate} | {wall} | {observations} |".format(
+            "| {detector} | {runner} | {cpu} | {physical} | {logical} | {memory} | {pipelines} | {threads} | {shape_range} | {search_method} | {optimization_time} | {allocated} | {rate} | {wall} | {observations} |".format(
                 detector=index.get("detector_id") or "unknown",
                 runner=runner.get("runner_title") or "unknown",
                 cpu=str(specs.get("cpu_model") or "—").replace("|", "/"),
@@ -282,6 +326,8 @@ def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
                 pipelines=best.get("pipelines") or "?",
                 threads=best.get("threads_per_pipeline") or "?",
                 shape_range=_preferred_shape_range(runner),
+                search_method=_shape_search_method(index, best),
+                optimization_time=_shape_optimization_time(index, best),
                 allocated=best.get("allocated_threads") or "?",
                 rate=f"{rate:.2f}" if rate is not None else "unknown",
                 wall=_duration(best.get("fastest_wall_clock_seconds")),
@@ -330,7 +376,7 @@ def _render_shape_table(index: dict[str, Any]) -> list[str]:
         for shape in runner.get("shapes", []):
             best = shape.get("execution_shape") == best_shape and shape.get("optimizer_shape_sequence") == best_seq
             rows.append((str(runner.get("runner_title") or "unknown"), shape, best))
-    rows.sort(key=lambda item: (int(item[1].get("optimizer_shape_sequence") or 10**9), item[0], int(item[1].get("pipelines") or 0)))
+    rows.sort(key=lambda item: (int(item[1].get("pipelines") or 0), int(item[1].get("threads_per_pipeline") or 0), item[0], int(item[1].get("optimizer_shape_sequence") or 10**9)))
     best_rates: dict[str, float] = {}
     for runner_title, shape, _ in rows:
         rate = _as_float(shape.get("parameter_sets_per_second"))
@@ -404,6 +450,7 @@ def render_markdown(index: dict[str, Any], run_metadata: dict[str, Any] | None =
         "<summary><strong>2. Detector Run Profile Plot</strong></summary>",
         "",
         "Compatible completed measurements are plotted as detector pipelines versus parameter sets/second; thread count is annotated at each measured shape.",
+        f"**Search method:** `{(run_metadata or {}).get('pipeline_enumeration') or _represented_search_methods(index)}`",
         "",
         "![Detector Run Profile Plot](heatmap.svg)",
         "",
@@ -430,7 +477,7 @@ def render_markdown(index: dict[str, Any], run_metadata: dict[str, Any] | None =
             lines.extend([
                 "**Early stop:** throughput plateau detected after "
                 f"{early.get('required_consecutive_shapes', 3)} consecutive completed shapes improved by less than "
-                f"{early.get('threshold_pct', 1.0)}% from the perceived maximum.",
+                f"{early.get('threshold_pct', 2.0)}% from the perceived maximum.",
                 "",
             ])
         elif run_metadata.get("stop_reason"):
@@ -456,8 +503,8 @@ def render_all_markdown(indices: list[dict[str, Any]]) -> str:
         "",
         "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is the fastest measured compatible shape.",
         "",
-        "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Allocated | Sets/s | Wall | Observations |",
-        "|---|---|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|",
+        "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Search method | Optimization time | Allocated | Sets/s | Wall | Observations |",
+        "|---|---|---|---:|---:|---:|---:|---:|---|---|---:|---:|---:|---:|---:|",
     ]
     for index in indices:
         for row in _render_preferred_configuration(index)[4:-1]:
@@ -479,6 +526,8 @@ def render_all_markdown(indices: list[dict[str, Any]]) -> str:
             f'<a id="detector-run-profile-{slug}"></a>',
             "<details>",
             f"<summary><strong>{detector}</strong></summary>",
+            "",
+            f"**Search method(s):** `{_represented_search_methods(index)}`",
             "",
             f"![{detector} Detector Run Profile Plot](profiles/{detector}.svg)",
             "",
@@ -502,6 +551,8 @@ def render_all_markdown(indices: list[dict[str, Any]]) -> str:
             f'<a id="detector-shape-data-{slug}"></a>',
             "<details>",
             f"<summary><strong>{detector}</strong></summary>",
+            "",
+            f"**Search method(s):** `{_represented_search_methods(index)}`",
             "",
             *_render_shape_table(index),
             "</details>",
@@ -658,7 +709,6 @@ def update_optimizer_artifacts(
     else:
         existing = {"schema_version": OPTIMIZER_INDEX_SCHEMA_VERSION, "detectors": {}, "runs": {}}
     detectors = existing.get("detectors") if isinstance(existing.get("detectors"), dict) else {}
-    detectors[detector_id] = historical
     runs = existing.get("runs") if isinstance(existing.get("runs"), dict) else {}
     if optimizer_run_id is not None:
         shard_rows = [
@@ -677,6 +727,19 @@ def update_optimizer_artifacts(
             "runner_metrics_samples": runner_samples,
             "current_execution": current,
         }
+    metadata_by_id: dict[str, dict[str, Any]] = {}
+    for run_id, run_record in runs.items():
+        if not isinstance(run_record, dict):
+            continue
+        if str(run_record.get("detector_id") or "") != detector_id:
+            continue
+        metadata = run_record.get("run_metadata")
+        if isinstance(metadata, dict):
+            metadata_by_id[str(run_id)] = metadata
+    historical["run_metadata_by_id"] = metadata_by_id
+    current["run_metadata_by_id"] = metadata_by_id
+    detectors[detector_id] = historical
+
     existing.update({
         "schema_version": OPTIMIZER_INDEX_SCHEMA_VERSION,
         "updated_at_utc": current["updated_at_utc"],

@@ -87,7 +87,7 @@ on:
         default: false
         type: boolean
       early_stop:
-        description: Stop after 3 consecutive shapes improve sets/s by less than 1% from the perceived maximum
+        description: Stop after 3 consecutive shapes improve sets/s by no more than 2% from the perceived maximum
         required: true
         default: true
         type: boolean
@@ -689,7 +689,7 @@ jobs:
           else
             echo "Model                : shards = pipelines; threads = min(thread max, floor(runner budget / pipelines))"
           fi
-          echo "Early stop           : ${{ inputs.early_stop }} (3 consecutive completed shapes <1% improvement from perceived max)"
+          echo "Early stop           : ${{ inputs.early_stop }} (3 consecutive completed shapes <=2% improvement from perceived max)"
 
       - name: Optimize detector execution shapes
         id: optimizer
@@ -763,7 +763,7 @@ jobs:
           shape_number="$resumed_shapes"
           stop_reason="shape_range_complete"
 
-          python - "$run_metadata" "$GITHUB_RUN_ID" "$DETECTOR_ALGORITHM" "$HTH_RUNNER_LABEL" "$RUNNER_BUDGET" "$THREAD_MIN" "$THREAD_MAX" "$ENUMERATION" "$EARLY_STOP" "$PIPELINE_MIN" "$PIPELINE_MAX" "$resumed_from" "$resumed_shapes" "$ALLOW_THREAD_OVERSUBSCRIPTION" <<'PYMETA'
+          python - "$run_metadata" "$GITHUB_RUN_ID" "$DETECTOR_ALGORITHM" "$HTH_RUNNER_LABEL" "$RUNNER_BUDGET" "$THREAD_MIN" "$THREAD_MAX" "$ENUMERATION" "$EARLY_STOP" "$PIPELINE_MIN" "$PIPELINE_MAX" "$resumed_from" "$resumed_shapes" "$ALLOW_THREAD_OVERSUBSCRIPTION" "$optimization_started_epoch" <<'PYMETA'
           import json, sys
           from pathlib import Path
           path = Path(sys.argv[1])
@@ -781,7 +781,8 @@ jobs:
               "resumed_from_optimizer_run_id": sys.argv[12] or None,
               "resumed_shape_count": int(sys.argv[13]),
               "allow_thread_oversubscription": sys.argv[14].lower() == "true",
-              "early_stop": {"threshold_pct": 1.0, "required_consecutive_shapes": 3},
+              "optimization_started_epoch": int(sys.argv[15]),
+              "early_stop": {"threshold_pct": 2.0, "required_consecutive_shapes": 3},
               "completed_shapes": int(sys.argv[13]),
               "stop_reason": None,
           }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -900,7 +901,7 @@ jobs:
             assessment="$(python -m hth.optimizer_capture \
               --results-root results-repo \
               --assess-log "$observation_log" \
-              --threshold-pct 1.0 \
+              --threshold-pct 2.0 \
               --consecutive 3)"
             python - "$run_metadata" "$assessment" "$shape_number" <<'PYMETA'
           import json, sys
@@ -930,19 +931,24 @@ jobs:
             )"
             if [[ "$ENUMERATION" != "adaptive" && "$EARLY_STOP" == "true" && "$should_stop" == "true" ]]; then
               stop_reason="throughput_plateau"
-              echo "Optimizer early stop: 3 consecutive completed shapes improved throughput by <1% from the perceived maximum."
+              echo "Optimizer early stop: 3 consecutive completed shapes improved throughput by <=2% from the perceived maximum."
               break
             elif [[ "$ENUMERATION" == "adaptive" && "$EARLY_STOP" == "true" && "$should_stop" == "true" ]]; then
-              echo "Adaptive optimizer: generic <1% plateau stop deferred until the <=2% preferred-shape boundaries are resolved."
+              echo "Adaptive optimizer: generic <=2% plateau stop deferred until the <=2% preferred-shape boundaries are resolved."
             fi
           done
 
-          python - "$run_metadata" "$stop_reason" <<'PYMETA'
+          optimization_finished_epoch="$(date +%s)"
+          python - "$run_metadata" "$stop_reason" "$optimization_finished_epoch" <<'PYMETA'
           import json, sys
           from pathlib import Path
           path = Path(sys.argv[1])
           data = json.loads(path.read_text(encoding="utf-8"))
           data["stop_reason"] = sys.argv[2]
+          finished = int(sys.argv[3])
+          started = int(data.get("optimization_started_epoch") or finished)
+          data["optimization_finished_epoch"] = finished
+          data["optimization_wall_seconds"] = max(0, finished - started)
           path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
           PYMETA
           python - "$HTH_OPTIMIZER_STATE_FILE" "$GITHUB_RUN_ID" <<'PYSTATE'
