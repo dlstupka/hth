@@ -890,6 +890,14 @@ jobs:
           Path(sys.argv[1]).write_text(json.dumps({"phase": "reporting", "optimizer_run_id": sys.argv[2]}) + "\n", encoding="utf-8")
           PYSTATE
 
+          # Replay the complete local execution checkpoint before rendering the
+          # run-local report. This is idempotent for newly captured shapes and
+          # makes resumed/reused shapes visible in Section 3 before publish.
+          python -m hth.optimizer_capture \
+            --results-root results-repo \
+            --replay-log "$observation_log" \
+            --replay-shard-log "$shard_log"
+
           python -m hth.optimizer_store \
             --results-root results-repo \
             --detector "$DETECTOR_ALGORITHM" \

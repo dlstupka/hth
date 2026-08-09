@@ -406,7 +406,10 @@ def render_markdown(index: dict[str, Any], run_metadata: dict[str, Any] | None =
         "",
     ])
     if index.get("optimizer_run_id") is not None:
-        lines.extend(["Shapes completed in this execution are shown below.", ""])
+        if run_metadata and run_metadata.get("resumed_from_optimizer_run_id"):
+            lines.extend(["Shapes completed in this execution or reused from its compatible checkpoint are shown below.", ""])
+        else:
+            lines.extend(["Shapes completed in this execution are shown below.", ""])
     else:
         lines.extend(["Coalesced compatible shape measurements are shown below.", ""])
     lines.extend(_render_shape_table(index))

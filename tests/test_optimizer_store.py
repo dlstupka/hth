@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.optimizer_store import build_optimizer_index, update_optimizer_artifacts
+from hth.optimizer_store import build_optimizer_index, render_markdown, update_optimizer_artifacts
 from hth.parallelism_store import update_parallelism_index, update_parallelism_shards
 
 
@@ -167,6 +167,25 @@ class OptimizerStoreTests(unittest.TestCase):
             self.assertIn("detector pipelines (log₂ scale)", svg)
             self.assertIn("parameter sets / second", svg)
             self.assertIn("8t", svg)
+
+
+    def test_resumed_run_shape_section_describes_reused_checkpoint_shapes(self) -> None:
+        index = build_optimizer_index(
+            {"schema_version": "2.2", "observations": [_row("resumed", "e7k", 1, 192, 6840, optimizer_run_id="200")]},
+            "adaptive_radial_edge",
+            "200",
+        )
+        markdown = render_markdown(
+            index,
+            {"resumed_from_optimizer_run_id": "199", "stop_reason": "shape_range_complete"},
+            preferred_index=index,
+        )
+        self.assertIn(
+            "Shapes completed in this execution or reused from its compatible checkpoint are shown below.",
+            markdown,
+        )
+        section = markdown.split("<summary><strong>3. Detector Pipeline-Thread Shape Optimization Data</strong></summary>", 1)[1]
+        self.assertIn("| 1 | 1 | 192 | 192 |", section)
 
 
 if __name__ == "__main__":

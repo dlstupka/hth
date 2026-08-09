@@ -91,6 +91,11 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn("python -m hth.optimizer_resume shape-completed", text)
         self.assertIn("resumed_from_optimizer_run_id", text)
         self.assertIn("completed shape pipelines=$pipelines threads=$effective_threads is already checkpointed", text)
+        # Reused checkpoint rows must be replayed before the run-local summary is rendered,
+        # not only later in the publish step.
+        first_store = text.index("python -m hth.optimizer_store")
+        first_replay = text.index("--replay-log", text.index("completed shape pipelines=$pipelines"))
+        self.assertLess(first_replay, first_store)
 
     def test_execution_optimizer_collects_proc_metrics_only_with_heartbeat(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
