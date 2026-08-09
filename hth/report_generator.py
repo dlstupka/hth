@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from hth.optimizer_store import build_optimizer_index, render_all_markdown, render_heatmap_svg, render_markdown
+from hth.optimizer_store import build_optimizer_index, render_all_markdown, render_heatmap_svg, render_markdown, select_preferred_shape
 from hth.write_regression_summary import build_combined_summary
 
 _STATUS_PRIORITY = {"authoritative": 3, "partial": 2, "provisional": 1}
@@ -288,7 +288,7 @@ def _legacy_completed_index_from_summary(path: Path, detector: str) -> dict[str,
         return None
     runner_title, shapes = max(groups.items(), key=lambda item: (len(item[1]), max((x["pipelines"] for x in item[1]), default=0)))
     shapes.sort(key=lambda shape: shape["pipelines"])
-    best = max(shapes, key=lambda shape: shape["parameter_sets_per_second"])
+    best = select_preferred_shape(shapes)
     return {
         "schema_version": 1, "detector_id": detector,
         "optimizer_run_id": "legacy-published", "runner_count": 1,

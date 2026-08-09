@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.optimizer_store import build_optimizer_index, render_markdown, update_optimizer_artifacts
+from hth.optimizer_store import build_optimizer_index, render_heatmap_svg, render_markdown, select_preferred_shape, update_optimizer_artifacts
 from hth.parallelism_store import update_parallelism_index, update_parallelism_shards
 
 
@@ -41,6 +41,40 @@ def _row(identifier: str, runner: str, pipelines: int, threads: int, wall: float
 
 
 class OptimizerStoreTests(unittest.TestCase):
+
+    def test_canonical_preferred_shape_breaks_equal_displayed_throughput_ties_by_resources(self) -> None:
+        shapes = [
+            {"execution_shape": "6p/6s/64t", "pipelines": 6, "threads_per_pipeline": 64, "allocated_threads": 384, "fastest_wall_clock_seconds": 9.0, "parameter_sets_per_second": 27.004, "optimizer_shape_sequence": 2},
+            {"execution_shape": "5p/5s/76t", "pipelines": 5, "threads_per_pipeline": 76, "allocated_threads": 380, "fastest_wall_clock_seconds": 9.0, "parameter_sets_per_second": 27.003, "optimizer_shape_sequence": 1},
+        ]
+        best = select_preferred_shape(shapes)
+        self.assertIsNotNone(best)
+        self.assertEqual(best["pipelines"], 5)
+
+    def test_canonical_preferred_shape_never_trades_visible_throughput_for_resources(self) -> None:
+        shapes = [
+            {"execution_shape": "6p/6s/64t", "pipelines": 6, "threads_per_pipeline": 64, "allocated_threads": 384, "fastest_wall_clock_seconds": 9.0, "parameter_sets_per_second": 27.01},
+            {"execution_shape": "5p/5s/76t", "pipelines": 5, "threads_per_pipeline": 76, "allocated_threads": 380, "fastest_wall_clock_seconds": 9.0, "parameter_sets_per_second": 27.00},
+        ]
+        best = select_preferred_shape(shapes)
+        self.assertEqual(best["pipelines"], 6)
+
+    def test_profile_plot_staggers_dense_thread_labels_and_adds_peak_headroom(self) -> None:
+        rows = [
+            _row("p5", "e7k", 5, 76, 243.04),
+            _row("p6", "e7k", 6, 64, 243.04),
+            _row("p7", "e7k", 7, 54, 270.0),
+            _row("p8", "e7k", 8, 48, 270.0),
+            _row("p9", "e7k", 9, 42, 270.0),
+        ]
+        index = build_optimizer_index({"observations": rows}, "adaptive_radial_edge")
+        svg = render_heatmap_svg(index)
+        self.assertIn('text-anchor="end"', svg)
+        self.assertIn('76t</text>', svg)
+        self.assertIn('64t</text>', svg)
+        self.assertIn('42t</text>', svg)
+        self.assertIn('y1="112"', svg)
+
     def test_optimizer_index_can_filter_to_current_execution_only(self) -> None:
         parallelism = {"schema_version": "2.2", "observations": [
             _row("a", "e7k", 1, 64, 2600, optimizer_run_id="100"),

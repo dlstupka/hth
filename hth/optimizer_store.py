@@ -162,6 +162,41 @@ def _shape_from_row(row: dict[str, Any], *, baseline_wall: float | None, observa
     }
 
 
+PREFERRED_SHAPE_RATE_DECIMALS = 2
+
+
+def select_preferred_shape(shapes: Iterable[dict[str, Any]]) -> dict[str, Any] | None:
+    """Return the canonical preferred optimizer shape.
+
+    Throughput is compared at the same two-decimal precision displayed in the
+    optimizer report.  Shapes that are indistinguishable at that precision are
+    ordered by lower allocated threads, then lower pipeline count, then lower
+    threads per pipeline, and finally lower wall time for deterministic output.
+    """
+    candidates = [shape for shape in shapes if isinstance(shape, dict)]
+    if not candidates:
+        return None
+
+    def rank(shape: dict[str, Any]) -> tuple[float, int, int, int, float, int]:
+        rate = _as_float(shape.get("parameter_sets_per_second"))
+        displayed_rate = round(rate, PREFERRED_SHAPE_RATE_DECIMALS) if rate is not None else -math.inf
+        allocated = _as_int(shape.get("allocated_threads"))
+        pipelines = _as_int(shape.get("pipelines"))
+        threads = _as_int(shape.get("threads_per_pipeline"))
+        wall = _as_float(shape.get("fastest_wall_clock_seconds"))
+        sequence = _as_int(shape.get("optimizer_shape_sequence"))
+        return (
+            -displayed_rate,
+            allocated if allocated is not None else math.inf,
+            pipelines if pipelines is not None else math.inf,
+            threads if threads is not None else math.inf,
+            wall if wall is not None else math.inf,
+            sequence if sequence is not None else math.inf,
+        )
+
+    return min(candidates, key=rank)
+
+
 def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, optimizer_run_id: str | None = None, optimizer_run_ids: set[str] | None = None) -> dict[str, Any]:
     rows = _comparable(
         (row for row in parallelism_index.get("observations", []) if isinstance(row, dict)),
@@ -198,7 +233,7 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, o
                 shapes.append(_shape_from_row(fastest, baseline_wall=baseline_wall, observation_count=len(shape_rows), median_wall=statistics.median(walls)))
             shapes.sort(key=lambda shape: (int(shape.get("pipelines") or 0), int(shape.get("threads_per_pipeline") or 0)))
 
-        best_shape = min(shapes, key=lambda shape: float(shape.get("fastest_wall_clock_seconds") or math.inf), default=None)
+        best_shape = select_preferred_shape(shapes)
         sample = runner_rows[0]
         sample_runner = sample.get("runner") if isinstance(sample.get("runner"), dict) else {}
         runners.append({
@@ -219,7 +254,7 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, o
         })
 
     all_shapes = [shape for runner in runners for shape in runner.get("shapes", [])]
-    all_best = sorted(all_shapes, key=lambda shape: float(shape.get("fastest_wall_clock_seconds") or math.inf))
+    best_across_runners = select_preferred_shape(all_shapes)
     return {
         "schema_version": OPTIMIZER_INDEX_SCHEMA_VERSION,
         "updated_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -227,7 +262,7 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, o
         "optimizer_run_id": optimizer_run_id,
         "runner_count": len(runners),
         "observation_count": len(rows),
-        "best_across_runners": all_best[0] if all_best else None,
+        "best_across_runners": best_across_runners,
         "runners": runners,
     }
 
@@ -318,7 +353,7 @@ def _represented_search_methods(index: dict[str, Any]) -> str:
 
 def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
     lines = [
-        "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is the fastest measured compatible shape.",
+        "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is selected canonically by throughput, then lower resource use for throughput-equivalent shapes.",
         "",
         "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Search method | Optimization time | Allocated | Sets/s | Shape time | Observations |",
         "|---|---|---|---:|---:|---:|---:|---:|---|---|---:|---:|---:|---:|---:|",
@@ -516,7 +551,7 @@ def render_all_markdown(indices: list[dict[str, Any]]) -> str:
         "<details open>",
         "<summary><strong>1. Preferred Detector Run Configuration</strong></summary>",
         "",
-        "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is the fastest measured compatible shape.",
+        "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is selected canonically by throughput, then lower resource use for throughput-equivalent shapes.",
         "",
         "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Search method | Optimization time | Allocated | Sets/s | Shape time | Observations |",
         "|---|---|---|---:|---:|---:|---:|---:|---|---|---:|---:|---:|---:|---:|",
@@ -583,7 +618,7 @@ def render_heatmap_svg(index: dict[str, Any]) -> str:
     """Render the execution processing profile: pipelines on X, sets/s on Y."""
     runners = [runner for runner in index.get("runners", []) if runner.get("shapes")]
     width, height = 980, 560
-    left, top, right, bottom = 92, 90, 40, 90
+    left, top, right, bottom = 92, 112, 40, 90
     plot_w = width - left - right
     plot_h = height - top - bottom
     points = [
@@ -602,7 +637,7 @@ def render_heatmap_svg(index: dict[str, Any]) -> str:
         return left + ((value - min_log) / max(1e-9, max_log - min_log)) * plot_w
 
     def y_of(rate: float) -> float:
-        return top + plot_h - (rate / max(1e-9, max_rate * 1.08)) * plot_h
+        return top + plot_h - (rate / max(1e-9, max_rate * 1.15)) * plot_h
 
     palette = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#39c5cf"]
     parts = [
@@ -641,12 +676,25 @@ def render_heatmap_svg(index: dict[str, Any]) -> str:
             path = " ".join(("M" if i == 0 else "L") + f" {x:.1f} {y:.1f}" for i, (x, y, _) in enumerate(coords))
             parts.append(f'<path d="{path}" fill="none" stroke="{color}" stroke-width="2.5"/>')
         best = runner.get("best_shape") or {}
-        for x, y, shape in coords:
+        for point_index, (x, y, shape) in enumerate(coords):
             is_best = shape.get("execution_shape") == best.get("execution_shape") and shape.get("optimizer_shape_sequence") == best.get("optimizer_shape_sequence")
             radius = 7 if is_best else 5
             parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{color}" class="point"/>')
             threads = shape.get("threads_per_pipeline") or "?"
-            parts.append(f'<text x="{x + 8:.1f}" y="{y - 8:.1f}" font-size="10">{threads}t</text>')
+            prev_x = coords[point_index - 1][0] if point_index > 0 else None
+            next_x = coords[point_index + 1][0] if point_index + 1 < len(coords) else None
+            dense = ((prev_x is not None and abs(x - prev_x) < 58) or (next_x is not None and abs(next_x - x) < 58))
+            if dense:
+                level = point_index % 3
+                label_y = y - (12 + level * 12)
+                if point_index % 2:
+                    label_x, anchor = x - 7, "end"
+                else:
+                    label_x, anchor = x + 7, "start"
+            else:
+                label_x, label_y, anchor = x + 8, y - 8, "start"
+            label_y = max(84.0, label_y)
+            parts.append(f'<text x="{label_x:.1f}" y="{label_y:.1f}" text-anchor="{anchor}" font-size="10">{threads}t</text>')
         legend_y = 78 + runner_index * 18
         parts.append(f'<rect x="{width - 320}" y="{legend_y - 10}" width="12" height="12" fill="{color}"/>')
         parts.append(f'<text x="{width - 300}" y="{legend_y}" font-size="11">{html.escape(str(runner.get("runner_title") or "unknown"))}</text>')
