@@ -161,5 +161,14 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertNotIn("rh8-s32", text)
 
 
+
+    def test_execution_optimizer_initializes_optimization_timer_before_metadata(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        initialization = 'optimization_started_epoch="$(date +%s)"'
+        metadata_use = '"$optimization_started_epoch" <<\'PYMETA\''
+        self.assertIn(initialization, text)
+        self.assertIn(metadata_use, text)
+        self.assertLess(text.index(initialization), text.index(metadata_use))
+
 if __name__ == "__main__":
     unittest.main()

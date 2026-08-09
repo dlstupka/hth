@@ -703,6 +703,7 @@ jobs:
           ALLOW_THREAD_OVERSUBSCRIPTION: ${{ steps.plan.outputs.allow_thread_oversubscription }}
         run: |
           set -euo pipefail
+          optimization_started_epoch="$(date +%s)"
           resume_stage="$RUNNER_TEMP/hth-optimizer-resume-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           rm -rf "$resume_stage"
           resume_json="$(python -m hth.optimizer_resume prepare \
