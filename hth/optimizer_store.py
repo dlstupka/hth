@@ -263,11 +263,16 @@ def _run_metadata_lookup(index: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return value if isinstance(value, dict) else {}
 
 
+def _display_search_method(value: Any) -> str:
+    method = str(value or "unknown")
+    return "powers-of-2" if method == "binary" else method
+
+
 def _shape_search_method(index: dict[str, Any], shape: dict[str, Any]) -> str:
     run_id = shape.get("optimizer_run_id")
     metadata = _run_metadata_lookup(index).get(str(run_id)) if run_id is not None else None
     if isinstance(metadata, dict):
-        return str(metadata.get("pipeline_enumeration") or "unknown")
+        return _display_search_method(metadata.get("pipeline_enumeration"))
     return "legacy"
 
 
@@ -297,7 +302,7 @@ def _represented_search_methods(index: dict[str, Any]) -> str:
             run_id = shape.get("optimizer_run_id")
             metadata = metadata_by_id.get(str(run_id)) if run_id is not None else None
             if isinstance(metadata, dict) and metadata.get("pipeline_enumeration"):
-                methods.add(str(metadata["pipeline_enumeration"]))
+                methods.add(_display_search_method(metadata["pipeline_enumeration"]))
     return ", ".join(sorted(methods)) if methods else "legacy"
 
 
@@ -305,7 +310,7 @@ def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
     lines = [
         "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is the fastest measured compatible shape.",
         "",
-        "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Search method | Optimization time | Allocated | Sets/s | Wall | Observations |",
+        "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Search method | Optimization time | Allocated | Sets/s | Shape time | Observations |",
         "|---|---|---|---:|---:|---:|---:|---:|---|---|---:|---:|---:|---:|---:|",
     ]
     for runner in sorted(index.get("runners", []), key=lambda item: str(item.get("runner_title") or "")):
@@ -450,7 +455,7 @@ def render_markdown(index: dict[str, Any], run_metadata: dict[str, Any] | None =
         "<summary><strong>2. Detector Run Profile Plot</strong></summary>",
         "",
         "Compatible completed measurements are plotted as detector pipelines versus parameter sets/second; thread count is annotated at each measured shape.",
-        f"**Search method:** `{(run_metadata or {}).get('pipeline_enumeration') or _represented_search_methods(index)}`",
+        f"**Search method:** `{_display_search_method((run_metadata or {}).get('pipeline_enumeration')) if (run_metadata or {}).get('pipeline_enumeration') else _represented_search_methods(index)}`",
         "",
         "![Detector Run Profile Plot](heatmap.svg)",
         "",
@@ -503,7 +508,7 @@ def render_all_markdown(indices: list[dict[str, Any]]) -> str:
         "",
         "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is the fastest measured compatible shape.",
         "",
-        "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Search method | Optimization time | Allocated | Sets/s | Wall | Observations |",
+        "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Search method | Optimization time | Allocated | Sets/s | Shape time | Observations |",
         "|---|---|---|---:|---:|---:|---:|---:|---|---|---:|---:|---:|---:|---:|",
     ]
     for index in indices:
@@ -520,7 +525,8 @@ def render_all_markdown(indices: list[dict[str, Any]]) -> str:
         "Compatible completed measurements are plotted by detector; thread count is annotated at each measured shape.",
         "",
     ])
-    for detector in detectors:
+    for index in indices:
+        detector = str(index.get("detector_id") or "unknown")
         slug = _nav_slug(detector)
         lines.extend([
             f'<a id="detector-run-profile-{slug}"></a>',

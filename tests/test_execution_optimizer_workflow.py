@@ -144,19 +144,21 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
             text = (workflow_dir / name).read_text(encoding="utf-8")
             self.assertIn("specific_runner:", text, name)
             self.assertIn("- any", text, name)
-            self.assertIn("- rh8-al320", text, name)
-            self.assertIn("- rh8-al97", text, name)
-            self.assertIn("- rh8-s32", text, name)
+            self.assertIn("- custom", text, name)
+            self.assertIn("custom_runner_label:", text, name)
+            self.assertNotIn("- rh8-al320", text, name)
+            self.assertNotIn("- rh8-al97", text, name)
+            self.assertNotIn("- rh8-s32", text, name)
 
-    def test_specific_runners_use_unique_existing_label_combinations(self) -> None:
+    def test_custom_runner_uses_exact_label_and_detected_budget(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn('["self-hosted","Linux","X64","e9k","192t"]', text)
-        self.assertIn('["self-hosted","Linux","X64","e7k","96t"]', text)
-        self.assertIn('["self-hosted","Linux","X64","e9k","32t"]', text)
-        self.assertIn("HTH_SPECIFIC_RUNNER_BUDGET", text)
-        self.assertIn("inputs.specific_runner == 'rh8-al320' && '384'", text)
-        self.assertIn("inputs.specific_runner == 'rh8-al97' && '192'", text)
-        self.assertIn("inputs.specific_runner == 'rh8-s32' && '64'", text)
+        self.assertIn("inputs.specific_runner == 'custom'", text)
+        self.assertIn("inputs.custom_runner_label", text)
+        self.assertIn('fromJSON(format(\'["self-hosted","{0}"]\', inputs.custom_runner_label))', text)
+        self.assertIn('budget="$(( $(nproc) * 2 ))"', text)
+        self.assertNotIn("rh8-al320", text)
+        self.assertNotIn("rh8-al97", text)
+        self.assertNotIn("rh8-s32", text)
 
 
 if __name__ == "__main__":

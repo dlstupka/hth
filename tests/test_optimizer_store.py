@@ -156,6 +156,7 @@ class OptimizerStoreTests(unittest.TestCase):
             self.assertIn("Preferred shape range (≤2%)", markdown)
             self.assertIn("Search method", markdown)
             self.assertIn("Optimization time", markdown)
+            self.assertIn("Shape time", markdown)
             self.assertIn("adaptive", markdown)
             self.assertIn("5m 2s", markdown)
             self.assertIn("8p/8t", markdown)
@@ -213,6 +214,16 @@ class OptimizerStoreTests(unittest.TestCase):
         )
         section = markdown.split("<summary><strong>3. Detector Pipeline-Thread Shape Optimization Data</strong></summary>", 1)[1]
         self.assertIn("| 1 | 1 | 192 | 192 |", section)
+
+
+    def test_legacy_binary_search_method_displays_as_powers_of_2(self) -> None:
+        parallelism_index = {"observations": [_row("a", "e7k", 1, 64, 2600, optimizer_run_id="100")]}
+        index = build_optimizer_index(parallelism_index, "adaptive_radial_edge", optimizer_run_id="100")
+        index["run_metadata_by_id"] = {"100": {"pipeline_enumeration": "binary", "optimization_wall_seconds": 2600}}
+        markdown = render_markdown(index, run_metadata={"pipeline_enumeration": "binary"})
+        self.assertIn("`powers-of-2`", markdown)
+        self.assertNotIn("`binary`", markdown)
+
 
 
 if __name__ == "__main__":

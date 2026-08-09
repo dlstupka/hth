@@ -32,9 +32,12 @@ on:
         type: choice
         options:
           - any
-          - rh8-al320
-          - rh8-al97
-          - rh8-s32
+          - custom
+      custom_runner_label:
+        description: "Custom self-hosted runner label; used only when Specific self-hosted runner is custom"
+        required: false
+        default: ""
+        type: string
       upload_full_artifact:
         description: "Upload the complete generated build as a temporary artifact"
         required: true
@@ -55,6 +58,7 @@ jobs:
       mode: production
       runner: ${{ inputs.runner }}
       specific_runner: ${{ inputs.specific_runner }}
+      custom_runner_label: ${{ inputs.custom_runner_label }}
       source_repository: ${{ inputs.source_repository }}
       results_repository: ${{ inputs.results_repository }}
       output_directory: hth-pipeline/build/preprocessed

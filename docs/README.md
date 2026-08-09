@@ -273,15 +273,15 @@ This directory contains the design, operating, and project-reference documentati
 ### Manual runner targeting
 
 Manual HTH workflows retain the existing runner-class selector and also expose a
-`Specific self-hosted runner` selector. `any` preserves class-based scheduling.
-The current exact selections use unique existing runner-label combinations:
+`Specific self-hosted runner` selector. `any` preserves class-based scheduling;
+`custom` uses the value entered in `Custom self-hosted runner label` as an exact
+self-hosted runner label. Add a unique label matching the runner name when exact
+runner targeting is desired, for example `rh8-al320`.
 
-- `rh8-al320` -> `self-hosted, Linux, X64, e9k, 192t`
-- `rh8-al97` -> `self-hosted, Linux, X64, e7k, 96t`
-- `rh8-s32` -> `self-hosted, Linux, X64, e9k, 32t`
-
-The execution optimizer also preserves explicitly requested pipeline/thread
-search bounds in run metadata and display. Without
-`allow_thread_oversubscription`, only legal shapes within the runner budget are
-executed; with the explicit override enabled, oversubscribed shapes are allowed
-and reported as such.
+For a custom exact runner, the execution optimizer derives its default thread
+budget from the selected runner itself (`2 × nproc`) rather than from a static
+runner-name table. Explicitly requested pipeline/thread search bounds remain
+unchanged in run metadata and display. Without `allow_thread_oversubscription`,
+only legal shapes within the detected runner budget are executed; with the
+explicit override enabled, oversubscribed shapes are allowed and reported as
+such.

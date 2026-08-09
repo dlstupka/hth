@@ -38,9 +38,12 @@ on:
         type: choice
         options:
           - any
-          - rh8-al320
-          - rh8-al97
-          - rh8-s32
+          - custom
+      custom_runner_label:
+        description: "Custom self-hosted runner label; used only when Specific self-hosted runner is custom"
+        required: false
+        default: ""
+        type: string
       test_file:
         description: "DOCX filename to process"
         required: true
@@ -61,6 +64,7 @@ jobs:
       mode: test
       runner: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'github-hosted' }}
       specific_runner: ${{ github.event_name == 'workflow_dispatch' && inputs.specific_runner || 'any' }}
+      custom_runner_label: ${{ github.event_name == 'workflow_dispatch' && inputs.custom_runner_label || '' }}
       source_repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898
       results_repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
       test_file: ${{ inputs.test_file || 'Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx' }}

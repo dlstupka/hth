@@ -45,13 +45,12 @@ on:
         type: choice
         options:
           - any
-          - rh8-al320
-          - rh8-al97
-          - rh8-s32
-          - self-hosted-hth
-          - self-hosted-rhel8
-          - self-hosted-windows
-          - github-hosted
+          - custom
+      custom_runner_label:
+        description: "Custom self-hosted runner label; used only when Specific self-hosted runner is custom"
+        required: false
+        default: ""
+        type: string
       pipeline_enumeration:
         description: Pipeline shape enumeration
         required: true
@@ -149,9 +148,7 @@ jobs:
   optimize:
     name: Optimize detector execution shapes
     runs-on: >-
-      ${{    inputs.specific_runner == 'rh8-al320' && fromJSON('["self-hosted","Linux","X64","e9k","192t"]')
-          || inputs.specific_runner == 'rh8-al97'  && fromJSON('["self-hosted","Linux","X64","e7k","96t"]')
-          || inputs.specific_runner == 'rh8-s32'   && fromJSON('["self-hosted","Linux","X64","e9k","32t"]')
+      ${{    inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && fromJSON(format('["self-hosted","{0}"]', inputs.custom_runner_label))
           || inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
           || inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
           || inputs.runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
@@ -181,9 +178,7 @@ jobs:
       PYTHONNOUSERSITE: "1"
       PYTHONUNBUFFERED: "1"
       HTH_RUNNER_LABELS: >-
-        ${{  inputs.specific_runner == 'rh8-al320' && 'self-hosted,linux,x64,e9k,192t'
-          || inputs.specific_runner == 'rh8-al97' && 'self-hosted,linux,x64,e7k,96t'
-          || inputs.specific_runner == 'rh8-s32' && 'self-hosted,linux,x64,e9k,32t'
+        ${{  inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && format('self-hosted,{0}', inputs.custom_runner_label)
           || inputs.runner == 'self-hosted-hth' && 'self-hosted,linux,x64,hth'
           || inputs.runner == 'self-hosted-rhel8' && 'self-hosted,linux,x64,rhel8'
           || inputs.runner == 'self-hosted-e7k' && 'self-hosted,linux,x64,e7k'
@@ -191,20 +186,14 @@ jobs:
           || inputs.runner == 'self-hosted-windows' && 'self-hosted,windows,x64'
           || 'ubuntu-latest' }}
       HTH_RUNNER_LABEL: >-
-        ${{  inputs.specific_runner == 'rh8-al320' && 'e9k'
-          || inputs.specific_runner == 'rh8-al97' && 'e7k'
-          || inputs.specific_runner == 'rh8-s32' && 'e9k'
+        ${{  inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && inputs.custom_runner_label
           || inputs.runner == 'self-hosted-hth' && 'hth'
           || inputs.runner == 'self-hosted-rhel8' && 'rhel8'
           || inputs.runner == 'self-hosted-e7k' && 'e7k'
           || inputs.runner == 'self-hosted-e9k' && 'e9k'
           || inputs.runner == 'self-hosted-windows' && 'windows'
           || 'github-hosted' }}
-      HTH_SPECIFIC_RUNNER_BUDGET: >-
-        ${{  inputs.specific_runner == 'rh8-al320' && '384'
-          || inputs.specific_runner == 'rh8-al97' && '192'
-          || inputs.specific_runner == 'rh8-s32' && '64'
-          || '' }}
+      HTH_SPECIFIC_RUNNER_BUDGET: ""
 
     steps:
       - name: Checkout HTH pipeline
@@ -615,7 +604,13 @@ jobs:
           ALLOW_THREAD_OVERSUBSCRIPTION: ${{ inputs.allow_thread_oversubscription }}
         run: |
           set -euo pipefail
-          if [[ -n "${HTH_SPECIFIC_RUNNER_BUDGET:-}" ]]; then
+          if [[ "${{ inputs.specific_runner }}" == "custom" ]]; then
+            if [[ -z "${{ inputs.custom_runner_label }}" ]]; then
+              echo "::error::custom_runner_label is required when specific_runner=custom"
+              exit 1
+            fi
+            budget="$(( $(nproc) * 2 ))"
+          elif [[ -n "${HTH_SPECIFIC_RUNNER_BUDGET:-}" ]]; then
             budget="$HTH_SPECIFIC_RUNNER_BUDGET"
           else
             budget="$(PYTHONPATH=hth-pipeline python - "$HTH_RUNNER_LABEL" <<'PYPLAN'
