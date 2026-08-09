@@ -368,7 +368,12 @@ def _completed_optimizer_detectors(results_root: Path) -> list[str]:
     return completed
 
 
-def generate_optimizer_report_all(results_root: Path, output_dir: Path) -> dict[str, Path]:
+def generate_optimizer_report_all(
+    results_root: Path,
+    output_dir: Path,
+    *,
+    note: str | None = None,
+) -> dict[str, Path]:
     detectors = _completed_optimizer_detectors(results_root)
     preferred_indices: list[dict[str, Any]] = []
     profiles_dir = output_dir / "profiles"
@@ -380,7 +385,14 @@ def generate_optimizer_report_all(results_root: Path, output_dir: Path) -> dict[
 
     output_dir.mkdir(parents=True, exist_ok=True)
     summary = output_dir / "summary.md"
-    summary.write_text(render_all_markdown(preferred_indices), encoding="utf-8")
+    text = render_all_markdown(preferred_indices)
+    if note:
+        marker = "### Execution optimizer summary\n\n"
+        if text.startswith(marker):
+            text = marker + f"> **Note:** {note}\n\n" + text[len(marker):]
+        else:
+            text = f"> **Note:** {note}\n\n{text}"
+    summary.write_text(text, encoding="utf-8")
     return {"summary": summary, "profiles": profiles_dir}
 
 
@@ -388,7 +400,16 @@ def generate_optimizer_report(results_root: Path, detector: str, output_dir: Pat
     if detector == "all":
         return generate_optimizer_report_all(results_root, output_dir)
 
-    current, preferred, run_metadata = _optimizer_report_components(results_root, detector)
+    try:
+        current, preferred, run_metadata = _optimizer_report_components(results_root, detector)
+    except ValueError as exc:
+        if "No completed persisted optimizer run found for detector" not in str(exc):
+            raise
+        return generate_optimizer_report_all(
+            results_root,
+            output_dir,
+            note="This is currently all available optimization data.",
+        )
     output_dir.mkdir(parents=True, exist_ok=True)
     summary = output_dir / "summary.md"
     profile = output_dir / "heatmap.svg"

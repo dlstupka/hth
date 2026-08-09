@@ -245,6 +245,33 @@ class ReportGeneratorTests(unittest.TestCase):
             self.assertGreaterEqual(summary.count("<details open>"), 3)
             self.assertIn("[↑ Back to Navigation](#table-of-contents)", summary)
 
+    def test_optimizer_report_missing_detector_falls_back_to_all_available_data(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            optimizer = {"runs": {"42": {
+                "detector_id": "adaptive_radial_edge",
+                "updated_at_utc": "2026-01-04T00:00:00Z",
+                "run_metadata": {"stop_reason": "range_complete"},
+            }}}
+            row = {"detector_id": "adaptive_radial_edge", "optimizer_run_id": "42", "source": "execution-optimizer",
+                   "mode": "full", "strategy": "exhaustive", "actual_parameter_sets": 10, "possible_parameter_sets": 10,
+                   "active_pipelines": 4, "shards": 4, "threads_per_pipeline": 2, "allocated_threads": 8,
+                   "wall_clock_seconds": 5, "parameter_sets_per_second": 2.0, "execution_shape": "4p/4s/2t",
+                   "optimizer_shape_sequence": 1,
+                   "runner": {"runner_label": "e7k", "runner_name": "host", "logical_cpu_count": 96,
+                              "cpu_model": "Example CPU", "physical_core_count": 48, "memory_gib": 2000.0}}
+            (root / "optimizer-index.json").write_text(json.dumps(optimizer), encoding="utf-8")
+            (root / "parallelism-index.json").write_text(json.dumps({"observations": [row]}), encoding="utf-8")
+
+            paths = generate_optimizer_report(root, "contour", root / "out")
+            summary = paths["summary"].read_text(encoding="utf-8")
+
+            self.assertIn("This is currently all available optimization data.", summary)
+            self.assertIn("Detector: `all`", summary)
+            self.assertIn("| adaptive_radial_edge |", summary)
+            self.assertTrue((root / "out" / "profiles" / "adaptive_radial_edge.svg").is_file())
+
+
     def test_optimizer_report_all_coalesces_completed_detectors(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
