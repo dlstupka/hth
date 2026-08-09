@@ -38,6 +38,16 @@ on:
         options:
           - self-hosted-e7k
           - self-hosted-e9k
+      specific_runner:
+        description: "Specific self-hosted runner; any keeps the selected runner class"
+        required: true
+        default: any
+        type: choice
+        options:
+          - any
+          - rh8-al320
+          - rh8-al97
+          - rh8-s32
           - self-hosted-hth
           - self-hosted-rhel8
           - self-hosted-windows
@@ -139,7 +149,10 @@ jobs:
   optimize:
     name: Optimize detector execution shapes
     runs-on: >-
-      ${{    inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+      ${{    inputs.specific_runner == 'rh8-al320' && fromJSON('["self-hosted","Linux","X64","e9k","192t"]')
+          || inputs.specific_runner == 'rh8-al97'  && fromJSON('["self-hosted","Linux","X64","e7k","96t"]')
+          || inputs.specific_runner == 'rh8-s32'   && fromJSON('["self-hosted","Linux","X64","e9k","32t"]')
+          || inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
           || inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
           || inputs.runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
           || inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
@@ -168,19 +181,30 @@ jobs:
       PYTHONNOUSERSITE: "1"
       PYTHONUNBUFFERED: "1"
       HTH_RUNNER_LABELS: >-
-        ${{  inputs.runner == 'self-hosted-hth' && 'self-hosted,linux,x64,hth'
+        ${{  inputs.specific_runner == 'rh8-al320' && 'self-hosted,linux,x64,e9k,192t'
+          || inputs.specific_runner == 'rh8-al97' && 'self-hosted,linux,x64,e7k,96t'
+          || inputs.specific_runner == 'rh8-s32' && 'self-hosted,linux,x64,e9k,32t'
+          || inputs.runner == 'self-hosted-hth' && 'self-hosted,linux,x64,hth'
           || inputs.runner == 'self-hosted-rhel8' && 'self-hosted,linux,x64,rhel8'
           || inputs.runner == 'self-hosted-e7k' && 'self-hosted,linux,x64,e7k'
           || inputs.runner == 'self-hosted-e9k' && 'self-hosted,linux,x64,e9k'
           || inputs.runner == 'self-hosted-windows' && 'self-hosted,windows,x64'
           || 'ubuntu-latest' }}
       HTH_RUNNER_LABEL: >-
-        ${{  inputs.runner == 'self-hosted-hth' && 'hth'
+        ${{  inputs.specific_runner == 'rh8-al320' && 'e9k'
+          || inputs.specific_runner == 'rh8-al97' && 'e7k'
+          || inputs.specific_runner == 'rh8-s32' && 'e9k'
+          || inputs.runner == 'self-hosted-hth' && 'hth'
           || inputs.runner == 'self-hosted-rhel8' && 'rhel8'
           || inputs.runner == 'self-hosted-e7k' && 'e7k'
           || inputs.runner == 'self-hosted-e9k' && 'e9k'
           || inputs.runner == 'self-hosted-windows' && 'windows'
           || 'github-hosted' }}
+      HTH_SPECIFIC_RUNNER_BUDGET: >-
+        ${{  inputs.specific_runner == 'rh8-al320' && '384'
+          || inputs.specific_runner == 'rh8-al97' && '192'
+          || inputs.specific_runner == 'rh8-s32' && '64'
+          || '' }}
 
     steps:
       - name: Checkout HTH pipeline
@@ -591,12 +615,16 @@ jobs:
           ALLOW_THREAD_OVERSUBSCRIPTION: ${{ inputs.allow_thread_oversubscription }}
         run: |
           set -euo pipefail
-          budget="$(PYTHONPATH=hth-pipeline python - "$HTH_RUNNER_LABEL" <<'PYPLAN'
+          if [[ -n "${HTH_SPECIFIC_RUNNER_BUDGET:-}" ]]; then
+            budget="$HTH_SPECIFIC_RUNNER_BUDGET"
+          else
+            budget="$(PYTHONPATH=hth-pipeline python - "$HTH_RUNNER_LABEL" <<'PYPLAN'
           import sys
           from hth.regression.sharding import runner_max_threads
           print(runner_max_threads(sys.argv[1]))
           PYPLAN
-          )"
+            )"
+          fi
 
           for name in PIPELINE_MIN PIPELINE_MAX THREAD_MIN THREAD_MAX; do
             value="${!name}"
@@ -618,13 +646,9 @@ jobs:
             exit 1
           fi
 
-          effective_thread_max="$THREAD_MAX"
-          effective_pipeline_max="$PIPELINE_MAX"
           if [[ "$ALLOW_THREAD_OVERSUBSCRIPTION" != "true" ]]; then
-            (( effective_thread_max > budget )) && effective_thread_max="$budget"
             feasible_pipeline_max=$((budget / THREAD_MIN))
-            (( effective_pipeline_max > feasible_pipeline_max )) && effective_pipeline_max="$feasible_pipeline_max"
-            if (( PIPELINE_MIN > effective_pipeline_max )); then
+            if (( PIPELINE_MIN > feasible_pipeline_max )); then
               echo "::error::No legal execution shape: pipeline minimum $PIPELINE_MIN with thread minimum $THREAD_MIN exceeds runner budget $budget"
               exit 1
             fi
@@ -635,7 +659,7 @@ jobs:
           pipelines="$(PYTHONPATH=hth-pipeline python -m hth.optimizer_search \
             --mode "$ENUMERATION" \
             --pipeline-min "$PIPELINE_MIN" \
-            --pipeline-max "$effective_pipeline_max" \
+            --pipeline-max "$PIPELINE_MAX" \
             --runner-budget "$budget" \
             --thread-min "$THREAD_MIN" \
             $([[ "$ALLOW_THREAD_OVERSUBSCRIPTION" == "true" ]] && printf '%s' '--allow-oversubscription'))"
@@ -645,10 +669,10 @@ jobs:
 
           echo "runner_budget=$budget" >> "$GITHUB_OUTPUT"
           echo "pipeline_min=$PIPELINE_MIN" >> "$GITHUB_OUTPUT"
-          echo "pipeline_max=$effective_pipeline_max" >> "$GITHUB_OUTPUT"
+          echo "pipeline_max=$PIPELINE_MAX" >> "$GITHUB_OUTPUT"
           echo "pipelines=$pipelines" >> "$GITHUB_OUTPUT"
           echo "thread_min=$THREAD_MIN" >> "$GITHUB_OUTPUT"
-          echo "thread_max=$effective_thread_max" >> "$GITHUB_OUTPUT"
+          echo "thread_max=$THREAD_MAX" >> "$GITHUB_OUTPUT"
           echo "allow_thread_oversubscription=$ALLOW_THREAD_OVERSUBSCRIPTION" >> "$GITHUB_OUTPUT"
           echo "Execution Optimizer"
           echo "==================="
@@ -656,8 +680,8 @@ jobs:
           echo "Runner               : $HTH_RUNNER_LABEL"
           echo "Runner thread budget : $budget"
           echo "Pipeline enumeration : $ENUMERATION"
-          echo "Pipeline range       : $PIPELINE_MIN-$effective_pipeline_max"
-          echo "Thread range         : $THREAD_MIN-$effective_thread_max per pipeline"
+          echo "Pipeline range       : $PIPELINE_MIN-$PIPELINE_MAX requested"
+          echo "Thread range         : $THREAD_MIN-$THREAD_MAX per pipeline requested"
           echo "Shapes               : $pipelines"
           echo "Oversubscription     : $ALLOW_THREAD_OVERSUBSCRIPTION"
           if [[ "$ALLOW_THREAD_OVERSUBSCRIPTION" == "true" ]]; then

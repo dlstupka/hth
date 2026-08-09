@@ -61,6 +61,16 @@ on:
           - self-hosted-rhel8
           - self-hosted-e7k
           - self-hosted-e9k
+      specific_runner:
+        description: "Specific self-hosted runner; any keeps the selected runner class"
+        required: true
+        default: any
+        type: choice
+        options:
+          - any
+          - rh8-al320
+          - rh8-al97
+          - rh8-s32
 
 permissions:
   contents: read
@@ -75,6 +85,7 @@ jobs:
     with:
       mode: report
       runner: ${{ inputs.runner }}
+      specific_runner: ${{ inputs.specific_runner }}
       results_repository: ${{ inputs.results_repository }}
       report_type: ${{ inputs.report }}
       report_algorithm: ${{ inputs.algorithm }}

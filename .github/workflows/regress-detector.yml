@@ -162,6 +162,16 @@ on:
           - self-hosted-rhel8
           - self-hosted-e7k
           - self-hosted-e9k
+      specific_runner:
+        description: "Specific self-hosted runner; any keeps the selected runner class"
+        required: true
+        default: any
+        type: choice
+        options:
+          - any
+          - rh8-al320
+          - rh8-al97
+          - rh8-s32
   
 permissions:
   contents: read
@@ -170,7 +180,7 @@ concurrency:
   group: >-
     ${{ github.workflow }}-${{ github.ref }}-${{
       github.event_name == 'workflow_dispatch'
-      && inputs.runner
+      && format('{0}-{1}', inputs.runner, inputs.specific_runner)
       || 'automatic'
     }}
   cancel-in-progress: false
@@ -182,7 +192,10 @@ jobs:
           && 'Regress detectors against Golden Set'
           || 'Smoke test detectors against Golden Set' }}
     runs-on: >-
-      ${{    github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+      ${{    github.event_name == 'workflow_dispatch' && inputs.specific_runner == 'rh8-al320' && fromJSON('["self-hosted","Linux","X64","e9k","192t"]')
+          || github.event_name == 'workflow_dispatch' && inputs.specific_runner == 'rh8-al97'  && fromJSON('["self-hosted","Linux","X64","e7k","96t"]')
+          || github.event_name == 'workflow_dispatch' && inputs.specific_runner == 'rh8-s32'   && fromJSON('["self-hosted","Linux","X64","e9k","32t"]')
+          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')

@@ -74,6 +74,8 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn('effective_threads > THREAD_MAX', text)
         self.assertIn('effective_threads < THREAD_MIN', text)
         self.assertIn('feasible_pipeline_max=$((budget / THREAD_MIN))', text)
+        self.assertIn('echo "pipeline_max=$PIPELINE_MAX"', text)
+        self.assertIn('echo "thread_max=$THREAD_MAX"', text)
         self.assertIn('ALLOW_THREAD_OVERSUBSCRIPTION', text)
         self.assertIn('effective_threads="$THREAD_MIN"', text)
         self.assertIn('OVERSUBSCRIBED execution shape', text)
@@ -123,6 +125,34 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertNotIn("optimizer_algorithm", text)
         self.assertNotIn("prepare-execution-optimizer", text)
         self.assertNotIn("optimizer_algorithm", text)
+
+
+    def test_manual_workflows_offer_specific_runner_selection(self) -> None:
+        workflow_dir = ROOT / ".github" / "workflows"
+        for name in (
+            "execution-optimizer.yml",
+            "regress-detector.yml",
+            "calibrate-geometry.yml",
+            "preprocess.yml",
+            "preprocess-test.yml",
+            "generate-report.yml",
+        ):
+            text = (workflow_dir / name).read_text(encoding="utf-8")
+            self.assertIn("specific_runner:", text, name)
+            self.assertIn("- any", text, name)
+            self.assertIn("- rh8-al320", text, name)
+            self.assertIn("- rh8-al97", text, name)
+            self.assertIn("- rh8-s32", text, name)
+
+    def test_specific_runners_use_unique_existing_label_combinations(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('["self-hosted","Linux","X64","e9k","192t"]', text)
+        self.assertIn('["self-hosted","Linux","X64","e7k","96t"]', text)
+        self.assertIn('["self-hosted","Linux","X64","e9k","32t"]', text)
+        self.assertIn("HTH_SPECIFIC_RUNNER_BUDGET", text)
+        self.assertIn("inputs.specific_runner == 'rh8-al320' && '384'", text)
+        self.assertIn("inputs.specific_runner == 'rh8-al97' && '192'", text)
+        self.assertIn("inputs.specific_runner == 'rh8-s32' && '64'", text)
 
 
 if __name__ == "__main__":

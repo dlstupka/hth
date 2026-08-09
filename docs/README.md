@@ -268,3 +268,20 @@ This directory contains the design, operating, and project-reference documentati
 - Manual detector regressions accept any integer from `1` through `1024` for both threads per active pipeline and maximum detector pipelines; `auto` remains available for threads.
 - `parallelism-index.json` records detector execution shapes independently from runtime queue history, including shards, active pipelines, threads per pipeline, allocated threads, measured wall-clock time, estimated serial runtime, and effective acceleration.
 - Parallelism experiments compare execution shapes such as `1×64`, `4×16`, and `8×8`; equal aggregate thread counts are not assumed to have equal performance.
+
+
+### Manual runner targeting
+
+Manual HTH workflows retain the existing runner-class selector and also expose a
+`Specific self-hosted runner` selector. `any` preserves class-based scheduling.
+The current exact selections use unique existing runner-label combinations:
+
+- `rh8-al320` -> `self-hosted, Linux, X64, e9k, 192t`
+- `rh8-al97` -> `self-hosted, Linux, X64, e7k, 96t`
+- `rh8-s32` -> `self-hosted, Linux, X64, e9k, 32t`
+
+The execution optimizer also preserves explicitly requested pipeline/thread
+search bounds in run metadata and display. Without
+`allow_thread_oversubscription`, only legal shapes within the runner budget are
+executed; with the explicit override enabled, oversubscribed shapes are allowed
+and reported as such.

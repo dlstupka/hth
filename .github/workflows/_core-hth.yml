@@ -48,6 +48,11 @@ on:
         required: false
         type: string
         default: "github-hosted"
+      specific_runner:
+        description: "Specific self-hosted runner; any keeps the selected runner class"
+        required: false
+        type: string
+        default: "any"
       report_type:
         description: "Report to regenerate when mode is report"
         required: false
@@ -80,7 +85,10 @@ jobs:
     if: ${{ inputs.mode != 'report' }}
     name: ${{ inputs.mode == 'production' && 'Preprocess complete collection' || inputs.mode == 'calibration' && 'Calibrate physical geometry' || 'Test one DOCX master' }}
     runs-on: >-
-      ${{    inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+      ${{    inputs.specific_runner == 'rh8-al320' && fromJSON('["self-hosted","Linux","X64","e9k","192t"]')
+          || inputs.specific_runner == 'rh8-al97'  && fromJSON('["self-hosted","Linux","X64","e7k","96t"]')
+          || inputs.specific_runner == 'rh8-s32'   && fromJSON('["self-hosted","Linux","X64","e9k","32t"]')
+          || inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
           || inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
           || inputs.runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
           || inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
@@ -1031,7 +1039,10 @@ jobs:
     if: ${{ inputs.mode == 'report' }}
     name: Generate HTH report
     runs-on: >-
-      ${{    inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+      ${{    inputs.specific_runner == 'rh8-al320' && fromJSON('["self-hosted","Linux","X64","e9k","192t"]')
+          || inputs.specific_runner == 'rh8-al97'  && fromJSON('["self-hosted","Linux","X64","e7k","96t"]')
+          || inputs.specific_runner == 'rh8-s32'   && fromJSON('["self-hosted","Linux","X64","e9k","32t"]')
+          || inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
           || inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
           || inputs.runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
           || inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
