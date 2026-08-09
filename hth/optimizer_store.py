@@ -579,8 +579,6 @@ def _read_jsonl(path: Path | None, optimizer_run_id: str | None = None) -> list[
             continue
         if optimizer_run_id is not None and str(row.get("optimizer_run_id")) != str(optimizer_run_id):
             continue
-        if optimizer_run_ids is not None and str(row.get("optimizer_run_id") or "") not in optimizer_run_ids:
-            continue
         rows.append(row)
     return rows
 

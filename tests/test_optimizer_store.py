@@ -103,6 +103,32 @@ class OptimizerStoreTests(unittest.TestCase):
             self.assertEqual(len([row for row in payload["observations"] if row.get("source") == "execution-optimizer"]), 520)
             self.assertEqual(len([row for row in payload["shard_observations"] if row.get("source") == "execution-optimizer"]), 5005)
 
+
+    def test_optimizer_artifacts_filter_runner_metrics_to_requested_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "parallelism-index.json").write_text(json.dumps({
+                "schema_version": "2.2",
+                "observations": [_row("a", "e7k", 1, 192, 6840, optimizer_run_id="100")],
+                "shard_observations": [],
+            }), encoding="utf-8")
+            metrics = root / "runner-metrics.jsonl"
+            metrics.write_text(
+                json.dumps({"optimizer_run_id": "99", "shape_sequence": 1, "load1": 1.0}) + "\n" +
+                json.dumps({"optimizer_run_id": "100", "shape_sequence": 1, "load1": 2.0}) + "\n",
+                encoding="utf-8",
+            )
+            paths = update_optimizer_artifacts(
+                root,
+                "adaptive_radial_edge",
+                optimizer_run_id="100",
+                runner_metrics_log=metrics,
+            )
+            payload = json.loads(paths["index"].read_text(encoding="utf-8"))
+            samples = payload["runs"]["100"]["runner_metrics_samples"]
+            self.assertEqual(len(samples), 1)
+            self.assertEqual(samples[0]["optimizer_run_id"], "100")
+
     def test_optimizer_artifacts_use_current_run_table_and_pipeline_sets_per_second_profile(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
