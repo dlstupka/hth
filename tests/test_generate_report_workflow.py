@@ -30,13 +30,19 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertIn("inputs.runner == 'self-hosted-e7k'", text)
         self.assertIn("inputs.runner == 'self-hosted-e9k'", text)
 
-    def test_core_report_summary_append_does_not_use_shell_heredoc(self) -> None:
+    def test_core_optimizer_summary_is_appended_after_report_publish(self) -> None:
         text = CORE.read_text(encoding="utf-8")
-        report_step = text.split("- name: Generate selected report", 1)[1].split("- name: Publish regenerated report", 1)[0]
-        self.assertIn("python -c", report_step)
-        self.assertNotIn("PYSUMMARY", report_step)
-        self.assertIn("report-run={run_id}", report_step)
-        self.assertIn("re.sub", report_step)
+        generate_step = text.split("- name: Generate selected report", 1)[1].split("- name: Publish regenerated report", 1)[0]
+        self.assertNotIn("report-run={run_id}", generate_step)
+        self.assertIn("- name: Publish optimizer report summary", text)
+        publish_pos = text.index("- name: Publish regenerated report")
+        summary_pos = text.index("- name: Publish optimizer report summary")
+        self.assertLess(publish_pos, summary_pos)
+        summary_step = text[summary_pos:]
+        self.assertIn("python -c", summary_step)
+        self.assertNotIn("PYSUMMARY", summary_step)
+        self.assertIn("report-run={run_id}", summary_step)
+        self.assertIn("re.sub", summary_step)
 
     def test_core_publishes_optimizer_report_directory_recursively(self) -> None:
         text = CORE.read_text(encoding="utf-8")

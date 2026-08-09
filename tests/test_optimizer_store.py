@@ -225,6 +225,17 @@ class OptimizerStoreTests(unittest.TestCase):
         self.assertNotIn("`binary`", markdown)
 
 
+    def test_legacy_binary_search_method_is_normalized_inside_multi_method_display(self) -> None:
+        parallelism_index = {"observations": [_row("a", "e7k", 1, 64, 2600, optimizer_run_id="100")]}
+        index = build_optimizer_index(parallelism_index, "adaptive_radial_edge", optimizer_run_id="100")
+        markdown = render_markdown(
+            index,
+            run_metadata={"pipeline_enumeration": "binary, exhaustive", "optimization_wall_seconds": 2600},
+        )
+        self.assertIn("`powers-of-2, exhaustive`", markdown)
+        self.assertNotIn("`binary, exhaustive`", markdown)
+
+
 
 if __name__ == "__main__":
     unittest.main()

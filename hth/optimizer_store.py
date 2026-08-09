@@ -264,8 +264,18 @@ def _run_metadata_lookup(index: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def _display_search_method(value: Any) -> str:
-    method = str(value or "unknown")
-    return "powers-of-2" if method == "binary" else method
+    """Normalize optimizer search-method names for report presentation.
+
+    Historical metadata may contain the legacy ``binary`` name either alone or
+    inside a comma-separated/multi-value representation.  Normalize each token
+    without rewriting persisted optimizer evidence.
+    """
+    if isinstance(value, (list, tuple, set)):
+        methods = [str(item).strip() for item in value if str(item).strip()]
+    else:
+        methods = [item.strip() for item in str(value or "unknown").split(",") if item.strip()]
+    normalized = ["powers-of-2" if method == "binary" else method for method in methods]
+    return ", ".join(normalized) if normalized else "unknown"
 
 
 def _shape_search_method(index: dict[str, Any], shape: dict[str, Any]) -> str:
