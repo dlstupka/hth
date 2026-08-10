@@ -43,6 +43,11 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertIn("python -c", summary_step)
         self.assertIn("report-run={run_id}", summary_step)
         self.assertIn("re.sub", summary_step)
+        optimizer_summary_tail = summary_step.split('"$GITHUB_RUN_ID"', 1)[1]
+        self.assertTrue(
+            optimizer_summary_tail.lstrip().startswith("fi"),
+            "report-summary detector/optimizer conditional must be closed",
+        )
 
     def test_core_report_publish_retries_concurrent_results_updates_with_regeneration(self) -> None:
         text = CORE.read_text(encoding="utf-8")

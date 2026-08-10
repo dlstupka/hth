@@ -1207,3 +1207,4 @@ jobs:
               "$RESULTS_REPOSITORY" \
               "${{ inputs.report_algorithm }}" \
               "$GITHUB_RUN_ID"
+          fi
