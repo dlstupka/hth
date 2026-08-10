@@ -9,11 +9,11 @@ on:
       algorithm:
         description: Detector algorithm(s) to benchmark
         required: true
-        default: adaptive_radial_edge
+        default: all-without-preference
         type: choice
         options:
-          - all
           - all-without-preference
+          - all
           - contour
           - contour_quad
           - contour_components

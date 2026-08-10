@@ -370,3 +370,7 @@ This ownership boundary keeps policy in one layer: the optimizer chooses a legal
 ### Execution optimizer target modes
 
 The manual execution optimizer detector selector also provides `all` and `all-without-preference`. `all` dispatches one normal optimizer workflow run for every configured detector while preserving the selected runner, bounds, resume policy, and search method. `all-without-preference` dispatches only detectors that do not yet appear in the persisted preferred executor configuration index. Individual dispatched runs remain ordinary single-detector optimizer runs, so persistence, resume, reporting, and runner scheduling retain the same behavior. The default pipeline-shape search is `adaptive`.
+
+### Fill missing exhaustive calibration evidence
+
+The manual detector-regression selector places `all-without-exhaustive` first. This mode reads the current results-repository `calibration-index.json` and dispatches one ordinary detector regression for each configured detector that lacks compatible completed exhaustive evidence for the current Golden Set hash and detector-configuration hash. The dispatched child runs are always `full`, `exhaustive`, and unlimited; execution-shape and runner selections are preserved. Each child is an ordinary single-detector workflow run, so GitHub Actions can schedule them concurrently across every online self-hosted runner matching the selected labels, while excess detector jobs simply queue.

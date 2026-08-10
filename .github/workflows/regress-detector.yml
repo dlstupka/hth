@@ -1,7 +1,9 @@
 name: HTH detector regression
 
 run-name: >-
-  ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
+  ${{ github.event_name == 'workflow_dispatch' && inputs.algorithm == 'all-without-exhaustive'
+      && 'Regress detectors without exhaustive calibration'
+      || github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
       && 'Regress detectors against Golden Set'
       || 'Smoke test detectors against Golden Set' }}
 
@@ -29,9 +31,10 @@ on:
       algorithm:
         description: Detector algorithm to regress
         required: true
-        default: all
+        default: all-without-exhaustive
         type: choice
         options:
+          - all-without-exhaustive
           - all
           - contour
           - contour_quad
@@ -181,18 +184,72 @@ on:
           - verbose
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: >-
     ${{ github.workflow }}-${{ github.ref }}-${{
       github.event_name == 'workflow_dispatch'
-      && format('{0}-{1}-{2}', inputs.runner, inputs.specific_runner, inputs.custom_runner_label)
+      && format('{0}-{1}-{2}-{3}', inputs.runner, inputs.specific_runner, inputs.custom_runner_label, inputs.algorithm)
       || 'automatic'
     }}
   cancel-in-progress: false
 
 jobs:
+  dispatch-missing-exhaustive:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.algorithm == 'all-without-exhaustive' }}
+    name: Dispatch detectors without exhaustive regression
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
+        with:
+          path: hth-pipeline
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout results repository
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.results_repository }}
+          path: results-repo
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.HTH_RESULTS_TOKEN }}
+
+      - name: Dispatch missing exhaustive detector regressions
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python -m hth.regression_dispatch \
+            --mode all-without-exhaustive \
+            --detector-dir hth-pipeline/config/detectors \
+            --calibration-index results-repo/calibration-index.json \
+            --golden-set "hth-pipeline/${{ inputs.golden_set }}" \
+            --repository "$GITHUB_REPOSITORY" \
+            --ref "${{ github.ref_name }}" \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            --results-repository "${{ inputs.results_repository }}" \
+            --image-root "${{ inputs.image_root }}" \
+            --execution-shape "${{ inputs.execution_shape }}" \
+            --manual-execution-shape "${{ inputs.manual_execution_shape }}" \
+            --runner "${{ inputs.runner }}" \
+            --specific-runner "${{ inputs.specific_runner }}" \
+            --custom-runner-label "${{ inputs.custom_runner_label }}" \
+            --max-dimension "${{ inputs.max_dimension }}" \
+            --shards "${{ inputs.shards }}" \
+            --shard-target-minutes "${{ inputs.shard_target_minutes }}" \
+            --shard-lease-minutes "${{ inputs.shard_lease_minutes }}" \
+            --detector-loading-strategy "${{ inputs.detector_loading_strategy }}" \
+            --pipeline-stagger-minutes "${{ inputs.pipeline_stagger_minutes }}" \
+            --top "${{ inputs.top }}" \
+            --debug-level "${{ inputs.debug_level }}"
+
   regress:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.algorithm != 'all-without-exhaustive' }}
     strategy:
       fail-fast: false
       matrix:

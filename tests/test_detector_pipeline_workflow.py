@@ -148,3 +148,15 @@ def test_preferred_shape_resolution_falls_back_to_auto_and_exact_shape_is_explic
     assert 'echo "SHARDS=$pipelines"' in text
     assert 'echo "DETECTOR_PIPELINES=$pipelines"' in text
     assert 'echo "THREADS=$threads"' in text
+
+
+def test_all_without_exhaustive_is_first_and_dispatches_missing_authoritative_runs() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "default: all-without-exhaustive" in text
+    assert text.index("          - all-without-exhaustive\n") < text.index("          - all\n")
+    assert "dispatch-missing-exhaustive:" in text
+    assert "python -m hth.regression_dispatch" in text
+    assert "inputs.algorithm != 'all-without-exhaustive'" in text
+    assert "actions: write" in text
+    assert "inputs.algorithm" in text.split("concurrency:", 1)[1].split("jobs:", 1)[0]
+

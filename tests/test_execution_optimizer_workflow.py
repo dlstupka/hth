@@ -35,7 +35,8 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
     def test_execution_optimizer_supports_single_or_dispatcher_target_modes(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("- all", text)
-        self.assertIn("- all-without-preference", text)
+        self.assertIn("default: all-without-preference", text)
+        self.assertLess(text.index("          - all-without-preference\n"), text.index("          - all\n"))
         self.assertIn("dispatch-detectors:", text)
         self.assertIn("name: Dispatch detector optimizer runs", text)
         self.assertIn("inputs.algorithm != 'all'", text)

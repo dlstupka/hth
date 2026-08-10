@@ -287,3 +287,5 @@ explicit override enabled, oversubscribed shapes are allowed and reported as
 such.
 
 - Optimizer measurements use an optimizer-owned exact execution-shape contract: the optimizer selects the pipeline/thread shape and the regression driver executes it without applying a second thread clamp.
+
+- Manual detector regression exposes `all-without-exhaustive` as the first/default detector target. It filters against the persisted calibration index using the current Golden Set and detector-configuration hashes, then dispatches one ordinary full, unlimited exhaustive regression per missing detector. Runner and execution-shape choices are preserved, allowing GitHub Actions to spread those child runs across all online runners matching the selected self-hosted labels.
