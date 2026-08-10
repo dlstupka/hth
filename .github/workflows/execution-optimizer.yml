@@ -7,11 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       algorithm:
-        description: Single detector algorithm to benchmark
+        description: Detector algorithm(s) to benchmark
         required: true
         default: adaptive_radial_edge
         type: choice
         options:
+          - all
+          - all-without-preference
           - contour
           - contour_quad
           - contour_components
@@ -54,7 +56,7 @@ on:
       pipeline_enumeration:
         description: Pipeline shape enumeration
         required: true
-        default: exhaustive
+        default: adaptive
         type: choice
         options:
           - exhaustive
@@ -139,13 +141,68 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: execution-optimizer-${{ github.ref }}-${{ inputs.runner }}-${{ inputs.algorithm }}
   cancel-in-progress: false
 
 jobs:
+  dispatch-detectors:
+    if: ${{ inputs.algorithm == 'all' || inputs.algorithm == 'all-without-preference' }}
+    name: Dispatch detector optimizer runs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
+        with:
+          path: hth-pipeline
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout results repository
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.results_repository }}
+          path: results-repo
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.HTH_RESULTS_TOKEN }}
+
+      - name: Dispatch selected detector optimizer runs
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python -m hth.optimizer_dispatch \
+            --mode "${{ inputs.algorithm }}" \
+            --detector-dir hth-pipeline/config/detectors \
+            --optimizer-index results-repo/optimizer-index.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --ref "${{ github.ref_name }}" \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            --runner "${{ inputs.runner }}" \
+            --specific-runner "${{ inputs.specific_runner }}" \
+            --custom-runner-label "${{ inputs.custom_runner_label }}" \
+            --pipeline-enumeration "${{ inputs.pipeline_enumeration }}" \
+            --pipeline-min "${{ inputs.pipeline_min }}" \
+            --pipeline-max "${{ inputs.pipeline_max }}" \
+            --thread-min "${{ inputs.thread_min }}" \
+            --thread-max "${{ inputs.thread_max }}" \
+            --allow-thread-oversubscription "${{ inputs.allow_thread_oversubscription }}" \
+            --early-stop "${{ inputs.early_stop }}" \
+            --resume "${{ inputs.resume }}" \
+            --results-repository "${{ inputs.results_repository }}" \
+            --golden-set "${{ inputs.golden_set }}" \
+            --image-root "${{ inputs.image_root }}" \
+            --max-dimension "${{ inputs.max_dimension }}" \
+            --strategy "${{ inputs.strategy }}" \
+            --debug-level "${{ inputs.debug_level }}"
+
   optimize:
+    if: ${{ inputs.algorithm != 'all' && inputs.algorithm != 'all-without-preference' }}
     name: Optimize detector execution shapes
     runs-on: >-
       ${{    inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && fromJSON(format('["self-hosted","{0}"]', inputs.custom_runner_label))

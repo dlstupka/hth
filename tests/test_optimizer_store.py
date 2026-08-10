@@ -59,7 +59,7 @@ class OptimizerStoreTests(unittest.TestCase):
         best = select_preferred_shape(shapes)
         self.assertEqual(best["pipelines"], 6)
 
-    def test_profile_plot_staggers_dense_thread_labels_and_adds_peak_headroom(self) -> None:
+    def test_profile_plot_uses_consistent_thread_label_placement_and_peak_headroom(self) -> None:
         rows = [
             _row("p5", "e7k", 5, 76, 243.04),
             _row("p6", "e7k", 6, 64, 243.04),
@@ -69,7 +69,8 @@ class OptimizerStoreTests(unittest.TestCase):
         ]
         index = build_optimizer_index({"observations": rows}, "adaptive_radial_edge")
         svg = render_heatmap_svg(index)
-        self.assertIn('text-anchor="end"', svg)
+        self.assertIn('text-anchor="start" font-size="10">76t</text>', svg)
+        self.assertIn('text-anchor="start" font-size="10">64t</text>', svg)
         self.assertIn('76t</text>', svg)
         self.assertIn('64t</text>', svg)
         self.assertIn('42t</text>', svg)
@@ -189,6 +190,8 @@ class OptimizerStoreTests(unittest.TestCase):
             self.assertIn("Preferred Detector Run Configuration", markdown)
             self.assertIn("Preferred shape range (≤2%)", markdown)
             self.assertIn("Search method", markdown)
+            self.assertIn("Search method legend", markdown)
+            self.assertIn("powers-of-2", markdown)
             self.assertIn("Optimization time", markdown)
             self.assertIn("Shape time", markdown)
             self.assertIn("adaptive", markdown)

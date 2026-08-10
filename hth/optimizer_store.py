@@ -384,7 +384,11 @@ def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
                 observations=best.get("observation_count") or 1,
             )
         )
-    lines.append("")
+    lines.extend([
+        "",
+        "**Search method legend:** `adaptive` = sparse wide-range search with local refinement around the measured peak and ≤2% preferred-shape boundaries; `powers-of-2` = logarithmic power-of-two pipeline sweep; `exhaustive` = every legal pipeline count in the requested range.",
+        "",
+    ])
     return lines
 
 
@@ -557,10 +561,18 @@ def render_all_markdown(indices: list[dict[str, Any]]) -> str:
         "|---|---|---|---:|---:|---:|---:|---:|---|---|---:|---:|---:|---:|---:|",
     ]
     for index in indices:
-        for row in _render_preferred_configuration(index)[4:-1]:
-            if row:
+        for row in _render_preferred_configuration(index)[4:]:
+            if row.startswith("| "):
                 lines.append(row)
-    lines.extend(["", "</details>", "", "[↑ Back to Navigation](#table-of-contents)", ""])
+    lines.extend([
+        "",
+        "**Search method legend:** `adaptive` = sparse wide-range search with local refinement around the measured peak and ≤2% preferred-shape boundaries; `powers-of-2` = logarithmic power-of-two pipeline sweep; `exhaustive` = every legal pipeline count in the requested range.",
+        "",
+        "</details>",
+        "",
+        "[↑ Back to Navigation](#table-of-contents)",
+        "",
+    ])
 
     lines.extend([
         '<a id="detector-run-profile-plot"></a>',
@@ -681,19 +693,11 @@ def render_heatmap_svg(index: dict[str, Any]) -> str:
             radius = 7 if is_best else 5
             parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{color}" class="point"/>')
             threads = shape.get("threads_per_pipeline") or "?"
-            prev_x = coords[point_index - 1][0] if point_index > 0 else None
-            next_x = coords[point_index + 1][0] if point_index + 1 < len(coords) else None
-            dense = ((prev_x is not None and abs(x - prev_x) < 58) or (next_x is not None and abs(next_x - x) < 58))
-            if dense:
-                level = point_index % 3
-                label_y = y - (12 + level * 12)
-                if point_index % 2:
-                    label_x, anchor = x - 7, "end"
-                else:
-                    label_x, anchor = x + 7, "start"
-            else:
-                label_x, label_y, anchor = x + 8, y - 8, "start"
-            label_y = max(84.0, label_y)
+            # Keep thread annotations deliberately simple. The earlier collision
+            # staggering made dense adaptive neighborhoods harder to read than
+            # the original consistent placement. Extra plot headroom remains,
+            # so labels can sit just above/right of their measured point.
+            label_x, label_y, anchor = x + 8, y - 8, "start"
             parts.append(f'<text x="{label_x:.1f}" y="{label_y:.1f}" text-anchor="{anchor}" font-size="10">{threads}t</text>')
         legend_y = 78 + runner_index * 18
         parts.append(f'<rect x="{width - 320}" y="{legend_y - 10}" width="12" height="12" fill="{color}"/>')
