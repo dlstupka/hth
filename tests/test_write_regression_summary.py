@@ -200,8 +200,8 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("| Source | Pipelines | Threads / pipeline | Allocated | Runner | Runner budget |", text)
             self.assertIn("| `preferred-exact-runner` | 8 | 48 | 384 | `rh8-test` | 384 |", text)
             self.assertIn("### Top Parameter Sets", text)
-            self.assertIn("| Rank | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Failures | Discovery Time | Search Space % |", text)
-            self.assertIn("| 1 | `winner` | `calibrated-winner` | 0.9700 | 0.9100 | unknown | +0.0000 | 0 | 12s | 4.76% |", text)
+            self.assertIn("| Rank | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Avg IoU Success | Failures | Discovery Time | Search Space % |", text)
+            self.assertIn("| 1 | `winner` | `calibrated-winner` | 0.9700 | 0.9100 | unknown | +0.0000 | 0.9700 | 0 | 12s | 4.76% |", text)
             self.assertIn("### Golden Set Winner Summary", text)
             self.assertIn("| Golden Set Page | Parameter Set ID | Baseline | Winner | Δ IoU | Status |", text)
             self.assertIn("| 1 | `winner` | 0.9000 | 0.9700 | +0.0700 | Improved |", text)
@@ -464,8 +464,8 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertLess(text.index("<summary><h2>Detector Calibration Report</h2></summary>"), text.index("<summary><h2>Detector Regression Reports</h2></summary>"))
             self.assertIn("| Rank | Detector | Detector ID | Role | Golden Set ID | Status | Parameter Set ID | Parameter Short Name | Avg IoU |", text)
             self.assertIn("| Eval Rate | Doc Time | Run Elapsed |", text)
-            contour_row = "| 1 | Contour Envelope | `contour` | Generator | `HTH-TEST` | complete | `contour` | `baseline` | 0.9200 | 0.7800 | 0.0300 | 0 | 1 | 10.00 pg/s | 1m 33s | 1s |"
-            grabcut_row = "| 2 | GrabCut Segmentation | `grabcut` | Generator | `HTH-TEST` | complete | `grabcut` | `baseline` | 0.8800 | 0.8200 | 0.0200 | 0 | 1 | 4.000 pg/s | 3m 52s | 1s |"
+            contour_row = "| 1 | Contour Envelope | `contour` | Generator | `HTH-TEST` | complete | `contour` | `baseline` | 0.9200 | 0.7800 | 0.0300 | 0.9200 | 0 | 1 | 10.00 pg/s | 1m 33s | 1s |"
+            grabcut_row = "| 2 | GrabCut Segmentation | `grabcut` | Generator | `HTH-TEST` | complete | `grabcut` | `baseline` | 0.8800 | 0.8200 | 0.0200 | 0.8800 | 0 | 1 | 4.000 pg/s | 3m 52s | 1s |"
             self.assertIn(contour_row, text)
             self.assertIn(grabcut_row, text)
             self.assertLess(text.index(contour_row), text.index(grabcut_row))

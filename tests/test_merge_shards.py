@@ -85,3 +85,30 @@ def test_reconstructed_result_preserves_local_completion_without_elapsed(tmp_pat
     observation = _results_from_raw(raw)[0]["search_observation"]
     assert observation["completion_index"] == 3
     assert observation["elapsed_seconds"] is None
+
+
+def test_reconstructed_mean_includes_failed_pages_as_zero(tmp_path) -> None:
+    raw = tmp_path / "results.csv"
+    _write_raw_row(raw, status="ok", iou=0.9638)
+    rows = list(csv.DictReader(raw.open(encoding="utf-8")))
+    fields = list(rows[0].keys())
+    with raw.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerow(rows[0])
+        for ordinal in range(2, 6):
+            failed = dict(rows[0])
+            failed["global_ordinal"] = ordinal
+            failed["label"] = f"page-{ordinal}"
+            failed["status"] = "no_candidate"
+            failed["iou"] = 0.0
+            failed["edge_error_mean_px"] = ""
+            failed["edge_error_maximum_px"] = ""
+            failed["predicted_bbox_json"] = "null"
+            writer.writerow(failed)
+    summary = _results_from_raw(raw)[0]["summary"]
+    assert summary["success_count"] == 1
+    assert summary["failure_count"] == 4
+    assert summary["mean_iou"] == 0.19276
+    assert summary["mean_iou_success"] == 0.9638
+    assert summary["minimum_iou"] == 0.0

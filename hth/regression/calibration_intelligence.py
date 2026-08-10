@@ -403,6 +403,7 @@ def build_calibration_intelligence(
         "recommended_parameter_set_id": winner_parameter_set_id,
         "recommended_parameters": winner_parameters,
         "best_avg_iou": winner_summary.get("mean_iou"),
+        "avg_iou_success": winner_summary.get("mean_iou_success", winner_summary.get("mean_iou")),
         "minimum_iou": winner_summary.get("minimum_iou"),
         "stddev_iou": winner_summary.get("stddev_iou"),
         "failure_count": winner_summary.get("failure_count"),

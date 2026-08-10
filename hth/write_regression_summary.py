@@ -652,9 +652,9 @@ def build_summary(
         "",
         "### Result",
         "",
-        "| Result | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Failures | Evaluation Time |",
-        "|---|---|---|---:|---:|---:|---:|---:|",
-        f"| Winner | `{_parameter_id(winner)}` | `{_parameter_short_name(winner)}` | {_number(winner_stats.get('mean_iou'))} | {_number(winner_stats.get('minimum_iou'))} | {_number(winner_stats.get('stddev_iou'))} | {winner_stats.get('failure_count', 'unknown')} | {_duration(_evaluation_seconds(winner))} |",
+        "| Result | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Avg IoU Success | Failures | Evaluation Time |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|",
+        f"| Winner | `{_parameter_id(winner)}` | `{_parameter_short_name(winner)}` | {_number(winner_stats.get('mean_iou'))} | {_number(winner_stats.get('minimum_iou'))} | {_number(winner_stats.get('stddev_iou'))} | {_number(winner_stats.get('mean_iou_success', winner_stats.get('mean_iou')))} | {winner_stats.get('failure_count', 'unknown')} | {_duration(_evaluation_seconds(winner))} |",
     ])
     if baseline and _parameter_id(baseline) != _parameter_id(winner):
         lines.append(
@@ -662,6 +662,7 @@ def build_summary(
             f"{_number(baseline_stats.get('mean_iou'))} | "
             f"{_number(baseline_stats.get('minimum_iou'))} | "
             f"{_number(baseline_stats.get('stddev_iou'))} | "
+            f"{_number(baseline_stats.get('mean_iou_success', baseline_stats.get('mean_iou')))} | "
             f"{baseline_stats.get('failure_count', 'unknown')} | "
             f"{_duration(_evaluation_seconds(baseline))} |"
         )
@@ -684,7 +685,8 @@ def build_summary(
             "",
             "### Metric Definitions",
             "",
-            "- **Avg IoU:** Arithmetic mean of the winner's page IoUs across the Golden Set; the primary detector-ranking metric.",
+            "- **Avg IoU:** Arithmetic mean across every Golden Set page; failed/no-candidate pages contribute `0.0000` and remain in the denominator. This is the primary detector-ranking metric.",
+            "- **Avg IoU Success:** Arithmetic mean across successful Golden Set page evaluations only; failed/no-candidate pages are excluded.",
             "- **Min IoU:** Lowest single-page IoU produced by the parameter set; exposes the worst Golden Set page rather than the worst parameter set.",
             "- **StdDev:** Population standard deviation of page IoUs; lower values indicate more even page-to-page performance, but must be interpreted with Avg IoU and Min IoU.",
             "- **Failures:** Number of Golden Set pages that could not be evaluated successfully.",
@@ -713,8 +715,8 @@ def build_summary(
             "",
             "### Top Parameter Sets",
             "",
-            "| Rank | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Failures | Discovery Time | Search Space % |",
-            "|---:|---|---|---:|---:|---:|---:|---:|---:|---:|",
+            "| Rank | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Avg IoU Success | Failures | Discovery Time | Search Space % |",
+            "|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
         ])
         for result in top_parameter_sets[:5]:
             stats = result.get("summary", {}) if isinstance(result, dict) else {}
@@ -728,7 +730,7 @@ def build_summary(
                 f"| {result.get('rank', 'unknown')} | `{_parameter_id(result)}` | `{parameter_set_name}` | "
                 f"{_number(mean_iou)} | {_number(stats.get('minimum_iou'))} | "
                 f"{_number(stats.get('stddev_iou'))} | {delta_mean_iou:+.4f} | "
-                f"{failure_count} | {_duration(observation.get('elapsed_seconds'))} | "
+                f"{_number(stats.get('mean_iou_success', stats.get('mean_iou')))} | {failure_count} | {_duration(observation.get('elapsed_seconds'))} | "
                 f"{_search_space_percent(observation)} |"
             )
 
@@ -877,6 +879,7 @@ def build_summary(
             f"- Recommended parameter set: `{_parameter_id(winner)}`",
             f"- Recommended parameter short name: `{_parameter_short_name(winner)}`",
             f"- Best observed Avg IoU: `{_number(winner_stats.get('mean_iou'))}`",
+            f"- Avg IoU Success: `{_number(winner_stats.get('mean_iou_success', winner_stats.get('mean_iou')))}`",
             f"- Worst Golden Set page (Min IoU): `{_number(winner_stats.get('minimum_iou'))}`",
             f"- Page-to-page StdDev: `{_number(winner_stats.get('stddev_iou'))}`",
             f"- Calibration evidence: `{confidence.get('rating', 'unknown')}`",
@@ -989,6 +992,7 @@ def _calibration_record_from_payload(
     winner_stats = winner.get("summary", {}) if winner else {}
     baseline_stats = baseline.get("summary", {}) if baseline else {}
     mean_iou = selection.get("best_avg_iou", winner_stats.get("mean_iou", landscape.get("best_mean_iou")))
+    mean_iou_success = selection.get("avg_iou_success", winner_stats.get("mean_iou_success", mean_iou))
     minimum_iou = selection.get("minimum_iou", winner_stats.get("minimum_iou"))
     stddev_iou = selection.get("stddev_iou", winner_stats.get("stddev_iou"))
     failures = selection.get("failure_count", winner_stats.get("failure_count", "unknown"))
@@ -1024,6 +1028,7 @@ def _calibration_record_from_payload(
         "parameter_sets": search.get("parameter_sets", (entry.get("search") or {}).get("parameter_sets", "unknown")),
         "successful_rate": search.get("fully_successful_rate"),
         "mean_iou": mean_iou,
+        "mean_iou_success": mean_iou_success,
         "minimum_iou": minimum_iou,
         "stddev_iou": stddev_iou,
         "failures": failures,
@@ -1183,8 +1188,8 @@ def _render_best_known_calibrations(
         "**Engineering Decision**", "",
         "This table is the authoritative detector ranking for this Golden Set. The Rank #1 detector is the current engineering recommendation based on the best approved calibration available for this Golden Set.", "",
         "This table prefers compatible full calibrations when available and falls back to the latest smoke evidence for detectors without a full calibration on this Golden Set.", "",
-        "| Rank | Detector | Detector ID | Role | Golden Set ID | Date | Build* | Est. Serial Runtime** | Parameter Set ID | Parameter Sets | Search Type | Successful Parameter Sets | Best Avg IoU | Min IoU | StdDev | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence | Approval Level |",
-        "|---:|---|---|---|---|---|---|---:|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
+        "| Rank | Detector | Detector ID | Role | Golden Set ID | Date | Build* | Est. Serial Runtime** | Parameter Set ID | Parameter Sets | Search Type | Successful Parameter Sets | Best Avg IoU | Min IoU | StdDev | Avg IoU Success | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence | Approval Level |",
+        "|---:|---|---|---|---|---|---|---:|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
     ]
     for rank, row in enumerate(records, start=1):
         delta = row.get("delta_baseline_mean_iou")
@@ -1211,6 +1216,7 @@ def _render_best_known_calibrations(
             _number(row.get("mean_iou")),
             _number(row.get("minimum_iou")),
             _number(row.get("stddev_iou")),
+            _number(row.get("mean_iou_success", row.get("mean_iou"))),
             str(row.get("failures", "unknown")),
             delta_text,
             _percent(row.get("near_best_share")),
@@ -1719,6 +1725,7 @@ def _combined_result_row(run_dir: Path) -> dict[str, Any]:
         "parameter_short_name": _parameter_short_name(winner),
         "parameter_set_id": _parameter_id(winner),
         "mean_iou": winner_stats.get("mean_iou"),
+        "mean_iou_success": winner_stats.get("mean_iou_success", winner_stats.get("mean_iou")),
         "minimum_iou": winner_stats.get("minimum_iou"),
         "stddev_iou": winner_stats.get("stddev_iou"),
         "baseline_mean_iou": baseline_stats.get("mean_iou"),
@@ -1828,15 +1835,15 @@ def build_combined_summary(
         "",
         "## Ranked Detector Smoke Test Results",
         "",
-        "| Rank | Detector | Detector ID | Role | Golden Set ID | Status | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Failures | Parameter Sets | Eval Rate | Doc Time | Run Elapsed |",
-        "|---:|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Rank | Detector | Detector ID | Role | Golden Set ID | Status | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Avg IoU Success | Failures | Parameter Sets | Eval Rate | Doc Time | Run Elapsed |",
+        "|---:|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ])
     for rank, row in enumerate(combined_rows, start=1):
         lines.append(
             f"| {rank} | {row['detector_name']} | `{row['detector']}` | {_detector_characterization(str(row['detector'])).get('role', 'Unknown')} | `{_display_golden_set_id(row.get('golden_set_id', 'unknown'))}` | {row['status']} | "
             f"`{row['parameter_set_id']}` | `{row['parameter_short_name']}` | {_number(row['mean_iou'])} | "
             f"{_number(row['minimum_iou'])} | {_number(row['stddev_iou'])} | "
-            f"{row['failures']} | {row['parameter_sets']} | "
+            f"{_number(row.get('mean_iou_success', row['mean_iou']))} | {row['failures']} | {row['parameter_sets']} | "
             f"{_format_page_rate(row['page_rate'])} | {_duration(row['document_seconds'])} | "
             f"{_duration(row['elapsed_seconds'])} |"
         )
@@ -1844,7 +1851,8 @@ def build_combined_summary(
         "",
         "### Metric Definitions",
         "",
-        "- **Avg IoU:** Arithmetic mean of a detector winner's page IoUs across the Golden Set; this is the primary ranking metric.",
+        "- **Avg IoU:** Arithmetic mean across every Golden Set page; failed/no-candidate pages contribute `0.0000` and remain in the denominator. This is the primary ranking metric.",
+        "- **Avg IoU Success:** Arithmetic mean across successful Golden Set page evaluations only; failed/no-candidate pages are excluded.",
         "- **Min IoU:** Lowest single-page IoU produced by that winner across the Golden Set. It exposes the detector's weakest evaluated page; it is not the minimum Avg IoU across parameter sets.",
         "- **StdDev:** Population standard deviation of the winner's page IoUs. Lower values indicate more even page-to-page performance, but a uniformly poor detector can also have a low StdDev, so read it with Avg IoU and Min IoU.",
         "- **Failures:** Number of Golden Set pages the winning parameter set could not evaluate successfully.",

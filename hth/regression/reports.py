@@ -50,8 +50,8 @@ def write_raw_results(path: Path, ranked: list[dict[str, Any]]) -> None:
 
 
 def write_rankings(path: Path, ranked: list[dict[str, Any]]) -> None:
-    fields=["rank","parameter_set_id","profile","mean_iou","minimum_iou","mean_edge_error_px","failure_count","elapsed_ms_total","parameters_json"]
+    fields=["rank","parameter_set_id","profile","mean_iou","minimum_iou","mean_edge_error_px","mean_iou_success","failure_count","elapsed_ms_total","parameters_json"]
     with path.open("w",newline="",encoding="utf-8") as h:
         w=csv.DictWriter(h,fieldnames=fields); w.writeheader()
         for r in ranked:
-            s=r["summary"]; w.writerow({"rank":r["rank"],"parameter_set_id":r["parameter_set_id"],"profile":r.get("profile") or "","mean_iou":s["mean_iou"],"minimum_iou":s["minimum_iou"],"mean_edge_error_px":s["mean_edge_error_px"],"failure_count":s["failure_count"],"elapsed_ms_total":s["elapsed_ms_total"],"parameters_json":canonical_parameters(r["parameters"])})
+            s=r["summary"]; w.writerow({"rank":r["rank"],"parameter_set_id":r["parameter_set_id"],"profile":r.get("profile") or "","mean_iou":s["mean_iou"],"minimum_iou":s["minimum_iou"],"mean_edge_error_px":s["mean_edge_error_px"],"mean_iou_success":s.get("mean_iou_success",s["mean_iou"]),"failure_count":s["failure_count"],"elapsed_ms_total":s["elapsed_ms_total"],"parameters_json":canonical_parameters(r["parameters"])})
