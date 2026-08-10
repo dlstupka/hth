@@ -538,6 +538,42 @@ def _search_space_percent(observation: dict[str, Any]) -> str:
     return _percent(fraction, 2) if fraction is not None else "unknown"
 
 
+def _individual_heading(title: str, detector: str) -> str:
+    """Render an individual-manifest section heading with obvious detector context."""
+    return f"{title} — {detector}"
+
+
+def _preferred_execution_shape_lines(info: dict[str, Any], summary: dict[str, Any]) -> list[str]:
+    """Render the execution shape actually selected for this detector run.
+
+    New runs persist the resolver source explicitly.  Older records still expose
+    their pipeline/thread geometry, so keep them useful while labeling the source
+    honestly as legacy/unknown.
+    """
+    pipeline = info.get("detector_pipeline") if isinstance(info.get("detector_pipeline"), dict) else {}
+    if not pipeline and isinstance(summary.get("detector_pipeline"), dict):
+        pipeline = summary.get("detector_pipeline", {})
+    pipelines = pipeline.get("pipeline_count")
+    threads = info.get("threads", summary.get("threads"))
+    try:
+        allocated = int(pipelines) * int(threads)
+    except (TypeError, ValueError):
+        allocated = None
+    source = str(pipeline.get("execution_shape_source") or "unknown (legacy record)")
+    runner = str(info.get("runner_name") or (summary.get("runner") or {}).get("runner_name") or "unknown")
+    budget = pipeline.get("execution_thread_budget")
+    return [
+        "",
+        "### Preferred Execution Shape",
+        "",
+        "The regression execution shape selected for this detector run is recorded here so the calibration result can be interpreted without returning to build provenance.",
+        "",
+        "| Source | Pipelines | Threads / pipeline | Allocated | Runner | Runner budget |",
+        "|---|---:|---:|---:|---|---:|",
+        f"| `{source}` | {pipelines if pipelines is not None else 'unknown'} | {threads if threads is not None else 'unknown'} | {allocated if allocated is not None else 'unknown'} | `{runner}` | {budget if budget not in (None, '') else 'unknown'} |",
+    ]
+
+
 def build_summary(
     run_dir: Path,
     run_url: str = "",
@@ -565,13 +601,14 @@ def build_summary(
     configuration = parameters.get("configuration", {}) if isinstance(parameters.get("configuration"), dict) else {}
     profiles = configuration.get("profiles", {}) if isinstance(configuration.get("profiles"), dict) else {}
 
+    detector_name = str(manifest.get("detector", "unknown"))
     lines = []
     if include_title:
         lines.extend(["# Regression Manifest", ""])
     lines.extend([
         f"**Status:** {manifest.get('status', 'unknown')}",
         "",
-        "## Run Information",
+        f"## {_individual_heading('Run Information', detector_name)}",
         "",
         "### Build Provenance",
         "",
@@ -611,7 +648,7 @@ def build_summary(
 
     lines.extend([
         "",
-        "## Results",
+        f"## {_individual_heading('Results', detector_name)}",
         "",
         "### Result",
         "",
@@ -629,7 +666,6 @@ def build_summary(
             f"{_duration(_evaluation_seconds(baseline))} |"
         )
 
-    detector_name = str(manifest.get("detector", "unknown"))
     characterization = _detector_characterization(detector_name)
     lines.extend([
         "",
@@ -668,6 +704,7 @@ def build_summary(
         f"| Winner changes | {progress.get('winner_changes', 0)} |",
         f"| Baseline surpassed | {'yes' if progress.get('baseline_surpassed') else 'no'} |",
     ])
+    lines.extend(_preferred_execution_shape_lines(info, summary))
 
     top_parameter_sets = summary.get("top_parameter_sets", [])
     if isinstance(top_parameter_sets, list) and top_parameter_sets:
@@ -709,7 +746,7 @@ def build_summary(
         )
         lines.extend([
             "",
-            "## Page Analysis",
+            f"## {_individual_heading('Page Analysis', detector_name)}",
             "",
             "### Golden Set Winner Summary",
             "",
@@ -796,12 +833,15 @@ def build_summary(
 
     if include_title:
         best_known = _best_known_calibrations(calibration_index, current_runs=[run_dir])
-        lines.extend(["", *_render_best_known_calibrations(
+        best_known_lines = _render_best_known_calibrations(
             best_known,
             heading_level=2,
             results_repository=results_repository,
             results_ref=results_commit or "main",
-        )])
+        )
+        if best_known_lines and best_known_lines[0].startswith("## "):
+            best_known_lines[0] = f"## {_individual_heading('Best Known Detector Calibrations', detector_name)}"
+        lines.extend(["", *best_known_lines])
 
     calibration_payload = _calibration_payload(run_dir)
     if calibration_payload is not None:
@@ -813,7 +853,7 @@ def build_summary(
         domain_space = calibration_payload.get("domain_space", {}) if isinstance(calibration_payload.get("domain_space"), dict) else {}
         lines.extend([
             "",
-            "## Calibration Intelligence",
+            f"## {_individual_heading('Calibration Intelligence', detector_name)}",
             "",
             "This run generated the same machine-readable calibration intelligence used by the multi-detector smoke regression. The conclusions remain specific to this Golden Set and configured parameter grid.",
             "",
@@ -849,12 +889,15 @@ def build_summary(
         lines.extend(_render_detector_calibration(detector_name, calibration_payload, summary))
 
     if calibration_payload is not None and include_title:
-        lines.extend(["", *_engineering_continuous_improvement_lines(
+        engineering_lines = _engineering_continuous_improvement_lines(
             run_url=run_url,
             pipeline_repository=pipeline_repository,
             results_repository=results_repository,
             results_commit=results_commit,
-        )])
+        )
+        if engineering_lines and engineering_lines[0] == "## Engineering Continuous Improvement":
+            engineering_lines[0] = f"## {_individual_heading('Engineering Continuous Improvement', detector_name)}"
+        lines.extend(["", *engineering_lines])
 
     lines.append("")
     rendered_lines = _add_report_navigation(lines) if include_title else lines

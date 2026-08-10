@@ -30,19 +30,28 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertIn("inputs.runner == 'self-hosted-e7k'", text)
         self.assertIn("inputs.runner == 'self-hosted-e9k'", text)
 
-    def test_core_optimizer_summary_is_appended_after_report_publish(self) -> None:
+    def test_core_report_summary_is_appended_after_successful_publish(self) -> None:
         text = CORE.read_text(encoding="utf-8")
         generate_step = text.split("- name: Generate selected report", 1)[1].split("- name: Publish regenerated report", 1)[0]
-        self.assertNotIn("report-run={run_id}", generate_step)
-        self.assertIn("- name: Publish optimizer report summary", text)
+        self.assertNotIn("GITHUB_STEP_SUMMARY", generate_step)
+        self.assertIn("- name: Publish regenerated report summary", text)
         publish_pos = text.index("- name: Publish regenerated report")
-        summary_pos = text.index("- name: Publish optimizer report summary")
+        summary_pos = text.index("- name: Publish regenerated report summary")
         self.assertLess(publish_pos, summary_pos)
         summary_step = text[summary_pos:]
+        self.assertIn("detector-calibration-manifest.md", summary_step)
         self.assertIn("python -c", summary_step)
-        self.assertNotIn("PYSUMMARY", summary_step)
         self.assertIn("report-run={run_id}", summary_step)
         self.assertIn("re.sub", summary_step)
+
+    def test_core_report_publish_retries_concurrent_results_updates_with_regeneration(self) -> None:
+        text = CORE.read_text(encoding="utf-8")
+        publish_step = text.split("- name: Publish regenerated report", 1)[1].split("- name: Publish regenerated report summary", 1)[0]
+        self.assertIn("max_attempts=5", publish_step)
+        self.assertIn("git -C results-repo fetch origin main", publish_step)
+        self.assertIn("git -C results-repo reset --hard origin/main", publish_step)
+        self.assertIn("regenerate_and_stage", publish_step)
+        self.assertIn("Concurrent results update detected; refreshing and regenerating report before retry.", publish_step)
 
     def test_core_publishes_optimizer_report_directory_recursively(self) -> None:
         text = CORE.read_text(encoding="utf-8")

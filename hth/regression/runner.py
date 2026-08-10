@@ -694,6 +694,12 @@ def run(args:argparse.Namespace)->Path:
         "runtime_estimate_source": os.environ.get("HTH_DETECTOR_RUNTIME_ESTIMATE_SOURCE"),
         "queue_position": os.environ.get("HTH_DETECTOR_QUEUE_POSITION"),
         "ranked_quality": os.environ.get("HTH_DETECTOR_RANKED_QUALITY"),
+        # Preserve the shape-resolution contract in the durable regression record.
+        # The manifest renderer can therefore say whether the run used measured
+        # optimizer evidence, a prediction, manual input, or the generic planner.
+        "execution_shape_source": os.environ.get("HTH_EXACT_EXECUTION_SHAPE_SOURCE", "auto"),
+        "exact_execution_shape": os.environ.get("HTH_EXACT_EXECUTION_SHAPE", "0") == "1",
+        "execution_thread_budget": os.environ.get("HTH_EXECUTION_THREAD_BUDGET"),
     }
     write_json(run_dir/"manifest.json",manifest)
     try:

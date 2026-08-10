@@ -1105,7 +1105,6 @@ jobs:
               --results-repository "$RESULTS_REPOSITORY" \
               --results-commit "$RESULTS_COMMIT" \
               --run-url "$HTH_RUN_URL"
-            cat generated-report/detector-calibration-manifest.md >> "$GITHUB_STEP_SUMMARY"
           elif [[ "${{ inputs.report_type }}" == "execution-optimizer" ]]; then
             python -m hth.report_generator execution-optimizer \
               --results-root results-repo \
@@ -1119,6 +1118,8 @@ jobs:
       - name: Publish regenerated report
         shell: bash
         env:
+          PYTHONPATH: hth-pipeline
+          HTH_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           HTH_RESULTS_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN }}
         run: |
           set -euo pipefail
@@ -1132,39 +1133,77 @@ jobs:
           git -C results-repo remote set-url origin \
             "https://x-access-token:${HTH_RESULTS_TOKEN}@github.com/${RESULTS_REPOSITORY}.git"
 
-          if [[ "${{ inputs.report_type }}" == "detector-calibration-manifest" ]]; then
-            mkdir -p results-repo/reports
-            cp generated-report/detector-calibration-manifest.md results-repo/reports/detector-calibration-manifest.md
-            git -C results-repo add reports/detector-calibration-manifest.md
-          else
-            rm -rf "results-repo/execution-optimizer/${{ inputs.report_algorithm }}"
-            mkdir -p "results-repo/execution-optimizer/${{ inputs.report_algorithm }}"
-            cp -a "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/." \
-              "results-repo/execution-optimizer/${{ inputs.report_algorithm }}/"
-            git -C results-repo add "execution-optimizer/${{ inputs.report_algorithm }}"
-          fi
+          regenerate_and_stage() {
+            local results_commit
+            results_commit="$(git -C results-repo rev-parse HEAD)"
+            rm -rf generated-report
+            mkdir -p generated-report
 
-          if git -C results-repo diff --cached --quiet; then
-            echo "Generated report is already current."
-            exit 0
-          fi
-          git -C results-repo commit -m "Regenerate ${{ inputs.report_type }} report"
-          git -C results-repo push origin HEAD:main
+            if [[ "${{ inputs.report_type }}" == "detector-calibration-manifest" ]]; then
+              python -m hth.report_generator detector-calibration-manifest \
+                --results-root results-repo \
+                --golden-set "hth-pipeline/${{ inputs.report_golden_set }}" \
+                --output generated-report/detector-calibration-manifest.md \
+                --pipeline-repository "${{ github.repository }}" \
+                --results-repository "$RESULTS_REPOSITORY" \
+                --results-commit "$results_commit" \
+                --run-url "$HTH_RUN_URL"
+              mkdir -p results-repo/reports
+              cp generated-report/detector-calibration-manifest.md results-repo/reports/detector-calibration-manifest.md
+              git -C results-repo add reports/detector-calibration-manifest.md
+            else
+              python -m hth.report_generator execution-optimizer \
+                --results-root results-repo \
+                --detector "${{ inputs.report_algorithm }}" \
+                --output-dir "generated-report/execution-optimizer/${{ inputs.report_algorithm }}"
+              rm -rf "results-repo/execution-optimizer/${{ inputs.report_algorithm }}"
+              mkdir -p "results-repo/execution-optimizer/${{ inputs.report_algorithm }}"
+              cp -a "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/." \
+                "results-repo/execution-optimizer/${{ inputs.report_algorithm }}/"
+              git -C results-repo add "execution-optimizer/${{ inputs.report_algorithm }}"
+            fi
+          }
 
-      - name: Publish optimizer report summary
-        if: ${{ inputs.report_type == 'execution-optimizer' }}
+          max_attempts=5
+          for attempt in $(seq 1 "$max_attempts"); do
+            echo "Report publish attempt $attempt/$max_attempts"
+            git -C results-repo fetch origin main
+            git -C results-repo reset --hard origin/main
+            regenerate_and_stage
+
+            if git -C results-repo diff --cached --quiet; then
+              echo "Generated report is already current."
+              exit 0
+            fi
+
+            git -C results-repo commit -m "Regenerate ${{ inputs.report_type }} report"
+            if git -C results-repo push origin HEAD:main; then
+              exit 0
+            fi
+
+            if (( attempt == max_attempts )); then
+              echo "::error::Unable to publish regenerated report after ${max_attempts} attempts"
+              exit 1
+            fi
+            echo "Concurrent results update detected; refreshing and regenerating report before retry."
+            sleep $((attempt * 2))
+          done
+
+      - name: Publish regenerated report summary
         shell: bash
         env:
           RESULTS_REPOSITORY: ${{ inputs.results_repository }}
         run: |
           set -euo pipefail
-          # The summary references raw SVGs from the results repository. Append
-          # it only after the regenerated report has been published so the job
-          # summary cannot render a stale pre-publish profile plot.
-          python -c 'import re, sys; from pathlib import Path; destination, source, repository, detector, run_id = sys.argv[1:]; text = Path(source).read_text(encoding="utf-8"); base = f"https://raw.githubusercontent.com/{repository}/main/execution-optimizer/{detector}/"; text = re.sub(r"\(([^)]+\.svg)\)", lambda m: f"({base}{m.group(1)}?report-run={run_id})", text); Path(destination).open("a", encoding="utf-8").write(text + ("" if text.endswith("\n") else "\n"))' \
-            "$GITHUB_STEP_SUMMARY" \
-            "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/summary.md" \
-            "$RESULTS_REPOSITORY" \
-            "${{ inputs.report_algorithm }}" \
-            "$GITHUB_RUN_ID"
-
+          if [[ "${{ inputs.report_type }}" == "detector-calibration-manifest" ]]; then
+            cat generated-report/detector-calibration-manifest.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            # Optimizer summaries reference raw SVGs from the results repository.
+            # Append them only after successful publication so the images cannot
+            # render a stale pre-publish profile.
+            python -c 'import re, sys; from pathlib import Path; destination, source, repository, detector, run_id = sys.argv[1:]; text = Path(source).read_text(encoding="utf-8"); base = f"https://raw.githubusercontent.com/{repository}/main/execution-optimizer/{detector}/"; text = re.sub(r"\(([^)]+\.svg)\)", lambda m: f"({base}{m.group(1)}?report-run={run_id})", text); Path(destination).open("a", encoding="utf-8").write(text + ("" if text.endswith("\n") else "\n"))' \
+              "$GITHUB_STEP_SUMMARY" \
+              "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/summary.md" \
+              "$RESULTS_REPOSITORY" \
+              "${{ inputs.report_algorithm }}" \
+              "$GITHUB_RUN_ID"

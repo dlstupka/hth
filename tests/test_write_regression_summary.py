@@ -23,7 +23,14 @@ class RegressionSummaryTests(unittest.TestCase):
                 "elapsed_seconds": 61.2, "wall_elapsed_seconds": 61.2,
                 "estimated_serial_runtime_seconds": 612.0, "effective_acceleration": 10.0,
                 "golden_set": "config/golden_set.json",
-                "golden_set_sha256": "abc123"
+                "golden_set_sha256": "abc123",
+                "runner_name": "rh8-test",
+                "threads": 48,
+                "detector_pipeline": {
+                    "pipeline_count": 8,
+                    "execution_shape_source": "preferred-exact-runner",
+                    "execution_thread_budget": "384"
+                }
             }), encoding="utf-8")
             (run / "parameters.json").write_text(json.dumps({
                 "configuration": {"profiles": {"baseline": {}}}
@@ -160,13 +167,13 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("Effective acceleration: `10.00×`", text)
             self.assertIn("Search completed in **1m 1s** wall-clock time.", text)
             self.assertIn("<summary><strong>Navigation</strong></summary>", text)
-            self.assertIn("- [Run Information](#run-information)", text)
-            self.assertIn("- [Results](#results)", text)
-            self.assertIn("- [Page Analysis](#page-analysis)", text)
-            self.assertIn("- [Best Known Detector Calibrations](#best-known-detector-calibrations)", text)
-            self.assertIn("- [Calibration Intelligence](#calibration-intelligence)", text)
+            self.assertIn("- [Run Information — grabcut](#run-information-grabcut)", text)
+            self.assertIn("- [Results — grabcut](#results-grabcut)", text)
+            self.assertIn("- [Page Analysis — grabcut](#page-analysis-grabcut)", text)
+            self.assertIn("- [Best Known Detector Calibrations — grabcut](#best-known-detector-calibrations-grabcut)", text)
+            self.assertIn("- [Calibration Intelligence — grabcut](#calibration-intelligence-grabcut)", text)
             self.assertIn("[↑ Back to Navigation](#table-of-contents)", text)
-            self.assertIn("## Engineering Continuous Improvement", text)
+            self.assertIn("## Engineering Continuous Improvement — grabcut", text)
             self.assertIn("### Runtime Intelligence Persistence", text)
             self.assertIn("Pipeline repository: [dlstupka/hth](https://github.com/dlstupka/hth).", text)
             self.assertIn("https://github.com/dlstupka/hth", text)
@@ -189,6 +196,9 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("SHA-256: `abc123`", text)
             self.assertIn("Configured named profiles: `baseline`", text)
             self.assertIn("Evaluation Time", text)
+            self.assertIn("### Preferred Execution Shape", text)
+            self.assertIn("| Source | Pipelines | Threads / pipeline | Allocated | Runner | Runner budget |", text)
+            self.assertIn("| `preferred-exact-runner` | 8 | 48 | 384 | `rh8-test` | 384 |", text)
             self.assertIn("### Top Parameter Sets", text)
             self.assertIn("| Rank | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Failures | Discovery Time | Search Space % |", text)
             self.assertIn("| 1 | `winner` | `calibrated-winner` | 0.9700 | 0.9100 | unknown | +0.0000 | 0 | 12s | 4.76% |", text)
@@ -207,18 +217,22 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("| Baseline surpassed | yes |", text)
             self.assertIn("| Baseline | `base` | `baseline` | 0.9000", text)
             self.assertIn("21 ms", text)
-            self.assertLess(text.index("## Run Information"), text.index("## Results"))
-            self.assertLess(text.index("## Results"), text.index("## Page Analysis"))
+            self.assertLess(text.index("## Run Information — grabcut"), text.index("## Results — grabcut"))
+            self.assertLess(text.index("## Results — grabcut"), text.index("## Page Analysis — grabcut"))
             self.assertLess(
                 text.index("### Regression Statistics for Detector Calibration"),
+                text.index("### Preferred Execution Shape"),
+            )
+            self.assertLess(
+                text.index("### Preferred Execution Shape"),
                 text.index("### Top Parameter Sets"),
             )
             self.assertIn("`raw/results.csv` — present", text)
             self.assertIn("`reports/summary.json` — present", text)
-            self.assertIn("## Best Known Detector Calibrations", text)
+            self.assertIn("## Best Known Detector Calibrations — grabcut", text)
             self.assertIn("| Rank | Detector | Detector ID | Role | Golden Set ID | Date | Build* | Est. Serial Runtime** | Parameter Set ID | Parameter Sets | Search Type | Successful Parameter Sets |", text)
-            self.assertLess(text.index("## Best Known Detector Calibrations"), text.index("## Calibration Intelligence"))
-            self.assertIn("## Calibration Intelligence", text)
+            self.assertLess(text.index("## Best Known Detector Calibrations — grabcut"), text.index("## Calibration Intelligence — grabcut"))
+            self.assertIn("## Calibration Intelligence — grabcut", text)
             self.assertIn("### Calibration Identity", text)
             self.assertIn("### Detector-Selection Intelligence", text)
             self.assertIn("### Calibration Analysis", text)
