@@ -309,6 +309,19 @@ def _attach_optimizer_run_metadata(index: dict[str, Any], optimizer: dict[str, A
     return index
 
 
+
+def _attach_prediction_history(results_root: Path, index: dict[str, Any], detector: str) -> dict[str, Any]:
+    path = results_root / "optimizer-predictions.json"
+    if not path.is_file():
+        return index
+    payload = _read_json(path)
+    index["prediction_history"] = [
+        row for row in payload.get("predictions", [])
+        if isinstance(row, dict) and str(row.get("detector_id") or "") == detector
+    ]
+    return index
+
+
 def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     optimizer_path = results_root / "optimizer-index.json"
     parallelism_path = results_root / "parallelism-index.json"
@@ -349,6 +362,8 @@ def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dic
     preferred = _attach_optimizer_run_metadata(build_optimizer_index(parallelism, detector, optimizer_run_ids=completed_ids), optimizer, detector)
     if not preferred.get("observation_count"):
         preferred = current
+    current = _attach_prediction_history(results_root, current, detector)
+    preferred = _attach_prediction_history(results_root, preferred, detector)
     run_metadata = run_payload.get("run_metadata") if isinstance(run_payload.get("run_metadata"), dict) else {}
     return current, preferred, run_metadata
 

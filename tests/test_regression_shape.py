@@ -4,7 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from hth.regression_shape import RunnerProfile, parse_manual_shape, resolve_preferred_shape
+from hth.regression_shape import RunnerProfile, parse_manual_shape, resolve_predicted_shape, resolve_preferred_shape
 
 
 def _sha(path: Path) -> str:
@@ -115,3 +115,62 @@ def test_preferred_shape_rejects_incompatible_workload(tmp_path: Path) -> None:
         profile=RunnerProfile("rh8-al321", "e9k", "AMD", 192, 192),
     )
     assert result is None
+
+
+def test_predicted_shape_interpolates_pipeline_vcpu_history_and_persists_evidence(tmp_path: Path) -> None:
+    detector = tmp_path / "detector.json"
+    golden = tmp_path / "golden.json"
+    _write_json(detector, {"detector": "adaptive_radial_edge"})
+    _write_json(golden, {"pages": []})
+    detector_sha, golden_sha = _sha(detector), _sha(golden)
+    rows = [
+        _row(detector="adaptive_radial_edge", detector_sha=detector_sha, golden_sha=golden_sha, runner_name="rh8-s32", cpu_model="AMD EPYC", logical=32, physical=16, pipelines=22, threads=2, rate=74.57),
+        _row(detector="adaptive_radial_edge", detector_sha=detector_sha, golden_sha=golden_sha, runner_name="rh8-al97", cpu_model="AMD EPYC", logical=96, physical=48, pipelines=49, threads=3, rate=70.56),
+    ]
+    index = tmp_path / "parallelism-index.json"
+    _write_json(index, {"observations": rows})
+    result = resolve_predicted_shape(
+        parallelism_index=index,
+        predictions_index=None,
+        detector_config=detector,
+        golden_set=golden,
+        max_dimension=1800,
+        profile=RunnerProfile("new64", "rhel8", "AMD EPYC", 32, 64),
+    )
+    assert result is not None
+    assert result["source"] == "predicted-moderate"
+    assert result["pipelines"] == 36
+    assert result["threads_per_pipeline"] == 3
+    assert result["evidence_vcpu_anchors"] == [32, 96]
+    assert result["workload"]["detector_config_sha256"] == detector_sha
+
+
+def test_prediction_history_correction_is_applied_to_future_guesses(tmp_path: Path) -> None:
+    detector = tmp_path / "detector.json"
+    golden = tmp_path / "golden.json"
+    _write_json(detector, {"detector": "adaptive_radial_edge"})
+    _write_json(golden, {"pages": []})
+    detector_sha, golden_sha = _sha(detector), _sha(golden)
+    index = tmp_path / "parallelism-index.json"
+    _write_json(index, {"observations": [
+        _row(detector="adaptive_radial_edge", detector_sha=detector_sha, golden_sha=golden_sha, runner_name="rh8-s32", cpu_model="AMD", logical=32, physical=16, pipelines=20, threads=2, rate=70),
+    ]})
+    predictions = tmp_path / "optimizer-predictions.json"
+    _write_json(predictions, {"predictions": [{
+        "detector_id": "adaptive_radial_edge",
+        "status": "verified",
+        "predicted_shape": {"pipelines": 20},
+        "verification": {"actual_shape": {"pipelines": 24}},
+    }]})
+    result = resolve_predicted_shape(
+        parallelism_index=index,
+        predictions_index=predictions,
+        detector_config=detector,
+        golden_set=golden,
+        max_dimension=1800,
+        profile=RunnerProfile("new64", "rhel8", "AMD", 32, 64),
+    )
+    assert result is not None
+    # Single-anchor linear scaling would predict 40p; the verified 24/20 correction lifts it to 48p.
+    assert result["pipelines"] == 48
+    assert result["verified_pipeline_correction"] == 1.2

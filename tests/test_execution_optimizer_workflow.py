@@ -194,3 +194,9 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_optimizer_publish_verifies_and_persists_shape_predictions() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    assert "optimizer-predictions.json" in workflow
+    assert "python -m hth.optimizer_store" in workflow

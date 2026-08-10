@@ -289,3 +289,18 @@ such.
 - Optimizer measurements use an optimizer-owned exact execution-shape contract: the optimizer selects the pipeline/thread shape and the regression driver executes it without applying a second thread clamp.
 
 - Manual detector regression exposes `all-without-exhaustive` as the first/default detector target. It filters against the persisted calibration index using the current Golden Set and detector-configuration hashes, then dispatches one ordinary full, unlimited exhaustive regression per missing detector. Runner and execution-shape choices are preserved, allowing GitHub Actions to spread those child runs across all online runners matching the selected self-hosted labels.
+
+
+### Preferred-shape fallback and prediction history
+
+Normal full/exhaustive regression resolves execution shape in this order:
+
+1. **Measured preferred** — use the canonical optimizer preference for the exact runner, or a hardware-equivalent runner profile.
+2. **Predicted** — when no compatible measured preference exists, estimate detector pipelines from that detector's observed preferred pipeline counts versus runner vCPU, estimate useful allocated-thread fraction from the same evidence, and derive threads/pipeline from the detected runner thread budget.
+3. **Auto** — if there is not enough compatible optimizer history to make a responsible detector-specific prediction, use the generic regression planner.
+
+Predicted shapes are explicit execution contracts, just like measured preferred shapes. The run log identifies the source as `predicted-low`, `predicted-moderate`, or `predicted-high`.
+
+Every prediction is saved in `optimizer-predictions.json` with the target runner, predicted shape, evidence vCPU anchors, confidence, and workload hashes. When later optimizer data arrives for the predicted detector/runner profile, optimizer publication verifies the saved prediction against the new canonical preferred shape and records pipeline/thread error. Verified pipeline error is then used as a bounded detector-specific correction for later predictions.
+
+The execution-optimizer report includes shape-prediction coverage for each detector: observed vCPU anchors, readiness, prediction verification counts, and the desired/missing optimizer evidence needed to improve confidence.

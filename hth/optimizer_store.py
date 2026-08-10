@@ -351,6 +351,54 @@ def _represented_search_methods(index: dict[str, Any]) -> str:
     return ", ".join(sorted(methods)) if methods else "legacy"
 
 
+
+def _shape_prediction_coverage(index: dict[str, Any]) -> dict[str, Any]:
+    anchors = sorted({
+        _as_int((runner.get("runner_specs") or {}).get("logical_cpu_count"))
+        for runner in index.get("runners", [])
+        if isinstance(runner, dict)
+        and isinstance(runner.get("best_shape"), dict)
+        and _as_int((runner.get("runner_specs") or {}).get("logical_cpu_count")) is not None
+    })
+    anchors = [value for value in anchors if value is not None]
+    count = len(anchors)
+    if count == 0:
+        readiness = "none"
+        desired = "missing: at least one completed optimizer run"
+    elif count == 1:
+        readiness = "low"
+        desired = "missing: a second vCPU size to establish shape scaling"
+    elif count == 2:
+        readiness = "moderate"
+        desired = "desired: a third vCPU size to validate interpolation/extrapolation"
+    else:
+        readiness = "high"
+        desired = "basic vCPU shape coverage is sufficient; additional runner sizes are optional validation"
+
+    history = index.get("prediction_history")
+    predictions = history if isinstance(history, list) else []
+    verified = sum(1 for row in predictions if isinstance(row, dict) and row.get("status") == "verified")
+    pending = sum(1 for row in predictions if isinstance(row, dict) and row.get("status") != "verified")
+    return {
+        "anchors": anchors,
+        "readiness": readiness,
+        "desired": desired,
+        "verified_predictions": verified,
+        "pending_predictions": pending,
+    }
+
+
+def _render_shape_prediction_coverage(index: dict[str, Any]) -> list[str]:
+    coverage = _shape_prediction_coverage(index)
+    anchors = ", ".join(str(value) for value in coverage["anchors"]) if coverage["anchors"] else "none"
+    checks = f"{coverage['verified_predictions']} verified / {coverage['pending_predictions']} pending"
+    return [
+        f"**Shape-prediction coverage:** vCPU anchors `{anchors}`; readiness **{coverage['readiness']}**; prediction checks **{checks}**.",
+        f"**Desired / missing optimization data:** {coverage['desired']}.",
+        "",
+    ]
+
+
 def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
     lines = [
         "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is selected canonically by throughput, then lower resource use for throughput-equivalent shapes.",
@@ -389,6 +437,7 @@ def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
         "**Search method legend:** `adaptive` = sparse wide-range search with local refinement around the measured peak and ≤2% preferred-shape boundaries; `powers-of-2` = logarithmic power-of-two pipeline sweep; `exhaustive` = every legal pipeline count in the requested range.",
         "",
     ])
+    lines.extend(_render_shape_prediction_coverage(index))
     return lines
 
 
@@ -567,6 +616,20 @@ def render_all_markdown(indices: list[dict[str, Any]]) -> str:
     lines.extend([
         "",
         "**Search method legend:** `adaptive` = sparse wide-range search with local refinement around the measured peak and ≤2% preferred-shape boundaries; `powers-of-2` = logarithmic power-of-two pipeline sweep; `exhaustive` = every legal pipeline count in the requested range.",
+        "",
+        "**Shape-prediction / optimizer coverage**",
+        "",
+        "| Detector | Observed vCPU anchors | Prediction readiness | Prediction checks | Desired / missing optimization data |",
+        "|---|---|---|---|---|",
+    ])
+    for coverage_index in indices:
+        coverage = _shape_prediction_coverage(coverage_index)
+        anchors = ", ".join(str(value) for value in coverage["anchors"]) if coverage["anchors"] else "none"
+        checks = f"{coverage['verified_predictions']} verified / {coverage['pending_predictions']} pending"
+        lines.append(
+            f"| {coverage_index.get('detector_id') or 'unknown'} | {anchors} | {coverage['readiness']} | {checks} | {coverage['desired']} |"
+        )
+    lines.extend([
         "",
         "</details>",
         "",
@@ -806,6 +869,30 @@ def update_optimizer_artifacts(
             metadata_by_id[str(run_id)] = metadata
     historical["run_metadata_by_id"] = metadata_by_id
     current["run_metadata_by_id"] = metadata_by_id
+
+    predictions_path = results_root / "optimizer-predictions.json"
+    try:
+        from hth.shape_prediction import verify_predictions
+        compatible_rows = _comparable(
+            (row for row in parallelism.get("observations", []) if isinstance(row, dict)),
+            detector_id,
+        )
+        prediction_payload = verify_predictions(
+            predictions_path,
+            detector=detector_id,
+            workload_rows=compatible_rows,
+        )
+    except Exception as exc:
+        prediction_payload = None
+        print(f"Warning: unable to verify saved shape predictions: {exc}")
+    if isinstance(prediction_payload, dict):
+        prediction_rows = [
+            row for row in prediction_payload.get("predictions", [])
+            if isinstance(row, dict) and str(row.get("detector_id") or "") == detector_id
+        ]
+        historical["prediction_history"] = prediction_rows
+        current["prediction_history"] = prediction_rows
+
     detectors[detector_id] = historical
 
     existing.update({

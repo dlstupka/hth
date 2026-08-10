@@ -718,8 +718,26 @@ jobs:
                 ); then
                   use_exact_shape "$pipelines" "$threads" "preferred-${shape_source}"
                 else
-                  echo "No compatible preferred shape collected for ${DETECTOR_ALGORITHM} on this runner profile; falling back to auto."
-                  echo "HTH_EXACT_EXECUTION_SHAPE_SOURCE=auto-fallback-no-preference" >> "$GITHUB_ENV"
+                  echo "No compatible measured preferred shape collected for ${DETECTOR_ALGORITHM} on this runner profile; attempting detector-specific vCPU shape prediction."
+                  prediction_file="$RUNNER_TEMP/hth-shape-prediction-${DETECTOR_ALGORITHM}.json"
+                  if read -r pipelines threads shape_source < <(
+                    python -m hth.regression_shape predicted \
+                      --parallelism-index results-repo/parallelism-index.json \
+                      --predictions-index results-repo/optimizer-predictions.json \
+                      --prediction-out "$prediction_file" \
+                      --detector-config "$detector_config" \
+                      --golden-set "hth-pipeline/$GOLDEN_SET" \
+                      --max-dimension "$MAX_DIMENSION" \
+                      --runner-name "${HTH_RUNNER_NAME:-${RUNNER_NAME:-unknown}}" \
+                      --runner-label "${HTH_RUNNER_LABEL:-unknown}"
+                  ); then
+                    use_exact_shape "$pipelines" "$threads" "$shape_source"
+                    echo "HTH_SHAPE_PREDICTION_FILE=$prediction_file" >> "$GITHUB_ENV"
+                    echo "Predicted execution shape will be persisted and checked against future optimizer evidence."
+                  else
+                    echo "No compatible optimizer history exists for a responsible shape prediction; falling back to auto."
+                    echo "HTH_EXACT_EXECUTION_SHAPE_SOURCE=auto-fallback-no-shape-history" >> "$GITHUB_ENV"
+                  fi
                 fi
               fi
               ;;
@@ -785,7 +803,13 @@ jobs:
 
             git -C results-repo fetch origin main
             git -C results-repo reset --hard origin/main
-            git -C results-repo clean -fd -- calibration-index.json runtime-index.json parallelism-index.json source-documents/
+            git -C results-repo clean -fd -- calibration-index.json runtime-index.json parallelism-index.json optimizer-predictions.json source-documents/
+
+            if [[ -n "${HTH_SHAPE_PREDICTION_FILE:-}" && -f "${HTH_SHAPE_PREDICTION_FILE}" ]]; then
+              python -m hth.regression_shape record-prediction \
+                --prediction-file "${HTH_SHAPE_PREDICTION_FILE}" \
+                --predictions-index results-repo/optimizer-predictions.json
+            fi
 
             python -m hth.calibration_store publish \
               "${publish_args[@]}" \
@@ -802,7 +826,7 @@ jobs:
               --sha "${{ github.sha }}" \
               --run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-            git -C results-repo add calibration-index.json runtime-index.json parallelism-index.json source-documents/
+            git -C results-repo add calibration-index.json runtime-index.json parallelism-index.json optimizer-predictions.json source-documents/
 
             if git -C results-repo diff --cached --quiet; then
               echo "Calibration intelligence store already current."

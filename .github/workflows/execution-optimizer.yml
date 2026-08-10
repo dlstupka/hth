@@ -1069,7 +1069,7 @@ jobs:
           for attempt in $(seq 1 "$max_publish_attempts"); do
             git -C results-repo fetch origin main
             git -C results-repo reset --hard origin/main
-            git -C results-repo clean -fd -- optimizer-index.json execution-optimizer/
+            git -C results-repo clean -fd -- optimizer-index.json optimizer-predictions.json execution-optimizer/
             python -m hth.optimizer_capture \
               --results-root results-repo \
               --replay-log "$observation_log" \
@@ -1084,6 +1084,7 @@ jobs:
             git -C results-repo add \
               parallelism-index.json \
               optimizer-index.json \
+              optimizer-predictions.json \
               "execution-optimizer/$DETECTOR_ALGORITHM/summary.md" \
               "execution-optimizer/$DETECTOR_ALGORITHM/heatmap.svg"
 

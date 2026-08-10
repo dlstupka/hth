@@ -52,7 +52,7 @@ def test_loading_strategies_runtime_index_and_announcements_are_wired() -> None:
     assert "START detector=$detector_name shard=$((shard_index + 1))/$shard_count" in text
     assert "UNLOAD detector=$detector_name shard=$((shard_index + 1))/$shard_count status=complete" in text
     assert "time=$lifecycle_time" in text
-    assert "git -C results-repo add calibration-index.json runtime-index.json parallelism-index.json source-documents/" in workflow
+    assert "git -C results-repo add calibration-index.json runtime-index.json parallelism-index.json optimizer-predictions.json source-documents/" in workflow
 
 
 def test_intelligence_publisher_rebuilds_from_latest_results_state_on_retry() -> None:
@@ -60,7 +60,7 @@ def test_intelligence_publisher_rebuilds_from_latest_results_state_on_retry() ->
     assert 'max_publish_attempts=5' in text
     assert 'git -C results-repo fetch origin main' in text
     assert 'git -C results-repo reset --hard origin/main' in text
-    assert 'git -C results-repo clean -fd -- calibration-index.json runtime-index.json parallelism-index.json source-documents/' in text
+    assert 'git -C results-repo clean -fd -- calibration-index.json runtime-index.json parallelism-index.json optimizer-predictions.json source-documents/' in text
     assert 'python -m hth.calibration_store publish' in text
     assert 'git -C results-repo push origin HEAD:main' in text
     assert 'git -C results-repo pull --rebase origin main' not in text
@@ -143,7 +143,10 @@ def test_preferred_shape_resolution_falls_back_to_auto_and_exact_shape_is_explic
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "Resolve regression execution shape" in text
     assert "python -m hth.regression_shape preferred" in text
-    assert "No compatible preferred shape collected" in text
+    assert "No compatible measured preferred shape collected" in text
+    assert "python -m hth.regression_shape predicted" in text
+    assert "optimizer-predictions.json" in text
+    assert "Predicted execution shape will be persisted" in text
     assert 'echo "HTH_EXACT_EXECUTION_SHAPE=1"' in text
     assert 'echo "SHARDS=$pipelines"' in text
     assert 'echo "DETECTOR_PIPELINES=$pipelines"' in text

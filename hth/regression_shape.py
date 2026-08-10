@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from hth.optimizer_store import select_preferred_shape
+from hth.shape_prediction import merge_prediction, predict_shape
 
 
 @dataclass(frozen=True)
@@ -171,6 +172,79 @@ def _shape_from_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+
+def compatible_optimizer_rows(
+    *,
+    parallelism_index: Path,
+    detector_config: Path,
+    golden_set: Path,
+    max_dimension: int,
+) -> tuple[str, list[dict[str, Any]]]:
+    detector_config_payload = _read_json(detector_config)
+    detector = str(detector_config_payload.get("detector") or detector_config.stem)
+    detector_sha256 = _sha256(detector_config)
+    golden_sha256 = _sha256(golden_set)
+    if not parallelism_index.is_file():
+        return detector, []
+    index = _read_json(parallelism_index)
+    rows = [
+        row for row in index.get("observations", [])
+        if isinstance(row, dict)
+        and _row_matches_workload(
+            row,
+            detector=detector,
+            detector_sha256=detector_sha256,
+            golden_sha256=golden_sha256,
+            max_dimension=max_dimension,
+        )
+    ]
+    return detector, rows
+
+
+def resolve_predicted_shape(
+    *,
+    parallelism_index: Path,
+    predictions_index: Path | None,
+    detector_config: Path,
+    golden_set: Path,
+    max_dimension: int,
+    profile: RunnerProfile,
+) -> dict[str, Any] | None:
+    detector, rows = compatible_optimizer_rows(
+        parallelism_index=parallelism_index,
+        detector_config=detector_config,
+        golden_set=golden_set,
+        max_dimension=max_dimension,
+    )
+    if not rows:
+        return None
+    result = predict_shape(
+        detector=detector,
+        rows=rows,
+        target_runner_name=profile.name,
+        target_runner_label=profile.label,
+        target_cpu_model=profile.cpu_model,
+        target_physical_cores=profile.physical_cores,
+        target_logical_cpus=profile.logical_cpus,
+        predictions_index=predictions_index,
+    )
+    if result is None:
+        return None
+    predicted = result.get("predicted_shape") if isinstance(result.get("predicted_shape"), dict) else {}
+    result["pipelines"] = int(predicted["pipelines"])
+    result["threads_per_pipeline"] = int(predicted["threads_per_pipeline"])
+    result["allocated_threads"] = int(predicted["allocated_threads"])
+    result["workload"] = {
+        "detector_config_sha256": _sha256(detector_config),
+        "golden_set_sha256": _sha256(golden_set),
+        "max_dimension": max_dimension,
+        "mode": "full",
+        "strategy": "exhaustive",
+    }
+    result["source"] = f"predicted-{result.get('confidence', 'unknown')}"
+    return result
+
+
 def resolve_preferred_shape(
     *,
     parallelism_index: Path,
@@ -179,26 +253,17 @@ def resolve_preferred_shape(
     max_dimension: int,
     profile: RunnerProfile,
 ) -> dict[str, Any] | None:
-    if not parallelism_index.is_file():
+    detector, compatible_rows = compatible_optimizer_rows(
+        parallelism_index=parallelism_index,
+        detector_config=detector_config,
+        golden_set=golden_set,
+        max_dimension=max_dimension,
+    )
+    if not compatible_rows:
         return None
-    detector_config_payload = _read_json(detector_config)
-    detector = str(detector_config_payload.get("detector") or detector_config.stem)
-    detector_sha256 = _sha256(detector_config)
-    golden_sha256 = _sha256(golden_set)
-    index = _read_json(parallelism_index)
 
     candidates_by_tier: dict[int, list[dict[str, Any]]] = {0: [], 1: []}
-    for row in index.get("observations", []):
-        if not isinstance(row, dict):
-            continue
-        if not _row_matches_workload(
-            row,
-            detector=detector,
-            detector_sha256=detector_sha256,
-            golden_sha256=golden_sha256,
-            max_dimension=max_dimension,
-        ):
-            continue
+    for row in compatible_rows:
         tier = _match_tier(row, profile)
         if tier is not None:
             candidates_by_tier[tier].append(row)
@@ -246,13 +311,49 @@ def main() -> int:
     preferred.add_argument("--runner-name")
     preferred.add_argument("--runner-label")
 
+    predicted = sub.add_parser("predicted", help="Predict a shape from same-detector optimizer history when no compatible preference exists")
+    predicted.add_argument("--parallelism-index", type=Path, required=True)
+    predicted.add_argument("--predictions-index", type=Path)
+    predicted.add_argument("--prediction-out", type=Path)
+    predicted.add_argument("--detector-config", type=Path, required=True)
+    predicted.add_argument("--golden-set", type=Path, required=True)
+    predicted.add_argument("--max-dimension", type=int, required=True)
+    predicted.add_argument("--runner-name")
+    predicted.add_argument("--runner-label")
+
+    record = sub.add_parser("record-prediction", help="Merge a generated shape prediction into the persistent prediction history")
+    record.add_argument("--prediction-file", type=Path, required=True)
+    record.add_argument("--predictions-index", type=Path, required=True)
+
     args = parser.parse_args()
     if args.command == "manual":
         pipelines, threads = parse_manual_shape(args.shape)
         _print_shell({"pipelines": pipelines, "threads_per_pipeline": threads, "source": "manual"})
         return 0
 
+    if args.command == "record-prediction":
+        prediction = _read_json(args.prediction_file)
+        merge_prediction(args.predictions_index, prediction)
+        return 0
+
     profile = current_runner_profile(name=args.runner_name, label=args.runner_label)
+    if args.command == "predicted":
+        result = resolve_predicted_shape(
+            parallelism_index=args.parallelism_index,
+            predictions_index=args.predictions_index,
+            detector_config=args.detector_config,
+            golden_set=args.golden_set,
+            max_dimension=args.max_dimension,
+            profile=profile,
+        )
+        if result is None:
+            return 2
+        if args.prediction_out:
+            args.prediction_out.parent.mkdir(parents=True, exist_ok=True)
+            args.prediction_out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        _print_shell(result)
+        return 0
+
     result = resolve_preferred_shape(
         parallelism_index=args.parallelism_index,
         detector_config=args.detector_config,
