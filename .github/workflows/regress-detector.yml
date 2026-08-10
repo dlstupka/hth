@@ -51,6 +51,27 @@ on:
           - grabcut
           - hough
           - lsd
+      mode:
+        description: Regression mode
+        required: true
+        default: smoke
+        type: choice
+        options:
+          - smoke
+          - full
+      strategy:
+        description: Regression search strategy
+        required: true
+        default: exhaustive
+        type: choice
+        options:
+          - exhaustive
+          - non-dormant
+          - low+
+          - moderate+
+          - important+
+          - critical
+          - binary-refine
       golden_set:
         description: Golden Set configuration
         required: true
@@ -66,90 +87,20 @@ on:
         required: true
         default: test/latest/raw
         type: string
-      strategy:
-        description: Regression search strategy
+      execution_shape:
+        description: Execution shape; preferred uses optimizer intelligence and falls back to auto
         required: true
-        default: exhaustive
+        default: preferred
         type: choice
         options:
-          - exhaustive
-          - non-dormant
-          - low+
-          - moderate+
-          - important+
-          - critical
-          - binary-refine
-      limit:
-        description: Optional exhaustive parameter-set limit; blank means no limit
+          - preferred
+          - auto
+          - manual
+      manual_execution_shape:
+        description: Manual execution shape, e.g. 8p/48t; used only when Execution shape is manual
         required: false
         default: ""
         type: string
-      max_dimension:
-        description: Maximum analysis image dimension
-        required: true
-        default: "1800"
-        type: string
-      threads:
-        description: Parallel regression threads per active pipeline; auto or any integer from 1 through 1024
-        required: true
-        default: auto
-        type: string
-      shards:
-        description: Optional explicit shard count; blank uses wall-clock planning and explicit shards take precedence
-        required: false
-        default: ""
-        type: string
-      shard_target_minutes:
-        description: Target maximum wall time for automatically planned regression shards
-        required: true
-        default: "30"
-        type: string
-      shard_lease_minutes:
-        description: Expired shard-claim lease recovery interval
-        required: true
-        default: "5"
-        type: string
-      detector_pipelines:
-        description: Maximum concurrent detector pipelines; any integer from 1 through 1024
-        required: true
-        default: "4"
-        type: string
-      detector_loading_strategy:
-        description: Detector pipeline loading strategy used when Algorithm is all
-        required: true
-        default: lpt
-        type: choice
-        options:
-          - lpt
-          - fifo
-          - ranked
-      pipeline_stagger_minutes:
-        description: Minutes between detector-pipeline starts; 0 starts all pipelines immediately
-        required: false
-        default: "0"
-        type: string
-      top:
-        description: Number of ranked parameter sets in top20.csv
-        required: true
-        default: "20"
-        type: string
-      debug_level:
-        description: Debug image detail for manual builds
-        required: true
-        default: none
-        type: choice
-        options:
-          - none
-          - basic
-          - verbose
-      mode:
-        description: Regression mode
-        required: true
-        default: smoke
-        type: choice
-        options:
-          - smoke
-          - full
       runner:
         description: Execution runner
         required: true
@@ -175,6 +126,59 @@ on:
         required: false
         default: ""
         type: string
+      limit:
+        description: "Advanced — exhaustive parameter-set limit; blank means no limit"
+        required: false
+        default: ""
+        type: string
+      max_dimension:
+        description: "Advanced — maximum analysis image dimension"
+        required: true
+        default: "1800"
+        type: string
+      shards:
+        description: "Advanced — shard count override for auto shape; blank uses wall-clock planning"
+        required: false
+        default: ""
+        type: string
+      shard_target_minutes:
+        description: "Advanced — target shard wall time for auto planning"
+        required: true
+        default: "30"
+        type: string
+      shard_lease_minutes:
+        description: "Advanced — shard lease recovery interval"
+        required: true
+        default: "5"
+        type: string
+      detector_loading_strategy:
+        description: "Advanced — detector loading strategy for non-fanned-out all runs"
+        required: true
+        default: lpt
+        type: choice
+        options:
+          - lpt
+          - fifo
+          - ranked
+      pipeline_stagger_minutes:
+        description: "Advanced — minutes between local detector-pipeline starts"
+        required: false
+        default: "0"
+        type: string
+      top:
+        description: "Advanced — ranked result count"
+        required: true
+        default: "20"
+        type: string
+      debug_level:
+        description: "Advanced — debug image detail for manual builds"
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - basic
+          - verbose
 permissions:
   contents: read
 
@@ -189,10 +193,14 @@ concurrency:
 
 jobs:
   regress:
+    strategy:
+      fail-fast: false
+      matrix:
+        detector: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.algorithm == 'all' && (inputs.specific_runner == 'custom' || inputs.runner != 'github-hosted') && '["contour","contour_quad","contour_components","contour_projection","contour_grabcut","grabcut_contour","consensus_quad","edge_contour","cross_edge_contour","gradient_vote","radial_edge","adaptive_radial_edge","border_energy","components","ransac","grabcut","hough","lsd"]' || format('["{0}"]', github.event_name == 'workflow_dispatch' && inputs.algorithm || 'all')) }}
     name: >-
       ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
-          && 'Regress detectors against Golden Set'
-          || 'Smoke test detectors against Golden Set' }}
+          && format('Regress {0} against Golden Set', matrix.detector)
+          || format('Smoke test {0} against Golden Set', matrix.detector) }}
     runs-on: >-
       ${{    github.event_name == 'workflow_dispatch' && inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && fromJSON(format('["self-hosted","{0}"]', inputs.custom_runner_label))
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
@@ -208,11 +216,11 @@ jobs:
     timeout-minutes: >-
       ${{ github.event_name != 'workflow_dispatch' && 30
           || inputs.mode == 'smoke' && 30
-          || inputs.runner == 'github-hosted' && 360
+          || inputs.runner == 'github-hosted' && inputs.specific_runner != 'custom' && 360
           || 7200 }}
 
     env:
-      DETECTOR_ALGORITHM: ${{ github.event_name == 'workflow_dispatch' && inputs.algorithm || 'all' }}
+      DETECTOR_ALGORITHM: ${{ matrix.detector }}
       GOLDEN_SET: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_set || 'config/golden_set.json' }}
       RESULTS_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && inputs.results_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results' }}
       IMAGE_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_root || 'test/latest/raw' }}
@@ -221,11 +229,13 @@ jobs:
       LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '' }}
       MAX_DIMENSION: ${{ github.event_name == 'workflow_dispatch' && inputs.max_dimension || '1800' }}
       TOP_COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.top || '10' }}
-      THREADS: ${{ github.event_name == 'workflow_dispatch' && inputs.threads || 'auto' }}
+      EXECUTION_SHAPE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_shape || 'auto' }}
+      MANUAL_EXECUTION_SHAPE: ${{ github.event_name == 'workflow_dispatch' && inputs.manual_execution_shape || '' }}
+      THREADS: auto
       SHARDS: ${{ github.event_name == 'workflow_dispatch' && inputs.shards || '' }}
       SHARD_TARGET_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.shard_target_minutes || '30' }}
       SHARD_LEASE_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.shard_lease_minutes || '5' }}
-      DETECTOR_PIPELINES: ${{ github.event_name == 'workflow_dispatch' && inputs.detector_pipelines || '4' }}
+      DETECTOR_PIPELINES: '4'
       DETECTOR_LOADING_STRATEGY: ${{ github.event_name == 'workflow_dispatch' && inputs.detector_loading_strategy || 'lpt' }}
       PIPELINE_STAGGER_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.pipeline_stagger_minutes || '0' }}
       DEBUG_LEVEL: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_level || 'none' }}
@@ -239,7 +249,8 @@ jobs:
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && 'self-hosted,windows,x64'
           || 'ubuntu-latest' }}
       HTH_RUNNER_LABEL: >-
-        ${{  github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && 'hth'
+        ${{  github.event_name == 'workflow_dispatch' && inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && inputs.custom_runner_label
+          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && 'hth'
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-rhel8' && 'rhel8'
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e7k' && 'e7k'
           || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e9k' && 'e9k'
@@ -595,6 +606,83 @@ jobs:
                   stream.write(f"HTH_OPENCV_BENCHMARK_AVERAGE_SECONDS={average:.9f}\n")
           EOF
           
+      - name: Resolve regression execution shape
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+
+          shape_mode="${EXECUTION_SHAPE_MODE:-auto}"
+          shape_source="auto"
+          runner_budget="$(python - <<'PYBUDGET'
+          import os
+          print(max(1, os.cpu_count() or 1) * 2)
+          PYBUDGET
+          )"
+
+          use_exact_shape() {
+            local pipelines="$1"
+            local threads="$2"
+            local source="$3"
+            local allocated=$((pipelines * threads))
+            if (( allocated > runner_budget )); then
+              echo "::error::Execution shape ${pipelines}p/${threads}t allocates ${allocated} threads against detected runner budget ${runner_budget}"
+              exit 1
+            fi
+            echo "THREADS=$threads" >> "$GITHUB_ENV"
+            echo "DETECTOR_PIPELINES=$pipelines" >> "$GITHUB_ENV"
+            echo "SHARDS=$pipelines" >> "$GITHUB_ENV"
+            echo "HTH_EXACT_EXECUTION_SHAPE=1" >> "$GITHUB_ENV"
+            echo "HTH_EXACT_EXECUTION_SHAPE_SOURCE=$source" >> "$GITHUB_ENV"
+            echo "HTH_EXECUTION_THREAD_BUDGET=$runner_budget" >> "$GITHUB_ENV"
+            echo "HTH_ALLOW_THREAD_OVERSUBSCRIPTION=false" >> "$GITHUB_ENV"
+            echo "Resolved execution shape: ${pipelines}p/${threads}t (${source}; ${allocated}/${runner_budget} threads)"
+          }
+
+          case "$shape_mode" in
+            preferred)
+              if [[ "$REGRESSION_MODE" != "full" || "$STRATEGY" != "exhaustive" || -n "${LIMIT:-}" ]]; then
+                echo "Preferred shape requires full exhaustive regression without a parameter-set limit; falling back to auto."
+                echo "HTH_EXACT_EXECUTION_SHAPE_SOURCE=auto-fallback-incompatible-workload" >> "$GITHUB_ENV"
+              elif [[ "$DETECTOR_ALGORITHM" == "all" ]]; then
+                echo "Preferred per-detector shapes require fan-out; this run is not fanned out, so falling back to auto."
+                echo "HTH_EXACT_EXECUTION_SHAPE_SOURCE=auto-fallback-all" >> "$GITHUB_ENV"
+              else
+                detector_config="hth-pipeline/config/detectors/${DETECTOR_ALGORITHM}.json"
+                if read -r pipelines threads shape_source < <(
+                  python -m hth.regression_shape preferred \
+                    --parallelism-index results-repo/parallelism-index.json \
+                    --detector-config "$detector_config" \
+                    --golden-set "hth-pipeline/$GOLDEN_SET" \
+                    --max-dimension "$MAX_DIMENSION" \
+                    --runner-name "${HTH_RUNNER_NAME:-${RUNNER_NAME:-unknown}}" \
+                    --runner-label "${HTH_RUNNER_LABEL:-unknown}"
+                ); then
+                  use_exact_shape "$pipelines" "$threads" "preferred-${shape_source}"
+                else
+                  echo "No compatible preferred shape collected for ${DETECTOR_ALGORITHM} on this runner profile; falling back to auto."
+                  echo "HTH_EXACT_EXECUTION_SHAPE_SOURCE=auto-fallback-no-preference" >> "$GITHUB_ENV"
+                fi
+              fi
+              ;;
+            manual)
+              if [[ -z "${MANUAL_EXECUTION_SHAPE:-}" ]]; then
+                echo "::error::Manual execution shape is required when Execution shape is manual (example: 8p/48t)"
+                exit 1
+              fi
+              read -r pipelines threads shape_source < <(python -m hth.regression_shape manual "$MANUAL_EXECUTION_SHAPE")
+              use_exact_shape "$pipelines" "$threads" "$shape_source"
+              ;;
+            auto)
+              echo "Execution shape: auto planner"
+              ;;
+            *)
+              echo "::error::Unknown execution shape mode: $shape_mode"
+              exit 1
+              ;;
+          esac
+
       - name: Run detector regressions
         id: regression
         shell: bash
@@ -710,7 +798,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v6
         with:
-          name: detector-regression-${{ github.run_id }}
+          name: detector-regression-${{ github.run_id }}-${{ matrix.detector }}
           path: |
             regression-output/
             regression-summary.md

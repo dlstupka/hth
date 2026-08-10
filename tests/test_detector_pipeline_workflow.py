@@ -8,12 +8,16 @@ WORKFLOW = ROOT / ".github" / "workflows" / "regress-detector.yml"
 DRIVER = ROOT / "tools" / "run-detector-regressions.sh"
 
 
-def test_multidetector_pipeline_inputs_and_defaults_are_declared() -> None:
+def test_execution_shape_inputs_replace_raw_pipeline_and_thread_knobs() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert "detector_pipelines:" in text
-    assert "default: \"4\"" in text
-    assert "type: string" in text
-    assert "any integer from 1 through 1024" in text
+    assert "execution_shape:" in text
+    assert "default: preferred" in text
+    for mode in ("preferred", "auto", "manual"):
+        assert f"          - {mode}" in text
+    assert "manual_execution_shape:" in text
+    assert "Manual execution shape, e.g. 8p/48t" in text
+    assert "detector_pipelines:" not in text
+    assert "threads:" not in text
     assert "pipeline_stagger_minutes:" in text
     assert 'default: "0"' in text
 
@@ -68,7 +72,7 @@ def test_manual_debug_level_choices_default_to_none_and_are_forwarded() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     driver = DRIVER.read_text(encoding="utf-8")
     assert "debug_level:" in text
-    assert "description: Debug image detail for manual builds" in text
+    assert 'description: "Advanced — debug image detail for manual builds"' in text
     assert "default: none" in text
     for level in ("none", "basic", "verbose"):
         assert f"          - {level}" in text
@@ -80,9 +84,10 @@ def test_manual_debug_level_choices_default_to_none_and_are_forwarded() -> None:
 def test_auto_threads_shards_and_expiring_leases_are_wired() -> None:
     text = DRIVER.read_text(encoding="utf-8")
     workflow = WORKFLOW.read_text(encoding="utf-8")
-    assert "default: auto" in workflow
+    assert "default: preferred" in workflow
+    assert "THREADS: auto" in workflow
     assert "shards:" in workflow
-    assert "explicit shard count" in workflow
+    assert "shard count override" in workflow
     assert "SHARDS:" in workflow
     assert "shard_target_minutes:" in workflow
     assert "shard_lease_minutes:" in workflow
@@ -121,3 +126,25 @@ def test_detector_pipeline_validation_accepts_any_integer_within_runner_budget()
     assert "Detector pipelines must be one of 1, 2, 4, or 8" not in text
     assert 'if [[ ! "$requested_pipelines" =~ ^[0-9]+$ ]] || (( requested_pipelines < 1 || requested_pipelines > runner_pipeline_max )); then' in text
     assert 'Detector pipelines must be an integer from 1 through runner budget $runner_pipeline_max' in text
+
+
+def test_self_hosted_all_fans_out_detectors_across_matching_runners() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "strategy:" in text
+    assert "matrix:" in text
+    assert "matrix.detector" in text
+    assert "inputs.algorithm == 'all'" in text
+    assert "inputs.runner != 'github-hosted'" in text
+    assert "format('Regress {0} against Golden Set', matrix.detector)" in text
+    assert 'name: detector-regression-${{ github.run_id }}-${{ matrix.detector }}' in text
+
+
+def test_preferred_shape_resolution_falls_back_to_auto_and_exact_shape_is_explicit() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "Resolve regression execution shape" in text
+    assert "python -m hth.regression_shape preferred" in text
+    assert "No compatible preferred shape collected" in text
+    assert 'echo "HTH_EXACT_EXECUTION_SHAPE=1"' in text
+    assert 'echo "SHARDS=$pipelines"' in text
+    assert 'echo "DETECTOR_PIPELINES=$pipelines"' in text
+    assert 'echo "THREADS=$threads"' in text

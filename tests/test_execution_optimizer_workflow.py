@@ -98,8 +98,8 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn('HTH_EXECUTION_THREAD_BUDGET', text)
         self.assertIn('planned_threads="$THREADS"', text)
         self.assertIn('effective_threads_per_pipeline="$THREADS"', text)
-        self.assertIn('Execution shape    : optimizer-exact', text)
-        self.assertIn('Optimizer requested ${THREADS} threads/pipeline but regression executor resolved', text)
+        self.assertIn('Execution shape    : ${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-optimizer}-exact', text)
+        self.assertIn('Exact shape requested ${THREADS} threads/pipeline but regression executor resolved', text)
 
     def test_execution_optimizer_records_shards_and_current_run_only_reports(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")

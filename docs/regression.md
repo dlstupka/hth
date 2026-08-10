@@ -52,11 +52,19 @@ When multiple detectors run together, the top-level **Detector Regression Manife
 
 For a manual run, the **Algorithm** input is a choice of `all`, `contour`, `contour_quad`, `contour_components`, `contour_grabcut`, `grabcut_contour`, `contour_projection`, `edge_contour`, `cross_edge_contour`, `gradient_vote`, `radial_edge`, `adaptive_radial_edge`, `border_energy`, `components`, `ransac`, `grabcut`, `hough`, or `lsd`. Automatic smoke runs continue to exercise all configured detector algorithms.
 
-### Concurrent detector pipelines
+### Regression execution shape and concurrent runners
 
-Every multi-detector regression uses a dynamic detector queue. Four detector pipelines run by default for automatic smoke tests and for manually dispatched runs with **Algorithm = all**. Manual builds may select any whole-number detector pipeline count from 1 through the selected runner's aggregate detector-thread budget. A single-detector selection always uses one detector pipeline regardless of the requested multi-detector value.
+Manual regression exposes one **Execution shape** control instead of separate pipeline/thread knobs:
 
-Each pipeline takes the next unclaimed detector shard, runs it with the thread count from the build's canonical execution plan, and immediately takes another queued shard when it finishes. Pipelines remain occupied until the queue is empty; the workflow then waits only for the slowest remaining regression jobs. The runner budget is aggregate across active pipelines: GitHub-hosted runs use 8 detector threads total and E7K uses 64. Explicit thread requests act as a per-pipeline cap. `auto` divides the aggregate budget equally across active pipelines and may choose a non-power-of-two value, such as 21 threads for each of three active E7K pipelines.
+- `preferred` (default) resolves the detector's persisted execution-optimizer preference for the current workload and runner profile. Exact runner evidence is preferred; when that runner has no observation, hardware-equivalent evidence with the same CPU model/core topology may be reused. If no compatible preference exists, the workflow falls back to `auto`. Preferred intelligence is used only for full, unlimited, exhaustive regressions matching the optimizer workload.
+- `auto` retains the normal wall-clock shard planner and bounded thread planner.
+- `manual` accepts one compact shape such as `8p/48t`. The pipeline and thread counts are treated as an explicit execution contract.
+
+A preferred/manual shape sets shards equal to pipelines and preserves the selected threads per active pipeline, so a persisted `23p/16t` preference is executed as 23 concurrent detector shards with 16 threads each rather than being re-planned downstream. The runner budget is validated before execution.
+
+When a manually dispatched self-hosted regression selects **Algorithm = all**, the workflow fans the detector list into independent matrix jobs. Every job uses the same selected runner labels, so GitHub Actions naturally places detectors concurrently on every available matching runner; with one matching runner, the remaining jobs simply queue. Each detector resolves its own preferred execution shape after landing on its actual runner. GitHub-hosted and automatic smoke runs retain the original single-job multi-detector queue to avoid unexpectedly multiplying hosted-runner consumption.
+
+Inside any single regression job, detector shards still use the existing dynamic queue. Each local pipeline takes the next unclaimed shard, runs it with the thread count from the canonical execution plan, and immediately takes another queued shard when it finishes.
 
 Every queue job emits UTC-timestamped `LOAD`, `START`, and `UNLOAD` lifecycle lines with detector ID, shard identity, thread count, status, and wall time. Unsharded work is shown consistently as shard `1/1`. A configured pipeline stagger is applied after `LOAD` and before `START`, preserving the distinction between queue residence and detector execution.
 

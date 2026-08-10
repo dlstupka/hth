@@ -261,11 +261,11 @@ This directory contains the design, operating, and project-reference documentati
 - [Reference collection editor](reference-collection-editor.md) — single-detector review tool.
 - [Multi-detector reference collection editor](reference-collection-editor-multidetector.md) — multi-detector review tool.
 
-- Long exhaustive regressions use smoke-derived serial-runtime estimates for automatic thread selection and deterministic interleaved shard planning. The default target is 30 minutes per shard, with expiring and renewable shard leases so abandoned work can be reclaimed. Runner-profile aggregate budgets are 192 threads for `e7k` and 64 threads for `e9k`; shorter workloads deliberately use fewer threads to avoid parallelism overhead.
+- Manual regression defaults to `preferred` execution shape: compatible persisted optimizer intelligence supplies the detector pipeline count and threads/pipeline as one exact execution contract. If no compatible preference exists, HTH falls back to the existing `auto` planner. `manual` accepts a compact shape such as `8p/48t`. Automatic smoke runs continue to use `auto`.
 
 ### Parallelism experimentation
 
-- Manual detector regressions accept any integer from `1` through `1024` for both threads per active pipeline and maximum detector pipelines; `auto` remains available for threads.
+- A self-hosted manual regression with `Algorithm = all` fans detectors into independent matrix jobs using the selected runner labels. GitHub Actions therefore consumes as many matching runners as are available in parallel; each detector resolves its preferred shape after landing on its actual runner. Exact runner optimizer evidence is preferred, with hardware-equivalent CPU/core-profile evidence allowed as a fallback before the generic auto planner.
 - `parallelism-index.json` records detector execution shapes independently from runtime queue history, including shards, active pipelines, threads per pipeline, allocated threads, measured wall-clock time, estimated serial runtime, and effective acceleration.
 - Parallelism experiments compare execution shapes such as `1×64`, `4×16`, and `8×8`; equal aggregate thread counts are not assumed to have equal performance.
 

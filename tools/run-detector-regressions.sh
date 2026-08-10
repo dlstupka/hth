@@ -141,7 +141,7 @@ PYPLAN
     planned_threads="$THREADS"
     planned_shards="${SHARDS:-1}"
     serial_estimate="unknown"
-    plan_source="optimizer-exact-shape"
+    plan_source="${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-optimizer}-exact-shape"
   else
     read -r planned_threads planned_shards serial_estimate plan_source < <(
       python - "$detector_config" "results-repo/runtime-index.json" "$detector_name" "${HTH_RUNNER_LABEL:-}" "$THREADS" "$SHARD_TARGET_MINUTES" "${SHARDS:-}" <<'PYPLAN'
@@ -160,7 +160,7 @@ PYPLAN
     )
   fi
   # User limits and smoke runs are already bounded; do not shard them.
-  if [[ "$REGRESSION_MODE" != "full" || -n "${effective_limit:-}" || "$effective_strategy" != "exhaustive" ]]; then
+  if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" != "1" ]] && { [[ "$REGRESSION_MODE" != "full" ]] || [[ -n "${effective_limit:-}" ]] || [[ "$effective_strategy" != "exhaustive" ]]; }; then
     planned_shards=1
   fi
   for ((shard_index = 0; shard_index < planned_shards; shard_index++)); do
@@ -228,9 +228,9 @@ echo "Detector pipelines : $effective_pipelines (requested $requested_pipelines)
 echo "Shards             : ${#detector_configs[@]}${SHARDS:+ (explicit request $SHARDS; capped at one parameter set per shard)}"
 echo "Thread budget      : $runner_thread_budget total; $effective_threads_per_pipeline per active pipeline; $allocated_threads allocated; $unused_threads free"
 if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
-  echo "Execution shape    : optimizer-exact (${effective_pipelines}p/${effective_threads_per_pipeline}t)"
+  echo "Execution shape    : ${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-optimizer}-exact (${effective_pipelines}p/${effective_threads_per_pipeline}t)"
   if [[ "$effective_threads_per_pipeline" != "$THREADS" ]]; then
-    echo "::error::Optimizer requested ${THREADS} threads/pipeline but regression executor resolved ${effective_threads_per_pipeline}"
+    echo "::error::Exact shape requested ${THREADS} threads/pipeline but regression executor resolved ${effective_threads_per_pipeline}"
     exit 1
   fi
 fi
