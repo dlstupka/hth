@@ -174,3 +174,40 @@ def test_prediction_history_correction_is_applied_to_future_guesses(tmp_path: Pa
     # Single-anchor linear scaling would predict 40p; the verified 24/20 correction lifts it to 48p.
     assert result["pipelines"] == 48
     assert result["verified_pipeline_correction"] == 1.2
+
+
+def test_preferred_shape_accepts_legacy_optimizer_row_missing_workload_fields(tmp_path: Path) -> None:
+    detector = tmp_path / "detector.json"
+    golden = tmp_path / "golden.json"
+    _write_json(detector, {"detector": "gradient_vote"})
+    _write_json(golden, {"pages": []})
+    golden_sha = _sha(golden)
+    model = "AMD EPYC 9655 96-Core Processor"
+    row = _row(
+        detector="gradient_vote",
+        detector_sha="unused",
+        golden_sha=golden_sha,
+        runner_name="rh8-al325",
+        cpu_model=model,
+        logical=192,
+        physical=192,
+        pipelines=9,
+        threads=42,
+        rate=729.11,
+    )
+    row.pop("detector_config_sha256")
+    row.pop("max_dimension")
+    index = tmp_path / "parallelism-index.json"
+    _write_json(index, {"observations": [row]})
+
+    result = resolve_preferred_shape(
+        parallelism_index=index,
+        detector_config=detector,
+        golden_set=golden,
+        max_dimension=1800,
+        profile=RunnerProfile("rh8-al321", "e9k", model, 192, 192),
+    )
+
+    assert result is not None
+    assert (result["pipelines"], result["threads_per_pipeline"]) == (9, 42)
+    assert result["source"] == "hardware-profile-legacy-workload"

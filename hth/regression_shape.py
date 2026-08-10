@@ -127,11 +127,18 @@ def _row_matches_workload(
         return False
     if str(row.get("mode") or "") != "full" or str(row.get("strategy") or "") != "exhaustive":
         return False
-    if str(row.get("detector_config_sha256") or "") != detector_sha256:
+    row_detector_sha = str(row.get("detector_config_sha256") or "").strip()
+    # Optimizer observations created before detector-config identity was added
+    # legitimately lack this field.  Preserve those measured shapes as legacy
+    # evidence, but reject any explicit conflicting hash.
+    if row_detector_sha and row_detector_sha != detector_sha256:
         return False
     if str(row.get("golden_set_sha256") or "") != golden_sha256:
         return False
-    if _as_int(row.get("max_dimension")) != max_dimension:
+    row_max_dimension = _as_int(row.get("max_dimension"))
+    # Same bootstrap compatibility rule for optimizer rows captured before
+    # max_dimension was persisted in RUN-INFO/summary.
+    if row_max_dimension is not None and row_max_dimension != max_dimension:
         return False
     possible = _as_int(row.get("possible_parameter_sets"))
     actual = _as_int(row.get("actual_parameter_sets"))
@@ -277,13 +284,19 @@ def resolve_preferred_shape(
         return None
 
     source_names = {0: "exact-runner", 1: "hardware-profile"}
+    legacy_workload = any(
+        not str(row.get("detector_config_sha256") or "").strip()
+        or _as_int(row.get("max_dimension")) is None
+        for row in rows
+    )
+    source = source_names[selected_tier] + ("-legacy-workload" if legacy_workload else "")
     return {
         "detector": detector,
         "pipelines": int(best["pipelines"]),
         "threads_per_pipeline": int(best["threads_per_pipeline"]),
         "allocated_threads": int(best.get("allocated_threads") or int(best["pipelines"]) * int(best["threads_per_pipeline"])),
         "parameter_sets_per_second": best.get("parameter_sets_per_second"),
-        "source": source_names[selected_tier],
+        "source": source,
         "matched_observations": len(rows),
         "runner_name": profile.name,
         "runner_label": profile.label,
