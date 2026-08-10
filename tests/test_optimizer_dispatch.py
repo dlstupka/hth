@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
-from hth.optimizer_dispatch import resolve_targets
+from hth.optimizer_dispatch import _dispatch, resolve_targets
 
 
 class OptimizerDispatchTests(unittest.TestCase):
@@ -41,6 +42,41 @@ class OptimizerDispatchTests(unittest.TestCase):
             detector_dir.mkdir()
             (detector_dir / "a.json").write_text("{}", encoding="utf-8")
             self.assertEqual(resolve_targets(detector_dir, root / "missing.json", "all-without-preference"), ["a"])
+
+    def test_dispatch_accepts_any_2xx_response(self) -> None:
+        class FakeResponse:
+            status = 200
+            def __enter__(self):
+                return self
+            def __exit__(self, exc_type, exc, tb):
+                return None
+
+        with mock.patch("hth.optimizer_dispatch.urllib.request.urlopen", return_value=FakeResponse()):
+            _dispatch(
+                "https://api.github.test/dispatches",
+                "token",
+                "main",
+                "adaptive_radial_edge",
+                {"pipeline_enumeration": "adaptive"},
+            )
+
+    def test_dispatch_rejects_non_2xx_response(self) -> None:
+        class FakeResponse:
+            status = 300
+            def __enter__(self):
+                return self
+            def __exit__(self, exc_type, exc, tb):
+                return None
+
+        with mock.patch("hth.optimizer_dispatch.urllib.request.urlopen", return_value=FakeResponse()):
+            with self.assertRaisesRegex(RuntimeError, "Unexpected dispatch status 300"):
+                _dispatch(
+                    "https://api.github.test/dispatches",
+                    "token",
+                    "main",
+                    "adaptive_radial_edge",
+                    {"pipeline_enumeration": "adaptive"},
+                )
 
 
 if __name__ == "__main__":

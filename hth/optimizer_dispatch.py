@@ -59,7 +59,7 @@ def _dispatch(endpoint: str, token: str, ref: str, detector: str, common_inputs:
     )
     try:
         with urllib.request.urlopen(request) as response:
-            if response.status != 204:
+            if not 200 <= response.status < 300:
                 raise RuntimeError(f"Unexpected dispatch status {response.status} for {detector}")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
