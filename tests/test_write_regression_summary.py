@@ -549,3 +549,20 @@ class RegressionSummaryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LegacyMetricNormalizationTests(unittest.TestCase):
+    def test_failed_pages_recover_zero_weighted_mean(self):
+        from hth.write_regression_summary import _normalize_legacy_result_metrics
+        summary={"winner":{"summary":{"page_count":5,"success_count":1,"failure_count":4,"mean_iou":0.9638,"minimum_iou":0.9638,"stddev_iou":0.0}}}
+        stats=_normalize_legacy_result_metrics(summary)["winner"]["summary"]
+        self.assertAlmostEqual(stats["mean_iou"],0.19276,places=5)
+        self.assertEqual(stats["mean_iou_success"],0.9638)
+        self.assertEqual(stats["minimum_iou"],0.0)
+
+    def test_current_summary_is_unchanged(self):
+        from hth.write_regression_summary import _normalize_legacy_result_metrics
+        summary={"winner":{"summary":{"page_count":5,"success_count":4,"failure_count":1,"mean_iou":0.72,"mean_iou_success":0.90,"minimum_iou":0.0,"stddev_iou":0.36}}}
+        stats=_normalize_legacy_result_metrics(summary)["winner"]["summary"]
+        self.assertEqual(stats["mean_iou"],0.72)
+        self.assertEqual(stats["mean_iou_success"],0.90)

@@ -148,6 +148,37 @@ def _read_json(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _normalize_legacy_result_metrics(summary: dict[str, Any]) -> dict[str, Any]:
+    """Repair pre-Avg-IoU-Success summaries in memory for report regeneration."""
+    for key in ("winner", "baseline"):
+        result = summary.get(key)
+        if not isinstance(result, dict):
+            continue
+        stats = result.get("summary")
+        if not isinstance(stats, dict) or "mean_iou_success" in stats:
+            continue
+        try:
+            page_count = int(stats.get("page_count") or 0)
+            success_count = int(stats.get("success_count") or 0)
+            failure_count = int(stats.get("failure_count") or 0)
+            success_mean = float(stats.get("mean_iou") or 0.0)
+            success_stddev = float(stats.get("stddev_iou") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if page_count <= 0 or success_count + failure_count != page_count:
+            continue
+        stats["mean_iou_success"] = success_mean
+        if failure_count:
+            full_mean = success_mean * success_count / page_count
+            success_second_moment = success_stddev ** 2 + success_mean ** 2
+            full_second_moment = success_second_moment * success_count / page_count
+            full_variance = max(0.0, full_second_moment - full_mean ** 2)
+            stats["mean_iou"] = round(full_mean, 8)
+            stats["minimum_iou"] = 0.0
+            stats["stddev_iou"] = round(full_variance ** 0.5, 8)
+    return summary
+
+
 def _short(value: Any, length: int = 12) -> str:
     text = str(value or "").strip()
     return text[:length] if text else "unknown"
@@ -991,11 +1022,19 @@ def _calibration_record_from_payload(
     baseline = summary.get("baseline") if isinstance(summary.get("baseline"), dict) else None
     winner_stats = winner.get("summary", {}) if winner else {}
     baseline_stats = baseline.get("summary", {}) if baseline else {}
-    mean_iou = selection.get("best_avg_iou", winner_stats.get("mean_iou", landscape.get("best_mean_iou")))
-    mean_iou_success = selection.get("avg_iou_success", winner_stats.get("mean_iou_success", mean_iou))
-    minimum_iou = selection.get("minimum_iou", winner_stats.get("minimum_iou"))
-    stddev_iou = selection.get("stddev_iou", winner_stats.get("stddev_iou"))
-    failures = selection.get("failure_count", winner_stats.get("failure_count", "unknown"))
+    legacy_selection = bool(winner_stats) and "mean_iou_success" in winner_stats and "avg_iou_success" not in selection
+    if legacy_selection:
+        mean_iou = winner_stats.get("mean_iou", landscape.get("best_mean_iou"))
+        mean_iou_success = winner_stats.get("mean_iou_success", mean_iou)
+        minimum_iou = winner_stats.get("minimum_iou")
+        stddev_iou = winner_stats.get("stddev_iou")
+        failures = winner_stats.get("failure_count", "unknown")
+    else:
+        mean_iou = selection.get("best_avg_iou", winner_stats.get("mean_iou", landscape.get("best_mean_iou")))
+        mean_iou_success = selection.get("avg_iou_success", winner_stats.get("mean_iou_success", mean_iou))
+        minimum_iou = selection.get("minimum_iou", winner_stats.get("minimum_iou"))
+        stddev_iou = selection.get("stddev_iou", winner_stats.get("stddev_iou"))
+        failures = selection.get("failure_count", winner_stats.get("failure_count", "unknown"))
     parameter_id = selection.get("recommended_parameter_set_id") or (entry.get("selection") or {}).get("recommended_parameter_set_id") or _parameter_id(winner)
     baseline_mean = baseline_stats.get("mean_iou")
     delta = None
@@ -1092,7 +1131,7 @@ def _best_known_calibrations(
             record_dir = calibration_index.parent / str(entry.get("record_path") or "")
             summary_path = record_dir / "summary.json"
             info_path = record_dir / "RUN-INFO.json"
-            summary = _read_json(summary_path) if summary_path.is_file() else {}
+            summary = _normalize_legacy_result_metrics(_read_json(summary_path)) if summary_path.is_file() else {}
             info = _read_json(info_path) if info_path.is_file() else {}
             indexed_entry = dict(entry)
             indexed_build = dict(entry.get("build")) if isinstance(entry.get("build"), dict) else {}
