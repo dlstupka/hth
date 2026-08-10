@@ -52,7 +52,9 @@ def test_loading_strategies_runtime_index_and_announcements_are_wired() -> None:
     assert "START detector=$detector_name shard=$((shard_index + 1))/$shard_count" in text
     assert "UNLOAD detector=$detector_name shard=$((shard_index + 1))/$shard_count status=complete" in text
     assert "time=$lifecycle_time" in text
-    assert "git -C results-repo add calibration-index.json runtime-index.json parallelism-index.json optimizer-predictions.json source-documents/" in workflow
+    assert "git -C results-repo add calibration-index.json runtime-index.json parallelism-index.json source-documents/" in workflow
+    assert "if [[ -f results-repo/optimizer-predictions.json ]]; then" in workflow
+    assert "git -C results-repo add optimizer-predictions.json" in workflow
 
 
 def test_intelligence_publisher_rebuilds_from_latest_results_state_on_retry() -> None:

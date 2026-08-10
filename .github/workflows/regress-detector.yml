@@ -826,7 +826,10 @@ jobs:
               --sha "${{ github.sha }}" \
               --run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-            git -C results-repo add calibration-index.json runtime-index.json parallelism-index.json optimizer-predictions.json source-documents/
+            git -C results-repo add calibration-index.json runtime-index.json parallelism-index.json source-documents/
+            if [[ -f results-repo/optimizer-predictions.json ]]; then
+              git -C results-repo add optimizer-predictions.json
+            fi
 
             if git -C results-repo diff --cached --quiet; then
               echo "Calibration intelligence store already current."
