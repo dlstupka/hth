@@ -117,6 +117,7 @@ def generate_calibration_manifest(
             results_repository=results_repository,
             results_commit=results_commit,
             calibration_index=results_root / "calibration-index.json",
+            runtime_index=results_root / "runtime-index.json",
         )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(text, encoding="utf-8")

@@ -200,10 +200,11 @@ def _observation_score(
     return score, "+".join(reasons) or "detector-history"
 
 
-def estimate_runtime(
+def select_runtime_observation(
     index: dict[str, Any], detector: str, *, mode: str, search_strategy: str,
     threads: int, max_dimension: int, golden_set_sha256: str, runner_label: str,
-) -> tuple[float | None, str]:
+) -> tuple[dict[str, Any] | None, str]:
+    """Return the canonical runtime observation for one detector/context."""
     candidates = [
         item for item in index.get("observations", [])
         if isinstance(item, dict) and item.get("detector_id") == detector
@@ -214,18 +215,92 @@ def estimate_runtime(
     ranked = sorted(
         candidates,
         key=lambda item: (
-            _observation_score(item, mode=mode, search_strategy=search_strategy, threads=threads,
-                               max_dimension=max_dimension, golden_set_sha256=golden_set_sha256,
-                               runner_label=runner_label)[0],
+            _observation_score(
+                item, mode=mode, search_strategy=search_strategy, threads=threads,
+                max_dimension=max_dimension, golden_set_sha256=golden_set_sha256,
+                runner_label=runner_label,
+            )[0],
             str(item.get("observed_at_utc") or ""),
         ),
         reverse=True,
     )
     best = ranked[0]
-    score, reason = _observation_score(best, mode=mode, search_strategy=search_strategy, threads=threads,
-                                       max_dimension=max_dimension, golden_set_sha256=golden_set_sha256,
-                                       runner_label=runner_label)
-    return _as_float(best.get("wall_clock_seconds")), f"runtime-index:{reason}:score={score}"
+    score, reason = _observation_score(
+        best, mode=mode, search_strategy=search_strategy, threads=threads,
+        max_dimension=max_dimension, golden_set_sha256=golden_set_sha256,
+        runner_label=runner_label,
+    )
+    return best, f"runtime-index:{reason}:score={score}"
+
+
+def estimate_runtime(
+    index: dict[str, Any], detector: str, *, mode: str, search_strategy: str,
+    threads: int, max_dimension: int, golden_set_sha256: str, runner_label: str,
+) -> tuple[float | None, str]:
+    best, source = select_runtime_observation(
+        index, detector, mode=mode, search_strategy=search_strategy, threads=threads,
+        max_dimension=max_dimension, golden_set_sha256=golden_set_sha256,
+        runner_label=runner_label,
+    )
+    return (_as_float(best.get("wall_clock_seconds")) if best else None), source
+
+
+def coherent_execution_profile(
+    index: dict[str, Any], detector_ids: list[str], *, golden_set_sha256: str = "",
+) -> dict[str, Any] | None:
+    """Recover a coherent multi-detector execution context from runtime history.
+
+    A generated calibration report combines best-known detector records from
+    different builds.  Scheduler recommendations must use one real execution
+    build, not infer "mixed" from that heterogeneous collection.
+    """
+    wanted = set(detector_ids)
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in index.get("observations", []):
+        if not isinstance(row, dict) or str(row.get("detector_id") or "") not in wanted:
+            continue
+        if golden_set_sha256 and str(row.get("golden_set_sha256") or "") != golden_set_sha256:
+            continue
+        build = row.get("build") if isinstance(row.get("build"), dict) else {}
+        build_id = str(build.get("github_run_id") or build.get("github_run_number") or "").strip()
+        if build_id:
+            groups.setdefault(build_id, []).append(row)
+
+    candidates: list[tuple[int, str, dict[str, Any]]] = []
+    for build_id, rows in groups.items():
+        unique = {str(row.get("detector_id")): row for row in rows}
+        values = list(unique.values())
+        threads = {_as_int(row.get("configured_threads")) for row in values}
+        pipelines = {_as_int(row.get("detector_pipelines")) for row in values}
+        loading = {str(row.get("detector_loading_strategy") or "").lower() for row in values}
+        modes = {str(row.get("mode") or "") for row in values}
+        strategies = {str(row.get("resolved_strategy") or row.get("requested_strategy") or "") for row in values}
+        dimensions = {_as_int(row.get("max_dimension")) for row in values}
+        if None in threads or len(threads) != 1 or None in pipelines or len(pipelines) != 1:
+            continue
+        if len(loading) != 1 or len(modes) != 1 or len(strategies) != 1 or len(dimensions) != 1:
+            continue
+        latest = max(str(row.get("observed_at_utc") or "") for row in values)
+        sample = values[0]
+        runner = sample.get("runner") if isinstance(sample.get("runner"), dict) else {}
+        labels = runner.get("runner_labels") if isinstance(runner.get("runner_labels"), list) else []
+        profile = {
+            "build_id": build_id,
+            "coverage": len(values),
+            "threads": next(iter(threads)),
+            "pipeline_count": next(iter(pipelines)),
+            "loading_strategy": next(iter(loading)) or "lpt",
+            "mode": next(iter(modes)),
+            "strategy": next(iter(strategies)),
+            "max_dimension": next(iter(dimensions)),
+            "runner_label": str(labels[0]) if labels else "",
+            "observed_at_utc": latest,
+        }
+        candidates.append((len(values), latest, profile))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return candidates[0][2]
 
 
 def _ranked_quality(calibration_index: dict[str, Any], detector: str, golden_sha: str) -> float | None:

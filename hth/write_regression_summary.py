@@ -12,6 +12,7 @@ from typing import Any
 from hth.regression.result_metrics import normalize_summary_metrics
 from hth.regression.authoritative_record import authoritative_record
 from hth.domain.result_metrics import calibration_metric_view, result_metric_view
+from hth.runtime_store import coherent_execution_profile, select_runtime_observation
 
 
 
@@ -1575,10 +1576,53 @@ def _scope_parameter_count(payload: dict[str, Any] | None, scope: str) -> int | 
     return None
 
 
+def _load_runtime_index(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.is_file():
+        return {"observations": []}
+    return _read_json(path)
+
+
+def _combined_detector_ids(run_dirs: list[Path]) -> list[str]:
+    values = []
+    for run_dir in run_dirs:
+        manifest_path = run_dir / "manifest.json"
+        if manifest_path.is_file():
+            values.append(str(_read_json(manifest_path).get("detector", run_dir.parent.name)))
+        else:
+            values.append(run_dir.parent.name)
+    return values
+
+
+def _combined_golden_sha(run_dirs: list[Path]) -> str:
+    values = set()
+    for run_dir in run_dirs:
+        info_path = run_dir / "RUN-INFO.json"
+        if info_path.is_file():
+            value = str(_read_json(info_path).get("golden_set_sha256") or "")
+            if value:
+                values.add(value)
+    return next(iter(values)) if len(values) == 1 else ""
+
+
+def _coherent_report_execution_profile(
+    run_dirs: list[Path], runtime_index_path: Path | None,
+) -> dict[str, Any] | None:
+    if runtime_index_path is None:
+        return None
+    return coherent_execution_profile(
+        _load_runtime_index(runtime_index_path),
+        _combined_detector_ids(run_dirs),
+        golden_set_sha256=_combined_golden_sha(run_dirs),
+    )
+
+
 def _estimate_scope_makespan(
     run_dirs: list[Path],
     scope: str,
     pipelines: int,
+    *,
+    runtime_index_path: Path | None = None,
+    execution_profile: dict[str, Any] | None = None,
 ) -> float | None:
     """Estimate full-scope wall time using the same shard/LPT execution model.
 
@@ -1592,6 +1636,7 @@ def _estimate_scope_makespan(
     from math import ceil
     from hth.regression.sharding import SAFETY_FACTOR, TARGET_SHARD_SECONDS
 
+    runtime_index = _load_runtime_index(runtime_index_path)
     shard_estimates: list[float] = []
     for run_dir in run_dirs:
         info = _read_json(run_dir / "RUN-INFO.json")
@@ -1599,6 +1644,30 @@ def _estimate_scope_makespan(
         evaluated = int(summary.get("parameter_set_count", 0) or 0)
         elapsed = float(info.get("elapsed_seconds", 0.0) or 0.0)
         target_count = _scope_parameter_count(_calibration_payload(run_dir), scope)
+
+        if execution_profile and runtime_index_path is not None:
+            manifest_path = run_dir / "manifest.json"
+            detector = (
+                str(_read_json(manifest_path).get("detector", run_dir.parent.name))
+                if manifest_path.is_file() else run_dir.parent.name
+            )
+            observation, _ = select_runtime_observation(
+                runtime_index,
+                detector,
+                mode=str(execution_profile.get("mode") or ""),
+                search_strategy=str(execution_profile.get("strategy") or ""),
+                threads=int(execution_profile["threads"]),
+                max_dimension=int(execution_profile["max_dimension"]),
+                golden_set_sha256=_combined_golden_sha(run_dirs),
+                runner_label=str(execution_profile.get("runner_label") or ""),
+            )
+            if observation:
+                observation_sets = int(observation.get("actual_parameter_sets") or 0)
+                observation_elapsed = float(observation.get("wall_clock_seconds") or 0.0)
+                if observation_sets > 0 and observation_elapsed > 0:
+                    evaluated = observation_sets
+                    elapsed = observation_elapsed
+
         if evaluated <= 0 or elapsed <= 0 or target_count is None:
             return None
 
@@ -1613,7 +1682,11 @@ def _estimate_scope_makespan(
     return _lpt_makespan(shard_estimates, pipelines)
 
 
-def _regression_execution_metadata(run_dirs: list[Path]) -> dict[str, Any]:
+def _regression_execution_metadata(
+    run_dirs: list[Path],
+    *,
+    runtime_index_path: Path | None = None,
+) -> dict[str, Any]:
     contexts = [_pipeline_context(run_dir) for run_dir in run_dirs]
     infos = [_read_json(run_dir / "RUN-INFO.json") for run_dir in run_dirs]
     starts = [
@@ -1629,30 +1702,79 @@ def _regression_execution_metadata(run_dirs: list[Path]) -> dict[str, Any]:
     span_seconds = None
     if starts and finishes:
         span_seconds = max(0.0, (max(finishes) - min(starts)).total_seconds())
+    profile = _coherent_report_execution_profile(run_dirs, runtime_index_path)
+    if profile:
+        return {
+            "pipeline_count": profile["pipeline_count"],
+            "loading_strategy": profile["loading_strategy"],
+            "stagger_minutes": 0,
+            "threads": profile["threads"],
+            "span_seconds": span_seconds,
+            "profile": profile,
+            "source": f"runtime-index coherent build {profile['build_id']} ({profile['coverage']}/{len(run_dirs)} detectors)",
+        }
     return {
         "pipeline_count": _common_value([context.get("pipeline_count") for context in contexts], 1),
         "loading_strategy": _common_value([context.get("loading_strategy") for context in contexts], "fifo"),
         "stagger_minutes": _common_value([context.get("stagger_minutes") for context in contexts], 0),
         "threads": _common_value([info.get("threads") for info in infos], "unknown"),
         "span_seconds": span_seconds,
+        "profile": None,
+        "source": "persisted calibration records",
     }
 
 
-def _queue_rows(run_dirs: list[Path]) -> list[dict[str, Any]]:
+def _queue_rows(
+    run_dirs: list[Path],
+    *,
+    runtime_index_path: Path | None = None,
+    execution_profile: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    runtime_index = _load_runtime_index(runtime_index_path)
     rows: list[dict[str, Any]] = []
     for run_dir in run_dirs:
         manifest = _read_json(run_dir / "manifest.json")
         info = _read_json(run_dir / "RUN-INFO.json")
         context = _pipeline_context(run_dir)
+        detector = str(manifest.get("detector", run_dir.parent.name))
+        estimate = context.get("runtime_estimate_seconds")
+        source = context.get("runtime_estimate_source") or "unknown"
+        if execution_profile and runtime_index_path is not None:
+            observation, source = select_runtime_observation(
+                runtime_index,
+                detector,
+                mode=str(execution_profile.get("mode") or ""),
+                search_strategy=str(execution_profile.get("strategy") or ""),
+                threads=int(execution_profile["threads"]),
+                max_dimension=int(execution_profile["max_dimension"]),
+                golden_set_sha256=_combined_golden_sha(run_dirs),
+                runner_label=str(execution_profile.get("runner_label") or ""),
+            )
+            estimate = observation.get("wall_clock_seconds") if observation else None
         rows.append({
-            "detector": str(manifest.get("detector", run_dir.parent.name)),
+            "detector": detector,
             "queue_position": context.get("queue_position"),
             "pipeline_number": context.get("pipeline_number"),
-            "estimate_seconds": context.get("runtime_estimate_seconds"),
-            "estimate_source": context.get("runtime_estimate_source") or "unknown",
+            "estimate_seconds": estimate,
+            "estimate_source": source,
             "ranked_quality": context.get("ranked_quality"),
             "started": _parse_utc_timestamp(info.get("started_at_utc")),
         })
+
+    if execution_profile:
+        rows.sort(key=lambda row: (
+            -(float(row["estimate_seconds"]) if row.get("estimate_seconds") is not None else -1.0),
+            row["detector"],
+        ))
+        pipeline_available = [0.0] * int(execution_profile["pipeline_count"])
+        for position, row in enumerate(rows, start=1):
+            pipeline_index = min(range(len(pipeline_available)), key=lambda idx: pipeline_available[idx])
+            row["queue_position"] = position
+            row["pipeline_number"] = pipeline_index + 1
+            if row.get("estimate_seconds") is not None:
+                pipeline_available[pipeline_index] += float(row["estimate_seconds"])
+        return rows
+
     rows.sort(key=lambda row: (
         int(row["queue_position"]) if str(row.get("queue_position", "")).isdigit() else 10**9,
         row["started"].timestamp() if row.get("started") is not None else float("inf"),
@@ -1776,6 +1898,7 @@ def build_combined_summary(
     results_repository: str = "",
     results_commit: str = "",
     calibration_index: Path | None = None,
+    runtime_index: Path | None = None,
 ) -> str:
     if not run_dirs:
         raise ValueError("At least one regression run directory is required")
@@ -1882,7 +2005,7 @@ def build_combined_summary(
         for row in combined_rows
     )
     aggregate_elapsed = sum(float(row.get("elapsed_seconds", 0.0) or 0.0) for row in combined_rows)
-    execution = _regression_execution_metadata(run_dirs)
+    execution = _regression_execution_metadata(run_dirs, runtime_index_path=runtime_index)
     pipeline_count = int(execution.get("pipeline_count", 1) or 1) if str(execution.get("pipeline_count", 1)).isdigit() else 1
     regression_span = execution.get("span_seconds")
     concurrency = (
@@ -1890,10 +2013,19 @@ def build_combined_summary(
         if regression_span is not None and float(regression_span) > 0
         else None
     )
-    queue_rows = _queue_rows(run_dirs)
-    exhaustive_estimate = _estimate_scope_makespan(run_dirs, "exhaustive", pipeline_count)
-    non_dormant_estimate = _estimate_scope_makespan(run_dirs, "non_dormant", pipeline_count)
-    critical_estimate = _estimate_scope_makespan(run_dirs, "critical", pipeline_count)
+    queue_rows = _queue_rows(run_dirs, runtime_index_path=runtime_index, execution_profile=execution.get('profile'))
+    exhaustive_estimate = _estimate_scope_makespan(
+        run_dirs, "exhaustive", pipeline_count,
+        runtime_index_path=runtime_index, execution_profile=execution.get("profile"),
+    )
+    non_dormant_estimate = _estimate_scope_makespan(
+        run_dirs, "non_dormant", pipeline_count,
+        runtime_index_path=runtime_index, execution_profile=execution.get("profile"),
+    )
+    critical_estimate = _estimate_scope_makespan(
+        run_dirs, "critical", pipeline_count,
+        runtime_index_path=runtime_index, execution_profile=execution.get("profile"),
+    )
 
     lines.extend([
         "",
@@ -1911,7 +2043,7 @@ def build_combined_summary(
         f"| Regression wall-clock span | {_duration(regression_span)} | Earliest detector start through latest detector finish. |",
         f"| Effective detector concurrency | {f'{concurrency:.2f}×' if concurrency is not None else 'unknown'} | Aggregate detector runtime divided by regression wall-clock span. |",
         f"| Detector pipelines | {execution.get('pipeline_count', 'unknown')} | Maximum concurrent detector regressions used by this build. |",
-        f"| Loading strategy | {str(execution.get('loading_strategy', 'unknown')).upper()} | Strategy used to order the shared detector queue. |",
+        f"| Loading strategy | {('LPT (Longest Processing Time first)' if str(execution.get('loading_strategy', '')).lower() == 'lpt' else str(execution.get('loading_strategy', 'unknown')).upper())} | Strategy used to order the shared detector queue. |",
         f"| Pipeline stagger | {execution.get('stagger_minutes', 'unknown')}m | Delay between initial pipeline starts; replacement loads begin immediately. |",
         f"| Source-document images | {source_document.get('image_count', 'unknown')} | Total images recorded for the source document. |",
         "",
@@ -1920,8 +2052,9 @@ def build_combined_summary(
         "| Setting | Value |",
         "|---|---|",
         f"| Detector pipelines | {execution.get('pipeline_count', 'unknown')} |",
-        f"| Detector loading strategy | {str(execution.get('loading_strategy', 'unknown')).upper()} |",
+        f"| Detector loading strategy | {('LPT (Longest Processing Time first)' if str(execution.get('loading_strategy', '')).lower() == 'lpt' else str(execution.get('loading_strategy', 'unknown')).upper())} |",
         f"| Threads per detector regression | {execution.get('threads', 'unknown')} |",
+        f"| Execution recommendation basis | {execution.get('source', 'unknown')} |",
         f"| Pipeline start stagger | {execution.get('stagger_minutes', 'unknown')}m |",
         f"| Runtime intelligence | `runtime-index.json` |",
         f"| Parallelism intelligence | `parallelism-index.json` |",
@@ -1945,7 +2078,7 @@ def build_combined_summary(
 
     lines.extend([
         "",
-        "Queue order reflects the selected loading strategy. LPT schedules the longest estimated detector work first, FIFO preserves configured detector order, and Ranked uses historical detector quality.",
+        "Queue order reflects the selected loading strategy. LPT (Longest Processing Time first) schedules the longest estimated detector work first, FIFO preserves configured detector order, and Ranked uses historical detector quality.",
         "",
         "### Regression Recommendations Summary",
         "",
@@ -1954,7 +2087,7 @@ def build_combined_summary(
         "| Setting | Recommended | Basis |",
         "|---|---|---|",
         "| Detector pipelines | 4 | Current HTH default for multi-detector regressions. |",
-        "| Detector loading | LPT | Reduces the slow-detector tail by loading historically longest regressions first. |",
+        "| Detector loading | LPT (Longest Processing Time first) | Reduces the slow-detector tail by loading historically longest regressions first. |",
         f"| Threads per detector regression | {execution.get('threads', 'Auto')} | Preserve the current measured setting until runtime history supports a different thread recommendation. |",
         "| Startup stagger | 0m | Avoids idle startup time unless runner contention requires a stagger. |",
         "",
@@ -2011,6 +2144,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--results-repository", default=os.environ.get("HTH_RESULTS_REPOSITORY", ""))
     p.add_argument("--results-commit", default=os.environ.get("HTH_RESULTS_COMMIT", ""))
     p.add_argument("--calibration-index", type=Path)
+    p.add_argument("--runtime-index", type=Path)
     return p
 
 
@@ -2023,6 +2157,7 @@ def main(argv: list[str] | None = None) -> int:
         results_repository=args.results_repository,
         results_commit=args.results_commit,
         calibration_index=args.calibration_index,
+        runtime_index=args.runtime_index,
     )
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

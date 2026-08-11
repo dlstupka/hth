@@ -418,7 +418,7 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("| Regression wall-clock span | 2s |", text)
             self.assertIn("### Regression Execution and Detector Queueing", text)
             self.assertIn("| Detector pipelines | 4 |", text)
-            self.assertIn("| Detector loading strategy | LPT |", text)
+            self.assertIn("| Detector loading strategy | LPT (Longest Processing Time first) |", text)
             self.assertIn("| 1 | GrabCut Segmentation (`grabcut`) | 1 | 10s | runtime-index:test |", text)
             self.assertIn("### Regression Recommendations Summary", text)
             self.assertIn("#### Execution Configuration", text)
