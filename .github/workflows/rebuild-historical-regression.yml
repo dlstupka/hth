@@ -47,7 +47,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           path: hth-pipeline
-          fetch-depth: 1
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Checkout results repository
@@ -80,6 +80,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REQUESTED_SCOPE: ${{ inputs.scope }}
           REQUESTED_RUN_NUMBER: ${{ inputs.run_number }}
+          CALIBRATION_INTELLIGENCE_FLOOR: ddbd063fdfd72319d42266cd1b2e02f078d9e7c3
         run: |
           set -euo pipefail
           mkdir -p historical-artifacts
@@ -90,7 +91,19 @@ jobs:
             --jq '.workflow_runs[]
               | select(.path == ".github/workflows/regress-detector.yml")
               | select(.status == "completed" and .conclusion == "success")
-              | [.id, .run_number] | @tsv' > "$RUNNER_TEMP/hth-regression-runs.tsv"
+              | [.id, .run_number, .head_sha] | @tsv' > "$RUNNER_TEMP/hth-regression-runs.tsv"
+
+          eligible_runs="$RUNNER_TEMP/hth-regression-runs-eligible.tsv"
+          : > "$eligible_runs"
+          while IFS=$'\t' read -r run_id run_number head_sha; do
+            [[ -n "$run_id" && -n "$head_sha" ]] || continue
+            if git -C hth-pipeline merge-base --is-ancestor \
+              "$CALIBRATION_INTELLIGENCE_FLOOR" "$head_sha" 2>/dev/null; then
+              printf '%s\t%s\t%s\n' "$run_id" "$run_number" "$head_sha" >> "$eligible_runs"
+            else
+              echo "Skipping pre-calibration-intelligence regression build #$run_number ($head_sha)"
+            fi
+          done < "$RUNNER_TEMP/hth-regression-runs.tsv"
 
           if [[ "$REQUESTED_SCOPE" == "single-build" ]]; then
             if [[ -z "$REQUESTED_RUN_NUMBER" ]]; then
@@ -98,15 +111,23 @@ jobs:
               exit 1
             fi
             awk -v n="$REQUESTED_RUN_NUMBER" '$2 == n {print $1}' \
-              "$RUNNER_TEMP/hth-regression-runs.tsv" > "$run_ids"
+              "$eligible_runs" > "$run_ids"
             if [[ ! -s "$run_ids" ]]; then
-              echo "::error::No successful regress-detector workflow run found for build #$REQUESTED_RUN_NUMBER"
+              if awk -v n="$REQUESTED_RUN_NUMBER" '$2 == n {found=1} END {exit !found}' \
+                "$RUNNER_TEMP/hth-regression-runs.tsv"; then
+                echo "::error::Regression build #$REQUESTED_RUN_NUMBER predates calibration intelligence ($CALIBRATION_INTELLIGENCE_FLOOR) and cannot be historically reranked."
+              else
+                echo "::error::No successful regress-detector workflow run found for build #$REQUESTED_RUN_NUMBER"
+              fi
               exit 1
             fi
           else
-            cut -f1 "$RUNNER_TEMP/hth-regression-runs.tsv" > "$run_ids"
+            cut -f1 "$eligible_runs" > "$run_ids"
           fi
 
+          eligible_count="$(wc -l < "$run_ids" | tr -d ' ')"
+          echo "Historical rerank evidence floor: $CALIBRATION_INTELLIGENCE_FLOOR"
+          echo "Eligible workflow runs selected: $eligible_count"
           echo "run_ids_file=$run_ids" >> "$GITHUB_OUTPUT"
 
       - name: Download retained historical regression artifacts

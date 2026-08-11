@@ -25,3 +25,12 @@ def test_core_workflow_change_triggers_detector_smoke():
         workflow = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "rebuild-historical-regression-metrics.yml"
         text = workflow.read_text(encoding="utf-8")
         self.assertIn('gh run download "$run_id" --repo "$GITHUB_REPOSITORY"', text)
+
+
+def test_historical_rerank_filters_pre_intelligence_runs_before_download():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "ddbd063fdfd72319d42266cd1b2e02f078d9e7c3" in text
+    assert "merge-base --is-ancestor" in text
+    assert ".head_sha" in text
+    assert "Skipping pre-calibration-intelligence regression build" in text
+    assert '"$eligible_runs" > "$run_ids"' in text
