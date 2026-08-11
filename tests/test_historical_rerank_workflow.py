@@ -19,3 +19,9 @@ def test_historical_rerank_workflow_is_manual_and_uses_raw_artifacts():
 def test_core_workflow_change_triggers_detector_smoke():
     text = REGRESSION.read_text(encoding="utf-8")
     assert text.count('".github/workflows/_core-hth.yml"') >= 2
+
+
+    def test_artifact_download_uses_explicit_repository(self):
+        workflow = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "rebuild-historical-regression-metrics.yml"
+        text = workflow.read_text(encoding="utf-8")
+        self.assertIn('gh run download "$run_id" --repo "$GITHUB_REPOSITORY"', text)

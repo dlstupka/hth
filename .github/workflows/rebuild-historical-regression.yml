@@ -121,10 +121,10 @@ jobs:
             [[ -n "$run_id" ]] || continue
             target="historical-artifacts/$run_id"
             mkdir -p "$target"
-            if gh run download "$run_id" --dir "$target"; then
+            if gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --dir "$target"; then
               downloaded=$((downloaded + 1))
             else
-              echo "::warning::No retained downloadable artifact for workflow run $run_id; skipping."
+              echo "::warning::Could not download artifacts for workflow run $run_id from $GITHUB_REPOSITORY; the artifact may be expired/missing or the download command may have failed. Skipping."
               rm -rf "$target"
             fi
           done < "$RUN_IDS_FILE"
