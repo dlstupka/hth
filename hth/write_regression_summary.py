@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 from hth.regression.result_metrics import normalize_summary_metrics
+from hth.regression.authoritative_record import authoritative_record
 
 
 
@@ -1030,6 +1031,7 @@ def _calibration_record_from_payload(
         "golden_set_id": actual_golden_id,
         "golden_set_sha256": actual_golden_sha,
         "date": date_text,
+        "created_at_utc": str(date_value or ""),
         "search_type": _calibration_search_type({**entry, "calibration_status": status}, payload),
         "status": status,
         "parameter_set_id": _short(parameter_id, 12),
@@ -1077,7 +1079,11 @@ def _best_known_calibrations(
                 entry={
                     "calibration_status": "provisional" if int(summary.get("parameter_set_count", 0) or 0) <= 20 else ("authoritative" if (payload.get("search") or {}).get("exhaustive_complete") else "partial"),
                     "created_at_utc": info.get("started_at_utc"),
-                    "build": {"run_time_seconds": info.get("estimated_serial_runtime_seconds", info.get("elapsed_seconds"))},
+                    "build": {
+                        "github_run_number": info.get("github_run_number"),
+                        "run_url": info.get("github_run_url") or info.get("run_url"),
+                        "run_time_seconds": info.get("estimated_serial_runtime_seconds", info.get("elapsed_seconds")),
+                    },
                 },
             ))
 
@@ -1114,25 +1120,22 @@ def _best_known_calibrations(
             detector = str(entry.get("detector_id") or payload.get("detector") or "unknown")
             indexed_records.append(_calibration_record_from_payload(detector, payload, entry=indexed_entry, summary=summary))
 
-    candidates = indexed_records or current_records
-    status_priority = {"authoritative": 3, "partial": 2, "provisional": 1}
-    by_detector: dict[str, dict[str, Any]] = {}
+    # Current runs and persisted calibration-index records are one provenance
+    # population.  Never let the existence of the index hide a newer current
+    # calibration, and never use quality metrics to choose historical provenance.
+    candidates = indexed_records + current_records
+    records_by_detector: dict[str, list[dict[str, Any]]] = {}
     for record in candidates:
         detector = str(record.get("detector"))
-        current = by_detector.get(detector)
-        key = (
-            status_priority.get(str(record.get("status")), 0),
-            float(record.get("mean_iou") or 0.0),
-            str(record.get("date") or ""),
-        )
-        current_key = (
-            status_priority.get(str(current.get("status")), 0),
-            float(current.get("mean_iou") or 0.0),
-            str(current.get("date") or ""),
-        ) if current else None
-        if current is None or key > current_key:
-            by_detector[detector] = record
-    return sorted(by_detector.values(), key=_combined_ranking_key)
+        records_by_detector.setdefault(detector, []).append(record)
+
+    selected: list[dict[str, Any]] = []
+    for records in records_by_detector.values():
+        record = authoritative_record(records)
+        if record is not None:
+            selected.append(record)
+
+    return sorted(selected, key=_combined_ranking_key)
 
 
 def _persistent_intelligence_url(

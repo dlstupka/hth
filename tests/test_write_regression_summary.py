@@ -566,3 +566,13 @@ class LegacyMetricNormalizationTests(unittest.TestCase):
         stats=normalize_summary_metrics(summary)["winner"]["summary"]
         self.assertEqual(stats["mean_iou"],0.72)
         self.assertEqual(stats["mean_iou_success"],0.90)
+
+
+def test_best_known_uses_authoritative_record_selector():
+    from pathlib import Path
+    import hth.write_regression_summary as writer
+    source = Path(writer.__file__).read_text(encoding="utf-8")
+    assert "candidates = indexed_records + current_records" in source
+    assert "authoritative_record(records)" in source
+    best_known = source[source.index("def _best_known_calibrations"):source.index("def ", source.index("def _best_known_calibrations") + 4)]
+    assert 'float(record.get("mean_iou")' not in best_known
