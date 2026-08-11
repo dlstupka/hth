@@ -9,6 +9,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from hth.regression.result_metrics import normalize_summary_metrics
 
 
 
@@ -147,36 +148,6 @@ def _read_json(path: Path) -> dict[str, Any]:
         raise ValueError(f"Expected a JSON object in {path}")
     return payload
 
-
-def _normalize_legacy_result_metrics(summary: dict[str, Any]) -> dict[str, Any]:
-    """Repair pre-Avg-IoU-Success summaries in memory for report regeneration."""
-    for key in ("winner", "baseline"):
-        result = summary.get(key)
-        if not isinstance(result, dict):
-            continue
-        stats = result.get("summary")
-        if not isinstance(stats, dict) or "mean_iou_success" in stats:
-            continue
-        try:
-            page_count = int(stats.get("page_count") or 0)
-            success_count = int(stats.get("success_count") or 0)
-            failure_count = int(stats.get("failure_count") or 0)
-            success_mean = float(stats.get("mean_iou") or 0.0)
-            success_stddev = float(stats.get("stddev_iou") or 0.0)
-        except (TypeError, ValueError):
-            continue
-        if page_count <= 0 or success_count + failure_count != page_count:
-            continue
-        stats["mean_iou_success"] = success_mean
-        if failure_count:
-            full_mean = success_mean * success_count / page_count
-            success_second_moment = success_stddev ** 2 + success_mean ** 2
-            full_second_moment = success_second_moment * success_count / page_count
-            full_variance = max(0.0, full_second_moment - full_mean ** 2)
-            stats["mean_iou"] = round(full_mean, 8)
-            stats["minimum_iou"] = 0.0
-            stats["stddev_iou"] = round(full_variance ** 0.5, 8)
-    return summary
 
 
 def _short(value: Any, length: int = 12) -> str:
@@ -619,7 +590,7 @@ def build_summary(
     manifest = _read_json(run_dir / "manifest.json")
     info = _read_json(run_dir / "RUN-INFO.json")
     parameters = _read_json(run_dir / "parameters.json")
-    summary = _read_json(run_dir / "reports" / "summary.json")
+    summary = normalize_summary_metrics(_read_json(run_dir / "reports" / "summary.json"))
 
     winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else None
     baseline = summary.get("baseline") if isinstance(summary.get("baseline"), dict) else None
@@ -1094,7 +1065,7 @@ def _best_known_calibrations(
         manifest = _read_json(run_dir / "manifest.json")
         info = _read_json(run_dir / "RUN-INFO.json")
         parameters = _read_json(run_dir / "parameters.json")
-        summary = _read_json(run_dir / "reports" / "summary.json")
+        summary = normalize_summary_metrics(_read_json(run_dir / "reports" / "summary.json"))
         detector = str(manifest.get("detector", run_dir.parent.name))
         golden_id, golden_sha = _golden_set_identity(run_dir, info, parameters, summary)
         if current_sha == "unknown":
@@ -1131,7 +1102,7 @@ def _best_known_calibrations(
             record_dir = calibration_index.parent / str(entry.get("record_path") or "")
             summary_path = record_dir / "summary.json"
             info_path = record_dir / "RUN-INFO.json"
-            summary = _normalize_legacy_result_metrics(_read_json(summary_path)) if summary_path.is_file() else {}
+            summary = normalize_summary_metrics(_read_json(summary_path)) if summary_path.is_file() else {}
             info = _read_json(info_path) if info_path.is_file() else {}
             indexed_entry = dict(entry)
             indexed_build = dict(entry.get("build")) if isinstance(entry.get("build"), dict) else {}
@@ -1558,7 +1529,7 @@ def _parse_utc_timestamp(value: Any) -> datetime | None:
 def _pipeline_context(run_dir: Path) -> dict[str, Any]:
     info = _read_json(run_dir / "RUN-INFO.json")
     parameters = _read_json(run_dir / "parameters.json")
-    summary = _read_json(run_dir / "reports" / "summary.json")
+    summary = normalize_summary_metrics(_read_json(run_dir / "reports" / "summary.json"))
     for payload in (info, parameters, summary):
         context = payload.get("detector_pipeline")
         if isinstance(context, dict):
@@ -1627,7 +1598,7 @@ def _estimate_scope_makespan(
     shard_estimates: list[float] = []
     for run_dir in run_dirs:
         info = _read_json(run_dir / "RUN-INFO.json")
-        summary = _read_json(run_dir / "reports" / "summary.json")
+        summary = normalize_summary_metrics(_read_json(run_dir / "reports" / "summary.json"))
         evaluated = int(summary.get("parameter_set_count", 0) or 0)
         elapsed = float(info.get("elapsed_seconds", 0.0) or 0.0)
         target_count = _scope_parameter_count(_calibration_payload(run_dir), scope)
@@ -1745,7 +1716,7 @@ def _combined_result_row(run_dir: Path) -> dict[str, Any]:
     manifest = _read_json(run_dir / "manifest.json")
     info = _read_json(run_dir / "RUN-INFO.json")
     parameters = _read_json(run_dir / "parameters.json")
-    summary = _read_json(run_dir / "reports" / "summary.json")
+    summary = normalize_summary_metrics(_read_json(run_dir / "reports" / "summary.json"))
     winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else None
     baseline = summary.get("baseline") if isinstance(summary.get("baseline"), dict) else None
     winner_stats = winner.get("summary", {}) if winner else {}

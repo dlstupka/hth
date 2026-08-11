@@ -48,6 +48,7 @@ from .strategies.binary_refine import search as binary_search
 from .progress import ProgressReporter
 from .performance import PerformanceSampler, peak_rss_bytes
 from .calibration_intelligence import build_calibration_intelligence
+from hth.regression.result_metrics import aggregate_page_metrics
 
 DETECTORS={"components":components_detect,"contour":contour_detect,"contour_quad":contour_quad_detect,"contour_components":contour_components_detect,"contour_grabcut":contour_grabcut_detect,"grabcut_contour":grabcut_contour_detect,"contour_projection":contour_projection_detect,"consensus_quad":consensus_quad_detect,"edge_contour":edge_contour_detect,"cross_edge_contour":cross_edge_contour_detect,"gradient_vote":gradient_vote_detect,"radial_edge":radial_edge_detect,"adaptive_radial_edge":adaptive_radial_edge_detect,"border_energy":border_energy_detect,"grabcut":grabcut_detect,"hough":hough_detect,"lsd":lsd_detect,"ransac":ransac_detect}
 MIN_THREAD_COUNT=1
@@ -235,8 +236,10 @@ def evaluate_set(detector:Any, parameters:dict[str,Any], pages:list[dict[str,Any
         except Exception as exc:
             elapsed=(time.perf_counter()-page_started)*1000
             page_results.append({"global_ordinal":page["global_ordinal"],"label":page["label"],"layout_type":page["layout_type"],"status":"error","iou":0.0,"edge_error_mean_px":None,"edge_error_maximum_px":None,"elapsed_ms":round(elapsed,3),"error":{"type":type(exc).__name__,"message":str(exc)}})
-    successful=[r for r in page_results if r["status"]=="ok"]; ious=[float(r["iou"]) for r in page_results]; successful_ious=[float(r["iou"]) for r in successful]; edges=[float(r["edge_error_mean_px"]) for r in successful]; elapsed=[float(r["elapsed_ms"]) for r in page_results]
-    return {"parameter_set_id":parameter_set_id(parameters),"parameters":parameters,"summary":{"page_count":len(page_results),"success_count":len(successful),"failure_count":len(page_results)-len(successful),"mean_iou":round(sum(ious)/len(ious),8),"mean_iou_success":round(sum(successful_ious)/len(successful_ious),8) if successful_ious else 0.0,"minimum_iou":round(min(ious),8),"stddev_iou":round(statistics.pstdev(ious),8),"mean_edge_error_px":round(sum(edges)/len(edges),3) if edges else None,"elapsed_ms_total":round(sum(elapsed),3),"wall_ms":round((time.perf_counter()-started)*1000,3)},"pages":page_results}
+    successful=[r for r in page_results if r["status"]=="ok"]; edges=[float(r["edge_error_mean_px"]) for r in successful]; elapsed=[float(r["elapsed_ms"]) for r in page_results]
+    summary = aggregate_page_metrics(page_results)
+    summary.update({"mean_edge_error_px":round(sum(edges)/len(edges),3) if edges else None,"elapsed_ms_total":round(sum(elapsed),3),"wall_ms":round((time.perf_counter()-started)*1000,3)})
+    return {"parameter_set_id":parameter_set_id(parameters),"parameters":parameters,"summary":summary,"pages":page_results}
 
 
 def build_winner_page_report(

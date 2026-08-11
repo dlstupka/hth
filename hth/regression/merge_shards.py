@@ -14,6 +14,7 @@ from .io import create_run_directory, write_json
 from .parameter_space import canonical_parameters
 from .reports import normalize_result_record, ranking_key, write_rankings, write_raw_results
 from .runner import build_winner_page_report, file_sha256, load_pages, write_debug_artifacts
+from hth.regression.result_metrics import aggregate_page_metrics
 
 
 def _read(path: Path) -> dict[str, Any]:
@@ -72,21 +73,13 @@ def _results_from_raw(path: Path) -> list[dict[str, Any]]:
     for result in grouped.values():
         pages = result["pages"]
         successful = [page for page in pages if str(page.get("status") or "").strip().lower() in {"ok", "success"}]
-        ious = [float(page.get("iou") or 0.0) for page in pages] or [0.0]
-        successful_ious = [float(page.get("iou") or 0.0) for page in successful]
         edges = [float(page["edge_error_mean_px"]) for page in successful if page.get("edge_error_mean_px") is not None]
-        result["summary"] = {
-            "page_count": len(pages),
-            "success_count": len(successful),
-            "failure_count": len(pages) - len(successful),
-            "mean_iou": round(sum(ious) / len(ious), 8),
-            "mean_iou_success": round(sum(successful_ious) / len(successful_ious), 8) if successful_ious else 0.0,
-            "minimum_iou": round(min(ious), 8),
-            "stddev_iou": round(statistics.pstdev(ious), 8),
+        result["summary"] = aggregate_page_metrics(pages)
+        result["summary"].update({
             "mean_edge_error_px": round(sum(edges) / len(edges), 3) if edges else None,
             "elapsed_ms_total": round(sum(float(page.get("elapsed_ms") or 0) for page in pages), 3),
             "wall_ms": round(sum(float(page.get("elapsed_ms") or 0) for page in pages), 3),
-        }
+        })
         results.append(normalize_result_record(result))
     return results
 
