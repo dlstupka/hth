@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from hth.calibration_store import publish_run, update_index
+from hth.contracts import adapt_regression_summary
 from hth.regression.calibration_intelligence import build_calibration_intelligence
 from hth.regression.merge_shards import _results_from_raw
 from hth.regression.reports import ranking_key, write_rankings
@@ -54,7 +55,7 @@ def rerank_run(run_dir: Path, results_root: Path, *, top: int = 20) -> dict[str,
             f"historical calibration intelligence is unavailable: {intelligence_path}"
         )
 
-    summary = _read_json(summary_path)
+    summary = adapt_regression_summary(_read_json(summary_path))
     manifest = _read_json(run_dir / "manifest.json")
     info = _read_json(run_dir / "RUN-INFO.json")
     old_intelligence = _read_json(intelligence_path)

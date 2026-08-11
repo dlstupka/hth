@@ -12,7 +12,11 @@ import os
 import time
 from contextlib import contextmanager
 
-PARALLELISM_INDEX_SCHEMA_VERSION = "2.3"
+from hth.contracts import (
+    OPTIMIZER_OBSERVATION_SCHEMA_VERSION,
+    PARALLELISM_INDEX_SCHEMA_VERSION,
+    adapt_parallelism_index,
+)
 MAX_OBSERVATIONS_PER_DETECTOR = 500
 
 
@@ -78,7 +82,7 @@ def update_parallelism_shards(results_root: Path, shard_observations: Iterable[d
     path = results_root / "parallelism-index.json"
     with _index_lock(path):
         if path.is_file():
-            index = _read_json(path)
+            index = adapt_parallelism_index(_read_json(path))
         else:
             index = {"schema_version": PARALLELISM_INDEX_SCHEMA_VERSION, "observations": [], "shard_observations": []}
         by_id = {
@@ -175,6 +179,7 @@ def observation_from_run(
     # Detector identity is therefore part of the durable observation key.
     observation_id = f"{build.get('github_run_id', 'local')}:{compatibility['detector_id']}:{observation_run_id}"
     return {
+        "schema_version": OPTIMIZER_OBSERVATION_SCHEMA_VERSION,
         "observation_id": observation_id,
         "observed_at_utc": info.get("finished_at_utc") or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "run_id": info.get("run_id") or run_dir.name,
@@ -230,7 +235,7 @@ def update_parallelism_index(results_root: Path, observations: Iterable[dict[str
 
 def _update_parallelism_index_locked(path: Path, observations: Iterable[dict[str, Any]]) -> dict[str, Any]:
     if path.is_file():
-        index = _read_json(path)
+        index = adapt_parallelism_index(_read_json(path))
     else:
         index = {"schema_version": PARALLELISM_INDEX_SCHEMA_VERSION, "observations": [], "shard_observations": []}
 

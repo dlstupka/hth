@@ -13,7 +13,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-OPTIMIZER_INDEX_SCHEMA_VERSION = "2.1"
+from hth.contracts import OPTIMIZER_INDEX_SCHEMA_VERSION, adapt_optimizer_index
+from hth.domain.execution_shape import select_preferred_shape
+
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -161,40 +163,6 @@ def _shape_from_row(row: dict[str, Any], *, baseline_wall: float | None, observa
         "runner_metrics": metrics,
     }
 
-
-PREFERRED_SHAPE_RATE_DECIMALS = 2
-
-
-def select_preferred_shape(shapes: Iterable[dict[str, Any]]) -> dict[str, Any] | None:
-    """Return the canonical preferred optimizer shape.
-
-    Throughput is compared at the same two-decimal precision displayed in the
-    optimizer report.  Shapes that are indistinguishable at that precision are
-    ordered by lower allocated threads, then lower pipeline count, then lower
-    threads per pipeline, and finally lower wall time for deterministic output.
-    """
-    candidates = [shape for shape in shapes if isinstance(shape, dict)]
-    if not candidates:
-        return None
-
-    def rank(shape: dict[str, Any]) -> tuple[float, int, int, int, float, int]:
-        rate = _as_float(shape.get("parameter_sets_per_second"))
-        displayed_rate = round(rate, PREFERRED_SHAPE_RATE_DECIMALS) if rate is not None else -math.inf
-        allocated = _as_int(shape.get("allocated_threads"))
-        pipelines = _as_int(shape.get("pipelines"))
-        threads = _as_int(shape.get("threads_per_pipeline"))
-        wall = _as_float(shape.get("fastest_wall_clock_seconds"))
-        sequence = _as_int(shape.get("optimizer_shape_sequence"))
-        return (
-            -displayed_rate,
-            allocated if allocated is not None else math.inf,
-            pipelines if pipelines is not None else math.inf,
-            threads if threads is not None else math.inf,
-            wall if wall is not None else math.inf,
-            sequence if sequence is not None else math.inf,
-        )
-
-    return min(candidates, key=rank)
 
 
 def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, optimizer_run_id: str | None = None, optimizer_run_ids: set[str] | None = None) -> dict[str, Any]:
@@ -836,7 +804,7 @@ def update_optimizer_artifacts(
 
     index_path = results_root / "optimizer-index.json"
     if index_path.is_file():
-        existing = _read_json(index_path)
+        existing = adapt_optimizer_index(_read_json(index_path))
     else:
         existing = {"schema_version": OPTIMIZER_INDEX_SCHEMA_VERSION, "detectors": {}, "runs": {}}
     detectors = existing.get("detectors") if isinstance(existing.get("detectors"), dict) else {}

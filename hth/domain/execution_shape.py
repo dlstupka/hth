@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+import math
+from typing import Any, Iterable
+
+PREFERRED_SHAPE_RATE_DECIMALS = 2
+
+
+def as_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def as_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_cpu_model(value: Any) -> str:
+    return " ".join(str(value or "").lower().split())
+
+
+def select_preferred_shape(shapes: Iterable[dict[str, Any]]) -> dict[str, Any] | None:
+    """Canonical optimizer preference: throughput, then lower resource use."""
+    candidates = [shape for shape in shapes if isinstance(shape, dict)]
+    if not candidates:
+        return None
+
+    def rank(shape: dict[str, Any]) -> tuple[float, int, int, int, float, int]:
+        rate = as_float(shape.get("parameter_sets_per_second"))
+        displayed_rate = round(rate, PREFERRED_SHAPE_RATE_DECIMALS) if rate is not None else -math.inf
+        allocated = as_int(shape.get("allocated_threads"))
+        pipelines = as_int(shape.get("pipelines"))
+        threads = as_int(shape.get("threads_per_pipeline"))
+        wall = as_float(shape.get("fastest_wall_clock_seconds"))
+        sequence = as_int(shape.get("optimizer_shape_sequence"))
+        return (
+            -displayed_rate,
+            allocated if allocated is not None else math.inf,
+            pipelines if pipelines is not None else math.inf,
+            threads if threads is not None else math.inf,
+            wall if wall is not None else math.inf,
+            sequence if sequence is not None else math.inf,
+        )
+    return min(candidates, key=rank)
+
+
+def optimizer_row_matches_workload(
+    row: dict[str, Any], *, detector: str, detector_sha256: str,
+    golden_sha256: str, max_dimension: int,
+) -> bool:
+    if row.get("source") != "execution-optimizer":
+        return False
+    if str(row.get("detector_id") or "") != detector:
+        return False
+    if str(row.get("mode") or "") != "full" or str(row.get("strategy") or "") != "exhaustive":
+        return False
+    row_detector_sha = str(row.get("detector_config_sha256") or "").strip()
+    if row_detector_sha and row_detector_sha != detector_sha256:
+        return False
+    if str(row.get("golden_set_sha256") or "") != golden_sha256:
+        return False
+    row_dimension = as_int(row.get("max_dimension"))
+    if row_dimension is not None and row_dimension != max_dimension:
+        return False
+    possible = as_int(row.get("possible_parameter_sets"))
+    actual = as_int(row.get("actual_parameter_sets"))
+    return possible is not None and actual == possible and (as_float(row.get("wall_clock_seconds")) or 0.0) > 0.0
+
+
+def runner_match_tier(row: dict[str, Any], *, name: str, cpu_model: str,
+                      physical_cores: int | None, logical_cpus: int) -> int | None:
+    runner = row.get("runner") if isinstance(row.get("runner"), dict) else {}
+    row_name = str(runner.get("runner_name") or "").strip()
+    if row_name and name and row_name == name:
+        return 0
+    row_model = normalize_cpu_model(runner.get("cpu_model"))
+    row_logical = as_int(runner.get("logical_cpu_count"))
+    row_physical = as_int(runner.get("physical_core_count"))
+    if row_model and row_model == normalize_cpu_model(cpu_model) and row_logical == logical_cpus:
+        if physical_cores is None or row_physical is None or row_physical == physical_cores:
+            return 1
+    return None

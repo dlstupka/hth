@@ -670,95 +670,22 @@ jobs:
         env:
           PYTHONPATH: hth-pipeline
         run: |
-          set -euo pipefail
-
-          shape_mode="${EXECUTION_SHAPE_MODE:-auto}"
-          shape_source="auto"
-          runner_budget="$(python - <<'PYBUDGET'
-          import os
-          print(max(1, os.cpu_count() or 1) * 2)
-          PYBUDGET
-          )"
-
-          use_exact_shape() {
-            local pipelines="$1"
-            local threads="$2"
-            local source="$3"
-            local allocated=$((pipelines * threads))
-            if (( allocated > runner_budget )); then
-              echo "::error::Execution shape ${pipelines}p/${threads}t allocates ${allocated} threads against detected runner budget ${runner_budget}"
-              exit 1
-            fi
-            echo "THREADS=$threads" >> "$GITHUB_ENV"
-            echo "DETECTOR_PIPELINES=$pipelines" >> "$GITHUB_ENV"
-            echo "SHARDS=$pipelines" >> "$GITHUB_ENV"
-            echo "HTH_EXACT_EXECUTION_SHAPE=1" >> "$GITHUB_ENV"
-            echo "HTH_EXACT_EXECUTION_SHAPE_SOURCE=$source" >> "$GITHUB_ENV"
-            echo "HTH_EXECUTION_THREAD_BUDGET=$runner_budget" >> "$GITHUB_ENV"
-            echo "HTH_ALLOW_THREAD_OVERSUBSCRIPTION=false" >> "$GITHUB_ENV"
-            echo "Resolved execution shape: ${pipelines}p/${threads}t (${source}; ${allocated}/${runner_budget} threads)"
-          }
-
-          case "$shape_mode" in
-            preferred)
-              if [[ "$REGRESSION_MODE" != "full" || "$STRATEGY" != "exhaustive" || -n "${LIMIT:-}" ]]; then
-                echo "Preferred shape requires full exhaustive regression without a parameter-set limit; falling back to auto."
-                echo "HTH_EXACT_EXECUTION_SHAPE_SOURCE=auto-fallback-incompatible-workload" >> "$GITHUB_ENV"
-              elif [[ "$DETECTOR_ALGORITHM" == "all" ]]; then
-                echo "Preferred per-detector shapes require fan-out; this run is not fanned out, so falling back to auto."
-                echo "HTH_EXACT_EXECUTION_SHAPE_SOURCE=auto-fallback-all" >> "$GITHUB_ENV"
-              else
-                detector_config="hth-pipeline/config/detectors/${DETECTOR_ALGORITHM}.json"
-                if read -r pipelines threads shape_source < <(
-                  python -m hth.regression_shape preferred \
-                    --parallelism-index results-repo/parallelism-index.json \
-                    --detector-config "$detector_config" \
-                    --golden-set "hth-pipeline/$GOLDEN_SET" \
-                    --max-dimension "$MAX_DIMENSION" \
-                    --runner-name "${HTH_RUNNER_NAME:-${RUNNER_NAME:-unknown}}" \
-                    --runner-label "${HTH_RUNNER_LABEL:-unknown}"
-                ); then
-                  use_exact_shape "$pipelines" "$threads" "preferred-${shape_source}"
-                else
-                  echo "No compatible measured preferred shape collected for ${DETECTOR_ALGORITHM} on this runner profile; attempting detector-specific vCPU shape prediction."
-                  prediction_file="$RUNNER_TEMP/hth-shape-prediction-${DETECTOR_ALGORITHM}.json"
-                  if read -r pipelines threads shape_source < <(
-                    python -m hth.regression_shape predicted \
-                      --parallelism-index results-repo/parallelism-index.json \
-                      --predictions-index results-repo/optimizer-predictions.json \
-                      --prediction-out "$prediction_file" \
-                      --detector-config "$detector_config" \
-                      --golden-set "hth-pipeline/$GOLDEN_SET" \
-                      --max-dimension "$MAX_DIMENSION" \
-                      --runner-name "${HTH_RUNNER_NAME:-${RUNNER_NAME:-unknown}}" \
-                      --runner-label "${HTH_RUNNER_LABEL:-unknown}"
-                  ); then
-                    use_exact_shape "$pipelines" "$threads" "$shape_source"
-                    echo "HTH_SHAPE_PREDICTION_FILE=$prediction_file" >> "$GITHUB_ENV"
-                    echo "Predicted execution shape will be persisted and checked against future optimizer evidence."
-                  else
-                    echo "No compatible optimizer history exists for a responsible shape prediction; falling back to auto."
-                    echo "HTH_EXACT_EXECUTION_SHAPE_SOURCE=auto-fallback-no-shape-history" >> "$GITHUB_ENV"
-                  fi
-                fi
-              fi
-              ;;
-            manual)
-              if [[ -z "${MANUAL_EXECUTION_SHAPE:-}" ]]; then
-                echo "::error::Manual execution shape is required when Execution shape is manual (example: 8p/48t)"
-                exit 1
-              fi
-              read -r pipelines threads shape_source < <(python -m hth.regression_shape manual "$MANUAL_EXECUTION_SHAPE")
-              use_exact_shape "$pipelines" "$threads" "$shape_source"
-              ;;
-            auto)
-              echo "Execution shape: auto planner"
-              ;;
-            *)
-              echo "::error::Unknown execution shape mode: $shape_mode"
-              exit 1
-              ;;
-          esac
+          python -m hth.regression_shape workflow-resolve \
+            --shape-mode "${EXECUTION_SHAPE_MODE:-auto}" \
+            --regression-mode "$REGRESSION_MODE" \
+            --strategy "$STRATEGY" \
+            --limit "${LIMIT:-}" \
+            --detector "$DETECTOR_ALGORITHM" \
+            --manual-shape "${MANUAL_EXECUTION_SHAPE:-}" \
+            --parallelism-index results-repo/parallelism-index.json \
+            --predictions-index results-repo/optimizer-predictions.json \
+            --detector-config-root hth-pipeline/config/detectors \
+            --golden-set "hth-pipeline/$GOLDEN_SET" \
+            --max-dimension "$MAX_DIMENSION" \
+            --runner-name "${HTH_RUNNER_NAME:-${RUNNER_NAME:-unknown}}" \
+            --runner-label "${HTH_RUNNER_LABEL:-unknown}" \
+            --prediction-out "$RUNNER_TEMP/hth-shape-prediction-${DETECTOR_ALGORITHM}.json" \
+            --github-env "$GITHUB_ENV"
 
       - name: Run detector regressions
         id: regression

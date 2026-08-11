@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 from hth.regression.result_metrics import normalize_summary_metrics
 from hth.regression.authoritative_record import authoritative_record
+from hth.domain.result_metrics import calibration_metric_view, result_metric_view
 
 
 
@@ -994,19 +995,12 @@ def _calibration_record_from_payload(
     baseline = summary.get("baseline") if isinstance(summary.get("baseline"), dict) else None
     winner_stats = winner.get("summary", {}) if winner else {}
     baseline_stats = baseline.get("summary", {}) if baseline else {}
-    legacy_selection = bool(winner_stats) and "mean_iou_success" in winner_stats and "avg_iou_success" not in selection
-    if legacy_selection:
-        mean_iou = winner_stats.get("mean_iou", landscape.get("best_mean_iou"))
-        mean_iou_success = winner_stats.get("mean_iou_success", mean_iou)
-        minimum_iou = winner_stats.get("minimum_iou")
-        stddev_iou = winner_stats.get("stddev_iou")
-        failures = winner_stats.get("failure_count", "unknown")
-    else:
-        mean_iou = selection.get("best_avg_iou", winner_stats.get("mean_iou", landscape.get("best_mean_iou")))
-        mean_iou_success = selection.get("avg_iou_success", winner_stats.get("mean_iou_success", mean_iou))
-        minimum_iou = selection.get("minimum_iou", winner_stats.get("minimum_iou"))
-        stddev_iou = selection.get("stddev_iou", winner_stats.get("stddev_iou"))
-        failures = selection.get("failure_count", winner_stats.get("failure_count", "unknown"))
+    metric_view = calibration_metric_view(payload, summary)
+    mean_iou = metric_view.get("mean_iou")
+    mean_iou_success = metric_view.get("mean_iou_success")
+    minimum_iou = metric_view.get("minimum_iou")
+    stddev_iou = metric_view.get("stddev_iou")
+    failures = metric_view.get("failure_count", "unknown")
     parameter_id = selection.get("recommended_parameter_set_id") or (entry.get("selection") or {}).get("recommended_parameter_set_id") or _parameter_id(winner)
     baseline_mean = baseline_stats.get("mean_iou")
     delta = None
@@ -1722,8 +1716,8 @@ def _combined_result_row(run_dir: Path) -> dict[str, Any]:
     summary = normalize_summary_metrics(_read_json(run_dir / "reports" / "summary.json"))
     winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else None
     baseline = summary.get("baseline") if isinstance(summary.get("baseline"), dict) else None
-    winner_stats = winner.get("summary", {}) if winner else {}
-    baseline_stats = baseline.get("summary", {}) if baseline else {}
+    winner_stats = result_metric_view(winner.get("summary", {}) if winner else {})
+    baseline_stats = result_metric_view(baseline.get("summary", {}) if baseline else {})
     page_ordinals = summary.get("page_ordinals", []) if isinstance(summary.get("page_ordinals"), list) else []
     source_document = _source_document_metadata(run_dir, info, parameters)
     golden_set_id, golden_set_sha256 = _golden_set_identity(run_dir, info, parameters, summary)

@@ -14,7 +14,10 @@ from typing import Any
 from hth.runtime_store import observation_from_run, update_runtime_index
 from hth.parallelism_store import observation_from_run as parallelism_observation_from_run, update_parallelism_index
 
-INDEX_SCHEMA_VERSION = "1.0"
+from hth.contracts import CALIBRATION_INDEX_SCHEMA_VERSION, adapt_calibration_index
+from hth.domain.calibration import authoritative_record
+
+INDEX_SCHEMA_VERSION = CALIBRATION_INDEX_SCHEMA_VERSION
 STATUS_PRIORITY = {"provisional": 1, "partial": 2, "authoritative": 3}
 PERSISTED_FILES = (
     "manifest.json",
@@ -185,7 +188,7 @@ def publish_run(
 def update_index(results_root: Path, entries: list[dict[str, Any]]) -> dict[str, Any]:
     index_path = results_root / "calibration-index.json"
     if index_path.is_file():
-        index = _read_json(index_path)
+        index = adapt_calibration_index(_read_json(index_path))
     else:
         index = {"schema_version": INDEX_SCHEMA_VERSION, "entries": [], "preferred": {}}
     current = index.get("entries") if isinstance(index.get("entries"), list) else []
@@ -195,21 +198,19 @@ def update_index(results_root: Path, entries: list[dict[str, Any]]) -> dict[str,
     merged = sorted(by_identity.values(), key=lambda item: (str(item.get("source_document_id")), str(item.get("golden_set_id")), str(item.get("detector_id")), str(item.get("created_at_utc") or "")))
 
     preferred: dict[str, dict[str, Any]] = {}
+    compatibility_groups: dict[str, list[dict[str, Any]]] = {}
     for entry in merged:
-        key = str(entry.get("compatibility_key"))
-        current_preferred = preferred.get(key)
-        candidate_rank = STATUS_PRIORITY.get(str(entry.get("calibration_status")), 0)
-        current_rank = STATUS_PRIORITY.get(str(current_preferred.get("calibration_status")), 0) if current_preferred else -1
-        if current_preferred is None or candidate_rank > current_rank or (
-            candidate_rank == current_rank and str(entry.get("created_at_utc") or "") >= str(current_preferred.get("created_at_utc") or "")
-        ):
+        compatibility_groups.setdefault(str(entry.get("compatibility_key")), []).append(entry)
+    for key, group in compatibility_groups.items():
+        selected = authoritative_record(group)
+        if selected:
             preferred[key] = {
-                "calibration_id": entry.get("calibration_id"),
-                "calibration_status": entry.get("calibration_status"),
-                "detector_id": entry.get("detector_id"),
-                "intelligence_path": entry.get("intelligence_path"),
-                "created_at_utc": entry.get("created_at_utc"),
-                "build": entry.get("build"),
+                "calibration_id": selected.get("calibration_id"),
+                "calibration_status": selected.get("calibration_status"),
+                "detector_id": selected.get("detector_id"),
+                "intelligence_path": selected.get("intelligence_path"),
+                "created_at_utc": selected.get("created_at_utc"),
+                "build": selected.get("build"),
             }
 
     index.update({
@@ -233,8 +234,8 @@ def resolve(index_path: Path, *, detector: str, golden_set_sha256: str, detector
     ]
     if not candidates:
         return None
-    candidates.sort(key=lambda item: (STATUS_PRIORITY.get(str(item.get("calibration_status")), 0), str(item.get("created_at_utc") or "")), reverse=True)
-    return index_path.parent / str(candidates[0]["intelligence_path"])
+    selected = authoritative_record(candidates)
+    return index_path.parent / str(selected["intelligence_path"]) if selected else None
 
 
 def parser() -> argparse.ArgumentParser:

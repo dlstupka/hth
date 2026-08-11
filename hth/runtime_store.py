@@ -10,7 +10,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-RUNTIME_INDEX_SCHEMA_VERSION = "1.0"
+from hth.contracts import (
+    RUNTIME_INDEX_SCHEMA_VERSION,
+    RUNTIME_OBSERVATION_SCHEMA_VERSION,
+    adapt_runtime_index,
+)
 MAX_OBSERVATIONS_PER_DETECTOR = 200
 
 
@@ -77,6 +81,7 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
     # detector cannot overwrite another detector's runtime observation.
     observation_id = f"{build.get('github_run_id', 'local')}:{detector}:{observation_run_id}"
     return {
+        "schema_version": RUNTIME_OBSERVATION_SCHEMA_VERSION,
         "observation_id": observation_id,
         "observed_at_utc": info.get("finished_at_utc") or now,
         "run_id": info.get("run_id") or run_dir.name,
@@ -129,7 +134,7 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
 def update_runtime_index(results_root: Path, observations: Iterable[dict[str, Any]]) -> dict[str, Any]:
     path = results_root / "runtime-index.json"
     if path.is_file():
-        index = _read_json(path)
+        index = adapt_runtime_index(_read_json(path))
     else:
         index = {"schema_version": RUNTIME_INDEX_SCHEMA_VERSION, "observations": [], "latest": {}}
 

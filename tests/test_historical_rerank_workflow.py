@@ -5,42 +5,19 @@ WORKFLOW = ROOT / ".github" / "workflows" / "rebuild-historical-regression.yml"
 REGRESSION = ROOT / ".github" / "workflows" / "regress-detector.yml"
 
 
-def test_historical_rerank_workflow_is_manual_and_uses_raw_artifacts():
+def test_historical_workflow_delegates_resolution_and_streaming_to_python():
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert "workflow_dispatch:" in text
-    assert "single-build" in text
-    assert "all-available-artifacts" in text
-    assert "gh run download" in text
-    assert "raw/results.csv" in text
-    assert "python -m hth.historical_rerank" in text
-    assert "--results-root results-repo" in text
+    assert "python -m hth.historical_rebuild_workflow resolve" in text
+    assert "python -m hth.historical_rebuild_workflow stream" in text
+    assert "gh run download" not in text
+    assert "merge-base --is-ancestor" not in text
 
 
-def test_historical_rerank_streams_and_cleans_each_artifact():
+def test_historical_floor_remains_explicit():
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert 'target="$RUNNER_TEMP/hth-historical-artifact-$run_id"' in text
-    assert 'rm -rf "$target"' in text
-    assert "never accumulate historical artifacts on disk" in text
-    assert "no space left on device" in text
-    assert "Runner disk exhausted" in text
-    assert "Stream retained artifacts through canonical reranking" in text
-
-
-def test_artifact_download_uses_explicit_repository():
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert 'gh run download "$run_id"' in text
-    assert '--repo "$GITHUB_REPOSITORY"' in text
+    assert "ddbd063fdfd72319d42266cd1b2e02f078d9e7c3" in text
 
 
 def test_core_workflow_change_triggers_detector_smoke():
     text = REGRESSION.read_text(encoding="utf-8")
     assert text.count('".github/workflows/_core-hth.yml"') >= 2
-
-
-def test_historical_rerank_filters_pre_intelligence_runs_before_download():
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert "ddbd063fdfd72319d42266cd1b2e02f078d9e7c3" in text
-    assert "merge-base --is-ancestor" in text
-    assert ".head_sha" in text
-    assert "Skipping pre-calibration-intelligence regression build" in text
-    assert '"$eligible_runs" > "$run_ids"' in text

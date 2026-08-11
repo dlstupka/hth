@@ -12,7 +12,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from hth.optimizer_store import select_preferred_shape
+from hth.domain.execution_shape import (
+    optimizer_row_matches_workload,
+    runner_match_tier,
+    select_preferred_shape,
+)
 from hth.shape_prediction import merge_prediction, predict_shape
 
 
@@ -114,55 +118,20 @@ def _normalize_model(value: Any) -> str:
 
 
 def _row_matches_workload(
-    row: dict[str, Any],
-    *,
-    detector: str,
-    detector_sha256: str,
-    golden_sha256: str,
-    max_dimension: int,
+    row: dict[str, Any], *, detector: str, detector_sha256: str,
+    golden_sha256: str, max_dimension: int,
 ) -> bool:
-    if row.get("source") != "execution-optimizer":
-        return False
-    if str(row.get("detector_id") or "") != detector:
-        return False
-    if str(row.get("mode") or "") != "full" or str(row.get("strategy") or "") != "exhaustive":
-        return False
-    row_detector_sha = str(row.get("detector_config_sha256") or "").strip()
-    # Optimizer observations created before detector-config identity was added
-    # legitimately lack this field.  Preserve those measured shapes as legacy
-    # evidence, but reject any explicit conflicting hash.
-    if row_detector_sha and row_detector_sha != detector_sha256:
-        return False
-    if str(row.get("golden_set_sha256") or "") != golden_sha256:
-        return False
-    row_max_dimension = _as_int(row.get("max_dimension"))
-    # Same bootstrap compatibility rule for optimizer rows captured before
-    # max_dimension was persisted in RUN-INFO/summary.
-    if row_max_dimension is not None and row_max_dimension != max_dimension:
-        return False
-    possible = _as_int(row.get("possible_parameter_sets"))
-    actual = _as_int(row.get("actual_parameter_sets"))
-    if possible is None or actual != possible:
-        return False
-    return (_as_float(row.get("wall_clock_seconds")) or 0.0) > 0.0
+    return optimizer_row_matches_workload(
+        row, detector=detector, detector_sha256=detector_sha256,
+        golden_sha256=golden_sha256, max_dimension=max_dimension,
+    )
 
 
 def _match_tier(row: dict[str, Any], profile: RunnerProfile) -> int | None:
-    runner = _runner_from_row(row)
-    row_name = str(runner.get("runner_name") or "").strip()
-    if row_name and profile.name and row_name == profile.name:
-        return 0
-
-    row_model = _normalize_model(runner.get("cpu_model"))
-    row_logical = _as_int(runner.get("logical_cpu_count"))
-    row_physical = _as_int(runner.get("physical_core_count"))
-    model_matches = row_model and row_model == _normalize_model(profile.cpu_model)
-    logical_matches = row_logical == profile.logical_cpus
-    physical_matches = profile.physical_cores is None or row_physical is None or row_physical == profile.physical_cores
-    if model_matches and logical_matches and physical_matches:
-        return 1
-
-    return None
+    return runner_match_tier(
+        row, name=profile.name, cpu_model=profile.cpu_model,
+        physical_cores=profile.physical_cores, logical_cpus=profile.logical_cpus,
+    )
 
 
 def _shape_from_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -309,6 +278,102 @@ def _print_shell(result: dict[str, Any]) -> None:
     print(int(result["pipelines"]), int(result["threads_per_pipeline"]), str(result.get("source") or "unknown"))
 
 
+def _append_github_env(path: Path | None, values: dict[str, Any]) -> None:
+    if not path:
+        return
+    with path.open("a", encoding="utf-8") as stream:
+        for key, value in values.items():
+            stream.write(f"{key}={value}\n")
+
+
+def resolve_workflow_shape(
+    *, shape_mode: str, regression_mode: str, strategy: str, limit: str | None,
+    detector: str, manual_shape: str | None, parallelism_index: Path,
+    predictions_index: Path | None, detector_config_root: Path, golden_set: Path,
+    max_dimension: int, profile: RunnerProfile, prediction_out: Path | None,
+    runner_budget: int | None = None,
+) -> dict[str, Any]:
+    """Resolve all workflow shape policy in Python; YAML only supplies inputs."""
+    budget = max(1, runner_budget or (os.cpu_count() or 1) * 2)
+
+    def exact(pipelines: int, threads: int, source: str, prediction_file: Path | None = None) -> dict[str, Any]:
+        allocated = pipelines * threads
+        if allocated > budget:
+            raise ValueError(
+                f"Execution shape {pipelines}p/{threads}t allocates {allocated} "
+                f"threads against detected runner budget {budget}"
+            )
+        result = {
+            "exact": True, "pipelines": pipelines, "threads_per_pipeline": threads,
+            "allocated_threads": allocated, "runner_budget": budget, "source": source,
+        }
+        if prediction_file:
+            result["prediction_file"] = str(prediction_file)
+        return result
+
+    mode = (shape_mode or "auto").strip().lower()
+    if mode == "auto":
+        return {"exact": False, "source": "auto", "runner_budget": budget}
+
+    if mode == "manual":
+        if not manual_shape:
+            raise ValueError("Manual execution shape is required (example: 8p/48t)")
+        pipelines, threads = parse_manual_shape(manual_shape)
+        return exact(pipelines, threads, "manual")
+
+    if mode != "preferred":
+        raise ValueError(f"Unknown execution shape mode: {shape_mode}")
+
+    if regression_mode != "full" or strategy != "exhaustive" or str(limit or "").strip():
+        return {"exact": False, "source": "auto-fallback-incompatible-workload", "runner_budget": budget}
+    if detector == "all":
+        return {"exact": False, "source": "auto-fallback-all", "runner_budget": budget}
+
+    detector_config = detector_config_root / f"{detector}.json"
+    preferred = resolve_preferred_shape(
+        parallelism_index=parallelism_index, detector_config=detector_config,
+        golden_set=golden_set, max_dimension=max_dimension, profile=profile,
+    )
+    if preferred:
+        return exact(
+            int(preferred["pipelines"]), int(preferred["threads_per_pipeline"]),
+            f"preferred-{preferred['source']}",
+        )
+
+    predicted = resolve_predicted_shape(
+        parallelism_index=parallelism_index, predictions_index=predictions_index,
+        detector_config=detector_config, golden_set=golden_set,
+        max_dimension=max_dimension, profile=profile,
+    )
+    if predicted:
+        if prediction_out:
+            prediction_out.parent.mkdir(parents=True, exist_ok=True)
+            prediction_out.write_text(json.dumps(predicted, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return exact(
+            int(predicted["pipelines"]), int(predicted["threads_per_pipeline"]),
+            str(predicted.get("source") or "predicted"), prediction_out,
+        )
+    return {"exact": False, "source": "auto-fallback-no-shape-history", "runner_budget": budget}
+
+
+def workflow_shape_env(result: dict[str, Any]) -> dict[str, Any]:
+    env = {
+        "HTH_EXACT_EXECUTION_SHAPE_SOURCE": result.get("source", "unknown"),
+        "HTH_EXECUTION_THREAD_BUDGET": result.get("runner_budget", ""),
+    }
+    if result.get("exact"):
+        env.update({
+            "THREADS": int(result["threads_per_pipeline"]),
+            "DETECTOR_PIPELINES": int(result["pipelines"]),
+            "SHARDS": int(result["pipelines"]),
+            "HTH_EXACT_EXECUTION_SHAPE": "1",
+            "HTH_ALLOW_THREAD_OVERSUBSCRIPTION": "false",
+        })
+    if result.get("prediction_file"):
+        env["HTH_SHAPE_PREDICTION_FILE"] = result["prediction_file"]
+    return env
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -338,7 +403,46 @@ def main() -> int:
     record.add_argument("--prediction-file", type=Path, required=True)
     record.add_argument("--predictions-index", type=Path, required=True)
 
+    workflow = sub.add_parser("workflow-resolve", help="Resolve workflow execution shape and write GitHub environment")
+    workflow.add_argument("--shape-mode", required=True)
+    workflow.add_argument("--regression-mode", required=True)
+    workflow.add_argument("--strategy", required=True)
+    workflow.add_argument("--limit", default="")
+    workflow.add_argument("--detector", required=True)
+    workflow.add_argument("--manual-shape", default="")
+    workflow.add_argument("--parallelism-index", type=Path, required=True)
+    workflow.add_argument("--predictions-index", type=Path)
+    workflow.add_argument("--detector-config-root", type=Path, required=True)
+    workflow.add_argument("--golden-set", type=Path, required=True)
+    workflow.add_argument("--max-dimension", type=int, required=True)
+    workflow.add_argument("--runner-name")
+    workflow.add_argument("--runner-label")
+    workflow.add_argument("--prediction-out", type=Path)
+    workflow.add_argument("--github-env", type=Path)
+
     args = parser.parse_args()
+    if args.command == "workflow-resolve":
+        profile = current_runner_profile(name=args.runner_name, label=args.runner_label)
+        result = resolve_workflow_shape(
+            shape_mode=args.shape_mode, regression_mode=args.regression_mode,
+            strategy=args.strategy, limit=args.limit, detector=args.detector,
+            manual_shape=args.manual_shape, parallelism_index=args.parallelism_index,
+            predictions_index=args.predictions_index,
+            detector_config_root=args.detector_config_root, golden_set=args.golden_set,
+            max_dimension=args.max_dimension, profile=profile,
+            prediction_out=args.prediction_out,
+        )
+        _append_github_env(args.github_env, workflow_shape_env(result))
+        if result.get("exact"):
+            print(
+                f"Resolved execution shape: {result['pipelines']}p/"
+                f"{result['threads_per_pipeline']}t ({result['source']}; "
+                f"{result['allocated_threads']}/{result['runner_budget']} threads)"
+            )
+        else:
+            print(f"Execution shape: auto planner ({result['source']})")
+        return 0
+
     if args.command == "manual":
         pipelines, threads = parse_manual_shape(args.shape)
         _print_shell({"pipelines": pipelines, "threads_per_pipeline": threads, "source": "manual"})
