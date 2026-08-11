@@ -17,6 +17,7 @@ on:
       - "config/golden_set.json"
       - "requirements.txt"
       - ".github/workflows/regress-detector.yml"
+      - ".github/workflows/_core-hth.yml"
   pull_request:
     branches:
       - main
@@ -26,6 +27,7 @@ on:
       - "config/golden_set.json"
       - "requirements.txt"
       - ".github/workflows/regress-detector.yml"
+      - ".github/workflows/_core-hth.yml"
   workflow_dispatch:
     inputs:
       algorithm:

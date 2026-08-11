@@ -1,0 +1,207 @@
+name: HTH rebuild historical regression metrics
+
+run-name: >-
+  Rebuild historical regression metrics — ${{ inputs.scope == 'single-build' && format('build #{0}', inputs.run_number) || 'all available artifacts' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: Historical regression scope
+        required: true
+        default: single-build
+        type: choice
+        options:
+          - single-build
+          - all-available-artifacts
+      run_number:
+        description: "Regression workflow build number; required for single-build (for example 300)"
+        required: false
+        default: ""
+        type: string
+      results_repository:
+        description: Results repository containing calibration intelligence
+        required: true
+        default: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
+        type: string
+      top:
+        description: Ranked result count regenerated per run
+        required: true
+        default: "20"
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: historical-regression-rerank-${{ inputs.results_repository }}
+  cancel-in-progress: false
+
+jobs:
+  rerank:
+    name: Rebuild historical regression metrics
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
+        with:
+          path: hth-pipeline
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout results repository
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.results_repository }}
+          path: results-repo
+          ref: main
+          token: ${{ secrets.HTH_RESULTS_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: hth-pipeline/requirements.txt
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --requirement hth-pipeline/requirements.txt
+
+      - name: Resolve historical workflow runs
+        id: runs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+          REQUESTED_RUN_NUMBER: ${{ inputs.run_number }}
+        run: |
+          set -euo pipefail
+          mkdir -p historical-artifacts
+          run_ids="$RUNNER_TEMP/hth-historical-run-ids.txt"
+          : > "$run_ids"
+
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/runs?per_page=100" \
+            --jq '.workflow_runs[]
+              | select(.path == ".github/workflows/regress-detector.yml")
+              | select(.status == "completed" and .conclusion == "success")
+              | [.id, .run_number] | @tsv' > "$RUNNER_TEMP/hth-regression-runs.tsv"
+
+          if [[ "$REQUESTED_SCOPE" == "single-build" ]]; then
+            if [[ -z "$REQUESTED_RUN_NUMBER" ]]; then
+              echo "::error::run_number is required for single-build scope"
+              exit 1
+            fi
+            awk -v n="$REQUESTED_RUN_NUMBER" '$2 == n {print $1}' \
+              "$RUNNER_TEMP/hth-regression-runs.tsv" > "$run_ids"
+            if [[ ! -s "$run_ids" ]]; then
+              echo "::error::No successful regress-detector workflow run found for build #$REQUESTED_RUN_NUMBER"
+              exit 1
+            fi
+          else
+            cut -f1 "$RUNNER_TEMP/hth-regression-runs.tsv" > "$run_ids"
+          fi
+
+          echo "run_ids_file=$run_ids" >> "$GITHUB_OUTPUT"
+
+      - name: Download retained historical regression artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_IDS_FILE: ${{ steps.runs.outputs.run_ids_file }}
+        run: |
+          set -euo pipefail
+          downloaded=0
+          while IFS= read -r run_id; do
+            [[ -n "$run_id" ]] || continue
+            target="historical-artifacts/$run_id"
+            mkdir -p "$target"
+            if gh run download "$run_id" --dir "$target"; then
+              downloaded=$((downloaded + 1))
+            else
+              echo "::warning::No retained downloadable artifact for workflow run $run_id; skipping."
+              rm -rf "$target"
+            fi
+          done < "$RUN_IDS_FILE"
+
+          if (( downloaded == 0 )); then
+            echo "::error::No retained regression artifacts were available for reranking."
+            exit 1
+          fi
+
+      - name: Rebuild canonical metrics and rankings
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          mapfile -t raw_files < <(find historical-artifacts -type f -path '*/raw/results.csv' | sort)
+          if (( ${#raw_files[@]} == 0 )); then
+            echo "::error::Downloaded artifacts contain no raw/results.csv evidence."
+            exit 1
+          fi
+
+          args=()
+          for raw in "${raw_files[@]}"; do
+            run_dir="${raw%/raw/results.csv}"
+            manifest="$run_dir/manifest.json"
+            summary="$run_dir/reports/summary.json"
+            if [[ ! -f "$manifest" || ! -f "$summary" ]]; then
+              echo "::warning::Skipping incomplete historical artifact: $run_dir"
+              continue
+            fi
+            strategy="$(python -c 'import json,sys; p=json.load(open(sys.argv[1])); print(p.get("strategy") or p.get("requested_strategy") or "")' "$summary")"
+            if [[ "$strategy" != "exhaustive" && "$strategy" != "cartesian" ]]; then
+              echo "Skipping non-exhaustive historical run: $run_dir ($strategy)"
+              continue
+            fi
+            args+=(--run-dir "$run_dir")
+          done
+
+          if (( ${#args[@]} == 0 )); then
+            echo "::error::No completed exhaustive historical runs with raw evidence were found."
+            exit 1
+          fi
+
+          python -m hth.historical_rerank \
+            "${args[@]}" \
+            --results-root results-repo \
+            --top "${{ inputs.top }}" \
+            --summary historical-rerank-summary.md
+
+          cat historical-rerank-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish rebuilt derived intelligence
+        shell: bash
+        env:
+          HTH_RESULTS_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN }}
+        run: |
+          set -euo pipefail
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C results-repo remote set-url origin \
+            "https://x-access-token:${HTH_RESULTS_TOKEN}@github.com/${{ inputs.results_repository }}.git"
+
+          git -C results-repo add calibration-index.json source-documents/
+          if git -C results-repo diff --cached --quiet; then
+            echo "Historical derived intelligence already matches canonical metrics."
+            exit 0
+          fi
+
+          git -C results-repo commit -m \
+            "Rebuild historical regression metrics from HTH run ${{ github.run_number }}"
+          git -C results-repo push origin HEAD:main
+
+      - name: Upload rerank summary
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: historical-regression-rerank-${{ github.run_id }}
+          path: historical-rerank-summary.md
+          if-no-files-found: ignore
+          retention-days: 14

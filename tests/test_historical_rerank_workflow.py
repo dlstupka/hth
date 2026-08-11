@@ -1,0 +1,21 @@
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = ROOT / ".github" / "workflows" / "rebuild-historical-regression.yml"
+REGRESSION = ROOT / ".github" / "workflows" / "regress-detector.yml"
+
+
+def test_historical_rerank_workflow_is_manual_and_uses_raw_artifacts():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "workflow_dispatch:" in text
+    assert "single-build" in text
+    assert "all-available-artifacts" in text
+    assert "gh run download" in text
+    assert "raw/results.csv" in text
+    assert "python -m hth.historical_rerank" in text
+    assert "--results-root results-repo" in text
+
+
+def test_core_workflow_change_triggers_detector_smoke():
+    text = REGRESSION.read_text(encoding="utf-8")
+    assert text.count('".github/workflows/_core-hth.yml"') >= 2
