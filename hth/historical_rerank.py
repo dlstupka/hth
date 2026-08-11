@@ -14,6 +14,10 @@ from hth.regression.merge_shards import _results_from_raw
 from hth.regression.reports import ranking_key, write_rankings
 from hth.regression.runner import build_winner_page_report, write_json
 
+class HistoricalRerankSkip(RuntimeError):
+    """Historical artifact is incompatible with safe canonical reranking."""
+
+
 
 def _read_json(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -46,7 +50,9 @@ def rerank_run(run_dir: Path, results_root: Path, *, top: int = 20) -> dict[str,
     if not summary_path.is_file():
         raise FileNotFoundError(f"Historical summary is unavailable: {summary_path}")
     if not intelligence_path.is_file():
-        raise FileNotFoundError(f"Historical calibration intelligence is unavailable: {intelligence_path}")
+        raise HistoricalRerankSkip(
+            f"historical calibration intelligence is unavailable: {intelligence_path}"
+        )
 
     summary = _read_json(summary_path)
     manifest = _read_json(run_dir / "manifest.json")
@@ -130,9 +136,9 @@ def rerank_run(run_dir: Path, results_root: Path, *, top: int = 20) -> dict[str,
 
     existing_entry = _matching_index_entry(results_root, run_id)
     if existing_entry is None:
-        raise ValueError(
-            f"No persisted calibration-index entry matches historical run {run_id}; "
-            "refusing to create ambiguous provenance."
+        raise HistoricalRerankSkip(
+            f"no persisted calibration-index entry matches historical run {run_id}; "
+            "refusing to create ambiguous provenance"
         )
     build = dict(existing_entry.get("build")) if isinstance(existing_entry.get("build"), dict) else {}
     mode = "full" if str(existing_entry.get("calibration_status") or "") == "authoritative" else "smoke"
@@ -166,14 +172,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--summary")
     args = parser.parse_args(argv)
 
-    rows = [rerank_run(path, args.results_root, top=args.top) for path in args.run_dir]
-    for row in rows:
+    rows: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
+    for path in args.run_dir:
+        try:
+            row = rerank_run(path, args.results_root, top=args.top)
+        except HistoricalRerankSkip as exc:
+            skipped.append({"run_dir": str(path), "reason": str(exc)})
+            print(f"WARNING: Skipping incompatible historical artifact: {path}: {exc}")
+            continue
+        rows.append(row)
         print(json.dumps(row, sort_keys=True))
 
     if args.summary:
         out = Path(args.summary)
         out.parent.mkdir(parents=True, exist_ok=True)
-        lines = ["## Historical regression rerank", ""]
+        lines = [
+            "## Historical regression rerank", "",
+            f"- Reranked: **{len(rows)}**",
+            f"- Skipped incompatible: **{len(skipped)}**", "",
+        ]
         for row in rows:
             changed = "changed" if row["winner_changed"] else "unchanged"
             lines.append(
@@ -182,8 +200,12 @@ def main(argv: list[str] | None = None) -> int:
                 f"Avg IoU Success `{float(row['avg_iou_success'] or 0):.4f}`, "
                 f"failures `{row['failures']}`."
             )
+        if skipped:
+            lines += ["", "### Skipped incompatible historical artifacts", ""]
+            for item in skipped:
+                lines.append(f"- `{item['run_dir']}` — {item['reason']}")
         out.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return 0
+    return 0 if rows or skipped else 1
 
 
 if __name__ == "__main__":

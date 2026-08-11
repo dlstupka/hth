@@ -97,5 +97,21 @@ class HistoricalRerankTests(unittest.TestCase):
             self.assertEqual(summary["historical_rerank"]["previous_winner_parameter_set_id"], "stale")
 
 
+    def test_missing_calibration_intelligence_is_skippable(self):
+        from hth.historical_rerank import HistoricalRerankSkip, rerank_run
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            run = root / "run"
+            (run / "raw").mkdir(parents=True)
+            (run / "reports").mkdir()
+            (run / "raw" / "results.csv").write_text("run_id,parameter_set_id,status,iou\n", encoding="utf-8")
+            _write_json(run / "manifest.json", {"run_id":"run-1","detector":"gradient_vote","strategy":"exhaustive","status":"complete"})
+            _write_json(run / "RUN-INFO.json", {"run_id":"run-1"})
+            _write_json(run / "reports" / "summary.json", {"run_id":"run-1","detector":"gradient_vote","strategy":"exhaustive"})
+            results = root / "results"; results.mkdir()
+            with self.assertRaises(HistoricalRerankSkip):
+                rerank_run(run, results)
+
+
 if __name__ == "__main__":
     unittest.main()
