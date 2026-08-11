@@ -16,15 +16,25 @@ def test_historical_rerank_workflow_is_manual_and_uses_raw_artifacts():
     assert "--results-root results-repo" in text
 
 
+def test_historical_rerank_streams_and_cleans_each_artifact():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert 'target="$RUNNER_TEMP/hth-historical-artifact-$run_id"' in text
+    assert 'rm -rf "$target"' in text
+    assert "never accumulate historical artifacts on disk" in text
+    assert "no space left on device" in text
+    assert "Runner disk exhausted" in text
+    assert "Stream retained artifacts through canonical reranking" in text
+
+
+def test_artifact_download_uses_explicit_repository():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert 'gh run download "$run_id"' in text
+    assert '--repo "$GITHUB_REPOSITORY"' in text
+
+
 def test_core_workflow_change_triggers_detector_smoke():
     text = REGRESSION.read_text(encoding="utf-8")
     assert text.count('".github/workflows/_core-hth.yml"') >= 2
-
-
-    def test_artifact_download_uses_explicit_repository(self):
-        workflow = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "rebuild-historical-regression-metrics.yml"
-        text = workflow.read_text(encoding="utf-8")
-        self.assertIn('gh run download "$run_id" --repo "$GITHUB_REPOSITORY"', text)
 
 
 def test_historical_rerank_filters_pre_intelligence_runs_before_download():

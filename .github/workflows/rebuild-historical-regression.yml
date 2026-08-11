@@ -130,72 +130,111 @@ jobs:
           echo "Eligible workflow runs selected: $eligible_count"
           echo "run_ids_file=$run_ids" >> "$GITHUB_OUTPUT"
 
-      - name: Download retained historical regression artifacts
+      - name: Stream retained artifacts through canonical reranking
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_IDS_FILE: ${{ steps.runs.outputs.run_ids_file }}
+          PYTHONPATH: hth-pipeline
         run: |
           set -euo pipefail
+          master_summary="historical-rerank-summary.md"
+          printf '%s\n\n' "## Historical regression rerank — streamed rebuild" > "$master_summary"
+
           downloaded=0
+          processed_workflows=0
+          skipped_downloads=0
+          rerank_invocations=0
+
           while IFS= read -r run_id; do
             [[ -n "$run_id" ]] || continue
-            target="historical-artifacts/$run_id"
+
+            target="$RUNNER_TEMP/hth-historical-artifact-$run_id"
+            log="$RUNNER_TEMP/hth-historical-download-$run_id.log"
+            rm -rf "$target"
             mkdir -p "$target"
-            if gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --dir "$target"; then
-              downloaded=$((downloaded + 1))
-            else
-              echo "::warning::Could not download artifacts for workflow run $run_id from $GITHUB_REPOSITORY; the artifact may be expired/missing or the download command may have failed. Skipping."
+
+            echo "::group::Historical workflow run $run_id"
+            set +e
+            gh run download "$run_id" \
+              --repo "$GITHUB_REPOSITORY" \
+              --dir "$target" 2>&1 | tee "$log"
+            download_rc=${PIPESTATUS[0]}
+            set -e
+
+            if (( download_rc != 0 )); then
+              if grep -qi "no space left on device" "$log"; then
+                echo "::error::Runner disk exhausted while downloading workflow run $run_id. Aborting instead of misclassifying this as an expired artifact."
+                df -h
+                exit 1
+              fi
+              echo "::warning::Could not download artifacts for workflow run $run_id from $GITHUB_REPOSITORY; artifact may be expired or unavailable. Skipping."
+              skipped_downloads=$((skipped_downloads + 1))
               rm -rf "$target"
+              echo "::endgroup::"
+              continue
             fi
+
+            downloaded=$((downloaded + 1))
+            invocation_args=()
+            while IFS= read -r raw; do
+              run_dir="${raw%/raw/results.csv}"
+              manifest="$run_dir/manifest.json"
+              summary="$run_dir/reports/summary.json"
+              if [[ ! -f "$manifest" || ! -f "$summary" ]]; then
+                echo "::warning::Skipping incomplete historical artifact: $run_dir"
+                continue
+              fi
+
+              strategy="$(python -c 'import json,sys; p=json.load(open(sys.argv[1])); print(p.get("strategy") or p.get("requested_strategy") or "")' "$summary")"
+              if [[ "$strategy" != "exhaustive" && "$strategy" != "cartesian" ]]; then
+                echo "Skipping non-exhaustive historical run: $run_dir ($strategy)"
+                continue
+              fi
+              invocation_args+=(--run-dir "$run_dir")
+            done < <(find "$target" -type f -path '*/raw/results.csv' | sort)
+
+            if (( ${#invocation_args[@]} > 0 )); then
+              part_summary="$RUNNER_TEMP/hth-historical-summary-$run_id.md"
+              python -m hth.historical_rerank \
+                "${invocation_args[@]}" \
+                --results-root results-repo \
+                --top "${{ inputs.top }}" \
+                --summary "$part_summary"
+
+              {
+                printf '\n### Workflow run `%s`\n\n' "$run_id"
+                sed '1{/^## Historical regression rerank$/d;}' "$part_summary"
+              } >> "$master_summary"
+              rerank_invocations=$((rerank_invocations + 1))
+            else
+              echo "No completed exhaustive historical runs with raw evidence in workflow run $run_id."
+            fi
+
+            processed_workflows=$((processed_workflows + 1))
+
+            # Critical invariant: never accumulate historical artifacts on disk.
+            rm -rf "$target"
+            rm -f "$log"
+            echo "Disk after workflow run $run_id:"
+            df -h .
+            echo "::endgroup::"
           done < "$RUN_IDS_FILE"
+
+          {
+            printf '\n## Streamed rebuild totals\n\n'
+            printf -- '- Downloaded workflow artifacts: **%d**\n' "$downloaded"
+            printf -- '- Processed downloaded workflows: **%d**\n' "$processed_workflows"
+            printf -- '- Rerank invocations: **%d**\n' "$rerank_invocations"
+            printf -- '- Unavailable/expired downloads skipped: **%d**\n' "$skipped_downloads"
+          } >> "$master_summary"
+
+          cat "$master_summary" >> "$GITHUB_STEP_SUMMARY"
 
           if (( downloaded == 0 )); then
             echo "::error::No retained regression artifacts were available for reranking."
             exit 1
           fi
-
-      - name: Rebuild canonical metrics and rankings
-        shell: bash
-        env:
-          PYTHONPATH: hth-pipeline
-        run: |
-          set -euo pipefail
-          mapfile -t raw_files < <(find historical-artifacts -type f -path '*/raw/results.csv' | sort)
-          if (( ${#raw_files[@]} == 0 )); then
-            echo "::error::Downloaded artifacts contain no raw/results.csv evidence."
-            exit 1
-          fi
-
-          args=()
-          for raw in "${raw_files[@]}"; do
-            run_dir="${raw%/raw/results.csv}"
-            manifest="$run_dir/manifest.json"
-            summary="$run_dir/reports/summary.json"
-            if [[ ! -f "$manifest" || ! -f "$summary" ]]; then
-              echo "::warning::Skipping incomplete historical artifact: $run_dir"
-              continue
-            fi
-            strategy="$(python -c 'import json,sys; p=json.load(open(sys.argv[1])); print(p.get("strategy") or p.get("requested_strategy") or "")' "$summary")"
-            if [[ "$strategy" != "exhaustive" && "$strategy" != "cartesian" ]]; then
-              echo "Skipping non-exhaustive historical run: $run_dir ($strategy)"
-              continue
-            fi
-            args+=(--run-dir "$run_dir")
-          done
-
-          if (( ${#args[@]} == 0 )); then
-            echo "::error::No completed exhaustive historical runs with raw evidence were found."
-            exit 1
-          fi
-
-          python -m hth.historical_rerank \
-            "${args[@]}" \
-            --results-root results-repo \
-            --top "${{ inputs.top }}" \
-            --summary historical-rerank-summary.md
-
-          cat historical-rerank-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish rebuilt derived intelligence
         shell: bash
