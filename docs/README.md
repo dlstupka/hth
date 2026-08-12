@@ -305,3 +305,11 @@ Predicted shapes are explicit execution contracts, just like measured preferred 
 Every prediction is saved in `optimizer-predictions.json` with the target runner, predicted shape, evidence vCPU anchors, confidence, and workload hashes. When later optimizer data arrives for the predicted detector/runner profile, optimizer publication verifies the saved prediction against the new canonical preferred shape and records pipeline/thread error. Verified pipeline error is then used as a bounded detector-specific correction for later predictions.
 
 The execution-optimizer report includes shape-prediction coverage for each detector: observed vCPU anchors, readiness, prediction verification counts, and the desired/missing optimizer evidence needed to improve confidence.
+
+### Additional boundary proposal detectors
+
+- **Polar Boundary Voting (`polar_boundary_vote`)** samples gradient evidence on center-outward polar rays, votes for strong outer transitions, and fits a document envelope from angularly distributed boundary support.
+- **Star-Convex Boundary Optimization (`star_convex`)** uses the foreground mask to trace an outer supported radius around an interior anchor, smooths the radial boundary, and fits a quadrilateral around the resulting star-convex support.
+- **Distance-Transform Rectangle Proposal (`distance_transform_rect`)** thresholds robust distance-transform interior support and expands its core envelope into a directly scored rectangle proposal. It is intentionally distinct from `distance_transform`, which selects core-supported connected components before fitting a hull/rectangle.
+
+Their calibration JSON files define the complete discrete search grids used by exhaustive regression. Only behaviorally active controls are exposed; implementation-only constants and known no-op dimensions are not included as calibration parameters.

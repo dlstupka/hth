@@ -17,6 +17,9 @@ on:
           - contour
           - convex_hull
           - distance_transform
+          - distance_transform_rect
+          - polar_boundary_vote
+          - star_convex
           - contour_quad
           - contour_components
           - contour_projection

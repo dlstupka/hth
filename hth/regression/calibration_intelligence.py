@@ -23,6 +23,9 @@ _EFFECT_GROUP_RANK = {
 
 
 _DETECTOR_EVIDENCE: dict[str, dict[str, Any]] = {
+    "polar_boundary_vote": {"friendly_name":"Polar Boundary Voting","short_name":"Polar Boundary Vote","role":"Generator","evidence":[("Polar gradient field","Primary","Samples image-gradient evidence along center-outward polar rays."),("Boundary votes","Generator","Selects strong outer transitions on each ray as page-boundary votes."),("Ray support","Validation","Requires sufficient angular support before fitting geometry."),("Minimum-area rectangle","Geometry","Fits the page proposal around the accepted polar votes.")]},
+    "star_convex": {"friendly_name":"Star-Convex Boundary Optimization","short_name":"Star-Convex","role":"Generator","evidence":[("Foreground center","Anchor","Estimates an interior anchor from the document mask."),("Star rays","Primary","Finds the outer supported foreground extent independently along radial directions."),("Angular smoothing","Optimization","Suppresses isolated radial excursions while preserving star-convex boundary support."),("Boundary envelope","Geometry","Fits a page quadrilateral around the optimized radial boundary.")]},
+    "distance_transform_rect": {"friendly_name":"Distance-Transform Rectangle Proposal","short_name":"DT Rectangle","role":"Generator","evidence":[("Distance transform","Primary","Measures robust interior support away from foreground boundaries."),("Interior core","Generator","Thresholds the distance field to obtain a stable document core."),("Rectangle expansion","Proposal","Expands the core envelope into a candidate page rectangle."),("Mask coverage","Validation","Rejects proposals with insufficient foreground support or implausible area.")]},
     "convex_hull": {
         "friendly_name": "Convex Hull Detector",
         "short_name": "Convex Hull",

@@ -1,0 +1,72 @@
+{
+  "schema_version": "0.1",
+  "detector": "star_convex",
+  "description": "Calibration space for the HTH Star Convex detector.",
+  "profiles": {
+    "baseline": {
+      "ray_count": 180,
+      "minimum_radius_fraction": 0.1,
+      "maximum_radius_fraction": 0.72,
+      "minimum_support_fraction": 0.55,
+      "smoothing_window": 5,
+      "bbox_padding_fraction": 0.0
+    }
+  },
+  "parameters": {
+    "ray_count": {
+      "type": "integer",
+      "values": [
+        90,
+        180,
+        360
+      ]
+    },
+    "minimum_radius_fraction": {
+      "type": "float",
+      "values": [
+        0.05,
+        0.1,
+        0.16
+      ]
+    },
+    "maximum_radius_fraction": {
+      "type": "float",
+      "values": [
+        0.6,
+        0.72,
+        0.84
+      ]
+    },
+    "minimum_support_fraction": {
+      "type": "float",
+      "values": [
+        0.4,
+        0.55,
+        0.7
+      ]
+    },
+    "smoothing_window": {
+      "type": "integer",
+      "values": [
+        1,
+        5,
+        9
+      ]
+    },
+    "bbox_padding_fraction": {
+      "type": "float",
+      "values": [
+        0.0,
+        0.008,
+        0.016
+      ]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "failures"
+  }
+}

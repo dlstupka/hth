@@ -8,9 +8,12 @@ from pathlib import Path
 from typing import Any
 import cv2
 from hth.geometry.common import document_mask, resize_for_analysis, scale_bbox, valid_bbox
-from hth.geometry import detector_adaptive_radial_edge, detector_border_energy, detector_components, detector_convex_hull, detector_consensus_quad, detector_contour_components, detector_contour_grabcut, detector_cross_edge_contour, detector_distance_transform, detector_grabcut, detector_grabcut_contour, detector_gradient_vote, detector_radial_edge, detector_contour_projection, detector_contour_quad, detector_ransac
+from hth.geometry import detector_adaptive_radial_edge, detector_border_energy, detector_components, detector_convex_hull, detector_consensus_quad, detector_contour_components, detector_contour_grabcut, detector_cross_edge_contour, detector_distance_transform, detector_distance_transform_rect, detector_polar_boundary_vote, detector_star_convex, detector_grabcut, detector_grabcut_contour, detector_gradient_vote, detector_radial_edge, detector_contour_projection, detector_contour_quad, detector_ransac
 from .adapters.convex_hull import detect as convex_hull_detect
 from .adapters.distance_transform import detect as distance_transform_detect
+from .adapters.distance_transform_rect import detect as distance_transform_rect_detect
+from .adapters.polar_boundary_vote import detect as polar_boundary_vote_detect
+from .adapters.star_convex import detect as star_convex_detect
 from .adapters.components import (
     detect as components_detect,
     pre_regression_report_sections as components_pre_regression_report_sections,
@@ -52,7 +55,7 @@ from .performance import PerformanceSampler, peak_rss_bytes
 from .calibration_intelligence import build_calibration_intelligence
 from hth.regression.result_metrics import aggregate_page_metrics
 
-DETECTORS={"convex_hull":convex_hull_detect,"distance_transform":distance_transform_detect,"components":components_detect,"contour":contour_detect,"contour_quad":contour_quad_detect,"contour_components":contour_components_detect,"contour_grabcut":contour_grabcut_detect,"grabcut_contour":grabcut_contour_detect,"contour_projection":contour_projection_detect,"consensus_quad":consensus_quad_detect,"edge_contour":edge_contour_detect,"cross_edge_contour":cross_edge_contour_detect,"gradient_vote":gradient_vote_detect,"radial_edge":radial_edge_detect,"adaptive_radial_edge":adaptive_radial_edge_detect,"border_energy":border_energy_detect,"grabcut":grabcut_detect,"hough":hough_detect,"lsd":lsd_detect,"ransac":ransac_detect}
+DETECTORS={"convex_hull":convex_hull_detect,"distance_transform":distance_transform_detect,"distance_transform_rect":distance_transform_rect_detect,"polar_boundary_vote":polar_boundary_vote_detect,"star_convex":star_convex_detect,"components":components_detect,"contour":contour_detect,"contour_quad":contour_quad_detect,"contour_components":contour_components_detect,"contour_grabcut":contour_grabcut_detect,"grabcut_contour":grabcut_contour_detect,"contour_projection":contour_projection_detect,"consensus_quad":consensus_quad_detect,"edge_contour":edge_contour_detect,"cross_edge_contour":cross_edge_contour_detect,"gradient_vote":gradient_vote_detect,"radial_edge":radial_edge_detect,"adaptive_radial_edge":adaptive_radial_edge_detect,"border_energy":border_energy_detect,"grabcut":grabcut_detect,"hough":hough_detect,"lsd":lsd_detect,"ransac":ransac_detect}
 MIN_THREAD_COUNT=1
 MAX_THREAD_COUNT=1024
 
@@ -492,7 +495,7 @@ def _write_debug_page(
             cv2.imwrite(str(page_dir / numbered_consensus_images[filename]), debug_image)
         overlay_name = "07-overlay.jpg"
         diagnostics_name = "08-diagnostics.json"
-    elif candidate.get("method") in {"radial_edge", "adaptive_radial_edge", "border_energy", "convex_hull", "distance_transform"} or (
+    elif candidate.get("method") in {"radial_edge", "adaptive_radial_edge", "border_energy", "convex_hull", "distance_transform", "distance_transform_rect", "polar_boundary_vote", "star_convex"} or (
         debug_level == "verbose" and candidate.get("method") in {"gradient_vote", "grabcut"}
     ):
         diagnostics = candidate.get("diagnostics") if isinstance(candidate.get("diagnostics"), dict) else {}
@@ -506,6 +509,9 @@ def _write_debug_page(
             "border_energy": detector_border_energy,
             "convex_hull": detector_convex_hull,
             "distance_transform": detector_distance_transform,
+            "distance_transform_rect": detector_distance_transform_rect,
+            "polar_boundary_vote": detector_polar_boundary_vote,
+            "star_convex": detector_star_convex,
         }[method]
         basic_names = {
             "radial_edge": ["radial-gradient.png", "radial-edge-points.png"],
@@ -515,6 +521,9 @@ def _write_debug_page(
             "border_energy": ["border-energy.png", "validated-border.png"],
             "convex_hull": ["convex-hull.png"],
             "distance_transform": ["distance-transform.png", "distance-core.png", "distance-candidate.png"],
+            "distance_transform_rect": ["distance-rect-transform.png", "distance-rect-core.png", "distance-rect-proposal.png"],
+            "polar_boundary_vote": ["polar-gradient.png", "polar-boundary-votes.png"],
+            "star_convex": ["star-rays.png", "star-mask.png"],
         }[method]
         images = module.debug_images(
             image_bgr=original, mask=page["mask"], parameters=parameters,
