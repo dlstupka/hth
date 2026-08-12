@@ -22,11 +22,7 @@ fi
 
 if [[ "${DETECTOR_ALGORITHM,,}" == "all" ]]; then
   mapfile -t detector_configs < <(
-    find hth-pipeline/config/detectors \
-      -maxdepth 1 \
-      -type f \
-      -name '*.json' \
-      -print | sort
+    PYTHONPATH=hth-pipeline python -m hth.detector_catalog list       --dir hth-pipeline/config/detectors       --automatic-only
   )
 else
   detector_configs=("hth-pipeline/config/detectors/${DETECTOR_ALGORITHM,,}.json")

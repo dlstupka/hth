@@ -313,3 +313,12 @@ The execution-optimizer report includes shape-prediction coverage for each detec
 - **Distance-Transform Rectangle Proposal (`distance_transform_rect`)** thresholds robust distance-transform interior support and expands its core envelope into a directly scored rectangle proposal. It is intentionally distinct from `distance_transform`, which selects core-supported connected components before fitting a hull/rectangle.
 
 Their calibration JSON files define the complete discrete search grids used by exhaustive regression. Only behaviorally active controls are exposed; implementation-only constants and known no-op dimensions are not included as calibration parameters.
+
+## Model-Backed Detectors
+
+- `learned_page_mask` is an optional model-backed generator. It is selectable explicitly from detector regression and execution-optimizer workflows but is excluded from automatic `all`, `all-without-exhaustive`, and `all-without-preference` runs until a model is intentionally provisioned.
+- The model is stored outside the HTH source repository, normally in the results repository at `models/learned-page-mask.onnx`; manual workflows expose `learned_page_mask_model` to select another results-repository-relative path.
+- Learned Page-Mask models must implement the HTH `onnx-rgb-512-single-channel-mask-v1` contract: one `1x3x512x512` float32 RGB input normalized to `[0,1]`, and one foreground output channel containing probabilities or logits. OpenCV DNN performs inference.
+- Model identity is provenance, not a calibration dimension. Candidates record model SHA-256, inference backend, and the fixed model contract; calibration tunes only deterministic post-processing of the model output.
+- Missing or incompatible models are configuration errors and fail explicit learned-detector runs rather than being counted as detector no-candidate failures.
+

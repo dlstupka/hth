@@ -8,11 +8,12 @@ import os
 import urllib.error
 import urllib.request
 from pathlib import Path
+from hth.detector_catalog import configured_detectors as catalog_configured_detectors
 from typing import Any
 
 
 def configured_detectors(detector_dir: Path) -> list[str]:
-    return sorted(path.stem for path in detector_dir.glob("*.json") if path.is_file())
+    return catalog_configured_detectors(detector_dir, automatic_only=True)
 
 
 def preferred_detectors(index_path: Path) -> set[str]:
