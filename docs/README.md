@@ -316,7 +316,8 @@ Their calibration JSON files define the complete discrete search grids used by e
 
 ## Model-Backed Detector Lifecycle
 
-- Detector execution has canonical `prepare` and `finalize` lifecycle hooks. Ordinary detectors use no-op hooks; model-backed detectors may provision and validate external assets once before execution.
+- Detector execution has canonical config-driven `prepare` and `finalize` lifecycle hooks owned by `tools/run-detector-regressions.sh`, the shared detector executor used by normal regressions and the execution optimizer. Workflow YAML does not implement detector-specific lifecycle logic.
+- Each unique detector is prepared exactly once before any shard/pipeline worker starts and finalized exactly once after all of its shards are complete. Ordinary detectors with no lifecycle declaration are no-ops; model-backed detectors may provision and validate external assets.
 - `learned_page_mask` uses the released PageNet Ohio Death Records model from `ctensmeyer/pagenet` (BSD-3-Clause). HTH does not train on the Golden Set, avoiding evaluation leakage.
 - On first execution the prepare hook checks `results-repo/models/pagenet-ohio/`; when absent it downloads the released prototxt and weights, derives an inference-only OpenCV-DNN prototxt, records SHA-256 provenance, exports the asset paths, and continues through the ordinary detector flow.
 - Subsequent executions validate and reuse the persisted model. Calibration tunes only deterministic mask-to-boundary post-processing.

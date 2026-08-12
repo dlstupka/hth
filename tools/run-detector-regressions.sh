@@ -33,6 +33,39 @@ if (( ${#detector_configs[@]} == 0 )); then
   exit 1
 fi
 
+# Detector lifecycle is part of the canonical detector executor, not workflow YAML.
+# Prepare each unique detector exactly once before sharding/pipeline workers begin.
+lifecycle_env="$OUTPUT_DIR/.detector-lifecycle.env"
+: > "$lifecycle_env"
+declare -A lifecycle_configs_seen=()
+declare -a lifecycle_configs=()
+for detector_config in "${detector_configs[@]}"; do
+  detector_key="$(python - "$detector_config" <<'PYLIFECYCLE'
+import json,sys
+from pathlib import Path
+print(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")).get("detector",""))
+PYLIFECYCLE
+  )"
+  if [[ -z "$detector_key" ]]; then
+    echo "::error::Detector configuration has no detector id: $detector_config"
+    exit 1
+  fi
+  if [[ -z "${lifecycle_configs_seen[$detector_key]+x}" ]]; then
+    lifecycle_configs_seen[$detector_key]=1
+    lifecycle_configs+=("$detector_config")
+    python -m hth.detector_lifecycle prepare-config \
+      --config "$detector_config" \
+      --results-root results-repo \
+      --env-file "$lifecycle_env"
+  fi
+done
+if [[ -s "$lifecycle_env" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$lifecycle_env"
+  set +a
+fi
+
 if [[ ! "${PIPELINE_STAGGER_MINUTES:-0}" =~ ^[0-9]+$ ]]; then
   echo "::error::Pipeline stagger must be a non-negative whole number of minutes: ${PIPELINE_STAGGER_MINUTES:-}"
   exit 1
@@ -596,6 +629,13 @@ if (( queue_failed != 0 || failed_count != 0 || completed_count != ${#detector_c
   echo "::error::Detector pipeline queue did not complete successfully"
   exit 1
 fi
+
+# Finalize each detector exactly once after all of its shards/runs are complete.
+for detector_config in "${lifecycle_configs[@]}"; do
+  python -m hth.detector_lifecycle finalize-config \
+    --config "$detector_config" \
+    --results-root results-repo
+done
 
 rm -rf "$queue_dir"
 echo "run_dirs_file=$OUTPUT_DIR/run-directories.txt" >> "$GITHUB_OUTPUT"

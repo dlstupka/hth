@@ -62,8 +62,8 @@
   },
   "lifecycle": {
     "prepare": "learned_page_mask",
-    "post": "learned_page_mask",
-    "model_policy": "reuse"
+    "model_policy": "reuse",
+    "finalize": "learned_page_mask"
   },
   "model": {
     "family": "PageNet",

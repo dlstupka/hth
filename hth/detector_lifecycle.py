@@ -1,6 +1,6 @@
 # detector lifecycle
 from __future__ import annotations
-import argparse, hashlib, json, os, re, shutil, tempfile, urllib.request
+import argparse, hashlib, json, os, re, shlex, shutil, tempfile, urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -38,11 +38,14 @@ def build_pagenet_deploy_prototxt(text):
     return text.strip()+"\n"
 
 def _write_env(path,values):
-    if path is None: return
+    """Write a shell-sourceable environment file for the current detector flow."""
+    if path is None:
+        return
     with Path(path).open("a",encoding="utf-8") as h:
-        for k,v in values.items(): h.write(f"{k}={v}\n")
+        for k,v in values.items():
+            h.write(f"{k}={shlex.quote(str(v))}\n")
 
-def prepare_detector(detector,*,results_root,policy="reuse",github_env=None):
+def prepare_detector_legacy(detector,*,results_root,policy="reuse",github_env=None):
     detector=detector.strip().lower()
     if detector!="learned_page_mask":
         print(f"Detector lifecycle prepare: {detector} has no pre-exec hook")
@@ -68,12 +71,16 @@ def prepare_detector(detector,*,results_root,policy="reuse",github_env=None):
     payload=json.loads(provenance.read_text(encoding="utf-8"))
     if payload["deploy_prototxt_sha256"]!=_sha256(deploy): raise RuntimeError("deploy prototxt SHA mismatch")
     if payload["weights_sha256"]!=_sha256(weights): raise RuntimeError("weights SHA mismatch")
-    env={"HTH_LEARNED_PAGE_MASK_PROTOTXT":str(deploy),"HTH_LEARNED_PAGE_MASK_WEIGHTS":str(weights),"HTH_LEARNED_PAGE_MASK_PROVENANCE":str(provenance)}
+    env={
+        "HTH_LEARNED_PAGE_MASK_PROTOTXT":deploy.resolve().as_posix(),
+        "HTH_LEARNED_PAGE_MASK_WEIGHTS":weights.resolve().as_posix(),
+        "HTH_LEARNED_PAGE_MASK_PROVENANCE":provenance.resolve().as_posix(),
+    }
     _write_env(github_env,env); os.environ.update(env)
     print(f"Learned Page-Mask ready: model={PAGENET_MODEL_ID} weights_sha256={payload['weights_sha256'][:12]}")
     return payload
 
-def finalize_detector(detector,*,results_root):
+def finalize_detector_legacy(detector,*,results_root):
     detector=detector.strip().lower()
     if detector!="learned_page_mask":
         print(f"Detector lifecycle finalize: {detector} has no post-exec hook")
@@ -84,13 +91,110 @@ def finalize_detector(detector,*,results_root):
     print(f"Detector lifecycle finalize: {detector} weights_sha256={str(payload.get('weights_sha256') or '')[:12]}")
     return payload
 
+def _prepare_learned_page_mask_hook(*,results_root,policy,env_file):
+    return prepare_detector_legacy(
+        "learned_page_mask",
+        results_root=results_root,
+        policy=policy,
+        github_env=env_file,
+    )
+
+def _finalize_learned_page_mask_hook(*,results_root):
+    return finalize_detector_legacy("learned_page_mask",results_root=results_root)
+
+_PREPARE_HOOKS={
+    "learned_page_mask":_prepare_learned_page_mask_hook,
+}
+_FINALIZE_HOOKS={
+    "learned_page_mask":_finalize_learned_page_mask_hook,
+}
+
+def _load_config(path):
+    payload=json.loads(Path(path).read_text(encoding="utf-8"))
+    detector=str(payload.get("detector") or "").strip()
+    if not detector:
+        raise ValueError(f"Detector config has no detector id: {path}")
+    lifecycle=payload.get("lifecycle") or {}
+    if not isinstance(lifecycle,dict):
+        raise ValueError(f"Detector lifecycle must be an object: {path}")
+    return detector,lifecycle
+
+def prepare_config(config_path,*,results_root,env_file=None,policy_override=None):
+    detector,lifecycle=_load_config(config_path)
+    hook_name=str(lifecycle.get("prepare") or "").strip()
+    if not hook_name:
+        print(f"Detector lifecycle prepare: {detector} has no configured hook")
+        return {"detector":detector,"prepared":False}
+    hook=_PREPARE_HOOKS.get(hook_name)
+    if hook is None:
+        raise ValueError(f"Unknown detector prepare hook {hook_name!r} for {detector}")
+    policy=policy_override or str(lifecycle.get("model_policy") or "reuse")
+    print(f"Detector lifecycle PREPARE detector={detector} hook={hook_name} policy={policy}")
+    return hook(results_root=Path(results_root),policy=policy,env_file=env_file)
+
+def finalize_config(config_path,*,results_root):
+    detector,lifecycle=_load_config(config_path)
+    hook_name=str(lifecycle.get("finalize") or lifecycle.get("post") or "").strip()
+    if not hook_name:
+        print(f"Detector lifecycle finalize: {detector} has no configured hook")
+        return {"detector":detector,"finalized":False}
+    hook=_FINALIZE_HOOKS.get(hook_name)
+    if hook is None:
+        raise ValueError(f"Unknown detector finalize hook {hook_name!r} for {detector}")
+    print(f"Detector lifecycle FINALIZE detector={detector} hook={hook_name}")
+    return hook(results_root=Path(results_root))
+
+# Compatibility API retained for callers/tests that used the first learned-detector overlay.
+def prepare_detector(detector,*,results_root,policy="reuse",github_env=None):
+    detector=detector.strip().lower()
+    hook=_PREPARE_HOOKS.get(detector)
+    if hook is None:
+        print(f"Detector lifecycle prepare: {detector} has no pre-exec hook")
+        return {"detector":detector,"prepared":False}
+    return hook(results_root=Path(results_root),policy=policy,env_file=github_env)
+
+def finalize_detector(detector,*,results_root):
+    detector=detector.strip().lower()
+    hook=_FINALIZE_HOOKS.get(detector)
+    if hook is None:
+        print(f"Detector lifecycle finalize: {detector} has no post-exec hook")
+        return {"detector":detector,"finalized":False}
+    return hook(results_root=Path(results_root))
+
 def main(argv=None):
-    parser=argparse.ArgumentParser()
+    parser=argparse.ArgumentParser(description="Run detector lifecycle hooks.")
     sub=parser.add_subparsers(dest="command",required=True)
-    a=sub.add_parser("prepare"); a.add_argument("--detector",required=True); a.add_argument("--results-root",type=Path,required=True); a.add_argument("--policy",choices=("reuse","refresh"),default="reuse"); a.add_argument("--github-env",type=Path)
-    b=sub.add_parser("finalize"); b.add_argument("--detector",required=True); b.add_argument("--results-root",type=Path,required=True)
+
+    prepare=sub.add_parser("prepare-config")
+    prepare.add_argument("--config",type=Path,required=True)
+    prepare.add_argument("--results-root",type=Path,required=True)
+    prepare.add_argument("--env-file",type=Path)
+    prepare.add_argument("--policy",choices=("reuse","refresh"))
+
+    finalize=sub.add_parser("finalize-config")
+    finalize.add_argument("--config",type=Path,required=True)
+    finalize.add_argument("--results-root",type=Path,required=True)
+
+    # Backward-compatible commands from the first overlay.
+    legacy_prepare=sub.add_parser("prepare")
+    legacy_prepare.add_argument("--detector",required=True)
+    legacy_prepare.add_argument("--results-root",type=Path,required=True)
+    legacy_prepare.add_argument("--policy",choices=("reuse","refresh"),default="reuse")
+    legacy_prepare.add_argument("--github-env",type=Path)
+    legacy_finalize=sub.add_parser("finalize")
+    legacy_finalize.add_argument("--detector",required=True)
+    legacy_finalize.add_argument("--results-root",type=Path,required=True)
+
     args=parser.parse_args(argv)
-    if args.command=="prepare": prepare_detector(args.detector,results_root=args.results_root,policy=args.policy,github_env=args.github_env)
-    else: finalize_detector(args.detector,results_root=args.results_root)
+    if args.command=="prepare-config":
+        prepare_config(args.config,results_root=args.results_root,env_file=args.env_file,policy_override=args.policy)
+    elif args.command=="finalize-config":
+        finalize_config(args.config,results_root=args.results_root)
+    elif args.command=="prepare":
+        prepare_detector(args.detector,results_root=args.results_root,policy=args.policy,github_env=args.github_env)
+    else:
+        finalize_detector(args.detector,results_root=args.results_root)
     return 0
-if __name__=="__main__": raise SystemExit(main())
+
+if __name__=="__main__":
+    raise SystemExit(main())

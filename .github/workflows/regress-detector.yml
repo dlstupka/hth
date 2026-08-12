@@ -525,14 +525,6 @@ jobs:
           print(f"OpenCV       : {cv2.__version__} ({cv2.__file__})")
           PY
 
-      - name: Prepare detector lifecycle
-        shell: bash
-        env:
-          PYTHONPATH: hth-pipeline
-        run: |
-          set -euo pipefail
-          python -m hth.detector_lifecycle prepare --detector "$DETECTOR_ALGORITHM" --results-root results-repo --policy reuse --github-env "$GITHUB_ENV"
-
       - name: Show toolchain environment
         shell: bash
         run: |
@@ -719,15 +711,6 @@ jobs:
           PYTHONPATH: hth-pipeline
         run: |
           bash hth-pipeline/tools/run-detector-regressions.sh
-
-      - name: Finalize detector lifecycle
-        if: ${{ steps.regression.outcome == 'success' }}
-        shell: bash
-        env:
-          PYTHONPATH: hth-pipeline
-        run: |
-          set -euo pipefail
-          python -m hth.detector_lifecycle finalize --detector "$DETECTOR_ALGORITHM" --results-root results-repo
 
       - name: Persist calibration intelligence
         id: persistence
