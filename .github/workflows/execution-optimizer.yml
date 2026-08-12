@@ -112,11 +112,6 @@ on:
         required: true
         default: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
         type: string
-      learned_page_mask_model:
-        description: "Results-repository path to an HTH-contract ONNX learned page-mask model"
-        required: true
-        default: models/learned-page-mask.onnx
-        type: string
       golden_set:
         description: Golden Set configuration
         required: true
@@ -247,7 +242,6 @@ jobs:
       DETECTOR_LOADING_STRATEGY: lpt
       PIPELINE_STAGGER_MINUTES: "0"
       DEBUG_LEVEL: ${{ inputs.debug_level }}
-      HTH_LEARNED_PAGE_MASK_MODEL: ${{ format('results-repo/{0}', inputs.learned_page_mask_model) }}
       PYTHONNOUSERSITE: "1"
       PYTHONUNBUFFERED: "1"
       HTH_RUNNER_LABELS: >-
@@ -284,24 +278,6 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           token: ${{ github.event_name != 'pull_request' && secrets.HTH_RESULTS_TOKEN || github.token }}
-
-      - name: Verify learned page-mask model
-        if: ${{ inputs.algorithm == 'learned_page_mask' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f "$HTH_LEARNED_PAGE_MASK_MODEL" || {
-            echo "::error::Learned Page-Mask model not found: $HTH_LEARNED_PAGE_MASK_MODEL"
-            echo "::error::Stage an HTH-contract ONNX model in the results repository or select another learned_page_mask_model path."
-            exit 1
-          }
-          python - "$HTH_LEARNED_PAGE_MASK_MODEL" <<'PY'
-          import hashlib, sys
-          from pathlib import Path
-          path = Path(sys.argv[1])
-          print(f"Learned Page-Mask model: {path}")
-          print(f"SHA-256: {hashlib.sha256(path.read_bytes()).hexdigest()}")
-          PY
 
       - name: Runner diagnostics
         shell: bash
@@ -484,6 +460,14 @@ jobs:
           print(f"scikit-image : {skimage.__version__} ({skimage.__file__})")
           print(f"OpenCV       : {cv2.__version__} ({cv2.__file__})")
           PY
+
+      - name: Prepare detector lifecycle
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          python -m hth.detector_lifecycle prepare --detector "$DETECTOR_ALGORITHM" --results-root results-repo --policy reuse --github-env "$GITHUB_ENV"
 
       - name: Show toolchain environment
         shell: bash

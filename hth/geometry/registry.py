@@ -271,10 +271,10 @@ _REGISTRY: tuple[DetectorSpec, ...] = (
     DetectorSpec(
         method=detector_learned_page_mask.METHOD,
         name="Learned Page-Mask Detector",
-        origin="HTH",
+        origin="PageNet / HTH",
         entrypoint=detector_learned_page_mask.detect,
-        foundation=("Learned page segmentation", "OpenCV DNN", "ONNX"),
-        authors=("OpenAI ChatGPT",),
+        foundation=("PageNet", "Learned page segmentation", "OpenCV DNN", "Caffe"),
+        authors=("Chris Tensmeyer et al.", "OpenAI ChatGPT"),
         version=HTH_VERSION,
         repository=HTH_REPOSITORY,
     ),

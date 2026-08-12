@@ -87,11 +87,6 @@ on:
           - important+
           - critical
           - binary-refine
-      learned_page_mask_model:
-        description: "Results-repository path to an HTH-contract ONNX learned page-mask model"
-        required: true
-        default: models/learned-page-mask.onnx
-        type: string
       golden_set:
         description: Golden Set configuration
         required: true
@@ -270,7 +265,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        detector: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.algorithm == 'all' && (inputs.specific_runner == 'custom' || inputs.runner != 'github-hosted') && '["contour","convex_hull","distance_transform","distance_transform_rect","polar_boundary_vote","joint_rectangle_vote","whitespace_frame","text_flow","radon_boundary","star_convex","contour_quad","contour_components","contour_projection","contour_grabcut","grabcut_contour","consensus_quad","edge_contour","cross_edge_contour","gradient_vote","radial_edge","adaptive_radial_edge","border_energy","components","ransac","grabcut","hough","lsd"]' || format('["{0}"]', github.event_name == 'workflow_dispatch' && inputs.algorithm || 'all')) }}
+        detector: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.algorithm == 'all' && (inputs.specific_runner == 'custom' || inputs.runner != 'github-hosted') && '["contour","convex_hull","distance_transform","distance_transform_rect","polar_boundary_vote","joint_rectangle_vote","learned_page_mask","whitespace_frame","text_flow","radon_boundary","star_convex","contour_quad","contour_components","contour_projection","contour_grabcut","grabcut_contour","consensus_quad","edge_contour","cross_edge_contour","gradient_vote","radial_edge","adaptive_radial_edge","border_energy","components","ransac","grabcut","hough","lsd"]' || format('["{0}"]', github.event_name == 'workflow_dispatch' && inputs.algorithm || 'all')) }}
     name: >-
       ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
           && format('Regress {0} against Golden Set', matrix.detector)
@@ -313,8 +308,6 @@ jobs:
       DETECTOR_LOADING_STRATEGY: ${{ github.event_name == 'workflow_dispatch' && inputs.detector_loading_strategy || 'lpt' }}
       PIPELINE_STAGGER_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.pipeline_stagger_minutes || '0' }}
       DEBUG_LEVEL: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_level || 'none' }}
-      HTH_LEARNED_PAGE_MASK_MODEL: >-
-        ${{ format('results-repo/{0}', github.event_name == 'workflow_dispatch' && inputs.learned_page_mask_model || 'models/learned-page-mask.onnx') }}
       PYTHONNOUSERSITE: "1"
       PYTHONUNBUFFERED: "1"
       HTH_RUNNER_LABELS: >-
@@ -349,24 +342,6 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           token: ${{ github.event_name != 'pull_request' && secrets.HTH_RESULTS_TOKEN || github.token }}
-
-      - name: Verify learned page-mask model
-        if: ${{ inputs.algorithm == 'learned_page_mask' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f "$HTH_LEARNED_PAGE_MASK_MODEL" || {
-            echo "::error::Learned Page-Mask model not found: $HTH_LEARNED_PAGE_MASK_MODEL"
-            echo "::error::Stage an HTH-contract ONNX model in the results repository or select another learned_page_mask_model path."
-            exit 1
-          }
-          python - "$HTH_LEARNED_PAGE_MASK_MODEL" <<'PY'
-          import hashlib, sys
-          from pathlib import Path
-          path = Path(sys.argv[1])
-          print(f"Learned Page-Mask model: {path}")
-          print(f"SHA-256: {hashlib.sha256(path.read_bytes()).hexdigest()}")
-          PY
 
       - name: Runner diagnostics
         shell: bash
@@ -549,6 +524,14 @@ jobs:
           print(f"scikit-image : {skimage.__version__} ({skimage.__file__})")
           print(f"OpenCV       : {cv2.__version__} ({cv2.__file__})")
           PY
+
+      - name: Prepare detector lifecycle
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          python -m hth.detector_lifecycle prepare --detector "$DETECTOR_ALGORITHM" --results-root results-repo --policy reuse --github-env "$GITHUB_ENV"
 
       - name: Show toolchain environment
         shell: bash
@@ -737,6 +720,15 @@ jobs:
         run: |
           bash hth-pipeline/tools/run-detector-regressions.sh
 
+      - name: Finalize detector lifecycle
+        if: ${{ steps.regression.outcome == 'success' }}
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          python -m hth.detector_lifecycle finalize --detector "$DETECTOR_ALGORITHM" --results-root results-repo
+
       - name: Persist calibration intelligence
         id: persistence
         if: ${{ steps.regression.outcome == 'success' && github.event_name != 'pull_request' }}
@@ -798,6 +790,7 @@ jobs:
               --run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
             git -C results-repo add calibration-index.json runtime-index.json parallelism-index.json source-documents/
+            if [[ -d results-repo/models ]]; then git -C results-repo add models/; fi
             if [[ -f results-repo/optimizer-predictions.json ]]; then
               git -C results-repo add optimizer-predictions.json
             fi

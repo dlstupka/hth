@@ -1,33 +1,37 @@
-import cv2
-import numpy as np
-import pytest
+import json, os, tempfile, unittest
+from pathlib import Path
+from unittest.mock import patch
+import cv2, numpy as np
 from hth.geometry import detector_learned_page_mask as detector
 
 class FakeNet:
     def setInput(self,blob): self.blob=blob
-    def forward(self):
-        out=np.full((1,1,512,512),-8.0,np.float32); out[:,:,80:440,70:450]=8.0; return out
+    def forward(self,name):
+        out=np.zeros((1,1,256,256),np.float32); out[:,:,40:220,35:225]=0.95; return out
 
-def reset_cache():
-    detector._THREAD_LOCAL.model_key=None; detector._THREAD_LOCAL.network=None
-
-def test_learned_page_mask_generates_polygon_and_model_provenance(tmp_path,monkeypatch):
-    model=tmp_path/"page.onnx"; model.write_bytes(b"fake-model")
-    monkeypatch.setenv(detector.MODEL_ENV,str(model)); monkeypatch.setattr(cv2.dnn,"readNetFromONNX",lambda path:FakeNet()); reset_cache()
-    c=detector.detect(image_bgr=np.full((300,500,3),255,np.uint8),mask=np.zeros((300,500),np.uint8))
-    assert c.status=="ok" and c.method=="learned_page_mask"
-    assert c.diagnostics["model_contract"]==detector.MODEL_CONTRACT
-    assert len(c.diagnostics["model_sha256"])==64
-
-def test_learned_page_mask_missing_model_is_configuration_error(monkeypatch):
-    monkeypatch.delenv(detector.MODEL_ENV,raising=False)
-    with pytest.raises(RuntimeError,match="requires an ONNX model"):
-        detector.detect(image_bgr=np.zeros((50,50,3),np.uint8),mask=np.zeros((50,50),np.uint8))
-
-def test_learned_page_mask_rejects_multichannel_output(tmp_path,monkeypatch):
-    class BadNet(FakeNet):
-        def forward(self): return np.zeros((1,2,512,512),np.float32)
-    model=tmp_path/"page.onnx"; model.write_bytes(b"fake-model")
-    monkeypatch.setenv(detector.MODEL_ENV,str(model)); monkeypatch.setattr(cv2.dnn,"readNetFromONNX",lambda path:BadNet()); reset_cache()
-    with pytest.raises(RuntimeError,match="one foreground channel"):
-        detector.detect(image_bgr=np.zeros((50,50,3),np.uint8),mask=np.zeros((50,50),np.uint8))
+class LearnedPageMaskTests(unittest.TestCase):
+    def test_detector_uses_lifecycle_assets(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); proto=root/"d.prototxt"; weights=root/"w.caffemodel"; prov=root/"p.json"
+            proto.write_text('input: "data"\n',encoding="utf-8"); weights.write_bytes(b"w")
+            prov.write_text(json.dumps({"model_id":"pagenet-ohio","weights_sha256":"abc","license":"BSD-3-Clause","upstream_repository":"https://github.com/ctensmeyer/pagenet"}),encoding="utf-8")
+            env={detector.PROTOTXT_ENV:str(proto),detector.WEIGHTS_ENV:str(weights),detector.PROVENANCE_ENV:str(prov)}
+            with patch.dict(os.environ,env,clear=False), patch.object(detector,"_network",return_value=FakeNet()):
+                detector._THREAD_LOCAL.key=None
+                c=detector.detect(image_bgr=np.full((300,500,3),255,np.uint8),mask=np.zeros((300,500),np.uint8))
+            self.assertEqual(c.status,"ok"); self.assertEqual(c.diagnostics["model_id"],"pagenet-ohio")
+    def test_network_uses_generic_caffe_loader(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); proto=root/"d.prototxt"; weights=root/"w.caffemodel"
+            proto.write_text('input: "data"\\n',encoding="utf-8"); weights.write_bytes(b"w")
+            fake=FakeNet()
+            detector._THREAD_LOCAL.key=None
+            with patch.object(cv2.dnn,"readNet",return_value=fake) as loader:
+                resolved=detector._network(proto,weights)
+            self.assertIs(resolved,fake)
+            loader.assert_called_once_with(str(weights),str(proto),"Caffe")
+    def test_missing_assets_raise_configuration_error(self):
+        with patch.dict(os.environ,{},clear=True):
+            with self.assertRaisesRegex(RuntimeError,"lifecycle did not set"):
+                detector.detect(image_bgr=np.zeros((50,50,3),np.uint8),mask=np.zeros((50,50),np.uint8))
+if __name__=="__main__": unittest.main()

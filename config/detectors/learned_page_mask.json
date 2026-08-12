@@ -1,15 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "learned_page_mask",
-  "description": "Calibration space for the model-backed HTH Learned Page-Mask detector.",
-  "automatic": false,
-  "runtime_requirements": {
-    "model_env": "HTH_LEARNED_PAGE_MASK_MODEL",
-    "model_format": "ONNX",
-    "model_contract": "onnx-rgb-512-single-channel-mask-v1",
-    "input": "1x3x512x512 float32 RGB in [0,1]",
-    "output": "single foreground channel containing probabilities or logits"
-  },
+  "description": "Calibration space for PageNet-backed Learned Page-Mask.",
   "profiles": {
     "baseline": {
       "mask_threshold": 0.5,
@@ -67,5 +59,17 @@
   },
   "regression": {
     "debug_artifacts": "failures"
+  },
+  "lifecycle": {
+    "prepare": "learned_page_mask",
+    "post": "learned_page_mask",
+    "model_policy": "reuse"
+  },
+  "model": {
+    "family": "PageNet",
+    "variant": "ohio",
+    "training_domain": "Ohio Death Records",
+    "source": "ctensmeyer/pagenet",
+    "license": "BSD-3-Clause"
   }
 }
