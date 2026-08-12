@@ -446,6 +446,8 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertLess(text.index("### Best Known Detector Calibrations"), text.index("### Calibration Report Legend"))
             self.assertIn("**Engineering Decision**", text)
             self.assertIn("This table is the authoritative detector ranking for this Golden Set.", text)
+            self.assertIn("**Parameter-space note:**", text)
+            self.assertIn("`exhaustive` means every valid set in that declared grid was evaluated", text)
             self.assertIn("| **1** | **Contour Envelope** | **`contour`** |", text)
             self.assertIn("| Rank | Detector | Detector ID | Role | Golden Set ID | Date | Build* | Est. Serial Runtime** | Parameter Set ID | Parameter Sets | Search Type | Successful Parameter Sets |", text)
             self.assertNotIn("| Coverage |", text)
