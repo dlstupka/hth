@@ -170,3 +170,8 @@ def test_regression_output_is_cleaned_before_each_matrix_run():
     block = text[cleanup:execute]
     assert "rm -rf regression-output" in block
     assert "rm -f regression-summary.md" in block
+
+
+def test_regression_artifact_upload_includes_promoted_debug_tree():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "regression-output/" in text

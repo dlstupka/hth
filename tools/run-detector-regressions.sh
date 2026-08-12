@@ -556,6 +556,17 @@ for detector_name in "${unique_detectors[@]}"; do
   detector_config="hth-pipeline/config/detectors/$detector_name.json"
   if (( ${#detector_shard_dirs[@]} == 1 )); then
     source_dir="${detector_shard_dirs[0]}"
+    single_shard_root="$(dirname "$(dirname "$source_dir")")"
+
+    # The regression runner writes debug artifacts relative to its shard output
+    # root, not inside the canonical run directory.  Promote that sibling debug
+    # tree before moving the single canonical run out of .shards; otherwise the
+    # debug remains beneath a hidden directory and upload-artifact omits it.
+    if [[ -d "$single_shard_root/debug" ]]; then
+      mkdir -p "$OUTPUT_DIR/debug"
+      cp -a "$single_shard_root/debug/." "$OUTPUT_DIR/debug/"
+    fi
+
     mkdir -p "$OUTPUT_DIR/$detector_name"
     target_dir="$OUTPUT_DIR/$detector_name/$(basename "$source_dir")"
     rm -rf "$target_dir"
