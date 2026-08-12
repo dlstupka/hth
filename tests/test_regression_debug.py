@@ -391,5 +391,74 @@ class RegressionDebugTests(unittest.TestCase):
         self.assertIn("side-energy-scores.png", border)
 
 
+    def test_distance_transform_debug_emits_its_own_evidence(self) -> None:
+        from dataclasses import asdict
+        from hth.geometry import detector_distance_transform
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image_path = root / "source.jpg"
+            image = np.zeros((240, 360, 3), dtype=np.uint8)
+            mask = np.zeros((240, 360), dtype=np.uint8)
+            cv2.rectangle(mask, (45, 35), (315, 205), 255, -1)
+            cv2.imwrite(str(image_path), image)
+
+            candidate = asdict(detector_distance_transform.detect(image_bgr=image, mask=mask))
+            page = {
+                "global_ordinal": 1,
+                "label": "page 1",
+                "layout_type": "single",
+                "image_path": str(image_path),
+                "mask": mask,
+                "approved_bbox": [45, 35, 316, 206],
+            }
+            page_result = {
+                "global_ordinal": 1,
+                "status": candidate["status"],
+                "approved_bbox": [45, 35, 316, 206],
+                "predicted_bbox": candidate["bbox"],
+                "candidate": candidate,
+            }
+            outputs = write_debug_artifacts(
+                root, "distance_transform", "run-distance",
+                policy="winner",
+                ranked=[{"parameter_set_id": "distance", "pages": [page_result]}],
+                pages=[page], debug_level="verbose",
+            )
+            joined = "\\n".join(outputs)
+            self.assertIn("distance-transform.png", joined)
+            self.assertIn("distance-core.png", joined)
+            self.assertIn("distance-candidate.png", joined)
+            self.assertNotIn("convex-hull.png", joined)
+
+    def test_debug_writer_rejects_cross_detector_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image_path = root / "source.jpg"
+            image = np.zeros((120, 180, 3), dtype=np.uint8)
+            mask = np.zeros((120, 180), dtype=np.uint8)
+            cv2.imwrite(str(image_path), image)
+            page = {
+                "global_ordinal": 1,
+                "image_path": str(image_path),
+                "mask": mask,
+                "approved_bbox": [1, 1, 50, 50],
+            }
+            ranked = [{
+                "parameter_set_id": "wrong",
+                "pages": [{
+                    "global_ordinal": 1,
+                    "status": "ok",
+                    "candidate": {"method": "convex_hull"},
+                }],
+            }]
+            with self.assertRaisesRegex(RuntimeError, "Debug artifact detector mismatch"):
+                write_debug_artifacts(
+                    root, "distance_transform", "run-wrong",
+                    policy="winner", ranked=ranked, pages=[page],
+                    debug_level="verbose",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

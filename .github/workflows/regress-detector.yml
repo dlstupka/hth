@@ -689,6 +689,13 @@ jobs:
             --prediction-out "$RUNNER_TEMP/hth-shape-prediction-${DETECTOR_ALGORITHM}.json" \
             --github-env "$GITHUB_ENV"
 
+      - name: Reset regression output workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf regression-output
+          rm -f regression-summary.md
+
       - name: Run detector regressions
         id: regression
         shell: bash

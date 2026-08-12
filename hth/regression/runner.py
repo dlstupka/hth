@@ -588,6 +588,13 @@ def write_debug_artifacts(
             selected = [item for item in selected if item[1].get("status") != "ok"]
 
     for parameter_set, page_result in selected:
+        candidate = page_result.get("candidate") if isinstance(page_result.get("candidate"), dict) else {}
+        candidate_method = str(candidate.get("method") or "")
+        if candidate_method and candidate_method != detector:
+            raise RuntimeError(
+                f"Debug artifact detector mismatch: run={detector!r}, "
+                f"candidate={candidate_method!r}, page={page_result.get('global_ordinal')}"
+            )
         page = page_by_ordinal[int(page_result["global_ordinal"])]
         _write_debug_page(
             debug_root,

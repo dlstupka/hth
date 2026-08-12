@@ -144,16 +144,11 @@ def test_self_hosted_all_fans_out_detectors_across_matching_runners() -> None:
 def test_preferred_shape_resolution_falls_back_to_auto_and_exact_shape_is_explicit() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "Resolve regression execution shape" in text
-    assert "python -m hth.regression_shape preferred" in text
-    assert "No compatible measured preferred shape collected" in text
-    assert "python -m hth.regression_shape predicted" in text
+    assert "python -m hth.regression_shape workflow-resolve" in text
     assert "optimizer-predictions.json" in text
-    assert "Predicted execution shape will be persisted" in text
-    assert 'echo "HTH_EXACT_EXECUTION_SHAPE=1"' in text
-    assert 'echo "SHARDS=$pipelines"' in text
-    assert 'echo "DETECTOR_PIPELINES=$pipelines"' in text
-    assert 'echo "THREADS=$threads"' in text
-
+    assert "--github-env" in text
+    assert "--parallelism-index" in text
+    assert "--predictions-index" in text
 
 def test_all_without_exhaustive_is_first_and_dispatches_missing_authoritative_runs() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
@@ -165,3 +160,13 @@ def test_all_without_exhaustive_is_first_and_dispatches_missing_authoritative_ru
     assert "actions: write" in text
     assert "inputs.algorithm" in text.split("concurrency:", 1)[1].split("jobs:", 1)[0]
 
+
+
+def test_regression_output_is_cleaned_before_each_matrix_run():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    cleanup = text.index("- name: Reset regression output workspace")
+    execute = text.index("- name: Run detector regressions")
+    assert cleanup < execute
+    block = text[cleanup:execute]
+    assert "rm -rf regression-output" in block
+    assert "rm -f regression-summary.md" in block
