@@ -1,0 +1,81 @@
+{
+  "schema_version": "0.1",
+  "detector": "joint_rectangle_vote",
+  "description": "Calibration space for joint four-side Hough rectangle voting.",
+  "profiles": {
+    "baseline": {
+      "canny_low": 50.0,
+      "canny_high": 150.0,
+      "hough_threshold": 80,
+      "axis_tolerance_degrees": 12.0,
+      "minimum_side_support": 0.18,
+      "minimum_area_fraction": 0.16,
+      "bbox_padding_fraction": 0.0
+    }
+  },
+  "parameters": {
+    "canny_low": {
+      "type": "float",
+      "values": [
+        30.0,
+        50.0,
+        80.0
+      ]
+    },
+    "canny_high": {
+      "type": "float",
+      "values": [
+        100.0,
+        150.0,
+        220.0
+      ]
+    },
+    "hough_threshold": {
+      "type": "integer",
+      "values": [
+        50,
+        80,
+        120
+      ]
+    },
+    "axis_tolerance_degrees": {
+      "type": "float",
+      "values": [
+        6.0,
+        12.0,
+        18.0
+      ]
+    },
+    "minimum_side_support": {
+      "type": "float",
+      "values": [
+        0.1,
+        0.18,
+        0.3
+      ]
+    },
+    "minimum_area_fraction": {
+      "type": "float",
+      "values": [
+        0.1,
+        0.16,
+        0.24
+      ]
+    },
+    "bbox_padding_fraction": {
+      "type": "float",
+      "values": [
+        0.0,
+        0.008,
+        0.016
+      ]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "failures"
+  }
+}

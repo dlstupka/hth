@@ -19,6 +19,10 @@ on:
           - distance_transform
           - distance_transform_rect
           - polar_boundary_vote
+          - radon_boundary
+          - text_flow
+          - whitespace_frame
+          - joint_rectangle_vote
           - star_convex
           - contour_quad
           - contour_components

@@ -1,0 +1,72 @@
+{
+  "schema_version": "0.1",
+  "detector": "text_flow",
+  "description": "Calibration space for text-line flow document envelope detection.",
+  "profiles": {
+    "baseline": {
+      "minimum_component_area_fraction": 2e-05,
+      "maximum_component_area_fraction": 0.01,
+      "line_join_fraction": 0.03,
+      "minimum_line_count": 3,
+      "minimum_text_coverage_fraction": 0.08,
+      "bbox_padding_fraction": 0.02
+    }
+  },
+  "parameters": {
+    "minimum_component_area_fraction": {
+      "type": "float",
+      "values": [
+        1e-05,
+        2e-05,
+        5e-05
+      ]
+    },
+    "maximum_component_area_fraction": {
+      "type": "float",
+      "values": [
+        0.005,
+        0.01,
+        0.02
+      ]
+    },
+    "line_join_fraction": {
+      "type": "float",
+      "values": [
+        0.018,
+        0.03,
+        0.05
+      ]
+    },
+    "minimum_line_count": {
+      "type": "integer",
+      "values": [
+        2,
+        3,
+        5
+      ]
+    },
+    "minimum_text_coverage_fraction": {
+      "type": "float",
+      "values": [
+        0.04,
+        0.08,
+        0.14
+      ]
+    },
+    "bbox_padding_fraction": {
+      "type": "float",
+      "values": [
+        0.01,
+        0.02,
+        0.04
+      ]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "failures"
+  }
+}

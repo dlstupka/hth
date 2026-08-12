@@ -1,0 +1,72 @@
+{
+  "schema_version": "0.1",
+  "detector": "whitespace_frame",
+  "description": "Calibration space for negative-space / whitespace-frame page detection.",
+  "profiles": {
+    "baseline": {
+      "background_threshold": 245,
+      "minimum_border_background_fraction": 0.55,
+      "minimum_page_area_fraction": 0.18,
+      "maximum_page_area_fraction": 0.98,
+      "close_kernel_fraction": 0.01,
+      "bbox_padding_fraction": 0.0
+    }
+  },
+  "parameters": {
+    "background_threshold": {
+      "type": "integer",
+      "values": [
+        235,
+        245,
+        250
+      ]
+    },
+    "minimum_border_background_fraction": {
+      "type": "float",
+      "values": [
+        0.4,
+        0.55,
+        0.7
+      ]
+    },
+    "minimum_page_area_fraction": {
+      "type": "float",
+      "values": [
+        0.1,
+        0.18,
+        0.28
+      ]
+    },
+    "maximum_page_area_fraction": {
+      "type": "float",
+      "values": [
+        0.9,
+        0.96,
+        0.99
+      ]
+    },
+    "close_kernel_fraction": {
+      "type": "float",
+      "values": [
+        0.004,
+        0.01,
+        0.02
+      ]
+    },
+    "bbox_padding_fraction": {
+      "type": "float",
+      "values": [
+        0.0,
+        0.008,
+        0.016
+      ]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "failures"
+  }
+}

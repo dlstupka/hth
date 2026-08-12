@@ -1,0 +1,72 @@
+{
+  "schema_version": "0.1",
+  "detector": "radon_boundary",
+  "description": "Calibration space for projection-angle (Radon-style) document boundary integration.",
+  "profiles": {
+    "baseline": {
+      "angle_limit_degrees": 8.0,
+      "angle_step_degrees": 1.0,
+      "edge_percentile": 82.0,
+      "projection_smooth_fraction": 0.012,
+      "minimum_peak_prominence": 1.25,
+      "bbox_padding_fraction": 0.0
+    }
+  },
+  "parameters": {
+    "angle_limit_degrees": {
+      "type": "float",
+      "values": [
+        4.0,
+        8.0,
+        12.0
+      ]
+    },
+    "angle_step_degrees": {
+      "type": "float",
+      "values": [
+        0.5,
+        1.0,
+        2.0
+      ]
+    },
+    "edge_percentile": {
+      "type": "float",
+      "values": [
+        75.0,
+        82.0,
+        90.0
+      ]
+    },
+    "projection_smooth_fraction": {
+      "type": "float",
+      "values": [
+        0.006,
+        0.012,
+        0.024
+      ]
+    },
+    "minimum_peak_prominence": {
+      "type": "float",
+      "values": [
+        1.05,
+        1.25,
+        1.6
+      ]
+    },
+    "bbox_padding_fraction": {
+      "type": "float",
+      "values": [
+        0.0,
+        0.008,
+        0.016
+      ]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "failures"
+  }
+}
