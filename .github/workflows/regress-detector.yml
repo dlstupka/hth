@@ -39,6 +39,8 @@ on:
           - all-without-exhaustive
           - all
           - contour
+          - convex_hull
+          - distance_transform
           - contour_quad
           - contour_components
           - contour_projection
@@ -255,7 +257,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        detector: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.algorithm == 'all' && (inputs.specific_runner == 'custom' || inputs.runner != 'github-hosted') && '["contour","contour_quad","contour_components","contour_projection","contour_grabcut","grabcut_contour","consensus_quad","edge_contour","cross_edge_contour","gradient_vote","radial_edge","adaptive_radial_edge","border_energy","components","ransac","grabcut","hough","lsd"]' || format('["{0}"]', github.event_name == 'workflow_dispatch' && inputs.algorithm || 'all')) }}
+        detector: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.algorithm == 'all' && (inputs.specific_runner == 'custom' || inputs.runner != 'github-hosted') && '["contour","convex_hull","distance_transform","contour_quad","contour_components","contour_projection","contour_grabcut","grabcut_contour","consensus_quad","edge_contour","cross_edge_contour","gradient_vote","radial_edge","adaptive_radial_edge","border_energy","components","ransac","grabcut","hough","lsd"]' || format('["{0}"]', github.event_name == 'workflow_dispatch' && inputs.algorithm || 'all')) }}
     name: >-
       ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
           && format('Regress {0} against Golden Set', matrix.detector)

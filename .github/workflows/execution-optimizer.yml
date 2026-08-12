@@ -15,6 +15,8 @@ on:
           - all-without-preference
           - all
           - contour
+          - convex_hull
+          - distance_transform
           - contour_quad
           - contour_components
           - contour_projection

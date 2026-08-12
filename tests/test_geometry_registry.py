@@ -99,6 +99,10 @@ class RegistryIsolationTests(unittest.TestCase):
         self.assertIn("Adaptive angular refinement", catalog["adaptive_radial_edge"]["foundation"])
         self.assertEqual(catalog["border_energy"]["origin"], "HTH")
         self.assertIn("Sobel border energy", catalog["border_energy"]["foundation"])
+        self.assertEqual(catalog["convex_hull"]["origin"], "HTH")
+        self.assertIn("Convex hull geometry", catalog["convex_hull"]["foundation"])
+        self.assertEqual(catalog["distance_transform"]["origin"], "HTH")
+        self.assertIn("Distance transform", catalog["distance_transform"]["foundation"])
         self.assertEqual(catalog["contour_quad"]["authors"], ["OpenAI ChatGPT"])
         self.assertEqual(
             catalog["contour_quad"]["foundation"],

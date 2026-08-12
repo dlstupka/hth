@@ -23,6 +23,18 @@ _EFFECT_GROUP_RANK = {
 
 
 _DETECTOR_EVIDENCE: dict[str, dict[str, Any]] = {
+    "convex_hull": {
+        "friendly_name": "Convex Hull Detector",
+        "short_name": "Convex Hull",
+        "role": "Generator",
+        "evidence": [("Foreground fragments", "Primary", "Collects substantial foreground regions from the document mask."), ("Convex hull", "Geometry", "Wraps fragmented foreground evidence in the smallest convex envelope."), ("Solidity", "Validation", "Rejects hulls whose enclosed area is poorly supported by foreground evidence."), ("Quadrilateral fit", "Geometry", "Returns a polygonal or minimum-area rectangular page envelope.")],
+    },
+    "distance_transform": {
+        "friendly_name": "Distance Transform Detector",
+        "short_name": "Distance Transform",
+        "role": "Generator",
+        "evidence": [("Distance transform", "Primary", "Measures interior distance from foreground pixels to the nearest background boundary."), ("Interior core", "Generator", "Selects robust page-interior support away from noisy edges."), ("Core-supported components", "Filtering", "Retains connected foreground regions supported by the interior core."), ("Supported hull", "Geometry", "Fits a page quadrilateral around the selected foreground support.")],
+    },
     "components": {"friendly_name": "Connected Components", "short_name": "Components", "role": "Generator", "evidence": [("Connected-component envelope", "Primary", "Generates a page-region hypothesis from grouped foreground components."), ("Morphological grouping", "Supporting", "Controls how fragmented marks are joined before envelope extraction.")]},
     "consensus_quad": {"friendly_name": "Consensus Quadrilateral", "short_name": "Consensus Quad", "role": "Hybrid (Contour Quad + Edge Contour)", "evidence": [("Contour Quad vote", "Primary", "Supplies one geometric quadrilateral hypothesis."), ("Edge Contour vote", "Primary", "Supplies an independently scored edge-supported hypothesis."), ("Polygon agreement", "Decision", "Requires sufficient IoU and corner agreement before fusion.")]},
     "contour": {"friendly_name": "Contour Envelope", "short_name": "Contour", "role": "Generator", "evidence": [("Contour geometry", "Primary", "Generates page-region hypotheses from thresholded contours."), ("Fragment merging", "Supporting", "Attempts to recover page boundaries split across multiple contours.")]},

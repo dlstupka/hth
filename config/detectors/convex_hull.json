@@ -1,0 +1,81 @@
+{
+  "schema_version": "0.1",
+  "detector": "convex_hull",
+  "description": "Calibration space for the HTH Convex Hull document-envelope detector.",
+  "profiles": {
+    "baseline": {
+      "minimum_fragment_area_fraction": 0.0005,
+      "close_kernel_fraction": 0.008,
+      "close_iterations": 1,
+      "minimum_hull_area_fraction": 0.16,
+      "minimum_solidity": 0.55,
+      "polygon_epsilon_fraction": 0.025,
+      "bbox_padding_fraction": 0.0
+    }
+  },
+  "parameters": {
+    "minimum_fragment_area_fraction": {
+      "type": "float",
+      "values": [
+        0.0002,
+        0.0005,
+        0.0015
+      ]
+    },
+    "close_kernel_fraction": {
+      "type": "float",
+      "values": [
+        0.0,
+        0.008,
+        0.016
+      ]
+    },
+    "close_iterations": {
+      "type": "integer",
+      "values": [
+        0,
+        1,
+        2
+      ]
+    },
+    "minimum_hull_area_fraction": {
+      "type": "float",
+      "values": [
+        0.1,
+        0.16,
+        0.24
+      ]
+    },
+    "minimum_solidity": {
+      "type": "float",
+      "values": [
+        0.35,
+        0.55,
+        0.75
+      ]
+    },
+    "polygon_epsilon_fraction": {
+      "type": "float",
+      "values": [
+        0.012,
+        0.025,
+        0.05
+      ]
+    },
+    "bbox_padding_fraction": {
+      "type": "float",
+      "values": [
+        0.0,
+        0.008,
+        0.016
+      ]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "failures"
+  }
+}
