@@ -116,3 +116,20 @@ def calibration_metric_view(
         "stddev_iou": selection.get("stddev_iou"),
         "failure_count": selection.get("failure_count", "unknown"),
     }
+
+
+def baseline_surpassed(
+    winner: dict[str, Any] | None,
+    baseline: dict[str, Any] | None,
+) -> bool:
+    """Return whether the final winner beats the detector-local baseline Avg IoU."""
+    if not isinstance(winner, dict) or not isinstance(baseline, dict):
+        return False
+    winner_stats = winner.get("summary") if isinstance(winner.get("summary"), dict) else {}
+    baseline_stats = baseline.get("summary") if isinstance(baseline.get("summary"), dict) else {}
+    winner_view = result_metric_view(winner_stats)
+    baseline_view = result_metric_view(baseline_stats)
+    try:
+        return float(winner_view.get("mean_iou")) > float(baseline_view.get("mean_iou"))
+    except (TypeError, ValueError):
+        return False

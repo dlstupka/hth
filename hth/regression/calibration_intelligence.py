@@ -84,13 +84,23 @@ _DETECTOR_EVIDENCE: dict[str, dict[str, Any]] = {
 }
 
 
-def _detector_evidence(detector: str) -> dict[str, Any]:
+def detector_characterization(detector: str) -> dict[str, Any]:
     item = _DETECTOR_EVIDENCE.get(detector, {
         "friendly_name": detector.replace("_", " ").title(),
         "short_name": detector,
         "role": "Unknown",
         "evidence": [("Detector output", "Primary", "Evidence characterization has not yet been registered for this detector.")],
     })
+    return {
+        "friendly_name": item["friendly_name"],
+        "short_name": item["short_name"],
+        "role": item["role"],
+        "evidence": list(item["evidence"]),
+    }
+
+
+def _detector_evidence(detector: str) -> dict[str, Any]:
+    item = detector_characterization(detector)
     return {
         "detector_id": detector,
         "friendly_name": item["friendly_name"],

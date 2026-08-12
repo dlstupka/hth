@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from hth.domain.result_metrics import baseline_surpassed
+
 from .calibration_intelligence import build_calibration_intelligence
 from .io import create_run_directory, write_json
 from .parameter_space import canonical_parameters
@@ -190,7 +192,7 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         "elapsed_seconds": round(elapsed, 3),
         "estimated_serial_runtime_seconds": round(serial_runtime_seconds, 3),
         "effective_acceleration": round(effective_acceleration, 4) if effective_acceleration is not None else None,
-        "progress": {"estimated_parameter_sets": completion_total, "completed_parameter_sets": completion_total, "average_eval_rate": completion_total / elapsed if elapsed else None, "failures": sum(r["summary"]["failure_count"] for r in ranked), "winner_changes": len(winner_history), "winner_history": winner_history, "winner_first_changed_elapsed_seconds": winner_history[0]["elapsed_seconds"] if winner_history else None, "winner_last_changed_elapsed_seconds": winner_history[-1]["elapsed_seconds"] if winner_history else None},
+        "progress": {"estimated_parameter_sets": completion_total, "completed_parameter_sets": completion_total, "average_eval_rate": completion_total / elapsed if elapsed else None, "failures": sum(r["summary"]["failure_count"] for r in ranked), "winner_changes": len(winner_history), "winner_history": winner_history, "winner_first_changed_elapsed_seconds": winner_history[0]["elapsed_seconds"] if winner_history else None, "winner_last_changed_elapsed_seconds": winner_history[-1]["elapsed_seconds"] if winner_history else None, "baseline_surpassed": baseline_surpassed(ranked[0], baseline)},
     }
     write_raw_results(run_dir / "raw" / "results.csv", ranked)
     write_rankings(run_dir / "reports" / "rankings.csv", ranked)

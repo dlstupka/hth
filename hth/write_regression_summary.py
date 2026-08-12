@@ -11,126 +11,15 @@ from pathlib import Path
 from typing import Any
 from hth.regression.result_metrics import normalize_summary_metrics
 from hth.regression.authoritative_record import authoritative_record
-from hth.domain.result_metrics import calibration_metric_view, result_metric_view
+from hth.regression.calibration_intelligence import detector_characterization
+from hth.domain.result_metrics import baseline_surpassed, calibration_metric_view, result_metric_view
 from hth.runtime_store import coherent_execution_profile, select_runtime_observation
 
 
 
 
-DETECTOR_CHARACTERIZATION: dict[str, dict[str, Any]] = {
-    "components": {
-        "friendly_name": "Connected Components",
-        "short_name": "Components",
-        "role": "Generator",
-        "evidence": [("Connected-component envelope", "Primary", "Generates a page-region hypothesis from grouped foreground components."), ("Morphological grouping", "Supporting", "Controls how fragmented marks are joined before envelope extraction.")],
-    },
-    "consensus_quad": {
-        "friendly_name": "Consensus Quadrilateral",
-        "short_name": "Consensus Quad",
-        "role": "Hybrid (Contour Quad + Edge Contour)",
-        "evidence": [("Contour Quad vote", "Primary", "Supplies one geometric quadrilateral hypothesis."), ("Edge Contour vote", "Primary", "Supplies an independently scored edge-supported hypothesis."), ("Polygon agreement", "Decision", "Requires sufficient IoU and corner agreement before fusion.")],
-    },
-    "contour": {
-        "friendly_name": "Contour Envelope",
-        "short_name": "Contour",
-        "role": "Generator",
-        "evidence": [("Contour geometry", "Primary", "Generates page-region hypotheses from thresholded contours."), ("Fragment merging", "Supporting", "Attempts to recover page boundaries split across multiple contours.")],
-    },
-    "contour_components": {
-        "friendly_name": "Contour + Components",
-        "short_name": "Contour Components",
-        "role": "Hybrid (Contour Quad + Components)",
-        "evidence": [("Contour quadrilateral", "Generator", "Produces candidate page quadrilaterals."), ("Component containment", "Validator", "Measures how well selected components fall within each candidate."), ("Component envelope overlap", "Validator", "Compares each contour candidate with the independent component envelope."), ("Component spread and density", "Validator", "Checks whether foreground evidence is distributed plausibly across the candidate.")],
-    },
-    "contour_grabcut": {
-        "friendly_name": "Contour + GrabCut",
-        "short_name": "Contour GrabCut",
-        "role": "Hybrid (Contour Quad + GrabCut)",
-        "evidence": [("Contour quadrilateral", "Generator", "Produces the candidate page geometry."), ("GrabCut foreground segmentation", "Validator", "Provides independent pixel-level foreground evidence."), ("Polygon agreement", "Validation", "Requires sufficient overlap between contour and GrabCut hypotheses."), ("Fusion score", "Scoring", "Combines contour quality, GrabCut quality, and hypothesis agreement.")],
-    },
-    "grabcut_contour": {"friendly_name": "GrabCut + Contour", "short_name": "GrabCut Contour", "role": "Hybrid (GrabCut + Contour Quad)", "evidence": [("GrabCut foreground segmentation", "Generator", "Generates the primary page polygon from pixel-level foreground segmentation."), ("Foreground contour geometry", "Geometry", "Converts the GrabCut mask into the returned page quadrilateral."), ("Contour quadrilateral", "Validator", "Provides an independent geometric hypothesis for validation."), ("Polygon agreement", "Validation", "Requires sufficient overlap between GrabCut-derived and contour-derived hypotheses."), ("Fusion score", "Scoring", "Combines GrabCut quality, contour quality, and hypothesis agreement while retaining GrabCut geometry.")]},
-    "contour_projection": {
-        "friendly_name": "Contour + Projection",
-        "short_name": "Contour Projection",
-        "role": "Hybrid (Contour Quad + Projection)",
-        "evidence": [("Contour quadrilateral", "Generator", "Produces candidate page quadrilaterals."), ("Horizontal projection profile", "Validator", "Scores text-band structure after candidate normalization."), ("Vertical coverage", "Validator", "Checks whether foreground structure spans the candidate height."), ("Ink density", "Validator", "Rejects implausibly empty or saturated candidate interiors.")],
-    },
-    "contour_quad": {
-        "friendly_name": "Contour Quadrilateral",
-        "short_name": "Contour Quad",
-        "role": "Generator",
-        "evidence": [("Contour quadrilaterals", "Primary", "Generates multiple polygonal page hypotheses."), ("Area", "Scoring", "Rewards candidates occupying a plausible image fraction."), ("Rectangularity", "Scoring", "Rewards quadrilateral-like contour geometry."), ("Corner angles", "Scoring", "Rewards near-right-angle page geometry.")],
-    },
-    "cross_edge_contour": {
-        "friendly_name": "Cross-Edge Contour",
-        "short_name": "X-Edge Contour",
-        "role": "Hybrid (Contour Quad + Cross-Edge Validation)",
-        "evidence": [("Contour quadrilateral", "Generator", "Produces candidate page geometry."), ("Inside/outside intensity samples", "Validator", "Measures the image transition across each proposed boundary."), ("Cross-edge contrast", "Validation", "Rejects geometrically plausible boundaries lacking a real photometric transition."), ("Polarity consistency", "Validation", "Checks that inside-versus-outside transition direction is coherent around the page.")],
-    },
-    "gradient_vote": {
-        "friendly_name": "Gradient Boundary Voting",
-        "short_name": "Gradient Vote",
-        "role": "Generator",
-        "evidence": [("Sobel gradient field", "Primary", "Measures distributed horizontal and vertical intensity transitions."), ("Boundary vote profiles", "Generator", "Accumulates local gradients into opposing page-boundary votes."), ("Peak prominence", "Validation", "Requires selected boundaries to stand out from competing transitions."), ("Boundary span", "Geometry", "Forms a page quadrilateral from the winning left, right, top, and bottom votes.")],
-    },
-    "radial_edge": {
-        "friendly_name": "Radial Edge Search",
-        "short_name": "Radial Edge",
-        "role": "Generator",
-        "evidence": [("Center-outward rays", "Primary", "Samples image gradients along radial paths from the document center."), ("Strongest radial transitions", "Generator", "Selects likely page-boundary points independently on each ray."), ("Minimum-area rectangle", "Geometry", "Fits a quadrilateral to the supported radial edge points."), ("Ray support", "Validation", "Rejects candidates when too few directions provide credible boundary evidence.")],
-    },
-    "adaptive_radial_edge": {
-        "friendly_name": "Adaptive Radial Edge Search",
-        "short_name": "Adaptive Radial",
-        "role": "Generator",
-        "evidence": [("Coarse center-outward rays", "Primary", "Samples the full image at 3-degree spacing."), ("Weak-side support", "Trigger", "Identifies fitted document sides with comparatively sparse boundary confirmation."), ("One-degree angular refinement", "Generator", "Adds a second pass only through weak-side sectors."), ("Refined quadrilateral", "Geometry", "Refits the page boundary from combined coarse and refined evidence.")],
-    },
-    "border_energy": {
-        "friendly_name": "Border Energy Validator",
-        "short_name": "Border Energy",
-        "role": "Hybrid (Contour Quad + Border Energy)",
-        "evidence": [("Contour quadrilateral", "Generator", "Produces candidate page geometry."), ("Sobel border energy", "Validator", "Measures gradient magnitude in a narrow band along each proposed border."), ("Side consistency", "Validation", "Requires all four sides to carry comparable boundary evidence."), ("Fusion score", "Scoring", "Combines contour quality, border energy, and side consistency.")],
-    },
-    "edge_contour": {
-        "friendly_name": "Edge-Supported Contour",
-        "short_name": "Edge Contour",
-        "role": "Hybrid (Contour Quad + LSD)",
-        "evidence": [("Contour quadrilateral", "Generator", "Produces candidate page quadrilaterals."), ("LSD line segments", "Validator", "Independently detects line support near proposed borders."), ("Edge support", "Validator", "Measures border coverage after configurable dilation."), ("Geometry score", "Scoring", "Combines area, rectangularity, and angle quality.")],
-    },
-    "grabcut": {
-        "friendly_name": "GrabCut Segmentation",
-        "short_name": "GrabCut",
-        "role": "Generator",
-        "evidence": [("GrabCut foreground mask", "Primary", "Segments foreground pixels from a border-seeded background model."), ("Morphological cleanup", "Supporting", "Closes and erodes the segmentation before region extraction."), ("Foreground contour", "Geometry", "Converts the segmented region into a page polygon or bounding quadrilateral.")],
-    },
-    "hough": {
-        "friendly_name": "Hough Line Borders",
-        "short_name": "Hough",
-        "role": "Generator",
-        "evidence": [("Hough lines", "Primary", "Generates axis-aligned border hypotheses from detected lines."), ("Outer-line percentile", "Scoring", "Selects outer line groups used to form a page box."), ("Axis-angle tolerance", "Filtering", "Restricts candidate lines to near-horizontal or near-vertical orientations.")],
-    },
-    "lsd": {
-        "friendly_name": "Line Segment Detector",
-        "short_name": "LSD",
-        "role": "Generator",
-        "evidence": [("LSD segments", "Primary", "Generates border hypotheses directly from line segments."), ("Outer-line percentile", "Scoring", "Selects outer segment groups for page-boundary construction."), ("Axis-angle tolerance", "Filtering", "Limits segments to plausible page-border orientations.")],
-    },
-    "ransac": {
-        "friendly_name": "RANSAC Border Fit",
-        "short_name": "RANSAC",
-        "role": "Generator",
-        "evidence": [("Scan foreground samples", "Primary", "Samples likely border evidence along image scans."), ("RANSAC line fitting", "Primary", "Fits robust page-border models while rejecting outliers."), ("Inlier ratio", "Validation", "Requires sufficient support for accepted line models.")],
-    },
-}
-
-
 def _detector_characterization(detector: str) -> dict[str, Any]:
-    return DETECTOR_CHARACTERIZATION.get(detector, {
-        "friendly_name": detector.replace("_", " ").title(),
-        "short_name": detector,
-        "role": "Unknown",
-        "evidence": [("Detector output", "Primary", "Evidence characterization has not yet been registered for this detector.")],
-    })
+    return detector_characterization(detector)
 
 
 def _detector_friendly_name(detector: str) -> str:
@@ -709,7 +598,7 @@ def build_summary(
         f"| Total metric improvements | {progress.get('total_metric_improvements', 0)} |",
         f"| Parameter sets with improvements | {progress.get('parameter_sets_with_improvements', 0)} |",
         f"| Winner changes | {progress.get('winner_changes', 0)} |",
-        f"| Baseline surpassed | {'yes' if progress.get('baseline_surpassed') else 'no'} |",
+        f"| Baseline surpassed | {'yes' if baseline_surpassed(winner, baseline) else 'no'} |",
     ])
     lines.extend(_preferred_execution_shape_lines(info, summary))
 
