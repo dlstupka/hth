@@ -26,6 +26,14 @@ class RegressionDebugTests(unittest.TestCase):
         source = inspect.getsource(run)
         self.assertIn("debug_level=debug_level", source)
 
+
+    def test_verbose_promotes_failures_policy_to_complete_winner_debug(self) -> None:
+        from hth.regression.runner import run
+
+        source = inspect.getsource(run)
+        self.assertIn('debug_level == "verbose" and debug_policy in {"none", "failures"}', source)
+        self.assertIn('debug_policy = "winner"', source)
+
     def test_regression_adapter_populates_registry_provenance(self) -> None:
         image = np.zeros((200, 300, 3), dtype=np.uint8)
         mask = np.zeros((200, 300), dtype=np.uint8)

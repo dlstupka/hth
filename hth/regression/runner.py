@@ -679,12 +679,18 @@ def run(args:argparse.Namespace)->Path:
     regression_config = config.get("regression", {}) if isinstance(config.get("regression"), dict) else {}
     debug_level = args.debug_level or "basic"
     debug_policy = args.debug_artifacts or str(regression_config.get("debug_artifacts", "failures"))
-    if debug_level == "none":
-        debug_policy = "none"
     if debug_level not in {"none", "basic", "verbose"}:
         raise ValueError(f"Unsupported debug level: {debug_level}")
     if debug_policy not in {"none", "failures", "winner", "all"}:
         raise ValueError(f"Unsupported debug artifact policy: {debug_policy}")
+    # Verbose debugging is a request for complete page-level evidence for the
+    # selected winner.  Do not let a detector's normal failures-only policy
+    # silently suppress successful pages.  An explicit ``all`` policy retains
+    # its stronger meaning: every page for every evaluated parameter set.
+    if debug_level == "none":
+        debug_policy = "none"
+    elif debug_level == "verbose" and debug_policy in {"none", "failures"}:
+        debug_policy = "winner"
     if name not in DETECTORS: raise SystemExit(f"Unsupported detector: {name}")
     run_id,run_dir=create_run_directory(args.output,name,args.run_id); started=utc_now(); wall=time.perf_counter()
     environment=environment_info(repository_root(args.detector_config))
