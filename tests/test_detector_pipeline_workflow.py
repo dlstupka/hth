@@ -172,6 +172,12 @@ def test_regression_output_is_cleaned_before_each_matrix_run():
     assert "rm -f regression-summary.md" in block
 
 
-def test_regression_artifact_upload_includes_promoted_debug_tree():
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert "regression-output/" in text
+
+
+def test_single_and_multi_shard_paths_share_one_finalizer():
+    script = (ROOT / "tools" / "run-detector-regressions.sh").read_text(encoding="utf-8")
+    assert script.count("python -m hth.regression.finalize_run") == 1
+    assert '--output "$finalization_root"' in script
+    assert 'staging_root="$(dirname "$(dirname "$canonical_run")")"' in script
+    assert '--staging-root "$staging_root"' in script
+    assert '--output "$OUTPUT_DIR"' in script

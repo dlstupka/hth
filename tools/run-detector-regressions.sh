@@ -554,30 +554,38 @@ for detector_name in "${unique_detectors[@]}"; do
     detector_shard_dirs+=("$shard_run_dir")
   done
   detector_config="hth-pipeline/config/detectors/$detector_name.json"
+  finalization_root="$OUTPUT_DIR/.finalize/$detector_name"
+  rm -rf "$finalization_root"
+  mkdir -p "$finalization_root"
+
   if (( ${#detector_shard_dirs[@]} == 1 )); then
-    source_dir="${detector_shard_dirs[0]}"
-    single_shard_root="$(dirname "$(dirname "$source_dir")")"
-
-    # The regression runner writes debug artifacts relative to its shard output
-    # root, not inside the canonical run directory.  Promote that sibling debug
-    # tree before moving the single canonical run out of .shards; otherwise the
-    # debug remains beneath a hidden directory and upload-artifact omits it.
-    if [[ -d "$single_shard_root/debug" ]]; then
-      mkdir -p "$OUTPUT_DIR/debug"
-      cp -a "$single_shard_root/debug/." "$OUTPUT_DIR/debug/"
-    fi
-
-    mkdir -p "$OUTPUT_DIR/$detector_name"
-    target_dir="$OUTPUT_DIR/$detector_name/$(basename "$source_dir")"
-    rm -rf "$target_dir"
-    mv "$source_dir" "$target_dir"
-    printf '%s\n' "$target_dir" >> "$OUTPUT_DIR/run-directories.txt"
+    canonical_run="${detector_shard_dirs[0]}"
+    staging_root="$(dirname "$(dirname "$canonical_run")")"
   else
     merge_args=()
-    for shard_dir in "${detector_shard_dirs[@]}"; do merge_args+=(--shard-dir "$shard_dir"); done
-    merged_dir="$(python -m hth.regression.merge_shards "${merge_args[@]}" --expected-shard-count "$expected_detector_shards" --output "$OUTPUT_DIR" --detector-config "$detector_config" --golden-set "hth-pipeline/$GOLDEN_SET" --image-root "results-repo/$IMAGE_ROOT" --max-dimension "$MAX_DIMENSION" --debug-level "$DEBUG_LEVEL" --top "$TOP_COUNT")"
-    printf '%s\n' "$merged_dir" >> "$OUTPUT_DIR/run-directories.txt"
+    for shard_dir in "${detector_shard_dirs[@]}"; do
+      merge_args+=(--shard-dir "$shard_dir")
+    done
+    canonical_run="$(python -m hth.regression.merge_shards \
+      "${merge_args[@]}" \
+      --expected-shard-count "$expected_detector_shards" \
+      --output "$finalization_root" \
+      --detector-config "$detector_config" \
+      --golden-set "hth-pipeline/$GOLDEN_SET" \
+      --image-root "results-repo/$IMAGE_ROOT" \
+      --max-dimension "$MAX_DIMENSION" \
+      --debug-level "$DEBUG_LEVEL" \
+      --top "$TOP_COUNT")"
+    staging_root="$finalization_root"
   fi
+
+  finalized_dir="$(python -m hth.regression.finalize_run \
+    --canonical-run "$canonical_run" \
+    --staging-root "$staging_root" \
+    --output "$OUTPUT_DIR" \
+    --detector "$detector_name")"
+  printf '%s\n' "$finalized_dir" >> "$OUTPUT_DIR/run-directories.txt"
+  rm -rf "$finalization_root"
 done
 while IFS= read -r queue_file; do
   cat "$queue_file"
