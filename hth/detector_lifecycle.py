@@ -1,6 +1,7 @@
 # detector lifecycle
 from __future__ import annotations
 import argparse, hashlib, json, os, re, shlex, shutil, tempfile, urllib.request
+import cv2
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -71,6 +72,17 @@ def prepare_detector_legacy(detector,*,results_root,policy="reuse",github_env=No
     payload=json.loads(provenance.read_text(encoding="utf-8"))
     if payload["deploy_prototxt_sha256"]!=_sha256(deploy): raise RuntimeError("deploy prototxt SHA mismatch")
     if payload["weights_sha256"]!=_sha256(weights): raise RuntimeError("weights SHA mismatch")
+    # A model is not ready merely because its files exist.  Validate the exact
+    # runtime backend during PREPARE so incompatible OpenCV builds fail before
+    # regression work is queued.  PageNet's released artifact is Caffe.
+    try:
+        cv2.dnn.readNet(str(weights),str(deploy),"Caffe")
+    except cv2.error as exc:
+        raise RuntimeError(
+            f"Learned Page-Mask cannot load PageNet with OpenCV {cv2.__version__}; "
+            "the released model requires OpenCV DNN Caffe support. "
+            "Install the repository's supported OpenCV dependency (opencv-python-headless<5)."
+        ) from exc
     env={
         "HTH_LEARNED_PAGE_MASK_PROTOTXT":deploy.resolve().as_posix(),
         "HTH_LEARNED_PAGE_MASK_WEIGHTS":weights.resolve().as_posix(),

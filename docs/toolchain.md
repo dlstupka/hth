@@ -94,6 +94,14 @@ interpreter and OpenCV installation.
 The workflow intentionally executes Git Bash while continuing to use the
 native Windows Python tool cache.
 
+### OpenCV compatibility
+
+HTH currently supports `opencv-python-headless>=4.10,<5`. The Learned Page-Mask
+detector uses the released PageNet Caffe model through OpenCV DNN; OpenCV 5
+removed its Caffe importer. The detector lifecycle validates that PageNet is
+actually loadable during PREPARE so an incompatible runtime fails before page
+evaluation rather than producing a misleading all-failed calibration.
+
 ## 5. Capture the environment
 
 A regression log should explain not only *what* happened, but *where* it

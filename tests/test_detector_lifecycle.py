@@ -18,10 +18,22 @@ class LifecycleTests(unittest.TestCase):
                     target.write_text(TRAIN,encoding="utf-8")
                 else:
                     target.write_bytes(b"weights")
-            with patch.object(lifecycle,"_download",side_effect=fake):
+            with patch.object(lifecycle,"_download",side_effect=fake), patch.object(lifecycle.cv2.dnn,"readNet",return_value=object()):
                 lifecycle.prepare_detector("learned_page_mask",results_root=root)
                 lifecycle.prepare_detector("learned_page_mask",results_root=root)
             self.assertEqual(len(calls),2)
+    def test_prepare_rejects_runtime_without_caffe_support(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            def fake(url,target):
+                target.parent.mkdir(parents=True,exist_ok=True)
+                if target.suffix==".prototxt": target.write_text(TRAIN,encoding="utf-8")
+                else: target.write_bytes(b"weights")
+            error=lifecycle.cv2.error("Caffe importer has been removed")
+            with patch.object(lifecycle,"_download",side_effect=fake), patch.object(lifecycle.cv2.dnn,"readNet",side_effect=error):
+                with self.assertRaisesRegex(RuntimeError,"opencv-python-headless<5"):
+                    lifecycle.prepare_detector("learned_page_mask",results_root=root)
+
     def test_noop_for_ordinary_detector(self):
         with tempfile.TemporaryDirectory() as td:
             self.assertFalse(lifecycle.prepare_detector("radial_edge",results_root=Path(td))["prepared"])

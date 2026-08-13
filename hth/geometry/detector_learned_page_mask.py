@@ -31,9 +31,12 @@ def _assets():
 
 def _network(proto,weights):
     key=(str(proto.resolve()),str(weights.resolve()))
-    if getattr(_THREAD_LOCAL,"key",None)!=key:
+    if getattr(_THREAD_LOCAL,"key",None)!=key or not hasattr(_THREAD_LOCAL,"net"):
+        # Publish the cache key only after construction succeeds.  A failed
+        # backend load must not leave thread-local state looking initialized.
+        net=cv2.dnn.readNet(str(weights),str(proto),"Caffe")
+        _THREAD_LOCAL.net=net
         _THREAD_LOCAL.key=key
-        _THREAD_LOCAL.net=cv2.dnn.readNet(str(weights),str(proto),"Caffe")
     return _THREAD_LOCAL.net
 
 def _probability_256(image):

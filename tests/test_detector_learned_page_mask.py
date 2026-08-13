@@ -30,6 +30,20 @@ class LearnedPageMaskTests(unittest.TestCase):
                 resolved=detector._network(proto,weights)
             self.assertIs(resolved,fake)
             loader.assert_called_once_with(str(weights),str(proto),"Caffe")
+
+    def test_failed_network_load_does_not_poison_thread_local_cache(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); proto=root/"d.prototxt"; weights=root/"w.caffemodel"
+            proto.write_text('input: "data"\n',encoding="utf-8"); weights.write_bytes(b"w")
+            detector._THREAD_LOCAL.key=None
+            if hasattr(detector._THREAD_LOCAL,"net"): del detector._THREAD_LOCAL.net
+            fake=FakeNet()
+            with patch.object(cv2.dnn,"readNet",side_effect=[RuntimeError("backend unavailable"),fake]) as loader:
+                with self.assertRaisesRegex(RuntimeError,"backend unavailable"):
+                    detector._network(proto,weights)
+                resolved=detector._network(proto,weights)
+            self.assertIs(resolved,fake)
+            self.assertEqual(loader.call_count,2)
     def test_missing_assets_raise_configuration_error(self):
         with patch.dict(os.environ,{},clear=True):
             with self.assertRaisesRegex(RuntimeError,"lifecycle did not set"):
