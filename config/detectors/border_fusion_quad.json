@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "border_fusion_quad",
-  "description": "Calibration space for the HTH Border Fusion Quad detector.",
+  "description": "Generation-2 calibration space for the HTH Border Fusion Quad detector, refined from the first exhaustive 244-set run and its verbose calibration intelligence.",
   "profiles": {
     "baseline": {
       "gradient_percentile": 82.0,
@@ -19,12 +19,89 @@
     }
   },
   "parameters": {
-    "gradient_percentile": {"type": "float", "values": [74.0, 82.0, 90.0]},
-    "minimum_side_gradient_support": {"type": "float", "values": [0.08, 0.16, 0.28]},
-    "minimum_child_confidence": {"type": "float", "values": [0.0, 0.10, 0.20]},
-    "minimum_area_fraction": {"type": "float", "values": [0.12, 0.18, 0.26]},
-    "bbox_padding_fraction": {"type": "float", "values": [0.0, 0.008, 0.016]}
+    "gradient_percentile": {
+      "type": "float",
+      "values": [
+        50.0,
+        54.0,
+        58.0,
+        62.0,
+        64.0,
+        66.0,
+        68.0,
+        70.0,
+        72.0,
+        74.0,
+        76.0,
+        78.0,
+        80.0,
+        82.0,
+        84.0,
+        86.0,
+        88.0,
+        90.0,
+        92.0,
+        94.0
+      ]
+    },
+    "minimum_side_gradient_support": {
+      "type": "float",
+      "values": [
+        0.02,
+        0.04,
+        0.06,
+        0.08,
+        0.1,
+        0.12,
+        0.14,
+        0.16,
+        0.2,
+        0.28
+      ]
+    },
+    "minimum_area_fraction": {
+      "type": "float",
+      "values": [
+        0.08,
+        0.12,
+        0.18,
+        0.26,
+        0.34
+      ]
+    },
+    "gradient_weight": {
+      "type": "float",
+      "values": [
+        0.25,
+        0.35,
+        0.45,
+        0.55,
+        0.65
+      ]
+    },
+    "source_confidence_weight": {
+      "type": "float",
+      "values": [
+        0.05,
+        0.15,
+        0.25,
+        0.35,
+        0.45
+      ]
+    },
+    "source_diversity_weight": {
+      "type": "float",
+      "values": [
+        0.0,
+        0.15
+      ]
+    }
   },
-  "binary_refine": {"passes": 3, "local_exhaustive_radius": 1},
-  "regression": {"debug_artifacts": "winner"}
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "winner"
+  }
 }
