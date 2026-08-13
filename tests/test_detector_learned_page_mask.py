@@ -15,7 +15,7 @@ class LearnedPageMaskTests(unittest.TestCase):
             root=Path(d); proto=root/"d.prototxt"; weights=root/"w.caffemodel"; prov=root/"p.json"
             proto.write_text('input: "data"\n',encoding="utf-8"); weights.write_bytes(b"w")
             prov.write_text(json.dumps({"model_id":"pagenet-ohio","weights_sha256":"abc","license":"BSD-3-Clause","upstream_repository":"https://github.com/ctensmeyer/pagenet"}),encoding="utf-8")
-            env={detector.PROTOTXT_ENV:str(proto),detector.WEIGHTS_ENV:str(weights),detector.PROVENANCE_ENV:str(prov)}
+            env={detector.PROTOTXT_ENV:str(proto),detector.WEIGHTS_ENV:str(weights),detector.PROVENANCE_ENV:str(prov),detector.OUTPUT_LAYER_ENV:"baselines_7_prob_0"}
             with patch.dict(os.environ,env,clear=False), patch.object(detector,"_network",return_value=FakeNet()):
                 detector._THREAD_LOCAL.key=None
                 c=detector.detect(image_bgr=np.full((300,500,3),255,np.uint8),mask=np.zeros((300,500),np.uint8))
@@ -56,7 +56,7 @@ class LearnedPageMaskTests(unittest.TestCase):
             root=Path(d); proto=root/"d.prototxt"; weights=root/"w.caffemodel"; prov=root/"p.json"
             proto.write_text('input: "data"\n',encoding="utf-8"); weights.write_bytes(b"w")
             prov.write_text(json.dumps({"model_id":"pagenet-ohio"}),encoding="utf-8")
-            env={detector.PROTOTXT_ENV:str(proto),detector.WEIGHTS_ENV:str(weights),detector.PROVENANCE_ENV:str(prov)}
+            env={detector.PROTOTXT_ENV:str(proto),detector.WEIGHTS_ENV:str(weights),detector.PROVENANCE_ENV:str(prov),detector.OUTPUT_LAYER_ENV:"baselines_7_prob_0"}
             with patch.dict(os.environ,env,clear=False), patch.object(detector,"_network",return_value=EmptyNet()):
                 c=detector.detect(image_bgr=np.full((300,500,3),255,np.uint8),mask=np.zeros((300,500),np.uint8))
         self.assertEqual(c.status,"no_candidate")

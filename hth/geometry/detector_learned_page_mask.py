@@ -8,6 +8,7 @@ METHOD="learned_page_mask"
 PROTOTXT_ENV="HTH_LEARNED_PAGE_MASK_PROTOTXT"
 WEIGHTS_ENV="HTH_LEARNED_PAGE_MASK_WEIGHTS"
 PROVENANCE_ENV="HTH_LEARNED_PAGE_MASK_PROVENANCE"
+OUTPUT_LAYER_ENV="HTH_LEARNED_PAGE_MASK_OUTPUT_LAYER"
 BASELINE_PARAMETERS={"mask_threshold":0.50,"minimum_mask_area_fraction":0.15,"close_kernel_fraction":0.006,"polygon_epsilon_fraction":0.012,"bbox_padding_fraction":0.0}
 _THREAD_LOCAL=threading.local()
 
@@ -45,7 +46,11 @@ def _probability_256(image):
     resized=cv2.resize(image,(256,256),interpolation=cv2.INTER_LINEAR).astype(np.float32)
     normalized=0.0039*(resized-127.0)
     blob=np.transpose(normalized,(2,0,1))[None,:,:,:]
-    net=_network(proto,weights); net.setInput(blob); raw=np.asarray(net.forward("out"),dtype=np.float32)
+    net=_network(proto,weights); net.setInput(blob)
+    output_layer=os.environ.get(OUTPUT_LAYER_ENV,"").strip()
+    if not output_layer:
+        raise RuntimeError(f"{METHOD} lifecycle did not set {OUTPUT_LAYER_ENV}")
+    raw=np.asarray(net.forward(output_layer),dtype=np.float32)
     if raw.ndim==4 and raw.shape[:2]==(1,1): raw=raw[0,0]
     elif raw.ndim==3 and raw.shape[0]==1: raw=raw[0]
     elif raw.ndim!=2: raise RuntimeError(f"{METHOD} PageNet output has unexpected shape {tuple(raw.shape)}")
@@ -138,4 +143,4 @@ def debug_images(*,image_bgr,mask,parameters=None,candidate_corners=None,verbose
         cv2.polylines(overlay,[np.rint(np.asarray(candidate_corners)).astype(np.int32).reshape(-1,1,2)],True,(0,0,255),3)
     return {"learned-page-probability.png":np.rint(prob_full*255).astype(np.uint8),"learned-page-mask.png":mask_full,"learned-page-boundary.png":overlay}
 
-__all__=["BASELINE_PARAMETERS","METHOD","PROTOTXT_ENV","WEIGHTS_ENV","PROVENANCE_ENV","debug_images","detect"]
+__all__=["BASELINE_PARAMETERS","METHOD","PROTOTXT_ENV","WEIGHTS_ENV","PROVENANCE_ENV","OUTPUT_LAYER_ENV","debug_images","detect"]

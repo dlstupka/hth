@@ -1,6 +1,6 @@
 import tempfile, unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 from hth import detector_lifecycle as lifecycle
 TRAIN = 'input: "data"\ninput_dim: 1\ninput_dim: 3\ninput_dim: 256\ninput_dim: 256\n\ninput: "gt"\ninput_dim: 1\ninput_dim: 1\ninput_dim: 256\ninput_dim: 256\n\nlayer {\n name: "baselines_7_prob_0"\n type: "Sigmoid"\n bottom: "data"\n top: "out"\n}\nlayer {\n name: "Silence"\n type: "Silence"\n bottom: "out"\n}\nlayer {\n name: "baselines_7_loss_0"\n type: "SigmoidCrossEntropyLoss"\n bottom: "out"\n bottom: "gt"\n top: "loss"\n}\n'
 class LifecycleTests(unittest.TestCase):
@@ -18,7 +18,10 @@ class LifecycleTests(unittest.TestCase):
                     target.write_text(TRAIN,encoding="utf-8")
                 else:
                     target.write_bytes(b"weights")
-            with patch.object(lifecycle,"_download",side_effect=fake), patch.object(lifecycle.cv2.dnn,"readNet",return_value=object()):
+            net=Mock()
+            net.getUnconnectedOutLayersNames.return_value=("baselines_7_prob_0",)
+            net.forward.return_value=__import__("numpy").zeros((1,1,256,256),dtype=__import__("numpy").float32)
+            with patch.object(lifecycle,"_download",side_effect=fake), patch.object(lifecycle.cv2.dnn,"readNet",return_value=net):
                 lifecycle.prepare_detector("learned_page_mask",results_root=root)
                 lifecycle.prepare_detector("learned_page_mask",results_root=root)
             self.assertEqual(len(calls),2)
@@ -33,6 +36,22 @@ class LifecycleTests(unittest.TestCase):
             with patch.object(lifecycle,"_download",side_effect=fake), patch.object(lifecycle.cv2.dnn,"readNet",side_effect=error):
                 with self.assertRaisesRegex(RuntimeError,"opencv-python-headless<5"):
                     lifecycle.prepare_detector("learned_page_mask",results_root=root)
+
+    def test_pagenet_output_layer_is_discovered_and_dry_run(self):
+        import numpy as np
+        net=Mock()
+        net.getUnconnectedOutLayersNames.return_value=("baselines_7_prob_0",)
+        net.forward.return_value=np.zeros((1,1,256,256),np.float32)
+        name,shape=lifecycle._validate_pagenet_network(net)
+        self.assertEqual(name,"baselines_7_prob_0")
+        self.assertEqual(shape,(1,1,256,256))
+        net.forward.assert_called_once_with("baselines_7_prob_0")
+
+    def test_pagenet_output_validation_rejects_missing_outputs(self):
+        net=Mock()
+        net.getUnconnectedOutLayersNames.return_value=()
+        with self.assertRaisesRegex(RuntimeError,"no unconnected output layers"):
+            lifecycle._validate_pagenet_network(net)
 
     def test_noop_for_ordinary_detector(self):
         with tempfile.TemporaryDirectory() as td:

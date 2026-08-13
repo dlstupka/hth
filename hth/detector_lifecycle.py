@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse, hashlib, json, os, re, shlex, shutil, tempfile, urllib.request
 import cv2
+import numpy as np
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -37,6 +38,35 @@ def build_pagenet_deploy_prototxt(text):
     if 'top: "out"' not in text: raise ValueError("PageNet prototxt missing output blob 'out'")
     if 'input: "gt"' in text or "SigmoidCrossEntropyLoss" in text: raise ValueError("training-only PageNet graph remains")
     return text.strip()+"\n"
+
+def _validate_pagenet_network(net):
+    """Resolve and execute PageNet's runtime output layer.
+
+    Caffe names the output *blob* ``out``, but modern OpenCV DNN forward(name)
+    expects a layer name.  Resolve the graph's actual unconnected output layer
+    instead of hard-coding the historical blob name, then perform a dry-run so
+    PREPARE means the model is executable in the current runtime.
+    """
+    names=[str(name) for name in net.getUnconnectedOutLayersNames()]
+    if not names:
+        raise RuntimeError("PageNet has no unconnected output layers")
+    errors=[]
+    blob=cv2.dnn.blobFromImage(
+        np.zeros((256,256,3),dtype=np.uint8),
+        scalefactor=0.0039, size=(256,256), mean=(127.0,127.0,127.0),
+        swapRB=False, crop=False,
+    )
+    net.setInput(blob)
+    for name in names:
+        try:
+            raw=net.forward(name)
+            shape=tuple(getattr(raw,"shape",()))
+            if raw is not None and len(shape) in (2,3,4):
+                return name,shape
+        except cv2.error as exc:
+            errors.append(f"{name}: {exc}")
+    detail="; ".join(errors) if errors else "no usable output tensor"
+    raise RuntimeError(f"PageNet output-layer validation failed: {detail}")
 
 def _write_env(path,values):
     """Write a shell-sourceable environment file for the current detector flow."""
@@ -76,20 +106,26 @@ def prepare_detector_legacy(detector,*,results_root,policy="reuse",github_env=No
     # runtime backend during PREPARE so incompatible OpenCV builds fail before
     # regression work is queued.  PageNet's released artifact is Caffe.
     try:
-        cv2.dnn.readNet(str(weights),str(deploy),"Caffe")
+        net=cv2.dnn.readNet(str(weights),str(deploy),"Caffe")
+        output_layer,output_shape=_validate_pagenet_network(net)
     except cv2.error as exc:
         raise RuntimeError(
             f"Learned Page-Mask cannot load PageNet with OpenCV {cv2.__version__}; "
             "the released model requires OpenCV DNN Caffe support. "
             "Install the repository's supported OpenCV dependency (opencv-python-headless<5)."
         ) from exc
+    except RuntimeError as exc:
+        raise RuntimeError(
+            f"Learned Page-Mask PageNet validation failed with OpenCV {cv2.__version__}: {exc}"
+        ) from exc
     env={
         "HTH_LEARNED_PAGE_MASK_PROTOTXT":deploy.resolve().as_posix(),
         "HTH_LEARNED_PAGE_MASK_WEIGHTS":weights.resolve().as_posix(),
         "HTH_LEARNED_PAGE_MASK_PROVENANCE":provenance.resolve().as_posix(),
+        "HTH_LEARNED_PAGE_MASK_OUTPUT_LAYER":output_layer,
     }
     _write_env(github_env,env); os.environ.update(env)
-    print(f"Learned Page-Mask ready: model={PAGENET_MODEL_ID} weights_sha256={payload['weights_sha256'][:12]}")
+    print(f"Learned Page-Mask ready: model={PAGENET_MODEL_ID} weights_sha256={payload['weights_sha256'][:12]} output_layer={output_layer} output_shape={output_shape}")
     return payload
 
 def finalize_detector_legacy(detector,*,results_root):
