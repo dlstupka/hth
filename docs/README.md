@@ -245,6 +245,9 @@ This directory contains the design, operating, and project-reference documentati
 - [Consensus Quad detector](detector-consensus-quad.md) — agreement and confidence fusion across contour quadrilateral voters.
 - [Radial Edge Search detector](detector-radial-edge.md) — center-outward gradient search for independent boundary generation.
 - [Adaptive Radial Edge Search detector](detector-adaptive-radial-edge.md) — two-pass radial search that refines weak document sides at one-degree spacing.
+- [Multi-Scale Radial Edge Search detector](detector-multi-scale-radial-edge.md) — scale-space radial fusion for boundaries that appear differently across spatial scales.
+- [Projective Gradient Vote detector](detector-projective-gradient-vote.md) — long gradient-supported line families intersected into a perspective-aware quadrilateral.
+- [Border Fusion Quad detector](detector-border-fusion-quad.md) — side-level fusion across radial, polar, and gradient boundary hypotheses.
 - [Border Energy Validator detector](detector-border-energy.md) — contour geometry validated by gradient energy along all four borders.
 - [Edge-Contour Hybrid detector](detector-edge-contour.md) — contour hypotheses verified by independent line-segment evidence.
 - [GrabCut detector](detector-grabcut.md) — GrabCut-based detector.
@@ -310,6 +313,9 @@ The execution-optimizer report includes shape-prediction coverage for each detec
 
 ### Additional boundary proposal detectors
 
+- **Multi-Scale Radial Edge Search (`multi_scale_radial_edge`)** fuses independently normalized gradient evidence across several Gaussian scales before center-outward boundary sampling.
+- **Projective Gradient Vote (`projective_gradient_vote`)** groups long gradient-supported segments into two near-orthogonal projective side families and intersects opposing lines into a quadrilateral.
+- **Border Fusion Quad (`border_fusion_quad`)** recombines top/right/bottom/left hypotheses from Radial Edge Search, Polar Boundary Voting, and Gradient Boundary Voting, then validates the mixed-source quadrilateral against side gradients.
 - **Polar Boundary Voting (`polar_boundary_vote`)** samples gradient evidence on center-outward polar rays, votes for strong outer transitions, and fits a document envelope from angularly distributed boundary support.
 - **Star-Convex Boundary Optimization (`star_convex`)** uses the foreground mask to trace an outer supported radius around an interior anchor, smooths the radial boundary, and fits a quadrilateral around the resulting star-convex support.
 - **Distance-Transform Rectangle Proposal (`distance_transform_rect`)** thresholds robust distance-transform interior support and expands its core envelope into a directly scored rectangle proposal. It is intentionally distinct from `distance_transform`, which selects core-supported connected components before fitting a hull/rectangle.

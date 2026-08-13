@@ -1,0 +1,33 @@
+{
+  "schema_version": "0.1",
+  "detector": "projective_gradient_vote",
+  "description": "Calibration space for the HTH Projective Gradient Vote detector.",
+  "profiles": {
+    "baseline": {
+      "gaussian_sigma": 1.2,
+      "gradient_percentile": 82.0,
+      "minimum_segment_fraction": 0.16,
+      "angle_bin_degrees": 4.0,
+      "family_tolerance_degrees": 16.0,
+      "orthogonality_tolerance_degrees": 22.0,
+      "minimum_side_support": 0.18,
+      "minimum_area_fraction": 0.18,
+      "maximum_area_fraction": 0.98,
+      "maximum_corner_overshoot_fraction": 0.08,
+      "bbox_padding_fraction": 0.0,
+      "support_weight": 0.55,
+      "geometry_weight": 0.3,
+      "area_weight": 0.15
+    }
+  },
+  "parameters": {
+    "gaussian_sigma": {"type": "float", "values": [0.8, 1.2, 1.8]},
+    "gradient_percentile": {"type": "float", "values": [74.0, 82.0, 90.0]},
+    "minimum_segment_fraction": {"type": "float", "values": [0.10, 0.16, 0.24]},
+    "family_tolerance_degrees": {"type": "float", "values": [10.0, 16.0, 24.0]},
+    "orthogonality_tolerance_degrees": {"type": "float", "values": [12.0, 22.0, 32.0]},
+    "minimum_side_support": {"type": "float", "values": [0.08, 0.18, 0.30]}
+  },
+  "binary_refine": {"passes": 3, "local_exhaustive_radius": 1},
+  "regression": {"debug_artifacts": "winner"}
+}

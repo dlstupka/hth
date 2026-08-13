@@ -36,6 +36,9 @@ on:
           - gradient_vote
           - radial_edge
           - adaptive_radial_edge
+          - multi_scale_radial_edge
+          - projective_gradient_vote
+          - border_fusion_quad
           - border_energy
           - components
           - ransac

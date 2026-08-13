@@ -1,0 +1,30 @@
+{
+  "schema_version": "0.1",
+  "detector": "border_fusion_quad",
+  "description": "Calibration space for the HTH Border Fusion Quad detector.",
+  "profiles": {
+    "baseline": {
+      "gradient_percentile": 82.0,
+      "minimum_side_gradient_support": 0.16,
+      "minimum_child_candidates": 2,
+      "minimum_distinct_sources": 2,
+      "minimum_child_confidence": 0.0,
+      "minimum_area_fraction": 0.18,
+      "maximum_area_fraction": 0.98,
+      "bbox_padding_fraction": 0.0,
+      "gradient_weight": 0.45,
+      "source_confidence_weight": 0.25,
+      "source_diversity_weight": 0.15,
+      "area_weight": 0.15
+    }
+  },
+  "parameters": {
+    "gradient_percentile": {"type": "float", "values": [74.0, 82.0, 90.0]},
+    "minimum_side_gradient_support": {"type": "float", "values": [0.08, 0.16, 0.28]},
+    "minimum_child_confidence": {"type": "float", "values": [0.0, 0.10, 0.20]},
+    "minimum_area_fraction": {"type": "float", "values": [0.12, 0.18, 0.26]},
+    "bbox_padding_fraction": {"type": "float", "values": [0.0, 0.008, 0.016]}
+  },
+  "binary_refine": {"passes": 3, "local_exhaustive_radius": 1},
+  "regression": {"debug_artifacts": "winner"}
+}

@@ -182,6 +182,9 @@ The **Show toolchain environment** step records the resolved Bash, Git, Python, 
 - `gradient_vote` — `config/detectors/gradient_vote.json`
 - `radial_edge` — `config/detectors/radial_edge.json`
 - `adaptive_radial_edge` — `config/detectors/adaptive_radial_edge.json`
+- `multi_scale_radial_edge` — `config/detectors/multi_scale_radial_edge.json`
+- `projective_gradient_vote` — `config/detectors/projective_gradient_vote.json`
+- `border_fusion_quad` — `config/detectors/border_fusion_quad.json`
 - `border_energy` — `config/detectors/border_energy.json`
 - `ransac` — `config/detectors/ransac.json`
 - `grabcut` — `config/detectors/grabcut.json`
