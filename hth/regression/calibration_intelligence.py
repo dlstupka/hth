@@ -252,6 +252,60 @@ def build_calibration_intelligence(
             "reason": "no evaluated parameter sets",
         }
 
+    page_evaluations = [
+        page
+        for result in ranked
+        for page in (result.get("pages", []) if isinstance(result.get("pages"), list) else [])
+        if isinstance(page, dict)
+    ]
+    successful_page_evaluations = sum(1 for page in page_evaluations if str(page.get("status", "")) == "ok")
+    positive_iou_page_evaluations = sum(
+        1 for page in page_evaluations
+        if str(page.get("status", "")) == "ok" and float(page.get("iou", 0.0) or 0.0) > 0.0
+    )
+    summary_positive_signal = any(
+        float(result.get("summary", {}).get("mean_iou", 0.0) or 0.0) > 0.0
+        for result in ranked
+    )
+    if not page_evaluations and summary_positive_signal:
+        # Older/persisted fixtures may omit page detail while retaining valid
+        # aggregate metrics; keep those calibrations analyzable.
+        measurement_state = {
+            "informative": True,
+            "status": "measured",
+            "reason": "Calibration contains positive aggregate overlap measurements.",
+            "page_evaluations": 0,
+            "successful_page_evaluations": 0,
+            "positive_iou_page_evaluations": 0,
+        }
+    elif successful_page_evaluations == 0:
+        measurement_state = {
+            "informative": False,
+            "status": "no_valid_measurements",
+            "reason": "No page evaluation produced a valid detector candidate.",
+            "page_evaluations": len(page_evaluations),
+            "successful_page_evaluations": 0,
+            "positive_iou_page_evaluations": 0,
+        }
+    elif positive_iou_page_evaluations == 0:
+        measurement_state = {
+            "informative": False,
+            "status": "no_overlap_signal",
+            "reason": "Valid detector candidates were produced, but none overlapped an approved Golden Set bounding box.",
+            "page_evaluations": len(page_evaluations),
+            "successful_page_evaluations": successful_page_evaluations,
+            "positive_iou_page_evaluations": 0,
+        }
+    else:
+        measurement_state = {
+            "informative": True,
+            "status": "measured",
+            "reason": "Calibration contains valid positive-overlap measurements.",
+            "page_evaluations": len(page_evaluations),
+            "successful_page_evaluations": successful_page_evaluations,
+            "positive_iou_page_evaluations": positive_iou_page_evaluations,
+        }
+
     scores = [float(result.get("summary", {}).get("mean_iou", 0.0) or 0.0) for result in ranked]
     best_score = scores[0]
     count = len(scores)
@@ -320,6 +374,11 @@ def build_calibration_intelligence(
             ],
         })
     parameters_report.sort(key=lambda item: (-float(item["eta_squared"]), -float(item["mean_iou_range"]), str(item["parameter"])))
+    if not measurement_state["informative"]:
+        # A field of identical failure/zero-overlap scores is not evidence that
+        # parameters are dormant. Withhold influence and reduction claims until
+        # the detector produces an actual calibration signal.
+        parameters_report = []
 
     interaction_parameters = [item["parameter"] for item in parameters_report[:INTERACTION_PARAMETER_LIMIT]]
     sample_step = max(1, math.ceil(count / INTERACTION_SAMPLE_LIMIT))
@@ -389,7 +448,10 @@ def build_calibration_intelligence(
     )
     dormant = [item["parameter"] for item in parameters_report if item["classification"] == "Dormant"]
     winner_parameters = ranked[0].get("parameters", {}) if isinstance(ranked[0].get("parameters"), dict) else {}
-    domain_space = _domain_space(parameters_report, winner_parameters, possible_parameter_sets)
+    domain_space = (
+        _domain_space(parameters_report, winner_parameters, possible_parameter_sets)
+        if measurement_state["informative"] else {}
+    )
     calibration_context = dict(calibration_context or {})
     regression_context = dict(regression_context or {})
     winner = ranked[0]
@@ -459,6 +521,7 @@ def build_calibration_intelligence(
         "detector_selection_intelligence": detector_selection_intelligence,
         "detector": detector,
         "available": True,
+        "measurement_state": measurement_state,
         "scope_note": "All conclusions are specific to the evaluated Golden Set and configured parameter grid.",
         "search": {
             "strategy": strategy,

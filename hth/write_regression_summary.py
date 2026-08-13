@@ -1143,6 +1143,20 @@ def _detector_summary_and_roi(detector: str, payload: dict[str, Any]) -> tuple[l
     landscape = payload.get("landscape", {}) if isinstance(payload.get("landscape"), dict) else {}
     parameters = payload.get("parameter_influence", []) if isinstance(payload.get("parameter_influence"), list) else []
     pages = payload.get("page_sensitivity", []) if isinstance(payload.get("page_sensitivity"), list) else []
+    measurement = payload.get("measurement_state", {}) if isinstance(payload.get("measurement_state"), dict) else {}
+    if measurement and not bool(measurement.get("informative", True)):
+        status = str(measurement.get("status") or "unavailable")
+        if status == "no_valid_measurements":
+            findings = [
+                "Calibration did not produce a valid measurement: no evaluated page returned a usable detector candidate.",
+                "The zero Avg IoU values are failure placeholders, not evidence of a flat calibration landscape or dormant parameters.",
+            ]
+        else:
+            findings = [
+                "Calibration did not produce a usable quality signal: detector candidates were returned, but none had positive overlap with an approved Golden Set bounding box.",
+                "The all-zero Avg IoU field must not be interpreted as parameter equivalence or parameter dormancy.",
+            ]
+        return findings, "Do not expand or reduce the parameter search yet. Inspect detector inference/debug evidence and restore a valid overlap signal before drawing tuning-ROI conclusions."
     dormant_count = sum(1 for item in parameters if item.get("classification") == "Dormant")
     parameter_count = len(parameters)
     near_best = float(landscape.get("near_best_share", 0.0) or 0.0)
@@ -1231,6 +1245,7 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
         f"| Evaluated sets (% of all possible parameter sets) | {full_search_metrics[1]} |",
         f"| Est. serial runtime for full parameter set evaluation* | {full_search_metrics[2]} |",
         f"| Fully successful parameter sets | {search.get('fully_successful_parameter_sets', 'unknown')} ({_percent(search.get('fully_successful_rate'))}) |",
+        *([f"| Calibration signal | {measurement.get('status', 'unavailable')} |"] if (measurement := payload.get("measurement_state", {})) and not bool(measurement.get("informative", True)) else []),
         f"| Best Avg IoU | {_number(landscape.get('best_mean_iou'))} |",
         f"| Minimum Avg IoU | {_number(landscape.get('minimum_mean_iou'))} |",
         f"| Avg IoU StdDev | {_number(landscape.get('stddev_mean_iou'))} |",
@@ -1244,7 +1259,13 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
     ])
 
     domain_space = payload.get("domain_space", {}) if isinstance(payload.get("domain_space"), dict) else {}
-    if domain_space:
+    measurement = payload.get("measurement_state", {}) if isinstance(payload.get("measurement_state"), dict) else {}
+    if measurement and not bool(measurement.get("informative", True)):
+        lines.extend([
+            "", "#### Parameter Set Domain Space Reduction", "",
+            "Withheld: effect-size reduction is not meaningful until calibration produces valid positive-overlap measurements.",
+        ])
+    elif domain_space:
         exhaustive_count = int((domain_space.get("exhaustive") or {}).get("parameter_set_count", 0) or 0)
         exhaustive_time = full_search_metrics[2]
         estimated_full_seconds = None

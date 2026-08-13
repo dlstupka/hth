@@ -92,6 +92,42 @@ class CalibrationIntelligenceTests(unittest.TestCase):
         self.assertEqual(report["domain_space_intelligence"]["fallback_order"][-1], "exhaustive")
 
 
+    def test_withholds_parameter_influence_when_calibration_has_no_valid_measurements(self):
+        ranked = [
+            {
+                "parameter_set_id": str(value),
+                "parameters": {"threshold": value},
+                "summary": {"mean_iou": 0.0, "failure_count": 2},
+                "pages": [
+                    {"global_ordinal": 1, "status": "no_candidate", "iou": 0.0},
+                    {"global_ordinal": 2, "status": "error", "iou": 0.0},
+                ],
+            }
+            for value in (0.3, 0.5, 0.7)
+        ]
+        report = build_calibration_intelligence(
+            ranked, detector="example", strategy="exhaustive", possible_parameter_sets=3,
+        )
+        self.assertFalse(report["measurement_state"]["informative"])
+        self.assertEqual(report["measurement_state"]["status"], "no_valid_measurements")
+        self.assertEqual(report["parameter_influence"], [])
+        self.assertEqual(report["domain_space"], {})
+        self.assertEqual(report["recommendations"]["dormant_parameters"], [])
+
+    def test_withholds_parameter_influence_when_candidates_have_zero_overlap(self):
+        ranked = [{
+            "parameter_set_id": "zero",
+            "parameters": {"threshold": 0.5},
+            "summary": {"mean_iou": 0.0, "failure_count": 0},
+            "pages": [{"global_ordinal": 1, "status": "ok", "iou": 0.0}],
+        }]
+        report = build_calibration_intelligence(
+            ranked, detector="example", strategy="exhaustive", possible_parameter_sets=1,
+        )
+        self.assertFalse(report["measurement_state"]["informative"])
+        self.assertEqual(report["measurement_state"]["status"], "no_overlap_signal")
+        self.assertEqual(report["parameter_influence"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

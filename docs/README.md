@@ -153,6 +153,7 @@ Page Analysis
 
 The top-level multi-detector `Detector Regression Manifest` places `Detector Calibration Report` immediately after the top-level Metric Definitions and before the individual detector report sections. The calibration report must characterize the evaluated search landscape without claiming behavior beyond the current Golden Set and configured parameter grid.
 It must include a ranked calibration overview, source-specific corpus recommendation, detector roles, evidence tables, plain-English legends and summaries, ROI guidance, and Calibration Evidence. Median Avg IoU is not used as an engineering decision metric; the report uses winner Avg IoU, Min IoU, StdDev, baseline delta, basin width, failure behavior, and parameter influence instead.
+An all-zero result field is not automatically a flat calibration landscape: when no valid page candidates or no positive-overlap measurements exist, reports must identify the missing calibration signal and withhold parameter-influence, domain-reduction, and ROI claims until valid measurements exist.
 
 Additional conventions:
 

@@ -219,6 +219,8 @@ Each regression records the SHA-256 digest of the exact Golden Set configuration
 
 The console summary reports **Fully successful parameter sets**. A parameter set is fully successful only when every selected Golden Set page produced a valid candidate. A value of zero can therefore coexist with a ranked winner when every parameter set missed at least one page; individual successful and failed page-evaluation counts are reported separately.
 
+Calibration intelligence distinguishes a genuinely flat landscape from an all-zero failure field. If no page evaluation produces a valid candidate, or valid candidates never achieve positive overlap with an approved Golden Set bounding box, the report marks the calibration signal as unavailable and withholds parameter-dormancy, effect-size, domain-space-reduction, and tuning-ROI conclusions. Zero IoU values from those cases are failure/zero-overlap evidence, not proof that parameter settings are equivalent.
+
 ## Human-readable winner analysis
 
 The GitHub Actions regression summary includes a top-five parameter-set ranking, a Golden Set Winner Summary, a status legend, and a Golden Set Page Issues section. Parameter-set and provenance hashes are displayed as consistent 12-character prefixes while the canonical JSON artifacts retain the complete values.
