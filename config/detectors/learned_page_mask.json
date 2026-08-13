@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "learned_page_mask",
-  "description": "Generation-2 calibration space for PageNet-backed Learned Page-Mask; 10,000 combinations focused around the first exhaustive calibration signal while retaining baseline and boundary probes.",
+  "description": "Generation-3 calibration space for PageNet-backed Learned Page-Mask; 10,000 combinations reallocating search density toward the threshold/polygon/padding boundaries exposed by the Generation-2 exhaustive run while retaining baseline anchors.",
   "profiles": {
     "baseline": {
       "mask_threshold": 0.5,
@@ -15,59 +15,75 @@
     "mask_threshold": {
       "type": "float",
       "values": [
+        0.12,
+        0.13,
+        0.14,
+        0.15,
+        0.16,
+        0.17,
+        0.18,
+        0.19,
         0.2,
+        0.21,
+        0.22,
+        0.23,
+        0.24,
         0.25,
+        0.26,
+        0.27,
+        0.28,
+        0.29,
         0.3,
-        0.325,
+        0.31,
+        0.32,
+        0.33,
+        0.34,
         0.35,
-        0.375,
-        0.4,
-        0.45,
-        0.5,
-        0.6
+        0.5
       ]
     },
     "minimum_mask_area_fraction": {
       "type": "float",
       "values": [
         0.04,
-        0.06,
-        0.08,
-        0.1,
-        0.12,
-        0.15,
-        0.2,
-        0.25
+        0.15
       ]
     },
     "close_kernel_fraction": {
       "type": "float",
       "values": [
         0.0,
-        0.003,
-        0.006,
-        0.009,
-        0.012
+        0.006
       ]
     },
     "polygon_epsilon_fraction": {
       "type": "float",
       "values": [
-        0.003,
-        0.005,
-        0.008,
         0.012,
-        0.018
+        0.015,
+        0.018,
+        0.021,
+        0.024,
+        0.027,
+        0.03,
+        0.034,
+        0.038,
+        0.042
       ]
     },
     "bbox_padding_fraction": {
       "type": "float",
       "values": [
         0.0,
-        0.006,
         0.012,
         0.018,
-        0.03
+        0.024,
+        0.03,
+        0.036,
+        0.042,
+        0.048,
+        0.054,
+        0.06
       ]
     }
   },
