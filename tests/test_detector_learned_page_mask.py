@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import patch
 import cv2, numpy as np
 from hth.geometry import detector_learned_page_mask as detector
+from hth.regression.parameter_space import exhaustive_parameter_sets
 
 class FakeNet:
     def setInput(self,blob): self.blob=blob
@@ -10,6 +11,17 @@ class FakeNet:
         out=np.zeros((1,1,256,256),np.float32); out[:,:,40:220,35:225]=0.95; return out
 
 class LearnedPageMaskTests(unittest.TestCase):
+    def test_generation_2_calibration_space_has_10000_sets_and_retains_baseline(self):
+        config_path=Path(__file__).resolve().parents[1]/"config"/"detectors"/"learned_page_mask.json"
+        config=json.loads(config_path.read_text(encoding="utf-8"))
+        parameter_sets=exhaustive_parameter_sets(config)
+        self.assertEqual(len(parameter_sets),10000)
+        baseline=config["profiles"]["baseline"]
+        self.assertIn(baseline,parameter_sets)
+        self.assertIn(0.35,config["parameters"]["mask_threshold"]["values"])
+        self.assertIn(0.08,config["parameters"]["minimum_mask_area_fraction"]["values"])
+        self.assertIn(0.012,config["parameters"]["bbox_padding_fraction"]["values"])
+
     def test_detector_uses_lifecycle_assets(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); proto=root/"d.prototxt"; weights=root/"w.caffemodel"; prov=root/"p.json"
