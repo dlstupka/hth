@@ -96,6 +96,34 @@ class OptimizerCaptureTests(unittest.TestCase):
             replayed = json.loads((fresh / "parallelism-index.json").read_text(encoding="utf-8"))
             self.assertEqual(replayed["shard_observations"][0]["optimizer_run_id"], "1234")
 
+    def test_optimizer_shard_throughput_uses_locally_evaluated_sets_when_baseline_is_shared(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            results = root / "results"
+            results.mkdir()
+            run = self._run_dir(root, actual_sets=5, shard_count=4, threads=8)
+            info_path = run / "RUN-INFO.json"
+            info = json.loads(info_path.read_text(encoding="utf-8"))
+            info["locally_evaluated_parameter_sets"] = 4
+            info["baseline_execution"] = "shared-cache"
+            info_path.write_text(json.dumps(info), encoding="utf-8")
+            record = capture_shard_observation(
+                results_root=results,
+                run_dir=run,
+                runner_label="e7k",
+                github_run_id="1234",
+                shape_sequence=3,
+                pipeline_number=2,
+                shard_index=1,
+                shard_count=4,
+                threads=8,
+                wall_clock_seconds=20.0,
+            )
+            self.assertEqual(record["actual_parameter_sets"], 5)
+            self.assertEqual(record["locally_evaluated_parameter_sets"], 4)
+            self.assertEqual(record["baseline_execution"], "shared-cache")
+            self.assertAlmostEqual(record["parameter_sets_per_second"], 0.2)
+
     def test_optimizer_observations_can_be_replayed_on_fresh_results_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

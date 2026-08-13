@@ -239,8 +239,9 @@ class ProgressReporter:
             self.evaluating = self._normalize_profile(profile)
 
     def observe_baseline(self, result: dict[str, Any]) -> None:
-        """Seed best-so-far values without counting baseline as an improvement."""
+        """Seed best-so-far values and count the baseline as completed work."""
         with self._lock:
+            self.completed += 1
             now = self.clock()
             summary = result.get("summary", {})
             self.current_result = result
@@ -252,7 +253,7 @@ class ProgressReporter:
             self.failures += int(summary.get("failure_count", 0) or 0)
             self.evaluating = "baseline"
             self._last_progress_at = now
-            self._search_started_at = now
+            self._search_started_at = self.started
             self.emit(force=True)
 
     def observe(self, result: dict[str, Any], profile: str | None = None) -> None:

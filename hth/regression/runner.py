@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 import cv2
 from hth.geometry.common import document_mask, resize_for_analysis, scale_bbox, valid_bbox
 from hth.geometry import detector_adaptive_radial_edge, detector_border_energy, detector_components, detector_convex_hull, detector_consensus_quad, detector_contour_components, detector_contour_grabcut, detector_cross_edge_contour, detector_distance_transform, detector_distance_transform_rect, detector_polar_boundary_vote, detector_star_convex, detector_grabcut, detector_grabcut_contour, detector_gradient_vote, detector_radial_edge, detector_contour_projection, detector_contour_quad, detector_ransac, detector_radon_boundary, detector_text_flow, detector_whitespace_frame, detector_joint_rectangle_vote, detector_learned_page_mask
@@ -176,6 +176,58 @@ def _filter_parameter_sets(parameter_sets: list[dict[str, Any]], domain: dict[st
     return filtered
 
 
+def load_or_evaluate_shared_baseline(
+    path: Path | None,
+    evaluator: Callable[[], dict[str, Any]],
+    *,
+    timeout_seconds: float = 900.0,
+) -> tuple[dict[str, Any], bool]:
+    """Return a baseline result, evaluating it at most once across sibling shards.
+
+    The cache is run-local.  A small atomic lock file elects one producer while
+    sibling processes wait for the JSON result, which keeps the mechanism usable
+    on both Linux and Windows runners without another dependency.
+    """
+    if path is None:
+        return evaluator(), False
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    deadline = time.monotonic() + max(1.0, float(timeout_seconds))
+    while True:
+        if path.is_file():
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError(f"Shared baseline cache must contain a JSON object: {path}")
+            return payload, True
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Timed out waiting for shared baseline cache: {path}")
+            time.sleep(0.05)
+            continue
+        try:
+            os.write(fd, f"pid={os.getpid()}\n".encode("utf-8"))
+            os.close(fd)
+            fd = -1
+            if path.is_file():
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(payload, dict):
+                    raise ValueError(f"Shared baseline cache must contain a JSON object: {path}")
+                return payload, True
+            result = evaluator()
+            write_json(path, result)
+            return result, False
+        finally:
+            if fd >= 0:
+                os.close(fd)
+            try:
+                lock_path.unlink()
+            except FileNotFoundError:
+                pass
+
+
 def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
     p=argparse.ArgumentParser()
     p.add_argument("--detector-config",type=Path,required=True)
@@ -191,6 +243,7 @@ def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
     p.add_argument("--run-id",default=None)
     p.add_argument("--shard-index",type=int,default=0,help="Zero-based interleaved exhaustive-search shard index.")
     p.add_argument("--shard-count",type=int,default=1,help="Total interleaved exhaustive-search shard count.")
+    p.add_argument("--shared-baseline",type=Path,default=None,help="Optional run-local baseline cache shared by parallel shards.")
     p.add_argument(
         "--debug-artifacts",
         choices=("none", "failures", "winner", "all"),
@@ -827,12 +880,23 @@ def run(args:argparse.Namespace)->Path:
         reporter = PRE_REGRESSION_REPORTERS.get(name)
         if reporter is not None:
             print_report_sections(reporter(config))
-        progress=ProgressReporter(total=estimated_total,interval_seconds=60.0)
+        progress_total = planned_parameter_set_count if planned_parameter_set_count is not None else estimated_total + 1
+        progress=ProgressReporter(total=progress_total,interval_seconds=60.0)
         progress.start()
 
         progress.begin_evaluation("baseline")
-        baseline_result=evaluate_set(detector,dict(baseline_parameters),pages)
+        baseline_result, baseline_reused = load_or_evaluate_shared_baseline(
+            args.shared_baseline,
+            lambda: evaluate_set(detector,dict(baseline_parameters),pages),
+        )
+        if canonical_parameters(baseline_result.get("parameters", {})) != baseline_key:
+            raise ValueError("Shared baseline cache does not match this detector baseline")
         progress.observe_baseline(baseline_result)
+        if args.shared_baseline is not None:
+            print(
+                f"Shared baseline            : {'reused' if baseline_reused else 'evaluated'} "
+                f"({args.shared_baseline})"
+            )
 
         active_lock=threading.Lock()
         active_evaluations=0
@@ -900,7 +964,9 @@ def run(args:argparse.Namespace)->Path:
         raw=run_dir/"raw"/"results.csv"; rankings=run_dir/"reports"/"rankings.csv"; top=run_dir/"reports"/"top20.csv"
         write_raw_results(raw,ranked); write_rankings(rankings,ranked); write_rankings(top,ranked[:max(0,args.top)])
         winner_pages = build_winner_page_report(ranked[0], baseline)
-        summary={"schema_version":"0.8","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"threads":args.threads,"shard":{"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved","full_candidate_count":full_exhaustive_candidate_count},"detector_pipeline":detector_pipeline_context,"parameter_space":{"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ranked)*len(pages)},"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"detector_config_sha256":detector_config_sha256,"max_dimension":args.max_dimension,"winner":ranked[0],"baseline":baseline,"top_parameter_sets":ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,"performance":{"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl"},"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":baseline_surpassed(ranked[0], baseline),"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds,"winner_history":progress_snapshot.winner_history,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
+        locally_evaluated_parameter_sets = max(0, len(results) - 1) + (0 if baseline_reused else 1)
+        locally_evaluated_page_evaluations = locally_evaluated_parameter_sets * len(pages)
+        summary={"schema_version":"0.8","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"threads":args.threads,"shard":{"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved","full_candidate_count":full_exhaustive_candidate_count},"detector_pipeline":detector_pipeline_context,"parameter_space":{"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated","shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ranked)*len(pages),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated"},"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"detector_config_sha256":detector_config_sha256,"max_dimension":args.max_dimension,"winner":ranked[0],"baseline":baseline,"top_parameter_sets":ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,"performance":{"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl"},"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":baseline_surpassed(ranked[0], baseline),"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds,"winner_history":progress_snapshot.winner_history,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
         write_json(run_dir/"reports"/"summary.json",summary)
         write_json(run_dir/"reports"/"winner-pages.json",winner_pages)
         try:

@@ -37,9 +37,9 @@ class RegressionProgressTests(unittest.TestCase):
             "summary": {"mean_iou": 0.8, "minimum_iou": 0.6, "stddev_iou": 0.061, "failure_count": 0, "wall_ms": 12.3},
         })
         baseline_row = stream.getvalue().splitlines()[-1]
-        self.assertIn("TBD", baseline_row)
-        self.assertIn("0/10", baseline_row)
-        self.assertIn("0.0%", baseline_row)
+        self.assertIn("00:09:00", baseline_row)
+        self.assertIn("1/10", baseline_row)
+        self.assertIn("10.0%", baseline_row)
         self.assertIn("0.8000", baseline_row)
 
         clock.value = 120
@@ -50,9 +50,9 @@ class RegressionProgressTests(unittest.TestCase):
         })
         reporter.emit(force=True)
         row = stream.getvalue().splitlines()[-1]
-        self.assertIn("00:09:00", row)
-        self.assertIn("1/10", row)
-        self.assertIn("10.0%", row)
+        self.assertIn("00:08:00", row)
+        self.assertIn("2/10", row)
+        self.assertIn("20.0%", row)
         self.assertIn("18.7ms", row)
 
         self.assertEqual(header_top, ProgressReporter.HEADER_TOP)
@@ -62,7 +62,7 @@ class RegressionProgressTests(unittest.TestCase):
         self.assertIn("SD", header_top)
         self.assertEqual(
             row,
-            "00:02:00  00:09:00  1/10       10.0%    0.017/s   0.7900   0.8000   "
+            "00:02:00  00:08:00  2/10       20.0%    0.017/s   0.7900   0.8000   "
             "0.5900   0.6000   0.0620   0.0610     0     18.7ms  12345678",
         )
 

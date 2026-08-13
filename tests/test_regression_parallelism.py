@@ -30,6 +30,7 @@ class RegressionParallelismTests(unittest.TestCase):
         self.assertEqual((MIN_THREAD_COUNT, MAX_THREAD_COUNT), (1, 1024))
         self.assertEqual(parse_args([*base, "--threads", "10"]).threads, 10)
         self.assertEqual(parse_args([*base, "--threads", "256"]).threads, 256)
+        self.assertEqual(parse_args([*base, "--shared-baseline", "baseline.json"]).shared_baseline, Path("baseline.json"))
 
     def test_scope_reports_possible_planned_and_page_evaluations(self) -> None:
         stream = io.StringIO()

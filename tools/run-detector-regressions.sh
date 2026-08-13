@@ -303,7 +303,7 @@ run_detector_config() {
   fi
 
   local detector_name detector_estimate detector_estimate_source detector_ranked_quality
-  local shard_index shard_count detector_threads shard_output
+  local shard_index shard_count detector_threads shard_output shared_baseline
   shard_index="${task_shard_indexes[$task_index]}"
   shard_count="${task_shard_counts[$task_index]}"
   detector_threads="${task_threads[$task_index]}"
@@ -317,7 +317,8 @@ print(payload.get("detector", "unknown"))
 PY
   )"
   shard_output="$OUTPUT_DIR/.shards/$detector_name/shard-$(printf '%04d' "$shard_index")"
-  mkdir -p "$shard_output"
+  shared_baseline="$OUTPUT_DIR/.baselines/$detector_name.json"
+  mkdir -p "$shard_output" "$(dirname "$shared_baseline")"
   detector_estimate="${detector_estimates[$task_index]:-unknown}"
   detector_estimate_source="${detector_estimate_sources[$task_index]:-unknown}"
   detector_ranked_quality="${detector_quality[$task_index]:-unknown}"
@@ -335,6 +336,9 @@ PY
     --shard-count "$shard_count"
     --debug-level "$DEBUG_LEVEL"
   )
+  if (( shard_count > 1 )); then
+    args+=(--shared-baseline "$shared_baseline")
+  fi
 
   if [[ -n "${effective_limit:-}" ]]; then
     args+=(--strategy exhaustive --limit "$effective_limit")

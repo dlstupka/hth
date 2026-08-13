@@ -82,10 +82,15 @@ def capture_shard_observation(
     summary = _read_json(run_dir / "reports" / "summary.json")
     parameter_space = summary.get("parameter_space") if isinstance(summary.get("parameter_space"), dict) else {}
     actual_sets = info.get("actual_parameter_sets") or parameter_space.get("actual_parameter_sets")
+    local_sets = info.get("locally_evaluated_parameter_sets") or parameter_space.get("locally_evaluated_parameter_sets")
     try:
         actual_sets = int(actual_sets)
     except (TypeError, ValueError):
         actual_sets = None
+    try:
+        local_sets = int(local_sets)
+    except (TypeError, ValueError):
+        local_sets = actual_sets
     wall = float(wall_clock_seconds)
     detector_id = str(info.get("detector") or summary.get("detector") or "unknown")
     runner = summary.get("runner") if isinstance(summary.get("runner"), dict) else {}
@@ -105,7 +110,9 @@ def capture_shard_observation(
         "threads_per_pipeline": threads,
         "wall_clock_seconds": wall,
         "actual_parameter_sets": actual_sets,
-        "parameter_sets_per_second": (actual_sets / wall) if actual_sets is not None and wall > 0 else None,
+        "locally_evaluated_parameter_sets": local_sets,
+        "baseline_execution": info.get("baseline_execution") or parameter_space.get("baseline_execution"),
+        "parameter_sets_per_second": (local_sets / wall) if local_sets is not None and wall > 0 else None,
         "runner": {
             "runner_label": runner_label,
             "runner_name": runner.get("runner_name") or info.get("runner_name"),

@@ -181,3 +181,9 @@ def test_single_and_multi_shard_paths_share_one_finalizer():
     assert 'staging_root="$(dirname "$(dirname "$canonical_run")")"' in script
     assert '--staging-root "$staging_root"' in script
     assert '--output "$OUTPUT_DIR"' in script
+
+def test_parallel_shards_share_one_run_local_baseline_cache() -> None:
+    text = DRIVER.read_text(encoding="utf-8")
+    assert 'shared_baseline="$OUTPUT_DIR/.baselines/$detector_name.json"' in text
+    assert 'if (( shard_count > 1 )); then' in text
+    assert 'args+=(--shared-baseline "$shared_baseline")' in text
