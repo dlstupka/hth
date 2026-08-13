@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "multi_scale_radial_edge",
-  "description": "Calibration space for the HTH Multi-Scale Radial Edge Search detector.",
+  "description": "Generation-2 calibration space for the HTH Multi-Scale Radial Edge Search detector, refined from the first exhaustive 730-set run.",
   "profiles": {
     "baseline": {
       "base_sigma": 0.8,
@@ -21,12 +21,26 @@
     }
   },
   "parameters": {
-    "base_sigma": {"type": "float", "values": [0.6, 0.8, 1.2]},
-    "scale_ratio": {"type": "float", "values": [1.6, 2.0, 2.5]},
-    "scale_count": {"type": "int", "values": [2, 3, 4]},
-    "ray_count": {"type": "int", "values": [96, 144, 192]},
-    "gradient_percentile": {"type": "float", "values": [74.0, 82.0, 90.0]},
-    "minimum_ray_support": {"type": "float", "values": [0.24, 0.36, 0.50]}
+    "base_sigma": {
+      "type": "float",
+      "values": [0.8, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.35, 1.4, 1.45, 1.5, 1.55, 1.6, 1.65, 1.7, 1.75, 1.8, 1.85, 1.9, 1.95, 2.0, 2.05, 2.1, 2.15]
+    },
+    "scale_ratio": {
+      "type": "float",
+      "values": [2.0, 2.25, 2.5, 2.75, 3.0]
+    },
+    "scale_count": {
+      "type": "int",
+      "values": [3, 4]
+    },
+    "ray_count": {
+      "type": "int",
+      "values": [64, 80, 96, 112, 128, 144, 160, 176, 192, 224]
+    },
+    "gradient_percentile": {
+      "type": "float",
+      "values": [82.0, 87.0, 87.25, 87.5, 87.75, 88.0, 88.25, 88.5, 88.75, 89.0, 89.25, 89.5, 89.75, 90.0, 90.25, 90.5, 90.75, 91.0, 91.25, 91.5, 91.75, 92.0, 92.25, 92.5, 92.75, 93.0, 93.25, 93.5, 93.75, 94.0, 94.25, 94.5, 94.75, 95.0, 95.25, 95.5, 95.75, 96.0, 96.25, 96.5]
+    }
   },
   "binary_refine": {"passes": 3, "local_exhaustive_radius": 1},
   "regression": {"debug_artifacts": "winner"}
