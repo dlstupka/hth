@@ -11,27 +11,38 @@ class FakeNet:
         out=np.zeros((1,1,256,256),np.float32); out[:,:,40:220,35:225]=0.95; return out
 
 class LearnedPageMaskTests(unittest.TestCase):
-    def test_generation_3_calibration_space_has_10000_sets_and_retains_baseline(self):
+    def test_generation_4_calibration_space_has_50000_sets_and_retains_baseline(self):
         config_path=Path(__file__).resolve().parents[1]/"config"/"detectors"/"learned_page_mask.json"
         config=json.loads(config_path.read_text(encoding="utf-8"))
         parameter_sets=exhaustive_parameter_sets(config)
-        self.assertEqual(len(parameter_sets),10000)
+        self.assertEqual(len(parameter_sets),50000)
         baseline=config["profiles"]["baseline"]
         self.assertIn(baseline,parameter_sets)
+
         thresholds=config["parameters"]["mask_threshold"]["values"]
         self.assertEqual(len(thresholds),25)
-        self.assertEqual(thresholds[0],0.12)
-        self.assertEqual(thresholds[-2],0.35)
+        self.assertEqual(thresholds[0],0.204)
+        self.assertEqual(thresholds[-2],0.25)
         self.assertEqual(thresholds[-1],0.5)
-        self.assertIn(0.25,thresholds)
-        self.assertIn(0.2,thresholds)
-        self.assertIn(0.04,config["parameters"]["minimum_mask_area_fraction"]["values"])
+        self.assertIn(0.24,thresholds)
+        self.assertIn(0.22,thresholds)
+
         self.assertEqual(config["parameters"]["minimum_mask_area_fraction"]["values"],[0.04,0.15])
         self.assertEqual(config["parameters"]["close_kernel_fraction"]["values"],[0.0,0.006])
-        self.assertIn(0.018,config["parameters"]["polygon_epsilon_fraction"]["values"])
-        self.assertGreater(max(config["parameters"]["polygon_epsilon_fraction"]["values"]),0.018)
-        self.assertIn(0.03,config["parameters"]["bbox_padding_fraction"]["values"])
-        self.assertGreater(max(config["parameters"]["bbox_padding_fraction"]["values"]),0.03)
+
+        epsilons=config["parameters"]["polygon_epsilon_fraction"]["values"]
+        self.assertEqual(len(epsilons),20)
+        self.assertEqual(epsilons[0],0.012)
+        self.assertEqual(epsilons[1],0.014)
+        self.assertEqual(epsilons[-1],0.023)
+        self.assertIn(0.018,epsilons)
+
+        paddings=config["parameters"]["bbox_padding_fraction"]["values"]
+        self.assertEqual(len(paddings),25)
+        self.assertEqual(paddings[0],0.0)
+        self.assertEqual(paddings[1],0.02)
+        self.assertEqual(paddings[-1],0.043)
+        self.assertIn(0.03,paddings)
 
     def test_detector_uses_lifecycle_assets(self):
         with tempfile.TemporaryDirectory() as d:
