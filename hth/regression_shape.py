@@ -92,6 +92,50 @@ def current_runner_profile(*, name: str | None = None, label: str | None = None)
     )
 
 
+
+
+_RUNNER_TARGETS: dict[str, list[str]] = {
+    "github-hosted": ["ubuntu-latest"],
+    "hth": ["self-hosted", "Linux", "X64", "hth"],
+    "rhel8": ["self-hosted", "Linux", "X64", "rhel8"],
+    "e7k": ["self-hosted", "Linux", "X64", "e7k"],
+    "e9k": ["self-hosted", "Linux", "X64", "e9k"],
+    "windows": ["self-hosted", "Windows", "X64"],
+}
+
+
+def _runner_labels_from_row(row: dict[str, Any]) -> list[str]:
+    runner = _runner_from_row(row)
+    labels = runner.get("runner_labels")
+    if isinstance(labels, list):
+        clean = [str(value).strip() for value in labels if str(value).strip()]
+        if clean:
+            return clean
+    label = str(runner.get("runner_label") or "").strip()
+    if label in _RUNNER_TARGETS:
+        return list(_RUNNER_TARGETS[label])
+    if label and label not in {"unknown", "github-hosted"}:
+        return ["self-hosted", label]
+    return ["ubuntu-latest"]
+
+
+def _requested_runner_target(
+    *, runner: str, specific_runner: str, custom_runner_label: str | None,
+) -> tuple[list[str], str]:
+    if specific_runner == "custom" and str(custom_runner_label or "").strip():
+        label = str(custom_runner_label).strip()
+        return ["self-hosted", label], label
+    mapping = {
+        "github-hosted": (["ubuntu-latest"], "github-hosted"),
+        "self-hosted-hth": (_RUNNER_TARGETS["hth"], "hth"),
+        "self-hosted-rhel8": (_RUNNER_TARGETS["rhel8"], "rhel8"),
+        "self-hosted-e7k": (_RUNNER_TARGETS["e7k"], "e7k"),
+        "self-hosted-e9k": (_RUNNER_TARGETS["e9k"], "e9k"),
+        "self-hosted-windows": (_RUNNER_TARGETS["windows"], "windows"),
+    }
+    labels, label = mapping.get(runner, mapping["github-hosted"])
+    return list(labels), label
+
 def parse_manual_shape(value: str) -> tuple[int, int]:
     text = value.strip().lower().replace(" ", "")
     patterns = (
@@ -308,12 +352,123 @@ def _append_github_env(path: Path | None, values: dict[str, Any]) -> None:
             stream.write(f"{key}={value}\n")
 
 
+
+
+def resolve_preferred_dispatch(
+    *,
+    shape_mode: str,
+    regression_mode: str,
+    strategy: str,
+    limit: str | None,
+    detector: str,
+    parallelism_index: Path,
+    detector_config_root: Path,
+    golden_set: Path,
+    max_dimension: int,
+    requested_runner: str,
+    specific_runner: str,
+    custom_runner_label: str | None,
+) -> dict[str, Any]:
+    """Resolve runner + shape together before GitHub dispatches the regression job."""
+    requested_labels, requested_label = _requested_runner_target(
+        runner=requested_runner,
+        specific_runner=specific_runner,
+        custom_runner_label=custom_runner_label,
+    )
+    fallback = {
+        "runs_on": requested_labels,
+        "runner_label": requested_label,
+        "runner_name": "requested",
+        "exact": False,
+        "source": "requested-runner",
+        "runner_budget": runner_max_threads(requested_label),
+    }
+    mode = str(shape_mode or "auto").strip().lower()
+    if (
+        mode != "preferred"
+        or regression_mode != "full"
+        or strategy != "exhaustive"
+        or str(limit or "").strip()
+        or detector in {"all", "all-without-exhaustive"}
+    ):
+        return fallback
+
+    detector_config = detector_config_root / f"{detector}.json"
+    detector_id, rows = compatible_optimizer_rows(
+        parallelism_index=parallelism_index,
+        detector_config=detector_config,
+        golden_set=golden_set,
+        max_dimension=max_dimension,
+    )
+    if not rows:
+        fallback["source"] = "requested-runner-no-preferred-history"
+        return fallback
+
+    best = select_preferred_shape(_shape_from_row(row) for row in rows)
+    if not best:
+        fallback["source"] = "requested-runner-no-preferred-shape"
+        return fallback
+    pipelines = int(best["pipelines"])
+    threads = int(best["threads_per_pipeline"])
+    rate = _as_float(best.get("parameter_sets_per_second"))
+    matching = [
+        row for row in rows
+        if _as_int(row.get("active_pipelines")) == pipelines
+        and _as_int(row.get("threads_per_pipeline")) == threads
+        and (rate is None or _as_float(row.get("parameter_sets_per_second")) == rate)
+    ]
+    if not matching:
+        matching = [
+            row for row in rows
+            if _as_int(row.get("active_pipelines")) == pipelines
+            and _as_int(row.get("threads_per_pipeline")) == threads
+        ]
+    row = next((item for item in matching if _runner_labels_from_row(item) != ["ubuntu-latest"]), matching[0] if matching else rows[0])
+    runner = _runner_from_row(row)
+    runner_label = str(runner.get("runner_label") or "unknown").strip() or "unknown"
+    allocated = int(best.get("allocated_threads") or pipelines * threads)
+    policy_budget = runner_max_threads(runner_label, _as_int(runner.get("logical_cpu_count")))
+    # The optimizer is authoritative evidence that this exact allocation ran on
+    # this runner profile. Preserve at least that measured budget for the replay.
+    budget = max(policy_budget, allocated)
+    return {
+        "runs_on": _runner_labels_from_row(row),
+        "runner_label": runner_label,
+        "runner_name": str(runner.get("runner_name") or runner.get("name") or "preferred"),
+        "exact": True,
+        "pipelines": pipelines,
+        "threads_per_pipeline": threads,
+        "allocated_threads": allocated,
+        "runner_budget": budget,
+        "source": "preferred-dispatch-optimizer",
+        "detector": detector_id,
+    }
+
+
+def dispatch_output_env(result: dict[str, Any]) -> dict[str, str]:
+    labels = [str(value) for value in result.get("runs_on", [])]
+    values = {
+        "runs_on": json.dumps(labels, separators=(",", ":")),
+        "runner_label": str(result.get("runner_label") or "unknown"),
+        "runner_name": str(result.get("runner_name") or "unknown"),
+        "runner_labels": ",".join(labels),
+        "runner_budget": str(result.get("runner_budget") or ""),
+        "exact": "1" if result.get("exact") else "0",
+        "source": str(result.get("source") or "unknown"),
+        "pipelines": str(result.get("pipelines") or ""),
+        "threads_per_pipeline": str(result.get("threads_per_pipeline") or ""),
+    }
+    values["github_hosted"] = "1" if labels == ["ubuntu-latest"] else "0"
+    return values
+
+
 def resolve_workflow_shape(
     *, shape_mode: str, regression_mode: str, strategy: str, limit: str | None,
     detector: str, manual_shape: str | None, parallelism_index: Path,
     predictions_index: Path | None, detector_config_root: Path, golden_set: Path,
     max_dimension: int, profile: RunnerProfile, prediction_out: Path | None,
-    runner_budget: int | None = None,
+    runner_budget: int | None = None, pre_resolved_pipelines: int | None = None,
+    pre_resolved_threads: int | None = None, pre_resolved_source: str | None = None,
 ) -> dict[str, Any]:
     """Resolve all workflow shape policy in Python; YAML only supplies inputs."""
     budget = max(1, runner_budget or runner_max_threads(profile.label, profile.logical_cpus))
@@ -334,6 +489,11 @@ def resolve_workflow_shape(
         return result
 
     mode = (shape_mode or "auto").strip().lower()
+    if pre_resolved_pipelines and pre_resolved_threads:
+        return exact(
+            int(pre_resolved_pipelines), int(pre_resolved_threads),
+            str(pre_resolved_source or "preferred-dispatch"),
+        )
     if mode == "auto":
         return {"exact": False, "source": "auto", "runner_budget": budget}
 
@@ -426,6 +586,21 @@ def main() -> int:
     record.add_argument("--prediction-file", type=Path, required=True)
     record.add_argument("--predictions-index", type=Path, required=True)
 
+    dispatch = sub.add_parser("dispatch-resolve", help="Resolve the runner and preferred shape before GitHub job dispatch")
+    dispatch.add_argument("--shape-mode", required=True)
+    dispatch.add_argument("--regression-mode", required=True)
+    dispatch.add_argument("--strategy", required=True)
+    dispatch.add_argument("--limit", default="")
+    dispatch.add_argument("--detector", required=True)
+    dispatch.add_argument("--parallelism-index", type=Path, required=True)
+    dispatch.add_argument("--detector-config-root", type=Path, required=True)
+    dispatch.add_argument("--golden-set", type=Path, required=True)
+    dispatch.add_argument("--max-dimension", type=int, required=True)
+    dispatch.add_argument("--requested-runner", required=True)
+    dispatch.add_argument("--specific-runner", default="any")
+    dispatch.add_argument("--custom-runner-label", default="")
+    dispatch.add_argument("--github-output", type=Path)
+
     workflow = sub.add_parser("workflow-resolve", help="Resolve workflow execution shape and write GitHub environment")
     workflow.add_argument("--shape-mode", required=True)
     workflow.add_argument("--regression-mode", required=True)
@@ -442,8 +617,31 @@ def main() -> int:
     workflow.add_argument("--runner-label")
     workflow.add_argument("--prediction-out", type=Path)
     workflow.add_argument("--github-env", type=Path)
+    workflow.add_argument("--runner-budget", type=int)
+    workflow.add_argument("--pre-resolved-pipelines", type=int)
+    workflow.add_argument("--pre-resolved-threads", type=int)
+    workflow.add_argument("--pre-resolved-source")
 
     args = parser.parse_args()
+    if args.command == "dispatch-resolve":
+        result = resolve_preferred_dispatch(
+            shape_mode=args.shape_mode, regression_mode=args.regression_mode,
+            strategy=args.strategy, limit=args.limit, detector=args.detector,
+            parallelism_index=args.parallelism_index, detector_config_root=args.detector_config_root,
+            golden_set=args.golden_set, max_dimension=args.max_dimension,
+            requested_runner=args.requested_runner, specific_runner=args.specific_runner,
+            custom_runner_label=args.custom_runner_label,
+        )
+        values = dispatch_output_env(result)
+        if args.github_output:
+            _append_github_env(args.github_output, values)
+        print(
+            f"Dispatch execution: runner={values['runner_label']} runs-on={values['runs_on']} "
+            f"shape={values['pipelines'] or 'auto'}p/{values['threads_per_pipeline'] or 'auto'}t "
+            f"source={values['source']}"
+        )
+        return 0
+
     if args.command == "workflow-resolve":
         profile = current_runner_profile(name=args.runner_name, label=args.runner_label)
         result = resolve_workflow_shape(
@@ -453,7 +651,10 @@ def main() -> int:
             predictions_index=args.predictions_index,
             detector_config_root=args.detector_config_root, golden_set=args.golden_set,
             max_dimension=args.max_dimension, profile=profile,
-            prediction_out=args.prediction_out,
+            prediction_out=args.prediction_out, runner_budget=args.runner_budget,
+            pre_resolved_pipelines=args.pre_resolved_pipelines,
+            pre_resolved_threads=args.pre_resolved_threads,
+            pre_resolved_source=args.pre_resolved_source,
         )
         _append_github_env(args.github_env, workflow_shape_env(result))
         if result.get("exact"):

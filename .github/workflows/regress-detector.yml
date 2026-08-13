@@ -260,7 +260,62 @@ jobs:
             --top "${{ inputs.top }}" \
             --debug-level "${{ inputs.debug_level }}"
 
+  resolve-execution-dispatch:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.algorithm != 'all-without-exhaustive' }}
+    name: Resolve regression runner and preferred shape
+    runs-on: ubuntu-latest
+    outputs:
+      runs_on: ${{ steps.resolve.outputs.runs_on }}
+      runner_label: ${{ steps.resolve.outputs.runner_label }}
+      runner_name: ${{ steps.resolve.outputs.runner_name }}
+      runner_labels: ${{ steps.resolve.outputs.runner_labels }}
+      runner_budget: ${{ steps.resolve.outputs.runner_budget }}
+      github_hosted: ${{ steps.resolve.outputs.github_hosted }}
+      exact: ${{ steps.resolve.outputs.exact }}
+      source: ${{ steps.resolve.outputs.source }}
+      pipelines: ${{ steps.resolve.outputs.pipelines }}
+      threads_per_pipeline: ${{ steps.resolve.outputs.threads_per_pipeline }}
+    steps:
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
+        with:
+          path: hth-pipeline
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout results repository
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.event_name == 'workflow_dispatch' && inputs.results_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results' }}
+          path: results-repo
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ github.event_name != 'pull_request' && secrets.HTH_RESULTS_TOKEN || github.token }}
+
+      - name: Resolve preferred dispatch target
+        id: resolve
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          python -m hth.regression_shape dispatch-resolve \
+            --shape-mode "${{ github.event_name == 'workflow_dispatch' && inputs.execution_shape || 'auto' }}" \
+            --regression-mode "${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'smoke' }}" \
+            --strategy "${{ github.event_name == 'workflow_dispatch' && inputs.strategy || 'exhaustive' }}" \
+            --limit "${{ github.event_name == 'workflow_dispatch' && inputs.limit || '' }}" \
+            --detector "${{ github.event_name == 'workflow_dispatch' && inputs.algorithm || 'all' }}" \
+            --parallelism-index results-repo/parallelism-index.json \
+            --detector-config-root hth-pipeline/config/detectors \
+            --golden-set "hth-pipeline/${{ github.event_name == 'workflow_dispatch' && inputs.golden_set || 'config/golden_set.json' }}" \
+            --max-dimension "${{ github.event_name == 'workflow_dispatch' && inputs.max_dimension || '1800' }}" \
+            --requested-runner "${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'github-hosted' }}" \
+            --specific-runner "${{ github.event_name == 'workflow_dispatch' && inputs.specific_runner || 'any' }}" \
+            --custom-runner-label "${{ github.event_name == 'workflow_dispatch' && inputs.custom_runner_label || '' }}" \
+            --github-output "$GITHUB_OUTPUT"
+
   regress:
+    needs: resolve-execution-dispatch
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.algorithm != 'all-without-exhaustive' }}
     strategy:
       fail-fast: false
@@ -270,14 +325,7 @@ jobs:
       ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
           && format('Regress {0} against Golden Set', matrix.detector)
           || format('Smoke test {0} against Golden Set', matrix.detector) }}
-    runs-on: >-
-      ${{    github.event_name == 'workflow_dispatch' && inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && fromJSON(format('["self-hosted","{0}"]', inputs.custom_runner_label))
-          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
-          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
-          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
-          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
-          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e9k'     && fromJSON('["self-hosted","Linux","X64","e9k"]')
-          || 'ubuntu-latest'}}
+    runs-on: ${{ fromJSON(needs.resolve-execution-dispatch.outputs.runs_on) }}
     # Automatic and manually dispatched smoke tests retain a 30-minute guard.
     # GitHub-hosted full regressions are limited to 6 hours by GitHub Actions.
     # Self-hosted full regressions may run for up to 5 days (7200 minutes),
@@ -285,7 +333,7 @@ jobs:
     timeout-minutes: >-
       ${{ github.event_name != 'workflow_dispatch' && 30
           || inputs.mode == 'smoke' && 30
-          || inputs.runner == 'github-hosted' && inputs.specific_runner != 'custom' && 360
+          || needs.resolve-execution-dispatch.outputs.github_hosted == '1' && 360
           || 7200 }}
 
     env:
@@ -310,21 +358,14 @@ jobs:
       DEBUG_LEVEL: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_level || 'none' }}
       PYTHONNOUSERSITE: "1"
       PYTHONUNBUFFERED: "1"
-      HTH_RUNNER_LABELS: >-
-        ${{  github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && 'self-hosted,linux,x64,hth'
-          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-rhel8' && 'self-hosted,linux,x64,rhel8'
-          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e7k' && 'self-hosted,linux,x64,e7k'
-          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e9k' && 'self-hosted,linux,x64,e9k'
-          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && 'self-hosted,windows,x64'
-          || 'ubuntu-latest' }}
-      HTH_RUNNER_LABEL: >-
-        ${{  github.event_name == 'workflow_dispatch' && inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && inputs.custom_runner_label
-          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-hth' && 'hth'
-          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-rhel8' && 'rhel8'
-          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e7k' && 'e7k'
-          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-e9k' && 'e9k'
-          || github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-windows' && 'windows'
-          || 'github-hosted' }}
+      HTH_RUNNER_LABELS: ${{ needs.resolve-execution-dispatch.outputs.runner_labels }}
+      HTH_RUNNER_LABEL: ${{ needs.resolve-execution-dispatch.outputs.runner_label }}
+      HTH_DISPATCH_RUNNER_NAME: ${{ needs.resolve-execution-dispatch.outputs.runner_name }}
+      HTH_DISPATCH_RUNNER_BUDGET: ${{ needs.resolve-execution-dispatch.outputs.runner_budget }}
+      HTH_PRE_RESOLVED_EXECUTION_SHAPE: ${{ needs.resolve-execution-dispatch.outputs.exact }}
+      HTH_PRE_RESOLVED_SOURCE: ${{ needs.resolve-execution-dispatch.outputs.source }}
+      HTH_PRE_RESOLVED_PIPELINES: ${{ needs.resolve-execution-dispatch.outputs.pipelines }}
+      HTH_PRE_RESOLVED_THREADS: ${{ needs.resolve-execution-dispatch.outputs.threads_per_pipeline }}
 
     steps:
       - name: Checkout HTH pipeline
@@ -681,6 +722,12 @@ jobs:
           PYTHONPATH: hth-pipeline
         run: |
           echo "Execution shape request: ${EXECUTION_SHAPE_MODE:-auto}"
+          shape_args=()
+          if [[ -n "${HTH_PRE_RESOLVED_PIPELINES:-}" && -n "${HTH_PRE_RESOLVED_THREADS:-}" ]]; then
+            shape_args+=(--pre-resolved-pipelines "$HTH_PRE_RESOLVED_PIPELINES")
+            shape_args+=(--pre-resolved-threads "$HTH_PRE_RESOLVED_THREADS")
+            shape_args+=(--pre-resolved-source "${HTH_PRE_RESOLVED_SOURCE:-preferred-dispatch}")
+          fi
           python -m hth.regression_shape workflow-resolve \
             --shape-mode "${EXECUTION_SHAPE_MODE:-auto}" \
             --regression-mode "$REGRESSION_MODE" \
@@ -695,6 +742,8 @@ jobs:
             --max-dimension "$MAX_DIMENSION" \
             --runner-name "${HTH_RUNNER_NAME:-${RUNNER_NAME:-unknown}}" \
             --runner-label "${HTH_RUNNER_LABEL:-unknown}" \
+            --runner-budget "${HTH_DISPATCH_RUNNER_BUDGET:-16}" \
+            "${shape_args[@]}" \
             --prediction-out "$RUNNER_TEMP/hth-shape-prediction-${DETECTOR_ALGORITHM}.json" \
             --github-env "$GITHUB_ENV"
 
