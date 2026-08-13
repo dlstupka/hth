@@ -211,3 +211,48 @@ def test_preferred_shape_accepts_legacy_optimizer_row_missing_workload_fields(tm
     assert result is not None
     assert (result["pipelines"], result["threads_per_pipeline"]) == (9, 42)
     assert result["source"] == "hardware-profile-legacy-workload"
+
+
+def test_learned_shape_can_reuse_optimizer_history_after_calibration_grid_change(tmp_path: Path) -> None:
+    detector = tmp_path / "learned_page_mask.json"
+    golden = tmp_path / "golden.json"
+    _write_json(detector, {
+        "detector": "learned_page_mask",
+        "optimizer_shape_compatibility": "detector-implementation",
+        "parameters": {"mask_threshold": {"values": [0.2, 0.3, 0.4]}},
+    })
+    _write_json(golden, {"pages": []})
+    golden_sha = _sha(golden)
+    row = _row(
+        detector="learned_page_mask", detector_sha="old-grid-sha", golden_sha=golden_sha,
+        runner_name="rh8-al319", cpu_model="AMD EPYC 9655 96-Core Processor",
+        logical=192, physical=192, pipelines=1, threads=384, rate=7.84,
+    )
+    index = tmp_path / "parallelism-index.json"
+    _write_json(index, {"observations": [row]})
+
+    result = resolve_predicted_shape(
+        parallelism_index=index, predictions_index=None, detector_config=detector,
+        golden_set=golden, max_dimension=1800,
+        profile=RunnerProfile("GitHub Actions 1", "github-hosted", "AMD EPYC", 2, 4),
+    )
+    assert result is not None
+    assert result["pipelines"] == 1
+    assert result["threads_per_pipeline"] <= 8
+
+
+def test_other_detectors_still_reject_optimizer_history_after_config_change(tmp_path: Path) -> None:
+    detector = tmp_path / "components.json"
+    golden = tmp_path / "golden.json"
+    _write_json(detector, {"detector": "components", "parameters": {"x": {"values": [1, 2]}}})
+    _write_json(golden, {"pages": []})
+    index = tmp_path / "parallelism-index.json"
+    _write_json(index, {"observations": [_row(
+        detector="components", detector_sha="old-config", golden_sha=_sha(golden),
+        runner_name="runner", cpu_model="cpu", logical=4, physical=2,
+        pipelines=1, threads=4, rate=1.0,
+    )]})
+    assert resolve_preferred_shape(
+        parallelism_index=index, detector_config=detector, golden_set=golden,
+        max_dimension=1800, profile=RunnerProfile("runner", "github-hosted", "cpu", 2, 4),
+    ) is None

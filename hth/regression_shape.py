@@ -18,6 +18,7 @@ from hth.domain.execution_shape import (
     select_preferred_shape,
 )
 from hth.shape_prediction import merge_prediction, predict_shape
+from hth.regression.sharding import runner_max_threads
 
 
 @dataclass(frozen=True)
@@ -163,10 +164,10 @@ def compatible_optimizer_rows(
     if not parallelism_index.is_file():
         return detector, []
     index = _read_json(parallelism_index)
+    observations = [row for row in index.get("observations", []) if isinstance(row, dict)]
     rows = [
-        row for row in index.get("observations", [])
-        if isinstance(row, dict)
-        and _row_matches_workload(
+        row for row in observations
+        if _row_matches_workload(
             row,
             detector=detector,
             detector_sha256=detector_sha256,
@@ -174,6 +175,27 @@ def compatible_optimizer_rows(
             max_dimension=max_dimension,
         )
     ]
+    if rows:
+        return detector, rows
+
+    # Some detector configs explicitly declare that calibration-grid edits do not
+    # change their execution characteristics. This lets preferred execution reuse
+    # optimizer evidence after a parameter-space expansion without weakening the
+    # default config-SHA compatibility rule for other detectors.
+    compatibility = str(detector_config_payload.get("optimizer_shape_compatibility") or "").strip().lower()
+    if compatibility == "detector-implementation":
+        rows = [
+            row for row in observations
+            if row.get("source") == "execution-optimizer"
+            and str(row.get("detector_id") or "") == detector
+            and str(row.get("mode") or "") == "full"
+            and str(row.get("strategy") or "") == "exhaustive"
+            and str(row.get("golden_set_sha256") or "") == golden_sha256
+            and (_as_int(row.get("max_dimension")) in (None, max_dimension))
+            and _as_int(row.get("possible_parameter_sets")) is not None
+            and _as_int(row.get("actual_parameter_sets")) == _as_int(row.get("possible_parameter_sets"))
+            and (_as_float(row.get("wall_clock_seconds")) or 0.0) > 0.0
+        ]
     return detector, rows
 
 
@@ -294,7 +316,7 @@ def resolve_workflow_shape(
     runner_budget: int | None = None,
 ) -> dict[str, Any]:
     """Resolve all workflow shape policy in Python; YAML only supplies inputs."""
-    budget = max(1, runner_budget or (os.cpu_count() or 1) * 2)
+    budget = max(1, runner_budget or runner_max_threads(profile.label, profile.logical_cpus))
 
     def exact(pipelines: int, threads: int, source: str, prediction_file: Path | None = None) -> dict[str, Any]:
         allocated = pipelines * threads
@@ -360,6 +382,7 @@ def workflow_shape_env(result: dict[str, Any]) -> dict[str, Any]:
     env = {
         "HTH_EXACT_EXECUTION_SHAPE_SOURCE": result.get("source", "unknown"),
         "HTH_EXECUTION_THREAD_BUDGET": result.get("runner_budget", ""),
+        "HTH_EXECUTION_SHAPE_RESOLVED": "exact" if result.get("exact") else "auto",
     }
     if result.get("exact"):
         env.update({

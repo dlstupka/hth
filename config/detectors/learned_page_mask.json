@@ -89,5 +89,6 @@
     "training_domain": "Ohio Death Records",
     "source": "ctensmeyer/pagenet",
     "license": "BSD-3-Clause"
-  }
+  },
+  "optimizer_shape_compatibility": "detector-implementation"
 }

@@ -680,6 +680,7 @@ jobs:
         env:
           PYTHONPATH: hth-pipeline
         run: |
+          echo "Execution shape request: ${EXECUTION_SHAPE_MODE:-auto}"
           python -m hth.regression_shape workflow-resolve \
             --shape-mode "${EXECUTION_SHAPE_MODE:-auto}" \
             --regression-mode "$REGRESSION_MODE" \
