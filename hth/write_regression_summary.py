@@ -1151,6 +1151,10 @@ def _detector_summary_and_roi(detector: str, payload: dict[str, Any]) -> tuple[l
                 "Calibration did not produce a valid measurement: no evaluated page returned a usable detector candidate.",
                 "The zero Avg IoU values are failure placeholders, not evidence of a flat calibration landscape or dormant parameters.",
             ]
+            reason_counts = measurement.get("failure_reason_counts") if isinstance(measurement.get("failure_reason_counts"), dict) else {}
+            if reason_counts:
+                rendered = ", ".join(f"{reason} ({count})" for reason, count in reason_counts.items())
+                findings.append(f"Observed detector failure reasons: {rendered}.")
         else:
             findings = [
                 "Calibration did not produce a usable quality signal: detector candidates were returned, but none had positive overlap with an approved Golden Set bounding box.",

@@ -253,6 +253,26 @@ def evaluate_set(detector:Any, parameters:dict[str,Any], pages:list[dict[str,Any
     return {"parameter_set_id":parameter_set_id(parameters),"parameters":parameters,"summary":summary,"pages":page_results}
 
 
+def failure_diagnostics(result: dict[str, Any]) -> dict[str, Any]:
+    """Summarize failed page reasons and learned-detector evidence without debug images."""
+    reasons: dict[str, int] = {}
+    numeric: dict[str, list[float]] = {}
+    for page in result.get("pages", []):
+        if not isinstance(page, dict) or str(page.get("status", "")) == "ok":
+            continue
+        candidate = page.get("candidate") if isinstance(page.get("candidate"), dict) else {}
+        diagnostics = candidate.get("diagnostics") if isinstance(candidate.get("diagnostics"), dict) else {}
+        error = page.get("error") if isinstance(page.get("error"), dict) else {}
+        reason = str(diagnostics.get("reason") or error.get("type") or page.get("status") or "unknown")
+        reasons[reason] = reasons.get(reason, 0) + 1
+        for key in ("probability_min", "probability_max", "probability_mean", "thresholded_fraction", "mask_area_fraction"):
+            value = diagnostics.get(key)
+            if isinstance(value, (int, float)):
+                numeric.setdefault(key, []).append(float(value))
+    ranges = {key: {"min": min(values), "max": max(values)} for key, values in numeric.items() if values}
+    return {"reason_counts": reasons, "diagnostic_ranges": ranges}
+
+
 def build_winner_page_report(
     winner: dict[str, Any],
     baseline: dict[str, Any] | None,
@@ -1019,6 +1039,14 @@ def run(args:argparse.Namespace)->Path:
                 ("Minimum Page IoU improvement", f"{winner_summary['minimum_iou']-baseline_summary['minimum_iou']:+.4f}"),
             ])
         print_key_value_section("Regression Summary", summary_rows)
+        if progress_snapshot.failures:
+            diag = failure_diagnostics(ranked[0])
+            print(" ")
+            print("Failure Diagnostics (winner)")
+            print("============================")
+            print(f"Reason counts : {json.dumps(diag['reason_counts'], sort_keys=True)}")
+            if diag["diagnostic_ranges"]:
+                print(f"Evidence ranges: {json.dumps(diag['diagnostic_ranges'], sort_keys=True)}")
         print(" ")
         print_key_value_section("Regression Statistics", [
             ("Mean IoU improvements", progress_snapshot.mean_iou_improvements),

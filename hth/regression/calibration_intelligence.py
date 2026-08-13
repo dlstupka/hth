@@ -1,7 +1,7 @@
 """Derive calibration intelligence from complete detector regression results."""
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 import json
 import math
 from typing import Any, Iterable
@@ -259,6 +259,15 @@ def build_calibration_intelligence(
         if isinstance(page, dict)
     ]
     successful_page_evaluations = sum(1 for page in page_evaluations if str(page.get("status", "")) == "ok")
+    failure_reasons = Counter()
+    for page in page_evaluations:
+        if str(page.get("status", "")) == "ok":
+            continue
+        candidate = page.get("candidate") if isinstance(page.get("candidate"), dict) else {}
+        diagnostics = candidate.get("diagnostics") if isinstance(candidate.get("diagnostics"), dict) else {}
+        error = page.get("error") if isinstance(page.get("error"), dict) else {}
+        reason = diagnostics.get("reason") or error.get("type") or page.get("status") or "unknown"
+        failure_reasons[str(reason)] += 1
     positive_iou_page_evaluations = sum(
         1 for page in page_evaluations
         if str(page.get("status", "")) == "ok" and float(page.get("iou", 0.0) or 0.0) > 0.0
@@ -286,6 +295,7 @@ def build_calibration_intelligence(
             "page_evaluations": len(page_evaluations),
             "successful_page_evaluations": 0,
             "positive_iou_page_evaluations": 0,
+            "failure_reason_counts": dict(failure_reasons.most_common()),
         }
     elif positive_iou_page_evaluations == 0:
         measurement_state = {
@@ -295,6 +305,7 @@ def build_calibration_intelligence(
             "page_evaluations": len(page_evaluations),
             "successful_page_evaluations": successful_page_evaluations,
             "positive_iou_page_evaluations": 0,
+            "failure_reason_counts": dict(failure_reasons.most_common()),
         }
     else:
         measurement_state = {
@@ -304,6 +315,7 @@ def build_calibration_intelligence(
             "page_evaluations": len(page_evaluations),
             "successful_page_evaluations": successful_page_evaluations,
             "positive_iou_page_evaluations": positive_iou_page_evaluations,
+            "failure_reason_counts": dict(failure_reasons.most_common()),
         }
 
     scores = [float(result.get("summary", {}).get("mean_iou", 0.0) or 0.0) for result in ranked]
