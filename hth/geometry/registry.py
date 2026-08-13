@@ -23,6 +23,8 @@ from . import (
     detector_distance_transform,
     detector_distance_transform_rect,
     detector_polar_boundary_vote,
+    detector_signed_polar_boundary_vote,
+    detector_segment_supported_polar_vote,
     detector_radon_boundary,
     detector_star_convex,
     detector_text_flow,
@@ -259,6 +261,8 @@ _REGISTRY: tuple[DetectorSpec, ...] = (
         repository=HTH_REPOSITORY,
     ),
     DetectorSpec(method=detector_polar_boundary_vote.METHOD, name="Polar Boundary Voting", origin="HTH", entrypoint=detector_polar_boundary_vote.detect, foundation=("Polar gradient voting", "OpenCV"), authors=("OpenAI ChatGPT",), version=HTH_VERSION, repository=HTH_REPOSITORY),
+    DetectorSpec(method=detector_signed_polar_boundary_vote.METHOD, name="Signed Polar Boundary Voting", origin="HTH", entrypoint=detector_signed_polar_boundary_vote.detect, foundation=("Signed radial gradients", "Polar boundary voting", "OpenCV"), authors=("OpenAI ChatGPT",), version=HTH_VERSION, repository=HTH_REPOSITORY),
+    DetectorSpec(method=detector_segment_supported_polar_vote.METHOD, name="Segment-Supported Polar Voting", origin="HTH", entrypoint=detector_segment_supported_polar_vote.detect, foundation=("Polar boundary voting", "Line Segment Detector", "OpenCV"), authors=("OpenAI ChatGPT",), version=HTH_VERSION, repository=HTH_REPOSITORY),
     DetectorSpec(method=detector_star_convex.METHOD, name="Star-Convex Boundary Optimization", origin="HTH", entrypoint=detector_star_convex.detect, foundation=("Star-convex geometry", "Radial mask support", "OpenCV"), authors=("OpenAI ChatGPT",), version=HTH_VERSION, repository=HTH_REPOSITORY),
     DetectorSpec(method=detector_distance_transform_rect.METHOD, name="Distance-Transform Rectangle Proposal", origin="HTH", entrypoint=detector_distance_transform_rect.detect, foundation=("Distance transform", "Rectangle proposal", "OpenCV"), authors=("OpenAI ChatGPT",), version=HTH_VERSION, repository=HTH_REPOSITORY),
     DetectorSpec(

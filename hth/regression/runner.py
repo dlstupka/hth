@@ -8,11 +8,13 @@ from pathlib import Path
 from typing import Any, Callable
 import cv2
 from hth.geometry.common import document_mask, resize_for_analysis, scale_bbox, valid_bbox
-from hth.geometry import detector_adaptive_radial_edge, detector_border_energy, detector_border_fusion_quad, detector_components, detector_convex_hull, detector_consensus_quad, detector_contour_components, detector_contour_grabcut, detector_cross_edge_contour, detector_distance_transform, detector_distance_transform_rect, detector_polar_boundary_vote, detector_star_convex, detector_grabcut, detector_grabcut_contour, detector_gradient_vote, detector_multi_scale_radial_edge, detector_projective_gradient_vote, detector_radial_edge, detector_contour_projection, detector_contour_quad, detector_ransac, detector_radon_boundary, detector_text_flow, detector_whitespace_frame, detector_joint_rectangle_vote, detector_learned_page_mask
+from hth.geometry import detector_adaptive_radial_edge, detector_border_energy, detector_border_fusion_quad, detector_components, detector_convex_hull, detector_consensus_quad, detector_contour_components, detector_contour_grabcut, detector_cross_edge_contour, detector_distance_transform, detector_distance_transform_rect, detector_polar_boundary_vote, detector_signed_polar_boundary_vote, detector_segment_supported_polar_vote, detector_star_convex, detector_grabcut, detector_grabcut_contour, detector_gradient_vote, detector_multi_scale_radial_edge, detector_projective_gradient_vote, detector_radial_edge, detector_contour_projection, detector_contour_quad, detector_ransac, detector_radon_boundary, detector_text_flow, detector_whitespace_frame, detector_joint_rectangle_vote, detector_learned_page_mask
 from .adapters.convex_hull import detect as convex_hull_detect
 from .adapters.distance_transform import detect as distance_transform_detect
 from .adapters.distance_transform_rect import detect as distance_transform_rect_detect
 from .adapters.polar_boundary_vote import detect as polar_boundary_vote_detect
+from .adapters.signed_polar_boundary_vote import detect as signed_polar_boundary_vote_detect
+from .adapters.segment_supported_polar_vote import detect as segment_supported_polar_vote_detect
 from .adapters.radon_boundary import detect as radon_boundary_detect
 from .adapters.text_flow import detect as text_flow_detect
 from .adapters.whitespace_frame import detect as whitespace_frame_detect
@@ -64,7 +66,7 @@ from .calibration_intelligence import build_calibration_intelligence
 from hth.regression.result_metrics import aggregate_page_metrics
 from hth.domain.result_metrics import baseline_surpassed
 
-DETECTORS={"border_fusion_quad":border_fusion_quad_detect,"projective_gradient_vote":projective_gradient_vote_detect,"multi_scale_radial_edge":multi_scale_radial_edge_detect,"learned_page_mask":learned_page_mask_detect,"joint_rectangle_vote":joint_rectangle_vote_detect,"whitespace_frame":whitespace_frame_detect,"text_flow":text_flow_detect,"radon_boundary":radon_boundary_detect,"convex_hull":convex_hull_detect,"distance_transform":distance_transform_detect,"distance_transform_rect":distance_transform_rect_detect,"polar_boundary_vote":polar_boundary_vote_detect,"star_convex":star_convex_detect,"components":components_detect,"contour":contour_detect,"contour_quad":contour_quad_detect,"contour_components":contour_components_detect,"contour_grabcut":contour_grabcut_detect,"grabcut_contour":grabcut_contour_detect,"contour_projection":contour_projection_detect,"consensus_quad":consensus_quad_detect,"edge_contour":edge_contour_detect,"cross_edge_contour":cross_edge_contour_detect,"gradient_vote":gradient_vote_detect,"radial_edge":radial_edge_detect,"adaptive_radial_edge":adaptive_radial_edge_detect,"border_energy":border_energy_detect,"grabcut":grabcut_detect,"hough":hough_detect,"lsd":lsd_detect,"ransac":ransac_detect}
+DETECTORS={"border_fusion_quad":border_fusion_quad_detect,"projective_gradient_vote":projective_gradient_vote_detect,"multi_scale_radial_edge":multi_scale_radial_edge_detect,"learned_page_mask":learned_page_mask_detect,"joint_rectangle_vote":joint_rectangle_vote_detect,"whitespace_frame":whitespace_frame_detect,"text_flow":text_flow_detect,"radon_boundary":radon_boundary_detect,"convex_hull":convex_hull_detect,"distance_transform":distance_transform_detect,"distance_transform_rect":distance_transform_rect_detect,"polar_boundary_vote":polar_boundary_vote_detect,"signed_polar_boundary_vote":signed_polar_boundary_vote_detect,"segment_supported_polar_vote":segment_supported_polar_vote_detect,"star_convex":star_convex_detect,"components":components_detect,"contour":contour_detect,"contour_quad":contour_quad_detect,"contour_components":contour_components_detect,"contour_grabcut":contour_grabcut_detect,"grabcut_contour":grabcut_contour_detect,"contour_projection":contour_projection_detect,"consensus_quad":consensus_quad_detect,"edge_contour":edge_contour_detect,"cross_edge_contour":cross_edge_contour_detect,"gradient_vote":gradient_vote_detect,"radial_edge":radial_edge_detect,"adaptive_radial_edge":adaptive_radial_edge_detect,"border_energy":border_energy_detect,"grabcut":grabcut_detect,"hough":hough_detect,"lsd":lsd_detect,"ransac":ransac_detect}
 MIN_THREAD_COUNT=1
 MAX_THREAD_COUNT=1024
 
@@ -577,7 +579,7 @@ def _write_debug_page(
             cv2.imwrite(str(page_dir / numbered_consensus_images[filename]), debug_image)
         overlay_name = "07-overlay.jpg"
         diagnostics_name = "08-diagnostics.json"
-    elif candidate.get("method") in {"radial_edge", "adaptive_radial_edge", "multi_scale_radial_edge", "projective_gradient_vote", "border_fusion_quad", "border_energy", "convex_hull", "distance_transform", "distance_transform_rect", "polar_boundary_vote", "star_convex", "radon_boundary", "text_flow", "whitespace_frame", "joint_rectangle_vote", "learned_page_mask"} or (
+    elif candidate.get("method") in {"radial_edge", "adaptive_radial_edge", "multi_scale_radial_edge", "projective_gradient_vote", "border_fusion_quad", "border_energy", "convex_hull", "distance_transform", "distance_transform_rect", "polar_boundary_vote", "signed_polar_boundary_vote", "segment_supported_polar_vote", "star_convex", "radon_boundary", "text_flow", "whitespace_frame", "joint_rectangle_vote", "learned_page_mask"} or (
         debug_level == "verbose" and candidate.get("method") in {"gradient_vote", "grabcut"}
     ):
         diagnostics = candidate.get("diagnostics") if isinstance(candidate.get("diagnostics"), dict) else {}
@@ -596,6 +598,8 @@ def _write_debug_page(
             "distance_transform": detector_distance_transform,
             "distance_transform_rect": detector_distance_transform_rect,
             "polar_boundary_vote": detector_polar_boundary_vote,
+            "signed_polar_boundary_vote": detector_signed_polar_boundary_vote,
+            "segment_supported_polar_vote": detector_segment_supported_polar_vote,
             "radon_boundary": detector_radon_boundary,
             "text_flow": detector_text_flow,
             "whitespace_frame": detector_whitespace_frame,
@@ -616,6 +620,8 @@ def _write_debug_page(
             "distance_transform": ["distance-transform.png", "distance-core.png", "distance-candidate.png"],
             "distance_transform_rect": ["distance-rect-transform.png", "distance-rect-core.png", "distance-rect-proposal.png"],
             "polar_boundary_vote": ["polar-gradient.png", "polar-boundary-votes.png"],
+            "signed_polar_boundary_vote": ["signed-polar-gradient.png", "signed-polar-boundary-votes.png"],
+            "segment_supported_polar_vote": ["segment-polar-gradient.png", "segment-supported-polar-votes.png"],
             "radon_boundary": ["radon-evidence.png", "radon-boundary.png"],
             "text_flow": ["text-components.png", "text-lines.png"],
             "whitespace_frame": ["whitespace-background.png", "whitespace-frame.png"],

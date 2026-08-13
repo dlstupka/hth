@@ -19,6 +19,8 @@ on:
           - distance_transform
           - distance_transform_rect
           - polar_boundary_vote
+          - signed_polar_boundary_vote
+          - segment_supported_polar_vote
           - radon_boundary
           - text_flow
           - whitespace_frame
