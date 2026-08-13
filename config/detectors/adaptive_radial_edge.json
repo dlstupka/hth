@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "adaptive_radial_edge",
-  "description": "Calibration space for the HTH Adaptive Radial Edge Search detector.",
+  "description": "Generation-2 calibration space for HTH Adaptive Radial Edge Search, replacing the original coarse 6,562-set grid with a broad dense search over radial evidence plus the adaptive side-refinement controls.",
   "profiles": {
     "baseline": {
       "gaussian_sigma": 1.2,
@@ -26,39 +26,59 @@
     "gaussian_sigma": {
       "type": "float",
       "values": [
+        0.6,
         0.8,
+        1.0,
         1.2,
-        1.8
+        1.4,
+        1.6,
+        1.8,
+        2.0,
+        2.2,
+        2.4
       ]
     },
     "minimum_radius_fraction": {
       "type": "float",
       "values": [
-        0.12,
+        0.1,
+        0.14,
         0.18,
-        0.24
+        0.22,
+        0.26
       ]
     },
     "maximum_radius_fraction": {
       "type": "float",
       "values": [
-        0.62,
+        0.6,
+        0.66,
         0.72,
-        0.82
+        0.78,
+        0.84
       ]
     },
     "gradient_percentile": {
       "type": "float",
       "values": [
-        70.0,
+        74.0,
+        78.0,
+        80.0,
         82.0,
-        90.0
+        84.0,
+        86.0,
+        88.0,
+        90.0,
+        92.0,
+        94.0
       ]
     },
     "refined_angle_step_degrees": {
       "type": "float",
       "values": [
+        0.35,
         0.5,
+        0.75,
         1.0,
         1.5
       ]
@@ -66,9 +86,11 @@
     "weak_side_support_fraction": {
       "type": "float",
       "values": [
-        0.4,
+        0.35,
+        0.45,
         0.55,
-        0.7
+        0.65,
+        0.75
       ]
     },
     "side_assignment_tolerance_fraction": {
@@ -76,7 +98,8 @@
       "values": [
         0.015,
         0.025,
-        0.04
+        0.035,
+        0.05
       ]
     },
     "maximum_refined_sides": {

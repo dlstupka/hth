@@ -44,9 +44,9 @@ class BorderFusionQuadTests(unittest.TestCase):
         self.assertIn("fusion-selected-quad.png", images)
         self.assertIn("fusion-side-sources.png", images)
 
-    def test_generation_2_calibration_domain_has_50000_sets_and_retains_anchors(self) -> None:
+    def test_generation_3_calibration_domain_expands_refined_basin_and_retains_anchors(self) -> None:
         config = json.loads(Path("config/detectors/border_fusion_quad.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(exhaustive_parameter_sets(config)), 50000)
+        self.assertEqual(len(exhaustive_parameter_sets(config)), 539000)
         self.assertEqual(config["profiles"]["baseline"]["minimum_distinct_sources"], BASELINE_PARAMETERS["minimum_distinct_sources"])
         self.assertIn(74.0, config["parameters"]["gradient_percentile"]["values"])
         self.assertIn(82.0, config["parameters"]["gradient_percentile"]["values"])

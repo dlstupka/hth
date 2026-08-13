@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "radial_edge",
-  "description": "Calibration space for the HTH Radial Edge Search detector.",
+  "description": "Generation-2 calibration space for HTH Radial Edge Search, broadening the original coarse 6,562-set grid with denser radius, gradient, ray-density, smoothing, and scoring probes before the radial family is considered mature.",
   "profiles": {
     "baseline": {
       "gaussian_sigma": 1.2,
@@ -21,63 +21,86 @@
     "gaussian_sigma": {
       "type": "float",
       "values": [
+        0.6,
         0.8,
+        1.0,
         1.2,
-        1.8
+        1.4,
+        1.6,
+        1.8,
+        2.0,
+        2.2,
+        2.4
       ]
     },
     "ray_count": {
       "type": "int",
       "values": [
         64,
+        80,
         96,
-        144
+        112,
+        128,
+        144,
+        180,
+        224
       ]
     },
     "minimum_radius_fraction": {
       "type": "float",
       "values": [
-        0.12,
+        0.1,
+        0.14,
         0.18,
-        0.24
+        0.22,
+        0.26
       ]
     },
     "maximum_radius_fraction": {
       "type": "float",
       "values": [
-        0.62,
+        0.6,
+        0.66,
         0.72,
-        0.82
+        0.78,
+        0.84
       ]
     },
     "gradient_percentile": {
       "type": "float",
       "values": [
-        70.0,
+        74.0,
+        78.0,
+        80.0,
         82.0,
-        90.0
+        84.0,
+        86.0,
+        88.0,
+        90.0,
+        92.0,
+        94.0
       ]
     },
     "minimum_ray_support": {
       "type": "float",
       "values": [
-        0.3,
+        0.25,
+        0.35,
         0.45,
-        0.6
+        0.55,
+        0.65
       ]
     },
     "support_weight": {
       "type": "float",
       "values": [
         0.35,
-        0.45,
-        0.55
+        0.45
       ]
     },
     "rectangularity_weight": {
       "type": "float",
       "values": [
-        0.1,
         0.2,
         0.3
       ]

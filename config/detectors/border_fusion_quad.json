@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "border_fusion_quad",
-  "description": "Generation-2 calibration space for the HTH Border Fusion Quad detector, refined from the first exhaustive 244-set run and its verbose calibration intelligence.",
+  "description": "Generation-3 calibration space for the HTH Border Fusion Quad detector, expanded around the 50,000-set exhaustive winner while probing the low gradient-weight boundary and the broad gradient-support plateau.",
   "profiles": {
     "baseline": {
       "gradient_percentile": 82.0,
@@ -22,24 +22,29 @@
     "gradient_percentile": {
       "type": "float",
       "values": [
-        50.0,
-        54.0,
-        58.0,
-        62.0,
-        64.0,
-        66.0,
-        68.0,
-        70.0,
-        72.0,
-        74.0,
-        76.0,
-        78.0,
-        80.0,
-        82.0,
-        84.0,
-        86.0,
-        88.0,
-        90.0,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+        88,
+        89,
+        90,
         92.0,
         94.0
       ]
@@ -47,16 +52,20 @@
     "minimum_side_gradient_support": {
       "type": "float",
       "values": [
+        0,
+        0.01,
         0.02,
+        0.03,
         0.04,
+        0.05,
         0.06,
+        0.07,
         0.08,
+        0.09,
         0.1,
+        0.11,
         0.12,
-        0.14,
-        0.16,
-        0.2,
-        0.28
+        0.16
       ]
     },
     "minimum_area_fraction": {
@@ -72,27 +81,37 @@
     "gradient_weight": {
       "type": "float",
       "values": [
+        0.1,
+        0.15,
+        0.2,
+        0.225,
         0.25,
+        0.275,
+        0.3,
+        0.325,
         0.35,
         0.45,
-        0.55,
         0.65
       ]
     },
     "source_confidence_weight": {
       "type": "float",
       "values": [
-        0.05,
-        0.15,
         0.25,
+        0.3,
         0.35,
-        0.45
+        0.4,
+        0.45,
+        0.5,
+        0.55
       ]
     },
     "source_diversity_weight": {
       "type": "float",
       "values": [
         0.0,
+        0.025,
+        0.05,
         0.15
       ]
     }

@@ -36,9 +36,9 @@ class MultiScaleRadialEdgeTests(unittest.TestCase):
         self.assertIn("multi-scale-radial-points.png", images)
         self.assertIn("scale-space.png", images)
 
-    def test_generation_2_calibration_domain_has_100000_sets_and_retains_anchors(self) -> None:
+    def test_generation_3_calibration_domain_expands_refined_basin_and_retains_anchors(self) -> None:
         config = json.loads(Path("config/detectors/multi_scale_radial_edge.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(exhaustive_parameter_sets(config)), 100000)
+        self.assertEqual(len(exhaustive_parameter_sets(config)), 384076)
         self.assertEqual(config["profiles"]["baseline"]["scale_count"], BASELINE_PARAMETERS["scale_count"])
         self.assertIn(0.8, config["parameters"]["base_sigma"]["values"])
         self.assertIn(1.2, config["parameters"]["base_sigma"]["values"])

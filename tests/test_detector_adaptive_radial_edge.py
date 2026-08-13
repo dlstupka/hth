@@ -1,7 +1,11 @@
+import json
 import unittest
+from pathlib import Path
 
 import cv2
 import numpy as np
+
+from hth.regression.parameter_space import exhaustive_parameter_sets
 
 from hth.geometry.detector_adaptive_radial_edge import (
     BASELINE_PARAMETERS,
@@ -40,6 +44,16 @@ class AdaptiveRadialEdgeTests(unittest.TestCase):
     def test_baseline_has_refinement_controls(self):
         self.assertEqual(BASELINE_PARAMETERS["coarse_angle_step_degrees"], 3.0)
         self.assertEqual(BASELINE_PARAMETERS["refined_angle_step_degrees"], 1.0)
+
+    def test_generation_2_calibration_domain_expands_radial_and_refinement_controls(self):
+        config = json.loads(Path("config/detectors/adaptive_radial_edge.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(exhaustive_parameter_sets(config)), 750000)
+        self.assertIn(BASELINE_PARAMETERS["gaussian_sigma"], config["parameters"]["gaussian_sigma"]["values"])
+        self.assertIn(BASELINE_PARAMETERS["gradient_percentile"], config["parameters"]["gradient_percentile"]["values"])
+        self.assertIn(BASELINE_PARAMETERS["refined_angle_step_degrees"], config["parameters"]["refined_angle_step_degrees"]["values"])
+        self.assertIn(BASELINE_PARAMETERS["weak_side_support_fraction"], config["parameters"]["weak_side_support_fraction"]["values"])
+        self.assertIn(BASELINE_PARAMETERS["side_assignment_tolerance_fraction"], config["parameters"]["side_assignment_tolerance_fraction"]["values"])
+        self.assertIn(BASELINE_PARAMETERS["maximum_refined_sides"], config["parameters"]["maximum_refined_sides"]["values"])
 
     def test_side_support_is_normalized_by_each_sides_eligible_rays(self):
         center = np.array([50.0, 50.0], dtype=np.float32)

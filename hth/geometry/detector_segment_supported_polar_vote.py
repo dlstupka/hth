@@ -27,7 +27,11 @@ def _evidence(image,v):
     lsd=cv2.createLineSegmentDetector(cv2.LSD_REFINE_STD); found=lsd.detect(gray)[0]; h,w=gray.shape; diag=float(np.hypot(h,w)); min_len=diag*v["minimum_segment_length_fraction"]
     segments=[]
     if found is not None:
-        for line in found[:,0,:]:
+        # OpenCV LSD has returned both (N, 1, 4) and (N, 4) line arrays
+        # across supported builds/platforms.  Normalize either representation
+        # to one row per x1,y1,x2,y2 segment before iterating.
+        lines=np.asarray(found,dtype=np.float32).reshape(-1,4)
+        for line in lines:
             a=np.array(line[:2],np.float32); b=np.array(line[2:],np.float32)
             if np.linalg.norm(b-a)>=min_len: segments.append((a,b))
     max_dist=diag*v["segment_distance_fraction"]; supported=[]
