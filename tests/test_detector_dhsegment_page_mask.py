@@ -19,6 +19,37 @@ class FakeModel:
         return probability, image_bgr.shape[:2]
 
 
+class _FakeShape:
+    def __init__(self, rank):
+        self.rank = rank
+
+
+class _FakeTensor:
+    def __init__(self, name, rank):
+        self.name = name
+        self.shape = _FakeShape(rank)
+
+
+class _FakeOperation:
+    def __init__(self, name, *outputs):
+        self.name = name
+        self.outputs = list(outputs)
+
+
+class _FakeGraph:
+    def __init__(self, tensors, operations):
+        self._tensors = tensors
+        self._operations = operations
+
+    def get_tensor_by_name(self, name):
+        if name not in self._tensors:
+            raise KeyError(name)
+        return self._tensors[name]
+
+    def get_operations(self):
+        return list(self._operations)
+
+
 class DhSegmentPageMaskTests(unittest.TestCase):
     def test_initial_exhaustive_space_has_10000_sets_and_retains_baseline(self):
         path = Path(__file__).resolve().parents[1] / "config/detectors/dhsegment_page_mask.json"
@@ -79,6 +110,43 @@ class DhSegmentPageMaskTests(unittest.TestCase):
             self.assertIsNotNone(contour)
             self.assertGreater(cv2.contourArea(contour), 0)
 
+
+    def test_legacy_adapter_selects_filename_and_probability_signature_entries(self):
+        class Info:
+            def __init__(self, name):
+                self.name = name
+        input_key, input_info = detector._SavedModel._select_input(
+            {"images": Info("images:0"), "filename": Info("filename:0")}
+        )
+        output_key, output_info = detector._SavedModel._select_probability_output(
+            {"original_shape": Info("shape:0"), "probs": Info("probs:0")}
+        )
+        self.assertEqual((input_key, input_info.name), ("filename", "filename:0"))
+        self.assertEqual((output_key, output_info.name), ("probs", "probs:0"))
+
+    def test_legacy_adapter_recovers_from_stale_softmax_signature_name(self):
+        probability = _FakeTensor("network/probs:0", 4)
+        adapter = object.__new__(detector._SavedModel)
+        adapter.graph = _FakeGraph(
+            tensors={},
+            operations=[_FakeOperation("network/probs", probability)],
+        )
+        resolved = adapter._resolve_tensor(
+            "softmax:0",
+            role="probability output",
+            fallback_tokens=("prob", "softmax", "prediction"),
+            allow_stale_signature=True,
+        )
+        self.assertIs(resolved, probability)
+
+    def test_page_probability_matches_upstream_class_one_normalization(self):
+        raw = np.array(
+            [[[[0.9, 0.2], [0.1, 0.8]], [[0.7, 0.4], [0.3, 0.6]]]],
+            dtype=np.float32,
+        )
+        probability = detector._SavedModel._page_probability(raw)
+        expected = np.array([[0.25, 1.0], [0.5, 0.75]], dtype=np.float32)
+        np.testing.assert_allclose(probability, expected, rtol=0, atol=1e-6)
 
     def test_probability_postprocessing_respects_fixed_threshold(self):
         probability = np.array([[0.1, 0.2], [0.7, 0.9]], dtype=np.float32)

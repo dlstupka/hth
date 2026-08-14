@@ -70,11 +70,12 @@ def _provenance():
 
 
 class _SavedModel:
-    """Adapter for the released dhSegment page-extraction SavedModel.
+    """Legacy graph/session adapter for the released dhSegment v0.2 model.
 
-    Use TensorFlow 2's public SavedModel API and call the exported serving
-    ConcreteFunction directly. The adapter supports the released filename
-    signature and also tolerates numeric image signatures.
+    The release is a TensorFlow 1 SavedModel.  Loading it through TensorFlow 2's
+    object reconstruction path fails on stale object-graph references such as
+    ``softmax:0``.  Import the MetaGraph directly into an isolated TF1-compatible
+    graph/session and execute tensors named by the SavedModel SignatureDef.
     """
 
     def __init__(self, model_dir: Path):
@@ -87,114 +88,126 @@ class _SavedModel:
             ) from exc
 
         self.tf = tf
-        self.model = tf.saved_model.load(str(model_dir))
-        signatures = dict(getattr(self.model, "signatures", {}) or {})
+        self.graph = tf.Graph()
+        config = tf.compat.v1.ConfigProto(
+            intra_op_parallelism_threads=1,
+            inter_op_parallelism_threads=1,
+            allow_soft_placement=True,
+            device_count={"GPU": 0},
+        )
+        self.session = tf.compat.v1.Session(graph=self.graph, config=config)
+
+        with self.graph.as_default():
+            meta_graph = tf.compat.v1.saved_model.loader.load(
+                self.session,
+                [tf.compat.v1.saved_model.tag_constants.SERVING],
+                str(model_dir),
+            )
+
+        signatures = dict(meta_graph.signature_def)
         if not signatures:
             raise RuntimeError("dhSegment SavedModel has no serving signatures")
 
-        self.signature_name = (
-            tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY
-            if tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY in signatures
-            else sorted(signatures)[0]
+        default_key = tf.compat.v1.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
+        self.signature_name = default_key if default_key in signatures else sorted(signatures)[0]
+        signature = signatures[self.signature_name]
+        self.input_key, input_info = self._select_input(dict(signature.inputs))
+        self.probability_key, probability_info = self._select_probability_output(dict(signature.outputs))
+        shape_selected = self._select_shape_output(dict(signature.outputs))
+        self.shape_key, shape_info = shape_selected if shape_selected is not None else (None, None)
+
+        self.input_tensor = self._resolve_tensor(input_info.name, role="input")
+        self.probability_tensor = self._resolve_tensor(
+            probability_info.name,
+            role="probability output",
+            fallback_tokens=("prob", "softmax", "prediction"),
+            allow_stale_signature=True,
         )
-        self.function = signatures[self.signature_name]
-
-        positional, keyword = self.function.structured_input_signature
-        self.input_mode = None
-        self.input_key = None
-        self.input_spec = None
-
-        if keyword:
-            if len(keyword) != 1:
-                raise RuntimeError(
-                    "dhSegment serving signature must expose exactly one input; "
-                    f"got {sorted(keyword)}"
-                )
-            self.input_key, self.input_spec = next(iter(keyword.items()))
-            self.input_mode = "keyword"
-        elif positional:
-            specs = [item for item in positional if hasattr(item, "dtype")]
-            if len(specs) != 1:
-                raise RuntimeError(
-                    "dhSegment serving signature must expose exactly one tensor input; "
-                    f"got {self.function.structured_input_signature!r}"
-                )
-            self.input_spec = specs[0]
-            self.input_mode = "positional"
-        else:
-            raise RuntimeError("dhSegment serving signature exposes no tensor input")
-
-    def _filename_value(self, image_path: Path):
-        rank = self.input_spec.shape.rank
-        if rank == 0:
-            return self.tf.constant(str(image_path))
-        if rank == 1 or rank is None:
-            return self.tf.constant([str(image_path)])
-        raise RuntimeError(
-            "dhSegment filename serving input has unsupported rank "
-            f"{rank}: {self.input_spec!r}"
-        )
-
-    def _image_value(self, image_bgr: np.ndarray):
-        rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-        value = self.tf.convert_to_tensor(rgb)
-        rank = self.input_spec.shape.rank
-        if rank == 4:
-            value = value[None, ...]
-        elif rank not in (3, None):
-            raise RuntimeError(
-                "dhSegment numeric serving input has unsupported rank "
-                f"{rank}: {self.input_spec!r}"
+        self.shape_tensor = None
+        if shape_info is not None:
+            self.shape_tensor = self._resolve_tensor(
+                shape_info.name,
+                role="original-shape output",
+                fallback_tokens=("original_shape", "shape"),
+                allow_stale_signature=True,
             )
-        target_dtype = self.input_spec.dtype
-        if target_dtype.is_floating:
-            value = self.tf.image.convert_image_dtype(value, target_dtype)
-        else:
-            value = self.tf.cast(value, target_dtype)
-        return value
-
-    def _invoke(self, input_value):
-        if self.input_mode == "keyword":
-            return self.function(**{self.input_key: input_value})
-        return self.function(input_value)
 
     @staticmethod
-    def _pick_output(outputs, *tokens):
-        keys = list(outputs)
-        for token in tokens:
-            for key in keys:
-                if token in str(key).lower():
-                    return outputs[key]
-        return None
+    def _select_input(inputs):
+        if not inputs:
+            raise RuntimeError("dhSegment SavedModel serving signature has no inputs")
+        key = next((name for name in inputs if "file" in name.lower()), None)
+        if key is None:
+            key = sorted(inputs)[0]
+        return key, inputs[key]
 
-    def predict(self, image_bgr: np.ndarray) -> tuple[np.ndarray, tuple[int, int]]:
-        dtype = self.input_spec.dtype
-        image_path = None
+    @staticmethod
+    def _select_probability_output(outputs):
+        if not outputs:
+            raise RuntimeError("dhSegment SavedModel serving signature has no outputs")
+        key = next(
+            (name for name in outputs if any(token in name.lower() for token in ("prob", "softmax", "prediction"))),
+            None,
+        )
+        if key is None:
+            key = sorted(outputs)[0]
+        return key, outputs[key]
+
+    @staticmethod
+    def _select_shape_output(outputs):
+        key = next((name for name in outputs if "original_shape" in name.lower()), None)
+        if key is None:
+            key = next((name for name in outputs if "shape" in name.lower()), None)
+        return (key, outputs[key]) if key is not None else None
+
+    def _resolve_tensor(self, tensor_name, *, role, fallback_tokens=(), allow_stale_signature=False):
         try:
-            if dtype == self.tf.string:
-                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as handle:
-                    image_path = Path(handle.name)
-                if not cv2.imwrite(str(image_path), image_bgr):
-                    raise RuntimeError("could not serialize image for dhSegment inference")
-                input_value = self._filename_value(image_path)
-            else:
-                input_value = self._image_value(image_bgr)
+            return self.graph.get_tensor_by_name(tensor_name)
+        except KeyError as exc:
+            if not allow_stale_signature:
+                raise RuntimeError(
+                    f"dhSegment SavedModel signature {role} tensor {tensor_name!r} is missing"
+                ) from exc
 
-            raw_outputs = self._invoke(input_value)
-        finally:
-            if image_path is not None:
-                image_path.unlink(missing_ok=True)
+        candidates = []
+        for operation in self.graph.get_operations():
+            name = operation.name.lower()
+            if fallback_tokens and not any(token in name for token in fallback_tokens):
+                continue
+            for tensor in operation.outputs:
+                shape = tensor.shape
+                rank = shape.rank
+                if role == "probability output" and rank not in (3, 4, None):
+                    continue
+                if role == "original-shape output" and rank not in (1, 2, None):
+                    continue
+                candidates.append(tensor)
 
-        outputs = raw_outputs if isinstance(raw_outputs, dict) else {"output": raw_outputs}
-
-        probs_tensor = self._pick_output(outputs, "prob", "prediction", "output")
-        if probs_tensor is None:
+        if not candidates:
             raise RuntimeError(
-                "dhSegment serving signature exposes no probability-like output; "
-                f"available={sorted(str(key) for key in outputs)}"
+                f"dhSegment SavedModel signature {role} tensor {tensor_name!r} is stale and "
+                f"no compatible graph tensor matched {fallback_tokens!r}"
             )
 
-        probs = np.asarray(probs_tensor.numpy(), dtype=np.float32)
+        candidates.sort(key=lambda tensor: tensor.name)
+        return candidates[-1]
+
+    def _feed_value(self, image_path: Path):
+        dtype = self.input_tensor.dtype
+        shape = self.input_tensor.shape
+        rank = shape.rank
+        if dtype == self.tf.string:
+            if rank == 0:
+                return str(image_path)
+            return [str(image_path)]
+        raise RuntimeError(
+            "dhSegment v0.2 page model is expected to expose a filename/string input; "
+            f"got tensor {self.input_tensor.name!r} dtype={dtype.name} shape={shape}"
+        )
+
+    @staticmethod
+    def _page_probability(raw):
+        probs = np.asarray(raw, dtype=np.float32)
         while probs.ndim > 3 and probs.shape[0] == 1:
             probs = probs[0]
         if probs.ndim == 3:
@@ -206,23 +219,36 @@ class _SavedModel:
                 probs = np.squeeze(probs)
         if probs.ndim != 2:
             raise RuntimeError(
-                "dhSegment probability output has unexpected shape "
-                f"{tuple(probs.shape)} from outputs={sorted(str(key) for key in outputs)}"
+                f"dhSegment probability output has unexpected shape {tuple(probs.shape)}"
             )
+        maximum = float(np.max(probs)) if probs.size else 0.0
+        if maximum > 0:
+            probs = probs / maximum
+        return np.clip(probs, 0.0, 1.0)
 
-        pmin = float(np.min(probs)) if probs.size else 0.0
-        pmax = float(np.max(probs)) if probs.size else 0.0
-        if pmin < 0.0 or pmax > 1.0:
-            probs = 1.0 / (1.0 + np.exp(-np.clip(probs, -30.0, 30.0)))
-        probs = np.clip(probs, 0.0, 1.0)
+    def predict(self, image_bgr: np.ndarray) -> tuple[np.ndarray, tuple[int, int]]:
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as handle:
+            image_path = Path(handle.name)
+        try:
+            if not cv2.imwrite(str(image_path), image_bgr):
+                raise RuntimeError("could not serialize image for dhSegment inference")
+            fetches = [self.probability_tensor]
+            if self.shape_tensor is not None:
+                fetches.append(self.shape_tensor)
+            outputs = self.session.run(
+                fetches,
+                feed_dict={self.input_tensor: self._feed_value(image_path)},
+            )
+        finally:
+            image_path.unlink(missing_ok=True)
 
+        probability = self._page_probability(outputs[0])
         original_shape = tuple(int(v) for v in image_bgr.shape[:2])
-        shape_tensor = self._pick_output(outputs, "original_shape", "shape")
-        if shape_tensor is not None:
-            raw_shape = np.asarray(shape_tensor.numpy()).reshape(-1)
+        if self.shape_tensor is not None and len(outputs) > 1:
+            raw_shape = np.asarray(outputs[1]).reshape(-1)
             if raw_shape.size >= 2:
                 original_shape = (int(raw_shape[-2]), int(raw_shape[-1]))
-        return probs, original_shape
+        return probability, original_shape
 
 
 def _model():
