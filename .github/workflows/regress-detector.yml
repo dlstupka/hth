@@ -48,6 +48,7 @@ on:
           - radon_boundary
           - text_flow
           - whitespace_frame
+          - page_background
           - joint_rectangle_vote
           - learned_page_mask
           - star_convex
@@ -325,7 +326,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        detector: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.algorithm == 'all' && (inputs.specific_runner == 'custom' || inputs.runner != 'github-hosted') && '["contour","convex_hull","distance_transform","distance_transform_rect","polar_boundary_vote","signed_polar_boundary_vote","segment_supported_polar_vote","joint_rectangle_vote","learned_page_mask","whitespace_frame","text_flow","radon_boundary","star_convex","contour_quad","contour_components","contour_projection","contour_grabcut","grabcut_contour","consensus_quad","edge_contour","cross_edge_contour","gradient_vote","radial_edge","adaptive_radial_edge","multi_scale_radial_edge","projective_gradient_vote","border_fusion_quad","border_energy","components","ransac","grabcut","hough","lsd"]' || format('["{0}"]', github.event_name == 'workflow_dispatch' && inputs.algorithm || 'all')) }}
+        detector: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.algorithm == 'all' && (inputs.specific_runner == 'custom' || inputs.runner != 'github-hosted') && '["contour","convex_hull","distance_transform","distance_transform_rect","polar_boundary_vote","signed_polar_boundary_vote","segment_supported_polar_vote","joint_rectangle_vote","learned_page_mask","whitespace_frame","page_background","text_flow","radon_boundary","star_convex","contour_quad","contour_components","contour_projection","contour_grabcut","grabcut_contour","consensus_quad","edge_contour","cross_edge_contour","gradient_vote","radial_edge","adaptive_radial_edge","multi_scale_radial_edge","projective_gradient_vote","border_fusion_quad","border_energy","components","ransac","grabcut","hough","lsd"]' || format('["{0}"]', github.event_name == 'workflow_dispatch' && inputs.algorithm || 'all')) }}
     name: >-
       ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
           && format('Regress {0} against Golden Set', matrix.detector)

@@ -24,6 +24,7 @@ on:
           - radon_boundary
           - text_flow
           - whitespace_frame
+          - page_background
           - joint_rectangle_vote
           - learned_page_mask
           - star_convex

@@ -1,0 +1,29 @@
+{
+  "schema_version": "0.1",
+  "detector": "page_background",
+  "description": "Calibration space for the HTH Page Background detector, which models the surrounding capture background from robust outer-border color statistics and extracts the enclosed non-background page region.",
+  "profiles": {
+    "baseline": {
+      "border_band_fraction": 0.06,
+      "color_distance_threshold": 3.0,
+      "blur_sigma": 1.2,
+      "close_kernel_fraction": 0.008,
+      "open_kernel_fraction": 0.003,
+      "minimum_border_background_fraction": 0.5,
+      "minimum_page_area_fraction": 0.25,
+      "maximum_page_area_fraction": 0.98,
+      "minimum_rectangularity": 0.6
+    }
+  },
+  "parameters": {
+    "border_band_fraction": {"type": "float", "values": [0.03, 0.06, 0.1]},
+    "color_distance_threshold": {"type": "float", "values": [2.0, 3.0, 4.5]},
+    "blur_sigma": {"type": "float", "values": [0.0, 1.2, 2.4]},
+    "close_kernel_fraction": {"type": "float", "values": [0.003, 0.008, 0.015]},
+    "open_kernel_fraction": {"type": "float", "values": [0.0, 0.003, 0.006]},
+    "minimum_border_background_fraction": {"type": "float", "values": [0.35, 0.5, 0.65]},
+    "minimum_page_area_fraction": {"type": "float", "values": [0.15, 0.25, 0.4]}
+  },
+  "binary_refine": {"passes": 3, "local_exhaustive_radius": 1},
+  "regression": {"debug_artifacts": "winner"}
+}

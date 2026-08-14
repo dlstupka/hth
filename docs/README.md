@@ -246,6 +246,7 @@ This directory contains the design, operating, and project-reference documentati
 - [Radial Edge Search detector](detector-radial-edge.md) — center-outward gradient search for independent boundary generation.
 - [Adaptive Radial Edge Search detector](detector-adaptive-radial-edge.md) — two-pass radial search that refines weak document sides at one-degree spacing.
 - [Multi-Scale Radial Edge Search detector](detector-multi-scale-radial-edge.md) — scale-space radial fusion for boundaries that appear differently across spatial scales.
+- [Page Background detector](detector-page-background.md) — robustly models the surrounding capture/background and extracts the enclosed non-background page region.
 - [Projective Gradient Vote detector](detector-projective-gradient-vote.md) — long gradient-supported line families intersected into a perspective-aware quadrilateral.
 - [Border Fusion Quad detector](detector-border-fusion-quad.md) — side-level fusion across radial, polar, and gradient boundary hypotheses.
 - [Border Energy Validator detector](detector-border-energy.md) — contour geometry validated by gradient energy along all four borders.
@@ -314,6 +315,7 @@ The execution-optimizer report includes shape-prediction coverage for each detec
 ### Additional boundary proposal detectors
 
 - **Multi-Scale Radial Edge Search (`multi_scale_radial_edge`)** fuses independently normalized gradient evidence across several Gaussian scales before center-outward boundary sampling.
+- **Page Background (`page_background`)** learns robust Lab color statistics from the outer capture border and extracts the dominant page region that differs from that background.
 - **Projective Gradient Vote (`projective_gradient_vote`)** groups long gradient-supported segments into two near-orthogonal projective side families and intersects opposing lines into a quadrilateral.
 - **Border Fusion Quad (`border_fusion_quad`)** recombines top/right/bottom/left hypotheses from Radial Edge Search, Polar Boundary Voting, and Gradient Boundary Voting, then validates the mixed-source quadrilateral against side gradients.
 - **Polar Boundary Voting (`polar_boundary_vote`)** samples gradient evidence on center-outward polar rays, votes for strong outer transitions, and fits a document envelope from angularly distributed boundary support.
