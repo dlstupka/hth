@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -97,12 +98,18 @@ class _SavedModel:
         )
         self.session = tf.compat.v1.Session(graph=self.graph, config=config)
 
-        with self.graph.as_default():
-            meta_graph = tf.compat.v1.saved_model.loader.load(
-                self.session,
-                [tf.compat.v1.saved_model.tag_constants.SERVING],
-                str(model_dir),
-            )
+        tf_logger = tf.get_logger()
+        previous_level = tf_logger.level
+        tf_logger.setLevel(logging.ERROR)
+        try:
+            with self.graph.as_default():
+                meta_graph = tf.compat.v1.saved_model.loader.load(
+                    self.session,
+                    [tf.compat.v1.saved_model.tag_constants.SERVING],
+                    str(model_dir),
+                )
+        finally:
+            tf_logger.setLevel(previous_level)
 
         signatures = dict(meta_graph.signature_def)
         if not signatures:

@@ -215,7 +215,11 @@ def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
     env={
         "HTH_DHSEGMENT_PAGE_MODEL_DIR":model_dir.resolve().as_posix(),
         "HTH_DHSEGMENT_PAGE_PROVENANCE":provenance.resolve().as_posix(),
-        "TF_CPP_MIN_LOG_LEVEL":"2",
+        # dhSegment v0.2 is CPU inference in HTH. Keep TensorFlow/absl legacy
+        # loader chatter out of regression logs while preserving HTH diagnostics.
+        "TF_CPP_MIN_LOG_LEVEL":"3",
+        "ABSL_MIN_LOG_LEVEL":"3",
+        "GLOG_minloglevel":"3",
         "CUDA_VISIBLE_DEVICES":"-1",
     }
     _write_env(env_file,env); os.environ.update(env)

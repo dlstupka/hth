@@ -564,7 +564,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install "tensorflow>=2.18,<2.21"
+          python -m pip install "tensorflow-cpu>=2.18,<2.21"
           python -m pip check
 
       - name: Verify Python dependency ABI
