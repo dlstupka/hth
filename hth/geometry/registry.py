@@ -12,6 +12,7 @@ import numpy as np
 
 from . import (
     detector_adaptive_multi_scale_radial_edge,
+    detector_amsre_bfq_spbv_pbg,
     detector_adaptive_radial_edge,
     detector_border_energy,
     detector_border_fusion_quad,
@@ -189,6 +190,16 @@ _REGISTRY: tuple[DetectorSpec, ...] = (
         origin="HTH",
         entrypoint=detector_adaptive_multi_scale_radial_edge.detect,
         foundation=("Multi-scale gradients", "Adaptive angular refinement", "Radial gradient search", "OpenCV"),
+        authors=("OpenAI ChatGPT",),
+        version=HTH_VERSION,
+        repository=HTH_REPOSITORY,
+    ),
+    DetectorSpec(
+        method=detector_amsre_bfq_spbv_pbg.METHOD,
+        name="Fusion Gen2 — AMSRE + BFQ + SPBV + Page Background",
+        origin="HTH",
+        entrypoint=detector_amsre_bfq_spbv_pbg.detect,
+        foundation=("Adaptive Multi-Scale Radial Edge", "Border Fusion Quad", "Signed Polar Boundary Voting", "Page Background", "Side-level consensus", "OpenCV"),
         authors=("OpenAI ChatGPT",),
         version=HTH_VERSION,
         repository=HTH_REPOSITORY,

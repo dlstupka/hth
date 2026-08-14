@@ -16,6 +16,7 @@ on:
           - all
           - adaptive_multi_scale_radial_edge
           - adaptive_radial_edge
+          - amsre_bfq_spbv_pbg
           - border_energy
           - border_fusion_quad
           - components
