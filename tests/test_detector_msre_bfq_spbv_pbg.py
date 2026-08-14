@@ -18,12 +18,27 @@ class FusionGen1Tests(unittest.TestCase):
         payload = json.loads(Path("config/detectors/msre_bfq_spbv_pbg.json").read_text(encoding="utf-8"))
         self.assertEqual(payload["child_calibrations"], detector_msre_bfq_spbv_pbg.CHILD_CALIBRATIONS)
 
-    def test_initial_search_space_is_2187_sets(self) -> None:
+    def test_refined_search_space_is_50176_sets(self) -> None:
         payload = json.loads(Path("config/detectors/msre_bfq_spbv_pbg.json").read_text(encoding="utf-8"))
         size = 1
         for spec in payload["parameters"].values():
             size *= len(spec["values"])
-        self.assertEqual(size, 2187)
+        self.assertEqual(size, 50176)
+
+    def test_refined_grid_preserves_gen1_anchors_and_collapses_dormant_dimensions(self) -> None:
+        payload = json.loads(Path("config/detectors/msre_bfq_spbv_pbg.json").read_text(encoding="utf-8"))
+        parameters = payload["parameters"]
+        self.assertEqual(len(parameters["minimum_side_consensus"]["values"]), 224)
+        self.assertEqual(len(parameters["consensus_tolerance_fraction"]["values"]), 224)
+        for value in (0.25, 0.5, 0.75):
+            self.assertIn(value, parameters["minimum_side_consensus"]["values"])
+        for value in (0.006, 0.012, 0.024):
+            self.assertIn(value, parameters["consensus_tolerance_fraction"]["values"])
+        self.assertEqual(parameters["gradient_weight"]["values"], [0.25])
+        self.assertEqual(parameters["gradient_percentile"]["values"], [76.0])
+        self.assertEqual(parameters["consensus_weight"]["values"], [0.6])
+        self.assertEqual(parameters["source_diversity_weight"]["values"], [0.15])
+        self.assertEqual(parameters["minimum_side_gradient_support"]["values"], [0.03])
 
     def test_detector_contract_on_simple_page(self) -> None:
         image = np.full((360, 280, 3), 25, dtype=np.uint8)
