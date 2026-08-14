@@ -15,6 +15,30 @@ class FailureDiagnosticsTests(unittest.TestCase):
         self.assertEqual(diag["reason_counts"], {"no_learned_page_region": 2, "RuntimeError": 1})
         self.assertEqual(diag["diagnostic_ranges"]["probability_max"], {"min": 0.12, "max": 0.18})
 
+
+    def test_runner_preserves_registry_exception_message_and_traceback(self):
+        result = {"pages": [
+            {
+                "global_ordinal": 6,
+                "status": "error",
+                "candidate": {
+                    "diagnostics": {
+                        "reason": "detector_exception",
+                        "exception_type": "ValueError",
+                        "exception_message": "bad serving signature",
+                        "traceback": "Traceback...bad serving signature",
+                    }
+                },
+            }
+        ]}
+        diag = failure_diagnostics(result)
+        self.assertEqual(diag["reason_counts"], {"detector_exception": 1})
+        self.assertEqual(len(diag["exceptions"]), 1)
+        self.assertEqual(diag["exceptions"][0]["type"], "ValueError")
+        self.assertEqual(diag["exceptions"][0]["message"], "bad serving signature")
+        self.assertEqual(diag["exceptions"][0]["example_page"], 6)
+        self.assertIn("Traceback", diag["exceptions"][0]["traceback"])
+
     def test_calibration_measurement_state_preserves_failure_reasons(self):
         ranked = [{
             "parameter_set_id": "x", "parameters": {"threshold": 0.5},

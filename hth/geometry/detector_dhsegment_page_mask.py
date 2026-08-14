@@ -24,7 +24,8 @@ BASELINE_PARAMETERS = {
     "fill_holes": 1,
 }
 
-_THREAD_LOCAL = threading.local()
+_MODEL_CACHE: dict[str, _SavedModel] = {}
+_MODEL_CACHE_LOCK = threading.Lock()
 
 
 def _parameters(parameters):
@@ -69,7 +70,12 @@ def _provenance():
 
 
 class _SavedModel:
-    """Minimal adapter for the released dhSegment page-extraction SavedModel."""
+    """Adapter for the released dhSegment page-extraction SavedModel.
+
+    Use TensorFlow 2's public SavedModel API and call the exported serving
+    ConcreteFunction directly. The adapter supports the released filename
+    signature and also tolerates numeric image signatures.
+    """
 
     def __init__(self, model_dir: Path):
         try:
@@ -80,84 +86,115 @@ class _SavedModel:
                 "by the regression/optimizer workflow"
             ) from exc
 
-        tf.compat.v1.disable_eager_execution()
         self.tf = tf
-        self.graph = tf.Graph()
-        config = tf.compat.v1.ConfigProto(
-            intra_op_parallelism_threads=1,
-            inter_op_parallelism_threads=1,
-            allow_soft_placement=True,
-        )
-        self.session = tf.compat.v1.Session(graph=self.graph, config=config)
-
-        with self.graph.as_default():
-            meta = tf.compat.v1.saved_model.loader.load(
-                self.session,
-                [tf.compat.v1.saved_model.tag_constants.SERVING],
-                str(model_dir),
-            )
-
-        signatures = dict(meta.signature_def)
+        self.model = tf.saved_model.load(str(model_dir))
+        signatures = dict(getattr(self.model, "signatures", {}) or {})
         if not signatures:
             raise RuntimeError("dhSegment SavedModel has no serving signatures")
-        signature = signatures.get(
-            tf.compat.v1.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
-        ) or next(iter(signatures.values()))
 
-        inputs = dict(signature.inputs)
-        outputs = dict(signature.outputs)
-        if not inputs:
-            raise RuntimeError("dhSegment SavedModel serving signature has no inputs")
+        self.signature_name = (
+            tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY
+            if tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY in signatures
+            else sorted(signatures)[0]
+        )
+        self.function = signatures[self.signature_name]
 
-        input_key = next((k for k in inputs if "file" in k.lower()), None)
-        if input_key is None:
-            input_key = next(
-                (
-                    k
-                    for k, info in inputs.items()
-                    if int(info.dtype) == int(tf.string.as_datatype_enum)
-                ),
-                None,
-            )
-        if input_key is None:
-            input_key = sorted(inputs)[0]
+        positional, keyword = self.function.structured_input_signature
+        self.input_mode = None
+        self.input_key = None
+        self.input_spec = None
 
-        probs_key = next((k for k in outputs if "prob" in k.lower()), None)
-        if probs_key is None:
-            raise RuntimeError(
-                f"dhSegment SavedModel signature exposes no probability output: {sorted(outputs)}"
-            )
+        if keyword:
+            if len(keyword) != 1:
+                raise RuntimeError(
+                    "dhSegment serving signature must expose exactly one input; "
+                    f"got {sorted(keyword)}"
+                )
+            self.input_key, self.input_spec = next(iter(keyword.items()))
+            self.input_mode = "keyword"
+        elif positional:
+            specs = [item for item in positional if hasattr(item, "dtype")]
+            if len(specs) != 1:
+                raise RuntimeError(
+                    "dhSegment serving signature must expose exactly one tensor input; "
+                    f"got {self.function.structured_input_signature!r}"
+                )
+            self.input_spec = specs[0]
+            self.input_mode = "positional"
+        else:
+            raise RuntimeError("dhSegment serving signature exposes no tensor input")
 
-        shape_key = next((k for k in outputs if "original_shape" in k.lower()), None)
-
-        self.input_tensor = self.graph.get_tensor_by_name(inputs[input_key].name)
-        self.probs_tensor = self.graph.get_tensor_by_name(outputs[probs_key].name)
-        self.shape_tensor = (
-            self.graph.get_tensor_by_name(outputs[shape_key].name)
-            if shape_key is not None
-            else None
+    def _filename_value(self, image_path: Path):
+        rank = self.input_spec.shape.rank
+        if rank == 0:
+            return self.tf.constant(str(image_path))
+        if rank == 1 or rank is None:
+            return self.tf.constant([str(image_path)])
+        raise RuntimeError(
+            "dhSegment filename serving input has unsupported rank "
+            f"{rank}: {self.input_spec!r}"
         )
 
-    def predict(self, image_bgr: np.ndarray) -> tuple[np.ndarray, tuple[int, int]]:
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as handle:
-            image_path = Path(handle.name)
-        try:
-            if not cv2.imwrite(str(image_path), image_bgr):
-                raise RuntimeError("could not serialize image for dhSegment inference")
-            tensor_shape = self.input_tensor.shape.as_list()
-            feed_value = str(image_path)
-            if tensor_shape and len(tensor_shape) >= 1:
-                feed_value = [feed_value]
-            fetches = [self.probs_tensor]
-            if self.shape_tensor is not None:
-                fetches.append(self.shape_tensor)
-            outputs = self.session.run(
-                fetches, feed_dict={self.input_tensor: feed_value}
+    def _image_value(self, image_bgr: np.ndarray):
+        rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        value = self.tf.convert_to_tensor(rgb)
+        rank = self.input_spec.shape.rank
+        if rank == 4:
+            value = value[None, ...]
+        elif rank not in (3, None):
+            raise RuntimeError(
+                "dhSegment numeric serving input has unsupported rank "
+                f"{rank}: {self.input_spec!r}"
             )
-        finally:
-            image_path.unlink(missing_ok=True)
+        target_dtype = self.input_spec.dtype
+        if target_dtype.is_floating:
+            value = self.tf.image.convert_image_dtype(value, target_dtype)
+        else:
+            value = self.tf.cast(value, target_dtype)
+        return value
 
-        probs = np.asarray(outputs[0], dtype=np.float32)
+    def _invoke(self, input_value):
+        if self.input_mode == "keyword":
+            return self.function(**{self.input_key: input_value})
+        return self.function(input_value)
+
+    @staticmethod
+    def _pick_output(outputs, *tokens):
+        keys = list(outputs)
+        for token in tokens:
+            for key in keys:
+                if token in str(key).lower():
+                    return outputs[key]
+        return None
+
+    def predict(self, image_bgr: np.ndarray) -> tuple[np.ndarray, tuple[int, int]]:
+        dtype = self.input_spec.dtype
+        image_path = None
+        try:
+            if dtype == self.tf.string:
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as handle:
+                    image_path = Path(handle.name)
+                if not cv2.imwrite(str(image_path), image_bgr):
+                    raise RuntimeError("could not serialize image for dhSegment inference")
+                input_value = self._filename_value(image_path)
+            else:
+                input_value = self._image_value(image_bgr)
+
+            raw_outputs = self._invoke(input_value)
+        finally:
+            if image_path is not None:
+                image_path.unlink(missing_ok=True)
+
+        outputs = raw_outputs if isinstance(raw_outputs, dict) else {"output": raw_outputs}
+
+        probs_tensor = self._pick_output(outputs, "prob", "prediction", "output")
+        if probs_tensor is None:
+            raise RuntimeError(
+                "dhSegment serving signature exposes no probability-like output; "
+                f"available={sorted(str(key) for key in outputs)}"
+            )
+
+        probs = np.asarray(probs_tensor.numpy(), dtype=np.float32)
         while probs.ndim > 3 and probs.shape[0] == 1:
             probs = probs[0]
         if probs.ndim == 3:
@@ -169,17 +206,20 @@ class _SavedModel:
                 probs = np.squeeze(probs)
         if probs.ndim != 2:
             raise RuntimeError(
-                f"dhSegment probability output has unexpected shape {tuple(probs.shape)}"
+                "dhSegment probability output has unexpected shape "
+                f"{tuple(probs.shape)} from outputs={sorted(str(key) for key in outputs)}"
             )
 
-        maximum = float(np.max(probs)) if probs.size else 0.0
-        if maximum > 0:
-            probs = probs / maximum
+        pmin = float(np.min(probs)) if probs.size else 0.0
+        pmax = float(np.max(probs)) if probs.size else 0.0
+        if pmin < 0.0 or pmax > 1.0:
+            probs = 1.0 / (1.0 + np.exp(-np.clip(probs, -30.0, 30.0)))
         probs = np.clip(probs, 0.0, 1.0)
 
         original_shape = tuple(int(v) for v in image_bgr.shape[:2])
-        if self.shape_tensor is not None and len(outputs) > 1:
-            raw_shape = np.asarray(outputs[1]).reshape(-1)
+        shape_tensor = self._pick_output(outputs, "original_shape", "shape")
+        if shape_tensor is not None:
+            raw_shape = np.asarray(shape_tensor.numpy()).reshape(-1)
             if raw_shape.size >= 2:
                 original_shape = (int(raw_shape[-2]), int(raw_shape[-1]))
         return probs, original_shape
@@ -188,11 +228,15 @@ class _SavedModel:
 def _model():
     model_dir = _asset_dir()
     key = str(model_dir.resolve())
-    if getattr(_THREAD_LOCAL, "key", None) != key or not hasattr(_THREAD_LOCAL, "model"):
-        model = _SavedModel(model_dir)
-        _THREAD_LOCAL.model = model
-        _THREAD_LOCAL.key = key
-    return _THREAD_LOCAL.model
+    model = _MODEL_CACHE.get(key)
+    if model is not None:
+        return model
+    with _MODEL_CACHE_LOCK:
+        model = _MODEL_CACHE.get(key)
+        if model is None:
+            model = _SavedModel(model_dir)
+            _MODEL_CACHE[key] = model
+    return model
 
 
 def _fill_holes(binary: np.ndarray) -> np.ndarray:

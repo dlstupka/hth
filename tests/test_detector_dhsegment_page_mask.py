@@ -80,5 +80,18 @@ class DhSegmentPageMaskTests(unittest.TestCase):
             self.assertGreater(cv2.contourArea(contour), 0)
 
 
+    def test_probability_postprocessing_respects_fixed_threshold(self):
+        probability = np.array([[0.1, 0.2], [0.7, 0.9]], dtype=np.float32)
+        values = detector._parameters({
+            "probability_threshold": 0.5,
+            "close_kernel_fraction": 0.0,
+            "open_kernel_fraction": 0.0,
+            "fill_holes": 0,
+        })
+        binary, contour = detector._postprocess(probability, values)
+        self.assertEqual(int(binary[0, 0]), 0)
+        self.assertEqual(int(binary[1, 1]), 255)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -216,6 +216,7 @@ def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
         "HTH_DHSEGMENT_PAGE_MODEL_DIR":model_dir.resolve().as_posix(),
         "HTH_DHSEGMENT_PAGE_PROVENANCE":provenance.resolve().as_posix(),
         "TF_CPP_MIN_LOG_LEVEL":"2",
+        "CUDA_VISIBLE_DEVICES":"-1",
     }
     _write_env(env_file,env); os.environ.update(env)
     print(

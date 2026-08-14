@@ -317,9 +317,10 @@ def evaluate_set(detector:Any, parameters:dict[str,Any], pages:list[dict[str,Any
 
 
 def failure_diagnostics(result: dict[str, Any]) -> dict[str, Any]:
-    """Summarize failed page reasons and learned-detector evidence without debug images."""
+    """Summarize failed page reasons, evidence, and preserved detector exceptions."""
     reasons: dict[str, int] = {}
     numeric: dict[str, list[float]] = {}
+    exceptions: dict[tuple[str, str], dict[str, Any]] = {}
     for page in result.get("pages", []):
         if not isinstance(page, dict) or str(page.get("status", "")) == "ok":
             continue
@@ -328,12 +329,37 @@ def failure_diagnostics(result: dict[str, Any]) -> dict[str, Any]:
         error = page.get("error") if isinstance(page.get("error"), dict) else {}
         reason = str(diagnostics.get("reason") or error.get("type") or page.get("status") or "unknown")
         reasons[reason] = reasons.get(reason, 0) + 1
+
+        exception_type = str(diagnostics.get("exception_type") or error.get("type") or "")
+        exception_message = str(diagnostics.get("exception_message") or error.get("message") or "")
+        exception_traceback = str(diagnostics.get("traceback") or error.get("traceback") or "")
+        if exception_type or exception_message:
+            key = (exception_type or "Exception", exception_message or "(no message)")
+            item = exceptions.setdefault(
+                key,
+                {
+                    "type": key[0],
+                    "message": key[1],
+                    "count": 0,
+                    "example_page": page.get("global_ordinal"),
+                    "traceback": exception_traceback or None,
+                },
+            )
+            item["count"] += 1
+
         for key in ("probability_min", "probability_max", "probability_mean", "thresholded_fraction", "mask_area_fraction"):
             value = diagnostics.get(key)
             if isinstance(value, (int, float)):
                 numeric.setdefault(key, []).append(float(value))
     ranges = {key: {"min": min(values), "max": max(values)} for key, values in numeric.items() if values}
-    return {"reason_counts": reasons, "diagnostic_ranges": ranges}
+    return {
+        "reason_counts": reasons,
+        "diagnostic_ranges": ranges,
+        "exceptions": sorted(
+            exceptions.values(),
+            key=lambda item: (-int(item["count"]), str(item["type"]), str(item["message"])),
+        ),
+    }
 
 
 def build_winner_page_report(
@@ -617,7 +643,7 @@ def _write_debug_page(
             "learned_page_mask": detector_learned_page_mask,
             "star_convex": detector_star_convex,
         }[method]
-        basic_names = {
+        basic_names_by_method = {
             "radial_edge": ["radial-gradient.png", "radial-edge-points.png"],
             "adaptive_multi_scale_radial_edge": ["adaptive-multi-scale-gradient.png", "adaptive-multi-scale-radial-points.png"],
             "amsre_bfq_spbv_pbg": ["fusion-gen2-gradient.png", "fusion-gen2-child-quads.png", "fusion-gen2-selected-quad.png"],
@@ -642,7 +668,8 @@ def _write_debug_page(
             "joint_rectangle_vote": ["joint-rectangle-edges.png", "joint-rectangle-votes.png"],
             "learned_page_mask": ["learned-page-probability.png", "learned-page-mask.png", "learned-page-boundary.png"],
             "star_convex": ["star-rays.png", "star-mask.png"],
-        }[method]
+        }
+        basic_names = basic_names_by_method.get(method, [])
         images = module.debug_images(
             image_bgr=original, mask=page["mask"], parameters=parameters,
             candidate_corners=candidate.get("corners"), verbose=debug_level == "verbose",
@@ -1142,6 +1169,13 @@ def run(args:argparse.Namespace)->Path:
             print(f"Reason counts : {json.dumps(diag['reason_counts'], sort_keys=True)}")
             if diag["diagnostic_ranges"]:
                 print(f"Evidence ranges: {json.dumps(diag['diagnostic_ranges'], sort_keys=True)}")
+            for item in diag.get("exceptions", []):
+                print(
+                    f"Exception x{item['count']}: {item['type']}: {item['message']} "
+                    f"(example page {item.get('example_page')})"
+                )
+                if item.get("traceback"):
+                    print(str(item["traceback"]).rstrip())
         print(" ")
         print_key_value_section("Regression Statistics", [
             ("Mean IoU improvements", progress_snapshot.mean_iou_improvements),
