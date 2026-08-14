@@ -40,24 +40,21 @@ class PageBackgroundTests(unittest.TestCase):
         self.assertIn("page-background-candidate.png", images)
         self.assertIn("page-background-border-samples.png", images)
 
-    def test_refined_calibration_domain_is_500000_sets_and_retains_baseline_and_first_winner(self) -> None:
+    def test_generation_3_calibration_domain_is_200000_sets_and_pushes_color_boundary(self) -> None:
         config = json.loads(Path("config/detectors/page_background.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(exhaustive_parameter_sets(config)), 500000)
+        self.assertEqual(len(exhaustive_parameter_sets(config)), 200000)
         baseline = config["profiles"]["baseline"]
         self.assertEqual(baseline["border_band_fraction"], detector_page_background.BASELINE_PARAMETERS["border_band_fraction"])
-        self.assertIn(baseline["color_distance_threshold"], config["parameters"]["color_distance_threshold"]["values"])
-        first_winner = {
-            "border_band_fraction": 0.03,
-            "color_distance_threshold": 4.5,
-            "blur_sigma": 0.0,
-            "close_kernel_fraction": 0.003,
-            "open_kernel_fraction": 0.006,
-            "minimum_border_background_fraction": 0.35,
-            "minimum_page_area_fraction": 0.25,
-        }
-        for name, value in first_winner.items():
-            self.assertIn(value, config["parameters"][name]["values"])
+        self.assertIn(0.035, config["parameters"]["border_band_fraction"]["values"])
+        self.assertIn(10.0, config["parameters"]["color_distance_threshold"]["values"])
+        self.assertGreater(max(config["parameters"]["color_distance_threshold"]["values"]), 10.0)
+        self.assertIn(0.6, config["parameters"]["blur_sigma"]["values"])
+        self.assertIn(0.0, config["parameters"]["close_kernel_fraction"]["values"])
+        self.assertIn(0.003, config["parameters"]["open_kernel_fraction"]["values"])
+        self.assertEqual(config["parameters"]["minimum_border_background_fraction"]["values"], [0.15])
+        self.assertEqual(config["parameters"]["minimum_page_area_fraction"]["values"], [0.15])
         self.assertEqual(config.get("optimizer_shape_compatibility"), "detector-implementation")
+
 
 
 if __name__ == "__main__":

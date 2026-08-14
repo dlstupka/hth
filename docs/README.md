@@ -316,6 +316,7 @@ The execution-optimizer report includes shape-prediction coverage for each detec
 
 - **Multi-Scale Radial Edge Search (`multi_scale_radial_edge`)** fuses independently normalized gradient evidence across several Gaussian scales before center-outward boundary sampling.
 - **Page Background (`page_background`)** learns robust Lab color statistics from the outer capture border and extracts the dominant page region that differs from that background.
+- **Segment-Supported Polar Voting (`segment_supported_polar_vote`)** combines polar boundary votes with LSD segment support; its Generation-3 exhaustive domain collapses support thresholds that were dormant in the prior winning basin and concentrates 180,000 sets on segment length/distance, radial bounds, ray density, and gradient percentile.
 - **Projective Gradient Vote (`projective_gradient_vote`)** groups long gradient-supported segments into two near-orthogonal projective side families and intersects opposing lines into a quadrilateral.
 - **Border Fusion Quad (`border_fusion_quad`)** recombines top/right/bottom/left hypotheses from Radial Edge Search, Polar Boundary Voting, and Gradient Boundary Voting, then validates the mixed-source quadrilateral against side gradients.
 - **Polar Boundary Voting (`polar_boundary_vote`)** samples gradient evidence on center-outward polar rays, votes for strong outer transitions, and fits a document envelope from angularly distributed boundary support.

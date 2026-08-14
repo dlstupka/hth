@@ -38,14 +38,21 @@ class SegmentSupportedPolarVoteTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             detector_segment_supported_polar_vote.detect(image_bgr=image, mask=mask, parameters={"mystery": 1})
 
-    def test_generation_2_calibration_domain_refines_isolated_winner(self) -> None:
+    def test_generation_3_calibration_domain_collapses_dormant_support_and_refines_winner(self) -> None:
         config = json.loads(Path("config/detectors/segment_supported_polar_vote.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(exhaustive_parameter_sets(config)), 480000)
-        self.assertIn(0.005, config["parameters"]["segment_distance_fraction"]["values"])
+        self.assertEqual(len(exhaustive_parameter_sets(config)), 180000)
+        self.assertEqual(config["parameters"]["minimum_support_fraction"]["values"], [0.20])
+        self.assertEqual(config["parameters"]["minimum_segment_support_fraction"]["values"], [0.10])
+        self.assertEqual(config["parameters"]["bbox_padding_fraction"]["values"], [0.0])
         self.assertIn(0.03, config["parameters"]["minimum_segment_length_fraction"]["values"])
-        self.assertIn(0.10, config["parameters"]["minimum_segment_support_fraction"]["values"])
-        self.assertIn(0.90, config["parameters"]["outer_radius_fraction"]["values"])
-        self.assertIn(0.0, config["parameters"]["bbox_padding_fraction"]["values"])
+        self.assertIn(0.005, config["parameters"]["segment_distance_fraction"]["values"])
+        self.assertIn(0.72, config["parameters"]["outer_radius_fraction"]["values"])
+        self.assertIn(60, config["parameters"]["ray_count"]["values"])
+        self.assertIn(84.0, config["parameters"]["gradient_percentile"]["values"])
+        self.assertIn(0.14, config["parameters"]["inner_radius_fraction"]["values"])
+        self.assertLess(min(config["parameters"]["minimum_segment_length_fraction"]["values"]), 0.03)
+        self.assertLess(min(config["parameters"]["segment_distance_fraction"]["values"]), 0.005)
+
 
 
 if __name__ == "__main__":
