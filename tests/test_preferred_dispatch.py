@@ -112,6 +112,75 @@ class PreferredDispatchTests(unittest.TestCase):
             self.assertEqual(result["runner_budget"], 384)
             self.assertEqual(result["source"], "preferred-dispatch-optimizer")
 
+
+    def test_preferred_dispatch_reuses_shape_after_calibration_grid_change_when_declared_compatible(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            detector_root = root / "detectors"
+            detector = detector_root / "multi_scale_radial_edge.json"
+            golden = root / "golden.json"
+            _write_json(detector, {
+                "detector": "multi_scale_radial_edge",
+                "optimizer_shape_compatibility": "detector-implementation",
+                "parameters": {"generation": 1},
+            })
+            _write_json(golden, {"pages": []})
+            old_detector_sha = _sha(detector)
+            row = {
+                "source": "execution-optimizer",
+                "detector_id": "multi_scale_radial_edge",
+                "mode": "full",
+                "strategy": "exhaustive",
+                "detector_config_sha256": old_detector_sha,
+                "golden_set_sha256": _sha(golden),
+                "possible_parameter_sets": 100001,
+                "actual_parameter_sets": 100001,
+                "max_dimension": 1800,
+                "wall_clock_seconds": 12.0,
+                "parameter_sets_per_second": 60.83,
+                "active_pipelines": 9,
+                "shards": 9,
+                "threads_per_pipeline": 42,
+                "allocated_threads": 378,
+                "runner": {
+                    "runner_label": "192t",
+                    "runner_name": "rh8-al318",
+                    "runner_labels": ["self-hosted", "Linux", "X64", "192t"],
+                    "logical_cpu_count": 192,
+                },
+            }
+            index = root / "parallelism-index.json"
+            _write_json(index, {"observations": [row]})
+
+            # Simulate a later calibration-grid expansion. The config SHA changes,
+            # but the detector implementation and execution characteristics do not.
+            _write_json(detector, {
+                "detector": "multi_scale_radial_edge",
+                "optimizer_shape_compatibility": "detector-implementation",
+                "parameters": {"generation": 2, "expanded": True},
+            })
+            self.assertNotEqual(_sha(detector), old_detector_sha)
+
+            result = resolve_preferred_dispatch(
+                shape_mode="preferred",
+                regression_mode="full",
+                strategy="exhaustive",
+                limit="",
+                detector="multi_scale_radial_edge",
+                parallelism_index=index,
+                detector_config_root=detector_root,
+                golden_set=golden,
+                max_dimension=1800,
+                requested_runner="github-hosted",
+                specific_runner="any",
+                custom_runner_label="",
+            )
+
+            self.assertTrue(result["exact"])
+            self.assertEqual(result["runs_on"], ["self-hosted", "Linux", "X64", "192t"])
+            self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (9, 42))
+            self.assertEqual(result["source"], "preferred-dispatch-optimizer")
+
     def test_nonpreferred_dispatch_preserves_requested_runner(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -138,6 +207,28 @@ class PreferredDispatchTests(unittest.TestCase):
             self.assertFalse(result["exact"])
             self.assertEqual(result["runs_on"], ["self-hosted", "Linux", "X64", "e7k"])
             self.assertEqual(result["runner_label"], "e7k")
+
+
+class PreferredDispatchConfigurationContractTests(unittest.TestCase):
+    def test_refined_detector_grids_preserve_optimizer_shape_compatibility(self) -> None:
+        root = Path(__file__).parents[1]
+        detector_names = (
+            "radial_edge",
+            "adaptive_radial_edge",
+            "multi_scale_radial_edge",
+            "border_fusion_quad",
+            "signed_polar_boundary_vote",
+            "segment_supported_polar_vote",
+        )
+        for detector_name in detector_names:
+            with self.subTest(detector=detector_name):
+                payload = json.loads(
+                    (root / "config" / "detectors" / f"{detector_name}.json").read_text(encoding="utf-8")
+                )
+                self.assertEqual(
+                    payload.get("optimizer_shape_compatibility"),
+                    "detector-implementation",
+                )
 
 
 class PreferredDispatchWorkflowContractTests(unittest.TestCase):

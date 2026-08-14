@@ -152,5 +152,6 @@
   },
   "regression": {
     "debug_artifacts": "winner"
-  }
+  },
+  "optimizer_shape_compatibility": "detector-implementation"
 }

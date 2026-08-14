@@ -107,5 +107,6 @@
   },
   "regression": {
     "debug_artifacts": "failures"
-  }
+  },
+  "optimizer_shape_compatibility": "detector-implementation"
 }
