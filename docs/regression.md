@@ -181,6 +181,7 @@ The **Show toolchain environment** step records the resolved Bash, Git, Python, 
 - `cross_edge_contour` — `config/detectors/cross_edge_contour.json`
 - `gradient_vote` — `config/detectors/gradient_vote.json`
 - `radial_edge` — `config/detectors/radial_edge.json`
+- `adaptive_multi_scale_radial_edge` — `config/detectors/adaptive_multi_scale_radial_edge.json`
 - `adaptive_radial_edge` — `config/detectors/adaptive_radial_edge.json`
 - `multi_scale_radial_edge` — `config/detectors/multi_scale_radial_edge.json`
 - `projective_gradient_vote` — `config/detectors/projective_gradient_vote.json`

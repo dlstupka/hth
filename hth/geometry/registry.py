@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 
 from . import (
+    detector_adaptive_multi_scale_radial_edge,
     detector_adaptive_radial_edge,
     detector_border_energy,
     detector_border_fusion_quad,
@@ -178,6 +179,16 @@ _REGISTRY: tuple[DetectorSpec, ...] = (
         origin="HTH",
         entrypoint=detector_radial_edge.detect,
         foundation=("Radial gradient search", "OpenCV"),
+        authors=("OpenAI ChatGPT",),
+        version=HTH_VERSION,
+        repository=HTH_REPOSITORY,
+    ),
+    DetectorSpec(
+        method=detector_adaptive_multi_scale_radial_edge.METHOD,
+        name="Adaptive Multi-Scale Radial Edge Search",
+        origin="HTH",
+        entrypoint=detector_adaptive_multi_scale_radial_edge.detect,
+        foundation=("Multi-scale gradients", "Adaptive angular refinement", "Radial gradient search", "OpenCV"),
         authors=("OpenAI ChatGPT",),
         version=HTH_VERSION,
         repository=HTH_REPOSITORY,

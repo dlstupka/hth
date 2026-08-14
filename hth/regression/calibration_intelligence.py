@@ -76,6 +76,7 @@ _DETECTOR_EVIDENCE: dict[str, dict[str, Any]] = {
         "role": "Generator",
         "evidence": [("Center-outward rays", "Primary", "Samples image gradients along radial paths from the document center."), ("Strongest radial transitions", "Generator", "Selects likely page-boundary points independently on each ray."), ("Minimum-area rectangle", "Geometry", "Fits a quadrilateral to the supported radial edge points."), ("Ray support", "Validation", "Rejects candidates when too few directions provide credible boundary evidence.")],
     },
+    "adaptive_multi_scale_radial_edge": {"friendly_name":"Adaptive Multi-Scale Radial Edge Search","short_name":"Adaptive Multi-Scale Radial","role":"Generator","evidence":[("Fixed calibrated MSRE scale-space","Primary","Uses the best-known MSRE multiscale gradient evidence without changing its scale schedule or radial bounds."),("Coarse angular pass","Generator","Samples the full page boundary at a configurable coarse angular step."),("Per-side support","Validation","Measures each fitted side against only the coarse rays geometrically eligible to support that side."),("Weak-side angular refinement","Robustness","Allocates a denser second angular pass only to weak sides, preserving MSRE evidence while testing ARE-style adaptive sampling.")]},
     "adaptive_radial_edge": {
         "friendly_name": "Adaptive Radial Edge Search",
         "short_name": "Adaptive Radial",

@@ -258,6 +258,7 @@ class PreferredDispatchConfigurationContractTests(unittest.TestCase):
         root = Path(__file__).parents[1]
         detector_names = (
             "radial_edge",
+            "adaptive_multi_scale_radial_edge",
             "adaptive_radial_edge",
             "msre_bfq_spbv_pbg",
             "multi_scale_radial_edge",
