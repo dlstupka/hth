@@ -1,6 +1,6 @@
 # detector lifecycle
 from __future__ import annotations
-import argparse, hashlib, json, os, re, shlex, shutil, tempfile, urllib.request
+import argparse, hashlib, importlib.util, json, os, re, shlex, shutil, tempfile, urllib.request, zipfile
 import cv2
 import numpy as np
 from datetime import datetime, timezone
@@ -11,6 +11,11 @@ PAGENET_LICENSE="BSD-3-Clause"
 PAGENET_MODEL_ID="pagenet-ohio"
 PAGENET_PROTOTXT_URL="https://raw.githubusercontent.com/ctensmeyer/pagenet/master/models/ohio_train_val.prototxt"
 PAGENET_WEIGHTS_URL="https://raw.githubusercontent.com/ctensmeyer/pagenet/master/models/ohio_weights.caffemodel"
+
+DHSEGMENT_REPOSITORY="https://github.com/dhlab-epfl/dhSegment"
+DHSEGMENT_LICENSE="GPL-3.0"
+DHSEGMENT_MODEL_ID="dhsegment-page-v0.2"
+DHSEGMENT_MODEL_URL="https://github.com/dhlab-epfl/dhSegment/releases/download/v0.2/model.zip"
 
 def _sha256(path):
     h=hashlib.sha256()
@@ -139,6 +144,97 @@ def finalize_detector_legacy(detector,*,results_root):
     print(f"Detector lifecycle finalize: {detector} weights_sha256={str(payload.get('weights_sha256') or '')[:12]}")
     return payload
 
+
+def _safe_extract_zip(archive, target):
+    archive=Path(archive); target=Path(target)
+    target.mkdir(parents=True,exist_ok=True)
+    root=target.resolve()
+    with zipfile.ZipFile(archive) as zf:
+        for info in zf.infolist():
+            destination=(target/info.filename).resolve()
+            if destination != root and root not in destination.parents:
+                raise RuntimeError(f"Refusing unsafe archive member: {info.filename}")
+        zf.extractall(target)
+
+def _find_saved_model(root):
+    root=Path(root)
+    candidates=sorted(
+        (p.parent for p in root.rglob("saved_model.pb")),
+        key=lambda p:(len(p.relative_to(root).parts),p.as_posix()),
+    )
+    if not candidates:
+        raise RuntimeError(f"dhSegment release contains no TensorFlow SavedModel beneath {root}")
+    return candidates[0]
+
+def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
+    if policy not in {"reuse","refresh"}:
+        raise ValueError(f"Unsupported lifecycle policy: {policy}")
+    if importlib.util.find_spec("tensorflow") is None:
+        raise RuntimeError(
+            "dhsegment_page_mask requires TensorFlow; the regression/optimizer workflow "
+            "must install the detector-specific runtime before PREPARE"
+        )
+
+    root=Path(results_root)/"models"/DHSEGMENT_MODEL_ID
+    archive=root/"model.zip"
+    extracted=root/"model"
+    provenance=root/"model-provenance.json"
+
+    complete=provenance.is_file() and extracted.is_dir()
+    if policy=="refresh" or not complete:
+        root.mkdir(parents=True,exist_ok=True)
+        if policy=="refresh" or not archive.is_file():
+            _download(DHSEGMENT_MODEL_URL,archive)
+        if extracted.exists():
+            shutil.rmtree(extracted)
+        _safe_extract_zip(archive,extracted)
+        model_dir=_find_saved_model(extracted)
+        payload={
+            "schema_version":"1.0",
+            "model_id":DHSEGMENT_MODEL_ID,
+            "model_family":"dhSegment",
+            "variant":"v0.2 page extraction demo model",
+            "upstream_repository":DHSEGMENT_REPOSITORY,
+            "license":DHSEGMENT_LICENSE,
+            "model_url":DHSEGMENT_MODEL_URL,
+            "archive_sha256":_sha256(archive),
+            "saved_model_relative_path":model_dir.relative_to(root).as_posix(),
+            "prepared_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),
+            "inference_backend":"tensorflow-savedmodel",
+            "serving_contract":"filename -> probs, original_shape",
+        }
+        provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+
+    payload=json.loads(provenance.read_text(encoding="utf-8"))
+    if archive.is_file() and payload.get("archive_sha256") != _sha256(archive):
+        raise RuntimeError("dhSegment model archive SHA mismatch")
+    model_dir=root/str(payload["saved_model_relative_path"])
+    if not (model_dir/"saved_model.pb").is_file():
+        raise RuntimeError("dhSegment SavedModel is missing after preparation")
+
+    env={
+        "HTH_DHSEGMENT_PAGE_MODEL_DIR":model_dir.resolve().as_posix(),
+        "HTH_DHSEGMENT_PAGE_PROVENANCE":provenance.resolve().as_posix(),
+        "TF_CPP_MIN_LOG_LEVEL":"2",
+    }
+    _write_env(env_file,env); os.environ.update(env)
+    print(
+        f"dhSegment Page-Mask ready: model={DHSEGMENT_MODEL_ID} "
+        f"archive_sha256={str(payload.get('archive_sha256') or '')[:12]}"
+    )
+    return payload
+
+def _finalize_dhsegment_page_mask_hook(*,results_root):
+    provenance=Path(results_root)/"models"/DHSEGMENT_MODEL_ID/"model-provenance.json"
+    if not provenance.is_file():
+        raise RuntimeError("dhSegment Page-Mask model provenance missing")
+    payload=json.loads(provenance.read_text(encoding="utf-8"))
+    print(
+        f"Detector lifecycle finalize: dhsegment_page_mask "
+        f"archive_sha256={str(payload.get('archive_sha256') or '')[:12]}"
+    )
+    return payload
+
 def _prepare_learned_page_mask_hook(*,results_root,policy,env_file):
     return prepare_detector_legacy(
         "learned_page_mask",
@@ -151,9 +247,11 @@ def _finalize_learned_page_mask_hook(*,results_root):
     return finalize_detector_legacy("learned_page_mask",results_root=results_root)
 
 _PREPARE_HOOKS={
+    "dhsegment_page_mask":_prepare_dhsegment_page_mask_hook,
     "learned_page_mask":_prepare_learned_page_mask_hook,
 }
 _FINALIZE_HOOKS={
+    "dhsegment_page_mask":_finalize_dhsegment_page_mask_hook,
     "learned_page_mask":_finalize_learned_page_mask_hook,
 }
 

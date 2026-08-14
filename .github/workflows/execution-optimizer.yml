@@ -28,6 +28,7 @@ on:
           - contour_quad
           - convex_hull
           - cross_edge_contour
+          - dhsegment_page_mask
           - distance_transform
           - distance_transform_rect
           - edge_contour
@@ -451,6 +452,14 @@ jobs:
           python --version
           python -m pip --version
           python -m pip install --requirement hth-pipeline/requirements.txt
+          python -m pip check
+
+      - name: Install dhSegment TensorFlow runtime
+        if: ${{ inputs.algorithm == 'dhsegment_page_mask' || inputs.algorithm == 'all' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install "tensorflow>=2.18,<2.21"
           python -m pip check
 
       - name: Verify Python dependency ABI

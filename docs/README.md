@@ -339,3 +339,5 @@ Their calibration JSON files define the complete discrete search grids used by e
 - [Fusion Gen1 — MSRE + BFQ + SPBV + Page Background](detector-msre-bfq-spbv-pbg.md)
 
 - **Fusion Gen2 (`amsre_bfq_spbv_pbg`)** replaces only Fusion Gen1's calibrated MSRE child with calibrated AMSRE while preserving BFQ, SPBV, Page Background, and the Gen1 fusion decision surface.
+
+- **dhSegment Page Mask (`dhsegment_page_mask`)** provides an independent TensorFlow/ResNet-50 learned page-segmentation family using the upstream dhSegment v0.2 page-extraction model.

@@ -44,6 +44,7 @@ _DETECTOR_EVIDENCE: dict[str, dict[str, Any]] = {
         "role": "Generator",
         "evidence": [("Foreground fragments", "Primary", "Collects substantial foreground regions from the document mask."), ("Convex hull", "Geometry", "Wraps fragmented foreground evidence in the smallest convex envelope."), ("Solidity", "Validation", "Rejects hulls whose enclosed area is poorly supported by foreground evidence."), ("Quadrilateral fit", "Geometry", "Returns a polygonal or minimum-area rectangular page envelope.")],
     },
+    "dhsegment_page_mask": {"friendly_name":"dhSegment Page-Mask Detector","short_name":"dhSegment Page Mask","role":"Generator","evidence":[("dhSegment page segmentation","Primary","Uses the released dhSegment page-extraction CNN to predict per-pixel page membership."),("Probability threshold","Generator","Converts the network probability surface into a page mask using either Otsu or a calibrated fixed threshold."),("Mask cleanup","Robustness","Calibrates morphology, hole filling, and small boundary offsets before geometry fitting."),("Minimum-area rectangle","Geometry","Fits an oriented page quadrilateral to the dominant learned page region."),("Model identity","Provenance","Records the upstream release source and downloaded archive SHA-256.") ]},
     "distance_transform": {
         "friendly_name": "Distance Transform Detector",
         "short_name": "Distance Transform",
