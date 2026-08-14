@@ -25,9 +25,20 @@ class _FakeShape:
 
 
 class _FakeTensor:
-    def __init__(self, name, rank):
+    def __init__(self, name, rank, dtype=None):
         self.name = name
         self.shape = _FakeShape(rank)
+        self.dtype = dtype
+
+
+class _FakeDType:
+    def __init__(self, name):
+        self.name = name
+
+
+class _FakeTF:
+    def __init__(self):
+        self.string = _FakeDType("string")
 
 
 class _FakeOperation:
@@ -138,6 +149,27 @@ class DhSegmentPageMaskTests(unittest.TestCase):
             allow_stale_signature=True,
         )
         self.assertIs(resolved, probability)
+
+    def test_legacy_adapter_feeds_scalar_filename_to_scalar_readfile_input(self):
+        adapter = object.__new__(detector._SavedModel)
+        adapter.tf = _FakeTF()
+        adapter.input_tensor = _FakeTensor("filename:0", 0, adapter.tf.string)
+        image_path = Path("/tmp/page.png")
+        self.assertEqual(adapter._feed_value(image_path), str(image_path))
+
+    def test_legacy_adapter_retains_rank_one_filename_feed_for_batched_exports(self):
+        adapter = object.__new__(detector._SavedModel)
+        adapter.tf = _FakeTF()
+        adapter.input_tensor = _FakeTensor("filename:0", 1, adapter.tf.string)
+        image_path = Path("/tmp/page.png")
+        self.assertEqual(adapter._feed_value(image_path), [str(image_path)])
+
+    def test_legacy_adapter_rejects_higher_rank_filename_inputs(self):
+        adapter = object.__new__(detector._SavedModel)
+        adapter.tf = _FakeTF()
+        adapter.input_tensor = _FakeTensor("filename:0", 2, adapter.tf.string)
+        with self.assertRaisesRegex(RuntimeError, "scalar or rank-1"):
+            adapter._feed_value(Path("/tmp/page.png"))
 
     def test_page_probability_matches_upstream_class_one_normalization(self):
         raw = np.array(

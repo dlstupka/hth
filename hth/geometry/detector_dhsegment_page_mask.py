@@ -199,7 +199,12 @@ class _SavedModel:
         if dtype == self.tf.string:
             if rank == 0:
                 return str(image_path)
-            return [str(image_path)]
+            if rank in (1, None):
+                return [str(image_path)]
+            raise RuntimeError(
+                "dhSegment filename/string input must be scalar or rank-1; "
+                f"got tensor {self.input_tensor.name!r} shape={shape}"
+            )
         raise RuntimeError(
             "dhSegment v0.2 page model is expected to expose a filename/string input; "
             f"got tensor {self.input_tensor.name!r} dtype={dtype.name} shape={shape}"
