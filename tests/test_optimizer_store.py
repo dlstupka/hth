@@ -199,7 +199,7 @@ class OptimizerStoreTests(unittest.TestCase):
             self.assertIn("8p/8t", markdown)
             self.assertIn("Detector Run Profile Plot", markdown)
             self.assertIn("Detector Pipeline-Thread Shape Optimization Data", markdown)
-            self.assertIn("Δ from best", markdown)
+            self.assertIn("Δ from run best", markdown)
             self.assertIn("0.00%", markdown)
             self.assertIn("<details>", markdown)
             self.assertIn("<summary><strong>Navigation</strong></summary>", markdown)

@@ -144,6 +144,23 @@ def adaptive_next_pipeline(
         default=max(measured, key=measured.get),
     )
 
+    # Do not declare a tiny measured bracket resolved while an interior integer
+    # pipeline count is still unknown.  Sparse endpoint sampling can hide a
+    # narrow local peak (for example 1p and 3p can be equal while 2p is better).
+    # Exhausting gaps of at most three pipeline counts is cheap and closes that
+    # ambiguity before the broader adaptive stopping rules are allowed to fire.
+    measured_pipelines = sorted(measured)
+    for left, right in zip(measured_pipelines, measured_pipelines[1:]):
+        if (
+            right - left <= 3
+            and measured[left] >= best_rate * near_best_fraction
+            and measured[right] >= best_rate * near_best_fraction
+        ):
+            interior = sorted(p for p in untested if left < p < right)
+            if interior:
+                target = (left + right) / 2.0
+                return min(interior, key=lambda p: (abs(p - target), p))
+
     # Once the current best is bracketed by completed measurements on both
     # sides, switch from coarse bracketing to exact local refinement.  The
     # preferred-shape report uses a <=2% band, so adaptive must measure the

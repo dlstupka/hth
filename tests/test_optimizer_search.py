@@ -69,6 +69,14 @@ class OptimizerSearchTests(unittest.TestCase):
             [49],
         )
 
+    def test_adaptive_fills_small_interior_gap_before_stopping(self) -> None:
+        observations = [row(1, 10.0), row(3, 10.0)]
+        self.assertEqual(adaptive_next_pipeline(1, 3, 192, 1, observations), 2)
+
+    def test_adaptive_fills_small_gap_even_when_endpoint_trend_declines(self) -> None:
+        observations = [row(1, 10.0), row(3, 9.8)]
+        self.assertEqual(adaptive_next_pipeline(1, 3, 192, 1, observations), 2)
+
     def test_adaptive_returns_none_when_range_is_exhausted(self) -> None:
         observations = [row(p, float(p)) for p in range(2, 6)]
         self.assertIsNone(adaptive_next_pipeline(2, 5, 192, 1, observations))

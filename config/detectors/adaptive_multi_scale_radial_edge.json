@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "adaptive_multi_scale_radial_edge",
-  "description": "Generation-1 calibration for Adaptive Multi-Scale Radial Edge Search. The best-known MSRE multiscale evidence is held fixed while exhaustive calibration changes only ARE-style angular allocation around weak sides.",
+  "description": "Generation-2 refinement for Adaptive Multi-Scale Radial Edge Search. MSRE multiscale evidence remains fixed while exhaustive calibration densely resolves the narrow angular-adaptation basin found by Generation 1.",
   "parent_detector": "multi_scale_radial_edge",
   "parent_parameter_set_id": "ddb7623ebb92",
   "profiles": {
@@ -20,32 +20,82 @@
       "strength_weight": 0.3,
       "area_weight": 0.2,
       "coarse_angle_step_degrees": 2.0454545454545454,
-      "refined_angle_step_degrees": 0.5,
-      "weak_side_support_fraction": 0.55,
-      "side_assignment_tolerance_fraction": 0.025,
-      "maximum_refined_sides": 2
+      "refined_angle_step_degrees": 0.35,
+      "weak_side_support_fraction": 0.45,
+      "side_assignment_tolerance_fraction": 0.015,
+      "maximum_refined_sides": 4
     }
   },
   "parameters": {
     "coarse_angle_step_degrees": {
       "type": "float",
-      "values": [1.5, 1.75, 2.0, 2.0454545454545454, 2.25, 2.5, 2.75, 3.0, 3.5, 4.0]
+      "values": [
+        1.85,
+        1.9,
+        1.95,
+        2.0,
+        2.025,
+        2.0454545454545454,
+        2.075,
+        2.1,
+        2.15,
+        2.2
+      ]
     },
     "refined_angle_step_degrees": {
       "type": "float",
-      "values": [0.25, 0.35, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.25]
+      "values": [
+        0.25,
+        0.3,
+        0.35,
+        0.4,
+        0.45,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        1.0
+      ]
     },
     "weak_side_support_fraction": {
       "type": "float",
-      "values": [0.35, 0.45, 0.55, 0.65, 0.75]
+      "values": [
+        0.3,
+        0.35,
+        0.4,
+        0.45,
+        0.5,
+        0.55,
+        0.6,
+        0.65,
+        0.7,
+        0.75
+      ]
     },
     "side_assignment_tolerance_fraction": {
       "type": "float",
-      "values": [0.01, 0.015, 0.025, 0.035, 0.05]
+      "values": [
+        0.0075,
+        0.01,
+        0.0125,
+        0.015,
+        0.0175,
+        0.02,
+        0.025,
+        0.03,
+        0.04,
+        0.05
+      ]
     },
     "maximum_refined_sides": {
       "type": "int",
-      "values": [0, 1, 2, 4]
+      "values": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
     }
   },
   "binary_refine": {

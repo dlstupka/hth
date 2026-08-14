@@ -437,7 +437,9 @@ def _render_optimizer_navigation(*, detectors: list[str] | None = None) -> list[
 
 def _render_shape_table(index: dict[str, Any]) -> list[str]:
     lines = [
-        "| Runner | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Sets/s | Speedup | Δ from best | Avg load | Peak load | Avg CPU | Peak RAM |",
+        "This table contains measurements from this optimizer execution only. Bold identifies this run’s measured throughput winner; the preferred configuration above is selected from all compatible coalesced optimizer evidence.",
+        "",
+        "| Runner | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Sets/s | Speedup | Δ from run best | Avg load | Peak load | Avg CPU | Peak RAM |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     rows: list[tuple[str, dict[str, Any], bool]] = []
