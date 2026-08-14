@@ -36,6 +36,7 @@ on:
           - joint_rectangle_vote
           - learned_page_mask
           - lsd
+          - msre_bfq_spbv_pbg
           - multi_scale_radial_edge
           - page_background
           - polar_boundary_vote

@@ -334,3 +334,5 @@ Their calibration JSON files define the complete discrete search grids used by e
 - Subsequent executions validate and reuse the persisted model. Calibration tunes only deterministic mask-to-boundary post-processing.
 - The finalize hook revalidates provenance, and normal results persistence includes `models/` so the first successful run makes later executions self-contained.
 
+
+- [Fusion Gen1 — MSRE + BFQ + SPBV + Page Background](detector-msre-bfq-spbv-pbg.md)

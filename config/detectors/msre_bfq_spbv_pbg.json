@@ -1,0 +1,129 @@
+{
+  "schema_version": "0.1",
+  "detector": "msre_bfq_spbv_pbg",
+  "description": "Fusion Gen1 across best-known calibrated MSRE, BFQ, SPBV, and Page Background hypotheses; RE/ARE are deliberately excluded as redundant radial-lineage predecessors of MSRE.",
+  "child_calibrations": {
+    "multi_scale_radial_edge": {
+      "parameter_set_id": "ddb7623ebb92",
+      "parameters": {
+        "base_sigma": 1.0,
+        "scale_ratio": 3.5,
+        "scale_count": 4,
+        "ray_count": 176,
+        "gradient_percentile": 96.875
+      }
+    },
+    "border_fusion_quad": {
+      "parameter_set_id": "2370e6cea486",
+      "parameters": {
+        "gradient_percentile": 68,
+        "minimum_side_gradient_support": 0.06,
+        "minimum_area_fraction": 0.08,
+        "gradient_weight": 0.15,
+        "source_confidence_weight": 0.4,
+        "source_diversity_weight": 0.0
+      }
+    },
+    "signed_polar_boundary_vote": {
+      "parameter_set_id": "8ddbe5f468cd",
+      "parameters": {
+        "ray_count": 72,
+        "inner_radius_fraction": 0.2,
+        "outer_radius_fraction": 0.6,
+        "gradient_percentile": 95.0,
+        "minimum_support_fraction": 0.35,
+        "bbox_padding_fraction": 0.0,
+        "polarity": "absolute"
+      }
+    },
+    "page_background": {
+      "parameter_set_id": "afbe81a796a1",
+      "parameters": {
+        "border_band_fraction": 0.015,
+        "color_distance_threshold": 11.5,
+        "blur_sigma": 0.0,
+        "close_kernel_fraction": 0.0,
+        "open_kernel_fraction": 0.0035,
+        "minimum_border_background_fraction": 0.15,
+        "minimum_page_area_fraction": 0.15
+      }
+    }
+  },
+  "profiles": {
+    "baseline": {
+      "gradient_percentile": 76.0,
+      "minimum_side_gradient_support": 0.03,
+      "consensus_tolerance_fraction": 0.012,
+      "minimum_side_consensus": 0.5,
+      "consensus_weight": 0.6,
+      "gradient_weight": 0.25,
+      "source_diversity_weight": 0.15
+    }
+  },
+  "parameters": {
+    "gradient_percentile": {
+      "type": "float",
+      "values": [
+        68.0,
+        76.0,
+        84.0
+      ]
+    },
+    "minimum_side_gradient_support": {
+      "type": "float",
+      "values": [
+        0.0,
+        0.03,
+        0.08
+      ]
+    },
+    "consensus_tolerance_fraction": {
+      "type": "float",
+      "values": [
+        0.006,
+        0.012,
+        0.024
+      ]
+    },
+    "minimum_side_consensus": {
+      "type": "float",
+      "values": [
+        0.25,
+        0.5,
+        0.75
+      ]
+    },
+    "consensus_weight": {
+      "type": "float",
+      "values": [
+        0.45,
+        0.6,
+        0.75
+      ]
+    },
+    "gradient_weight": {
+      "type": "float",
+      "values": [
+        0.1,
+        0.25,
+        0.4
+      ]
+    },
+    "source_diversity_weight": {
+      "type": "float",
+      "values": [
+        0.05,
+        0.15,
+        0.3
+      ]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "winner"
+  },
+  "optimizer_shape_compatibility": "detector-implementation"
+}

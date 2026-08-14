@@ -259,6 +259,7 @@ class PreferredDispatchConfigurationContractTests(unittest.TestCase):
         detector_names = (
             "radial_edge",
             "adaptive_radial_edge",
+            "msre_bfq_spbv_pbg",
             "multi_scale_radial_edge",
             "border_fusion_quad",
             "signed_polar_boundary_vote",
