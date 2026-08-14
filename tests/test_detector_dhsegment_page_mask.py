@@ -150,26 +150,26 @@ class DhSegmentPageMaskTests(unittest.TestCase):
         )
         self.assertIs(resolved, probability)
 
-    def test_legacy_adapter_feeds_scalar_filename_to_scalar_readfile_input(self):
+    def test_legacy_adapter_feeds_scalar_filename_for_scalar_signature(self):
         adapter = object.__new__(detector._SavedModel)
         adapter.tf = _FakeTF()
         adapter.input_tensor = _FakeTensor("filename:0", 0, adapter.tf.string)
         image_path = Path("/tmp/page.png")
         self.assertEqual(adapter._feed_value(image_path), str(image_path))
 
-    def test_legacy_adapter_retains_rank_one_filename_feed_for_batched_exports(self):
+    def test_legacy_adapter_feeds_scalar_filename_even_when_signature_is_rank_one(self):
         adapter = object.__new__(detector._SavedModel)
         adapter.tf = _FakeTF()
         adapter.input_tensor = _FakeTensor("filename:0", 1, adapter.tf.string)
         image_path = Path("/tmp/page.png")
-        self.assertEqual(adapter._feed_value(image_path), [str(image_path)])
+        self.assertEqual(adapter._feed_value(image_path), str(image_path))
 
-    def test_legacy_adapter_rejects_higher_rank_filename_inputs(self):
+    def test_legacy_adapter_uses_graph_filename_contract_over_misleading_rank(self):
         adapter = object.__new__(detector._SavedModel)
         adapter.tf = _FakeTF()
         adapter.input_tensor = _FakeTensor("filename:0", 2, adapter.tf.string)
-        with self.assertRaisesRegex(RuntimeError, "scalar or rank-1"):
-            adapter._feed_value(Path("/tmp/page.png"))
+        image_path = Path("/tmp/page.png")
+        self.assertEqual(adapter._feed_value(image_path), str(image_path))
 
     def test_page_probability_matches_upstream_class_one_normalization(self):
         raw = np.array(

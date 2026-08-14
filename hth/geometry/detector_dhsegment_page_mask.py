@@ -132,6 +132,13 @@ class _SavedModel:
                 allow_stale_signature=True,
             )
 
+        print(
+            "dhSegment legacy execution adapter: "
+            f"signature={self.signature_name} input={self.input_tensor.name} "
+            f"input_shape={self.input_tensor.shape} feed_contract=scalar-filename "
+            f"probability={self.probability_tensor.name}"
+        )
+
     @staticmethod
     def _select_input(inputs):
         if not inputs:
@@ -194,20 +201,16 @@ class _SavedModel:
 
     def _feed_value(self, image_path: Path):
         dtype = self.input_tensor.dtype
-        shape = self.input_tensor.shape
-        rank = shape.rank
         if dtype == self.tf.string:
-            if rank == 0:
-                return str(image_path)
-            if rank in (1, None):
-                return [str(image_path)]
-            raise RuntimeError(
-                "dhSegment filename/string input must be scalar or rank-1; "
-                f"got tensor {self.input_tensor.name!r} shape={shape}"
-            )
+            # dhSegment's upstream filename prediction contract is a *single*
+            # filename string.  Some exported SignatureDefs advertise this
+            # tensor with a rank-1 shape, but the graph immediately feeds it
+            # to ReadFile, which requires a scalar.  Honor the executable graph
+            # contract instead of the misleading static SignatureDef shape.
+            return str(image_path)
         raise RuntimeError(
             "dhSegment v0.2 page model is expected to expose a filename/string input; "
-            f"got tensor {self.input_tensor.name!r} dtype={dtype.name} shape={shape}"
+            f"got tensor {self.input_tensor.name!r} dtype={dtype.name} shape={self.input_tensor.shape}"
         )
 
     @staticmethod
