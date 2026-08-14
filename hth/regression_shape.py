@@ -658,10 +658,12 @@ def main() -> int:
         )
         _append_github_env(args.github_env, workflow_shape_env(result))
         if result.get("exact"):
+            free_threads = max(0, int(result["runner_budget"]) - int(result["allocated_threads"]))
             print(
                 f"Resolved execution shape: {result['pipelines']}p/"
-                f"{result['threads_per_pipeline']}t ({result['source']}; "
-                f"{result['allocated_threads']}/{result['runner_budget']} threads)"
+                f"{result['threads_per_pipeline']}t ({result['source']}; threads "
+                f"{result['allocated_threads']} allocated / {result['runner_budget']} max; "
+                f"{free_threads} free)"
             )
         else:
             print(f"Execution shape: auto planner ({result['source']})")

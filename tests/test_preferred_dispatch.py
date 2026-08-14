@@ -78,6 +78,50 @@ class PreferredDispatchTests(unittest.TestCase):
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (4, 96))
             self.assertEqual(result["runner_budget"], 384)
 
+
+    def test_capacity_runner_budget_preserves_free_threads_for_preferred_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            detector_root = root / "detectors"
+            detector = detector_root / "page_background.json"
+            golden = root / "golden.json"
+            _write_json(detector, {"detector": "page_background", "optimizer_shape_compatibility": "detector-implementation"})
+            _write_json(golden, {"pages": []})
+            row = {
+                "source": "execution-optimizer",
+                "detector_id": "page_background",
+                "mode": "full",
+                "strategy": "exhaustive",
+                "detector_config_sha256": _sha(detector),
+                "golden_set_sha256": _sha(golden),
+                "possible_parameter_sets": 2187,
+                "actual_parameter_sets": 2187,
+                "max_dimension": 1800,
+                "wall_clock_seconds": 16.0,
+                "parameter_sets_per_second": 136.75,
+                "active_pipelines": 5,
+                "shards": 5,
+                "threads_per_pipeline": 76,
+                "allocated_threads": 380,
+                "runner": {
+                    "runner_label": "192t",
+                    "runner_name": "rh8-al307",
+                    "runner_labels": ["self-hosted", "Linux", "X64", "192t"],
+                    "logical_cpu_count": 192,
+                },
+            }
+            index = root / "parallelism-index.json"
+            _write_json(index, {"observations": [row]})
+            result = resolve_preferred_dispatch(
+                shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
+                detector="page_background", parallelism_index=index, detector_config_root=detector_root,
+                golden_set=golden, max_dimension=1800, requested_runner="github-hosted",
+                specific_runner="any", custom_runner_label="",
+            )
+            self.assertTrue(result["exact"])
+            self.assertEqual(result["allocated_threads"], 380)
+            self.assertEqual(result["runner_budget"], 384)
+
     def test_pre_resolved_shape_is_validated_against_dispatch_budget(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

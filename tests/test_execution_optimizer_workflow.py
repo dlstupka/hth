@@ -184,6 +184,27 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
 
 
 
+    def test_detector_choice_menus_are_alphabetical_after_special_entries(self) -> None:
+        def choices(path: Path, specials: tuple[str, ...]) -> list[str]:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for index, line in enumerate(lines):
+                if line.strip() == "algorithm:":
+                    for option_index in range(index, len(lines)):
+                        if lines[option_index].strip() == "options:":
+                            values: list[str] = []
+                            cursor = option_index + 1
+                            while cursor < len(lines) and lines[cursor].lstrip().startswith("- "):
+                                values.append(lines[cursor].strip()[2:])
+                                cursor += 1
+                            self.assertEqual(values[:len(specials)], list(specials), path.name)
+                            return values[len(specials):]
+            self.fail(f"algorithm choices not found in {path}")
+
+        regression_detectors = choices(REGRESSION, ("all-without-exhaustive", "all"))
+        optimizer_detectors = choices(WORKFLOW, ("all-without-preference", "all"))
+        self.assertEqual(regression_detectors, sorted(regression_detectors))
+        self.assertEqual(optimizer_detectors, sorted(optimizer_detectors))
+
     def test_execution_optimizer_initializes_optimization_timer_before_metadata(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         initialization = 'optimization_started_epoch="$(date +%s)"'

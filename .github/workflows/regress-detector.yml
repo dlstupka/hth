@@ -38,40 +38,40 @@ on:
         options:
           - all-without-exhaustive
           - all
+          - adaptive_radial_edge
+          - border_energy
+          - border_fusion_quad
+          - components
+          - consensus_quad
           - contour
+          - contour_components
+          - contour_grabcut
+          - contour_projection
+          - contour_quad
           - convex_hull
+          - cross_edge_contour
           - distance_transform
           - distance_transform_rect
-          - polar_boundary_vote
-          - signed_polar_boundary_vote
-          - segment_supported_polar_vote
-          - radon_boundary
-          - text_flow
-          - whitespace_frame
-          - page_background
+          - edge_contour
+          - grabcut
+          - grabcut_contour
+          - gradient_vote
+          - hough
           - joint_rectangle_vote
           - learned_page_mask
-          - star_convex
-          - contour_quad
-          - contour_components
-          - contour_projection
-          - contour_grabcut
-          - grabcut_contour
-          - consensus_quad
-          - edge_contour
-          - cross_edge_contour
-          - gradient_vote
-          - radial_edge
-          - adaptive_radial_edge
-          - multi_scale_radial_edge
-          - projective_gradient_vote
-          - border_fusion_quad
-          - border_energy
-          - components
-          - ransac
-          - grabcut
-          - hough
           - lsd
+          - multi_scale_radial_edge
+          - page_background
+          - polar_boundary_vote
+          - projective_gradient_vote
+          - radial_edge
+          - radon_boundary
+          - ransac
+          - segment_supported_polar_vote
+          - signed_polar_boundary_vote
+          - star_convex
+          - text_flow
+          - whitespace_frame
       mode:
         description: Regression mode
         required: true

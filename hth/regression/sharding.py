@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -46,7 +47,15 @@ def runner_max_threads(runner_label: str, available_cpus: int | None = None) -> 
     label = (runner_label or "").strip().lower()
     configured = RUNNER_MAX_THREADS.get(label)
     if configured is None:
-        configured = max(1, min(16, int(available_cpus or os.cpu_count() or 1)))
+        capacity_label = re.fullmatch(r"(\d+)t", label)
+        if capacity_label:
+            # Capacity-class runner labels describe the detected vCPU class. HTH's
+            # self-hosted execution policy permits up to 2x that vCPU count, which
+            # is also how optimizer shapes on these runners are measured.
+            logical = int(available_cpus or capacity_label.group(1))
+            configured = 2 * max(1, logical)
+        else:
+            configured = max(1, min(16, int(available_cpus or os.cpu_count() or 1)))
     # Named runner profiles are policy budgets and may intentionally oversubscribe
     # the logical CPUs reported inside a hosted runner.
     return max(1, int(configured))

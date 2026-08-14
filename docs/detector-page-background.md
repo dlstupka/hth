@@ -6,4 +6,6 @@ The detector converts the image to CIE Lab, estimates robust median/MAD backgrou
 
 This detector is intentionally complementary to `whitespace_frame`. Whitespace Frame assumes a bright background threshold; Page Background instead models whatever surrounds the page, allowing dark scanner borders, colored mounts, cradle material, and non-white capture backgrounds to be treated as negative-space evidence.
 
-Its first exhaustive calibration grid contains 2,187 parameter sets spanning border-model width, robust color-distance threshold, smoothing, morphology, required border-background coherence, and minimum page area.
+The first 2,187-set exhaustive calibration produced a strong 0.9662 Avg IoU / 0.9476 Min IoU result, but six of seven winning calibration coordinates sat on the edge of the declared domain. Generation 2 therefore expands to exactly 500,000 exhaustive sets. It probes substantially smaller border bands, higher Lab-distance thresholds, finer near-zero blur/closing behavior, stronger opening, and lower required border-background coherence while retaining the original baseline and first winner as anchors. The page-area dimension remains comparatively sparse because its first winner was interior rather than boundary-limited.
+
+Calibration-grid changes are declared execution-shape compatible for this detector: they do not invalidate completed optimizer evidence when detector implementation, Golden Set, image dimension, and other workload guards remain compatible.

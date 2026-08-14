@@ -255,7 +255,7 @@ echo "Effective limit    : '${effective_limit:-unlimited}' ($effective_limit_sou
 echo "Detectors          : $detector_count"
 echo "Detector pipelines : $effective_pipelines (requested $requested_pipelines)"
 echo "Shards             : ${#detector_configs[@]}${SHARDS:+ (explicit request $SHARDS; capped at one parameter set per shard)}"
-echo "Thread budget      : $runner_thread_budget total; $effective_threads_per_pipeline per active pipeline; $allocated_threads allocated; $unused_threads free"
+echo "Thread budget      : $allocated_threads allocated / $runner_thread_budget max; $unused_threads free; $effective_threads_per_pipeline per active pipeline"
 if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
   echo "Execution shape    : ${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-optimizer}-exact (${effective_pipelines}p/${effective_threads_per_pipeline}t)"
   if [[ "$effective_threads_per_pipeline" != "$THREADS" ]]; then

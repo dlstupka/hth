@@ -40,12 +40,24 @@ class PageBackgroundTests(unittest.TestCase):
         self.assertIn("page-background-candidate.png", images)
         self.assertIn("page-background-border-samples.png", images)
 
-    def test_initial_calibration_domain_is_2187_sets_and_retains_baseline(self) -> None:
+    def test_refined_calibration_domain_is_500000_sets_and_retains_baseline_and_first_winner(self) -> None:
         config = json.loads(Path("config/detectors/page_background.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(exhaustive_parameter_sets(config)), 2187)
+        self.assertEqual(len(exhaustive_parameter_sets(config)), 500000)
         baseline = config["profiles"]["baseline"]
         self.assertEqual(baseline["border_band_fraction"], detector_page_background.BASELINE_PARAMETERS["border_band_fraction"])
         self.assertIn(baseline["color_distance_threshold"], config["parameters"]["color_distance_threshold"]["values"])
+        first_winner = {
+            "border_band_fraction": 0.03,
+            "color_distance_threshold": 4.5,
+            "blur_sigma": 0.0,
+            "close_kernel_fraction": 0.003,
+            "open_kernel_fraction": 0.006,
+            "minimum_border_background_fraction": 0.35,
+            "minimum_page_area_fraction": 0.25,
+        }
+        for name, value in first_winner.items():
+            self.assertIn(value, config["parameters"][name]["values"])
+        self.assertEqual(config.get("optimizer_shape_compatibility"), "detector-implementation")
 
 
 if __name__ == "__main__":
