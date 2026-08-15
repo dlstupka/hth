@@ -442,6 +442,19 @@ def detector_names() -> list[str]:
     return [spec.method for spec in _REGISTRY]
 
 
+def detector_spec(method: str) -> DetectorSpec:
+    """Return one detector from the authoritative registry."""
+    spec = next((item for item in _REGISTRY if item.method == method), None)
+    if spec is None:
+        raise KeyError(f"Unknown detector: {method}")
+    return spec
+
+
+def detector_entrypoint(method: str):
+    """Return the canonical detector callable used by execution surfaces."""
+    return detector_spec(method).entrypoint
+
+
 def detector_catalog() -> list[dict[str, Any]]:
     return [
         {
@@ -539,9 +552,7 @@ def run_registered_detector(
     parameters: dict[str, Any] | None = None,
 ) -> Candidate:
     """Run one detector through the authoritative registry contract."""
-    spec = next((item for item in _REGISTRY if item.method == method), None)
-    if spec is None:
-        raise KeyError(f"Unknown detector: {method}")
+    spec = detector_spec(method)
     started = time.perf_counter()
     try:
         candidate = spec.entrypoint(

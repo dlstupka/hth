@@ -70,8 +70,12 @@ from .performance import PerformanceSampler, peak_rss_bytes
 from .calibration_intelligence import build_calibration_intelligence
 from hth.regression.result_metrics import aggregate_page_metrics
 from hth.domain.result_metrics import baseline_surpassed
+from hth.geometry.registry import detector_entrypoint, detector_names
 
-DETECTORS={"adaptive_multi_scale_radial_edge":adaptive_multi_scale_radial_edge_detect,"amsre_bfq_spbv_pbg":amsre_bfq_spbv_pbg_detect,"page_background":page_background_detect,"msre_bfq_spbv_pbg":msre_bfq_spbv_pbg_detect,"border_fusion_quad":border_fusion_quad_detect,"projective_gradient_vote":projective_gradient_vote_detect,"multi_scale_radial_edge":multi_scale_radial_edge_detect,"learned_page_mask":learned_page_mask_detect,"joint_rectangle_vote":joint_rectangle_vote_detect,"whitespace_frame":whitespace_frame_detect,"text_flow":text_flow_detect,"radon_boundary":radon_boundary_detect,"convex_hull":convex_hull_detect,"distance_transform":distance_transform_detect,"distance_transform_rect":distance_transform_rect_detect,"dhsegment_page_mask":dhsegment_page_mask_detect,"polar_boundary_vote":polar_boundary_vote_detect,"signed_polar_boundary_vote":signed_polar_boundary_vote_detect,"segment_supported_polar_vote":segment_supported_polar_vote_detect,"star_convex":star_convex_detect,"components":components_detect,"contour":contour_detect,"contour_quad":contour_quad_detect,"contour_components":contour_components_detect,"contour_grabcut":contour_grabcut_detect,"grabcut_contour":grabcut_contour_detect,"contour_projection":contour_projection_detect,"consensus_quad":consensus_quad_detect,"edge_contour":edge_contour_detect,"cross_edge_contour":cross_edge_contour_detect,"gradient_vote":gradient_vote_detect,"radial_edge":radial_edge_detect,"adaptive_radial_edge":adaptive_radial_edge_detect,"border_energy":border_energy_detect,"grabcut":grabcut_detect,"hough":hough_detect,"lsd":lsd_detect,"ransac":ransac_detect}
+# Backward-compatible read-only-style view for existing callers/tests. The
+# authoritative source is hth.geometry.registry; this map is generated from it
+# at import time and must never be hand-maintained.
+DETECTORS={name: detector_entrypoint(name) for name in detector_names()}
 MIN_THREAD_COUNT=1
 MAX_THREAD_COUNT=1024
 
@@ -852,7 +856,8 @@ def run(args:argparse.Namespace)->Path:
         debug_policy = "none"
     elif debug_level == "verbose" and debug_policy in {"none", "failures"}:
         debug_policy = "winner"
-    if name not in DETECTORS: raise SystemExit(f"Unsupported detector: {name}")
+    if name not in detector_names():
+        raise SystemExit(f"Unsupported detector: {name}")
     run_id,run_dir=create_run_directory(args.output,name,args.run_id); started=utc_now(); wall=time.perf_counter()
     environment=environment_info(repository_root(args.detector_config))
     source_commit=os.environ.get("HTH_SOURCE_COMMIT")
@@ -880,7 +885,7 @@ def run(args:argparse.Namespace)->Path:
     }
     write_json(run_dir/"manifest.json",manifest)
     try:
-        pages=load_pages(args.golden_set,args.image_root,args.max_dimension); detector=DETECTORS[name]
+        pages=load_pages(args.golden_set,args.image_root,args.max_dimension); detector=detector_entrypoint(name)
         if not callable(detector):
             raise TypeError(
                 f"Detector registry entry {name!r} is not callable: "
