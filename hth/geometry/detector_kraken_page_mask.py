@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from contextlib import contextmanager
 from pathlib import Path
 import hashlib
 import json
 import os
 import threading
+import tempfile
+import warnings
 from typing import Any
 
 import cv2
@@ -33,6 +36,100 @@ _INFERENCE_LOCK = threading.Lock()
 _EVIDENCE_CACHE: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _EVIDENCE_CACHE_LOCK = threading.Lock()
 _EVIDENCE_CACHE_LIMIT = 16
+
+_RUNTIME_DIAGNOSTICS: OrderedDict[str, dict[str, Any]] = OrderedDict()
+_RUNTIME_DIAGNOSTICS_LOCK = threading.Lock()
+
+
+@contextmanager
+def _capture_kraken_runtime_chatter():
+    """Filter only known third-party advisory/polygonizer chatter.
+
+    Kraken/Lightning can write known non-fatal messages directly to stderr while
+    still returning usable segmentation. Capture stderr around one inference,
+    retain/replay everything except those exact known messages, and return counts
+    to detector diagnostics so the signal is not silently lost.
+    """
+    saved_fd = os.dup(2)
+    captured = tempfile.TemporaryFile(mode="w+b")
+    diagnostics = {
+        "lightning_srun_advisories": 0,
+        "kraken_polygonizer_warnings": 0,
+        "filtered_messages": [],
+    }
+    try:
+        os.dup2(captured.fileno(), 2)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r".*The `srun` command is available on your system but is not used.*",
+            )
+            yield diagnostics
+    finally:
+        os.dup2(saved_fd, 2)
+        os.close(saved_fd)
+        captured.seek(0)
+        text = captured.read().decode("utf-8", errors="replace")
+        captured.close()
+
+        replay = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            if "The `srun` command is available on your system but is not used" in stripped:
+                diagnostics["lightning_srun_advisories"] += 1
+                if len(diagnostics["filtered_messages"]) < 8:
+                    diagnostics["filtered_messages"].append(stripped)
+                continue
+            if "TopologyException: side location conflict" in stripped or "Polygonizer failed on line" in stripped:
+                diagnostics["kraken_polygonizer_warnings"] += 1
+                if len(diagnostics["filtered_messages"]) < 8:
+                    diagnostics["filtered_messages"].append(stripped)
+                continue
+            replay.append(line)
+
+        if replay:
+            os.write(2, ("\n".join(replay) + "\n").encode("utf-8", errors="replace"))
+
+
+def _runtime_diagnostics_for(key):
+    with _RUNTIME_DIAGNOSTICS_LOCK:
+        return dict(_RUNTIME_DIAGNOSTICS.get(key) or {})
+
+
+def _store_runtime_diagnostics(key, diagnostics):
+    with _RUNTIME_DIAGNOSTICS_LOCK:
+        _RUNTIME_DIAGNOSTICS[key] = dict(diagnostics)
+        _RUNTIME_DIAGNOSTICS.move_to_end(key)
+        while len(_RUNTIME_DIAGNOSTICS) > _EVIDENCE_CACHE_LIMIT:
+            _RUNTIME_DIAGNOSTICS.popitem(last=False)
+
+
+def _canonical_quad(corners, *, width, height):
+    """Return a clipped, clockwise, convex 4-corner page quadrilateral."""
+    pts = np.asarray(corners, dtype=np.float32).reshape(-1, 2)
+    if pts.shape != (4, 2) or not np.isfinite(pts).all():
+        return None
+
+    pts[:, 0] = np.clip(pts[:, 0], 0, max(0, width - 1))
+    pts[:, 1] = np.clip(pts[:, 1], 0, max(0, height - 1))
+
+    hull = cv2.convexHull(pts, clockwise=True, returnPoints=True)
+    if hull is None:
+        return None
+    hull = hull.reshape(-1, 2)
+    if hull.shape != (4, 2):
+        return None
+    if abs(float(cv2.contourArea(hull))) < 1.0:
+        return None
+
+    center = hull.mean(axis=0)
+    angles = np.arctan2(hull[:, 1] - center[1], hull[:, 0] - center[0])
+    ordered = hull[np.argsort(angles)]
+    if cv2.contourArea(ordered.astype(np.float32), oriented=True) < 0:
+        ordered = ordered[::-1]
+    return ordered.astype(np.float32)
+
+
 
 
 def _parameters(parameters):
@@ -165,8 +262,10 @@ def _infer_evidence(image_bgr):
     # task/model stack is not documented as thread-safe; HTH parallelism remains
     # at detector-pipeline/process level and is measured by the optimizer.
     with _INFERENCE_LOCK:
-        segmentation = model.predict(im=image, config=config)
+        with _capture_kraken_runtime_chatter() as runtime_diagnostics:
+            segmentation = model.predict(im=image, config=config)
     evidence = _extract_evidence(segmentation)
+    _store_runtime_diagnostics(key, runtime_diagnostics)
 
     with _EVIDENCE_CACHE_LOCK:
         _EVIDENCE_CACHE[key] = evidence
@@ -241,8 +340,9 @@ def _proposal(image_bgr, values):
     pad = float(min(h, w)) * values["page_padding_fraction"]
     safe = np.maximum(lengths, 1e-6)
     corners = center + vectors * ((safe + pad) / safe)[:, None]
-    corners[:, 0] = np.clip(corners[:, 0], 0, w - 1)
-    corners[:, 1] = np.clip(corners[:, 1], 0, h - 1)
+    corners = _canonical_quad(corners, width=w, height=h)
+    if corners is None:
+        return evidence, mask, contour, None, 0.0
 
     polygon_area = abs(float(cv2.contourArea(corners.astype(np.float32))))
     page_area_fraction = polygon_area / image_area if image_area else 0.0
@@ -254,6 +354,7 @@ def detect(*, image_bgr, mask, parameters=None):
     values = _parameters(parameters)
     evidence, evidence_mask, contour, corners, area_fraction = _proposal(image_bgr, values)
 
+    runtime_diagnostics = _runtime_diagnostics_for(_image_key(image_bgr))
     diagnostics = {
         "parameters": values,
         "evidence": "kraken_default_blla_regions_and_lines",
@@ -263,13 +364,20 @@ def detect(*, image_bgr, mask, parameters=None):
         "text_direction": evidence["text_direction"],
         "page_area_fraction": area_fraction,
         "model": _provenance().get("model_id"),
+        "canonical_quad": corners is not None,
+        "kraken_polygonizer_warnings": int(runtime_diagnostics.get("kraken_polygonizer_warnings", 0)),
+        "lightning_srun_advisories": int(runtime_diagnostics.get("lightning_srun_advisories", 0)),
+        "kraken_filtered_messages": list(runtime_diagnostics.get("filtered_messages", [])),
     }
 
     if not evidence["regions"] and not evidence["lines"] and not evidence["baselines"]:
         diagnostics["reason"] = "no_kraken_layout_evidence"
         return Candidate(METHOD, None, None, 0, 0, diagnostics, status="no_candidate")
-    if contour is None or corners is None:
+    if contour is None:
         diagnostics["reason"] = "no_connected_layout_region"
+        return Candidate(METHOD, None, None, 0, 0, diagnostics, status="no_candidate")
+    if corners is None:
+        diagnostics["reason"] = "invalid_page_quadrilateral"
         return Candidate(METHOD, None, None, 0, 0, diagnostics, status="no_candidate")
     if area_fraction < values["minimum_page_area_fraction"]:
         diagnostics["reason"] = "page_area_below_minimum"
