@@ -70,6 +70,20 @@ def _provenance():
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _configure_tensorflow_runtime_environment():
+    """Configure the legacy dhSegment runtime before importing TensorFlow.
+
+    The detector runs in a fresh regression/optimizer Python process.  Set the
+    import-time C++/absl logging controls here so they are guaranteed to exist
+    before TensorFlow initializes; lifecycle PREPARE runs in a separate process
+    and cannot export environment variables back into this one.
+    """
+    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+    os.environ["ABSL_MIN_LOG_LEVEL"] = "3"
+    os.environ["GLOG_minloglevel"] = "3"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
+
 class _SavedModel:
     """Legacy graph/session adapter for the released dhSegment v0.2 model.
 
@@ -80,6 +94,7 @@ class _SavedModel:
     """
 
     def __init__(self, model_dir: Path):
+        _configure_tensorflow_runtime_environment()
         try:
             import tensorflow as tf
         except ImportError as exc:
