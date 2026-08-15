@@ -71,7 +71,7 @@ CHILDREN = (
     ("page_background", detector_page_background.detect),
 )
 
-BASELINE_PARAMETERS: dict[str, Any] = {'minimum_side_consensus': 0.867713, 'consensus_tolerance_fraction': 0.031641, 'gradient_weight': 0.25, 'gradient_percentile': 76.0, 'consensus_weight': 0.6, 'source_diversity_weight': 0.15, 'minimum_side_gradient_support': 0.03}
+BASELINE_PARAMETERS: dict[str, Any] = {'minimum_side_consensus': 0.1, 'consensus_tolerance_fraction': 0.012664, 'gradient_weight': 0.25, 'gradient_percentile': 76.0, 'consensus_weight': 0.6, 'source_diversity_weight': 0.15, 'minimum_side_gradient_support': 0.03}
 
 
 def _parameters(overrides: dict[str, Any] | None) -> dict[str, float]:
