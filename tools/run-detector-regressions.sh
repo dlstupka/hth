@@ -520,35 +520,85 @@ detector_worker() {
   local pipeline_index="$1"
   local pipeline_number=$((pipeline_index + 1))
   local delay_seconds=$((pipeline_index * PIPELINE_STAGGER_MINUTES * 60))
-  local task_index claimed task_start_delay
+  local task_index claimed task_start_delay claim_dir
+  local claim_lock_fd="" claim_lock_dir="$queue_dir/.claim-lock"
+
+  # Every background worker opens the lock independently so flock owns a
+  # distinct open-file description per process. This serializes only queue
+  # assignment; detector loading and execution remain fully parallel.
+  if command -v flock >/dev/null 2>&1; then
+    exec {claim_lock_fd}>"$queue_dir/claim.lock"
+  fi
+
+  acquire_claim_lock() {
+    if [[ -n "$claim_lock_fd" ]]; then
+      flock -x "$claim_lock_fd"
+      return
+    fi
+
+    # Portable fallback for environments without util-linux flock. The lock is
+    # held only for the tiny claim critical section, so a 10 ms retry avoids a
+    # hot spin without introducing pipeline-scale launch staggering.
+    while ! mkdir "$claim_lock_dir" 2>/dev/null; do
+      sleep 0.01
+    done
+  }
+
+  release_claim_lock() {
+    if [[ -n "$claim_lock_fd" ]]; then
+      flock -u "$claim_lock_fd"
+    else
+      rmdir "$claim_lock_dir"
+    fi
+  }
 
   local first_task=1
   echo "[pipeline $pipeline_number] Started."
 
   while true; do
     claimed=""
+    acquire_claim_lock
+
+    # First pass: claim an actually unclaimed task. Do not inspect active lease
+    # files while normal work remains; that previously caused every later
+    # pipeline to spawn Python lease checks for all earlier active claims.
     for ((task_index = 0; task_index < ${#detector_configs[@]}; task_index++)); do
       [[ -f "$queue_dir/done/$task_index" ]] && continue
+      [[ -f "$queue_dir/failed/$task_index" ]] && continue
       claim_dir="$queue_dir/claims/$task_index"
       if mkdir "$claim_dir" 2>/dev/null; then
         claimed="$task_index"
         break
       fi
-      if [[ -f "$claim_dir/lease.json" ]] && python - "$claim_dir/lease.json" <<'PYLEASE'
+    done
+
+    # Recovery pass: only when no unclaimed work remains, inspect occupied
+    # claims for expired leases. This preserves lease recovery while keeping
+    # the normal multi-pipeline startup path free of redundant Python workers.
+    if [[ -z "$claimed" ]]; then
+      for ((task_index = 0; task_index < ${#detector_configs[@]}; task_index++)); do
+        [[ -f "$queue_dir/done/$task_index" ]] && continue
+        [[ -f "$queue_dir/failed/$task_index" ]] && continue
+        claim_dir="$queue_dir/claims/$task_index"
+        [[ -f "$claim_dir/lease.json" ]] || continue
+        if python - "$claim_dir/lease.json" <<'PYLEASE'
 from pathlib import Path
 import sys
 from hth.regression.sharding import lease_expired
 raise SystemExit(0 if lease_expired(Path(sys.argv[1])) else 1)
 PYLEASE
-      then
-        echo "[pipeline $pipeline_number] Reclaiming expired shard lease $task_index."
-        rm -rf "$claim_dir"
-        if mkdir "$claim_dir" 2>/dev/null; then
-          claimed="$task_index"
-          break
+        then
+          echo "[pipeline $pipeline_number] Reclaiming expired shard lease $task_index."
+          rm -rf "$claim_dir"
+          if mkdir "$claim_dir" 2>/dev/null; then
+            claimed="$task_index"
+            break
+          fi
         fi
-      fi
-    done
+      done
+    fi
+
+    release_claim_lock
 
     if [[ -z "$claimed" ]]; then
       echo "[pipeline $pipeline_number] Detector queue empty."
