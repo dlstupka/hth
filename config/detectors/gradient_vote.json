@@ -1,16 +1,16 @@
 {
   "schema_version": "0.1",
   "detector": "gradient_vote",
-  "description": "Focused lower-bound diagnostic refinement for HTH Gradient Boundary Voting. The prior 6,562-set exhaustive calibration produced a very broad near-best basin but placed both border_search_fraction and minimum_span_fraction at their lower tested boundary. This small two-dimensional sweep extends only those critical bounds while pinning every other parameter to the prior winning configuration, testing whether the clipped boundary hides meaningful improvement before spending a larger refinement budget.",
+  "description": "Second lower-bound refinement for HTH Gradient Boundary Voting. The preceding 81-combination diagnostic improved Avg IoU from 0.9250 to 0.9464 and Min IoU from 0.7525 to 0.8593, with the winner again landing on the lowest tested border_search_fraction (0.15). minimum_span_fraction was behaviorally flat across the winning border-search slice, so it is pinned to the winning 0.15 value while border_search_fraction alone is extended below 0.15 at fine resolution.",
   "profiles": {
     "baseline": {
       "gaussian_sigma": 1.2,
-      "border_search_fraction": 0.35,
+      "border_search_fraction": 0.15,
       "central_band_fraction": 1.0,
       "gradient_percentile": 70.0,
       "vote_smooth_fraction": 0.012,
       "minimum_vote_support": 0.08,
-      "minimum_span_fraction": 0.35,
+      "minimum_span_fraction": 0.15,
       "minimum_area_fraction": 0.2,
       "support_weight": 0.45,
       "area_weight": 0.25,
@@ -21,29 +21,27 @@
     "border_search_fraction": {
       "type": "float",
       "values": [
-        0.15,
-        0.18,
-        0.21,
-        0.24,
-        0.27,
-        0.3,
-        0.32,
-        0.34,
-        0.35
-      ]
-    },
-    "minimum_span_fraction": {
-      "type": "float",
-      "values": [
-        0.15,
-        0.18,
-        0.21,
-        0.24,
-        0.27,
-        0.3,
-        0.32,
-        0.34,
-        0.35
+        0.05,
+        0.055,
+        0.06,
+        0.065,
+        0.07,
+        0.075,
+        0.08,
+        0.085,
+        0.09,
+        0.095,
+        0.1,
+        0.105,
+        0.11,
+        0.115,
+        0.12,
+        0.125,
+        0.13,
+        0.135,
+        0.14,
+        0.145,
+        0.15
       ]
     }
   },

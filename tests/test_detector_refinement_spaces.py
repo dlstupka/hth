@@ -27,20 +27,24 @@ class DetectorRefinementSpaceTests(unittest.TestCase):
         self.assertEqual(min(config["parameters"]["bbox_padding_fraction"]["values"]), 0.0)
         self.assertIn(180, config["parameters"]["ray_count"]["values"])
 
-    def test_gradient_vote_refinement_is_small_lower_bound_diagnostic(self):
+    def test_gradient_vote_refinement_extends_only_border_search_lower_bound(self):
         config = self._load("gradient_vote")
-        # 81 two-dimensional combinations plus the explicit baseline.
-        self.assertEqual(len(generate(config)), 82)
-        self.assertEqual(
-            set(config["parameters"]),
-            {"border_search_fraction", "minimum_span_fraction"},
+        # 21 one-dimensional combinations plus the explicit baseline.
+        self.assertEqual(len(generate(config)), 22)
+        self.assertEqual(set(config["parameters"]), {"border_search_fraction"})
+
+        values = config["parameters"]["border_search_fraction"]["values"]
+        self.assertEqual(min(values), 0.05)
+        self.assertEqual(max(values), 0.15)
+        self.assertIn(0.15, values)
+        self.assertEqual(len(values), 21)
+        self.assertTrue(
+            all(round(values[i + 1] - values[i], 3) == 0.005 for i in range(len(values) - 1))
         )
-        for name in ("border_search_fraction", "minimum_span_fraction"):
-            values = config["parameters"][name]["values"]
-            self.assertIn(0.35, values)
-            self.assertLess(min(values), 0.35)
 
         baseline = config["profiles"]["baseline"]
+        self.assertEqual(baseline["border_search_fraction"], 0.15)
+        self.assertEqual(baseline["minimum_span_fraction"], 0.15)
         self.assertEqual(baseline["central_band_fraction"], 1.0)
         self.assertEqual(baseline["gaussian_sigma"], 1.2)
         self.assertEqual(baseline["gradient_percentile"], 70.0)
