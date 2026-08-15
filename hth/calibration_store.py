@@ -179,6 +179,8 @@ def publish_run(
             "recommended_parameter_set_id": selection.get("recommended_parameter_set_id") if isinstance(selection, dict) else None,
             "best_avg_iou": selection.get("best_avg_iou") if isinstance(selection, dict) else None,
             "minimum_iou": selection.get("minimum_iou") if isinstance(selection, dict) else None,
+            "stddev_iou": selection.get("stddev_iou") if isinstance(selection, dict) else None,
+            "failure_count": selection.get("failure_count") if isinstance(selection, dict) else None,
             "calibration_evidence": selection.get("calibration_evidence") if isinstance(selection, dict) else None,
         },
     }
@@ -211,6 +213,7 @@ def update_index(results_root: Path, entries: list[dict[str, Any]]) -> dict[str,
                 "intelligence_path": selected.get("intelligence_path"),
                 "created_at_utc": selected.get("created_at_utc"),
                 "build": selected.get("build"),
+                "selection": selected.get("selection"),
             }
 
     index.update({

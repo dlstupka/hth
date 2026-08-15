@@ -1005,8 +1005,10 @@ def _best_known_calibrations(
             indexed_records.append(_calibration_record_from_payload(detector, payload, entry=indexed_entry, summary=summary))
 
     # Current runs and persisted calibration-index records are one provenance
-    # population.  Never let the existence of the index hide a newer current
-    # calibration, and never use quality metrics to choose historical provenance.
+    # population.  Never let the existence of the index hide a current run.
+    # Authoritative/full provenance gates smoke and partial evidence; within the
+    # authoritative population, keep the strongest measured calibration as the
+    # best-known incumbent instead of letting recency alone downgrade it.
     candidates = indexed_records + current_records
     records_by_detector: dict[str, list[dict[str, Any]]] = {}
     for record in candidates:

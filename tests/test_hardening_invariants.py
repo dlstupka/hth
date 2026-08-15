@@ -54,7 +54,7 @@ class HardeningInvariantTests(unittest.TestCase):
             self.assertEqual(env["SHARDS"], 9)
             self.assertEqual(env["HTH_EXACT_EXECUTION_SHAPE"], "1")
 
-    def test_authoritative_calibration_selection_is_provenance_not_quality(self):
+    def test_authoritative_full_provenance_gates_higher_scoring_smoke(self):
         records = [
             {"status": "authoritative", "search_type": "exhaustive", "created_at_utc": "2026-08-10T01:00:00Z", "mean_iou": 0.5},
             {"status": "provisional", "search_type": "smoke", "created_at_utc": "2026-08-11T01:00:00Z", "mean_iou": 0.99},
