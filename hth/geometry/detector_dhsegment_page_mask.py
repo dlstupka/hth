@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -70,6 +71,25 @@ def _provenance():
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+@contextlib.contextmanager
+def _suppress_native_stderr_during_tensorflow_startup():
+    """Silence only native TensorFlow startup chatter.
+
+    TensorFlow/XLA emits pre-absl and MLIR initialization messages directly to
+    file descriptor 2 before Python logging is ready. Redirect fd 2 only while
+    TensorFlow is imported and the legacy graph/session is initialized; restore
+    it immediately afterward so real runtime errors remain visible.
+    """
+    saved_fd = os.dup(2)
+    try:
+        with open(os.devnull, "w") as sink:
+            os.dup2(sink.fileno(), 2)
+            yield
+    finally:
+        os.dup2(saved_fd, 2)
+        os.close(saved_fd)
+
+
 def _configure_tensorflow_runtime_environment():
     """Configure the legacy dhSegment runtime before importing TensorFlow.
 
@@ -96,35 +116,36 @@ class _SavedModel:
     def __init__(self, model_dir: Path):
         _configure_tensorflow_runtime_environment()
         try:
-            import tensorflow as tf
+            with _suppress_native_stderr_during_tensorflow_startup():
+                import tensorflow as tf
+
+                self.tf = tf
+                self.graph = tf.Graph()
+                config = tf.compat.v1.ConfigProto(
+                    intra_op_parallelism_threads=1,
+                    inter_op_parallelism_threads=1,
+                    allow_soft_placement=True,
+                    device_count={"GPU": 0},
+                )
+                self.session = tf.compat.v1.Session(graph=self.graph, config=config)
+
+                tf_logger = tf.get_logger()
+                previous_level = tf_logger.level
+                tf_logger.setLevel(logging.ERROR)
+                try:
+                    with self.graph.as_default():
+                        meta_graph = tf.compat.v1.saved_model.loader.load(
+                            self.session,
+                            [tf.compat.v1.saved_model.tag_constants.SERVING],
+                            str(model_dir),
+                        )
+                finally:
+                    tf_logger.setLevel(previous_level)
         except ImportError as exc:
             raise RuntimeError(
                 "dhsegment_page_mask requires the TensorFlow runtime installed "
                 "by the regression/optimizer workflow"
             ) from exc
-
-        self.tf = tf
-        self.graph = tf.Graph()
-        config = tf.compat.v1.ConfigProto(
-            intra_op_parallelism_threads=1,
-            inter_op_parallelism_threads=1,
-            allow_soft_placement=True,
-            device_count={"GPU": 0},
-        )
-        self.session = tf.compat.v1.Session(graph=self.graph, config=config)
-
-        tf_logger = tf.get_logger()
-        previous_level = tf_logger.level
-        tf_logger.setLevel(logging.ERROR)
-        try:
-            with self.graph.as_default():
-                meta_graph = tf.compat.v1.saved_model.loader.load(
-                    self.session,
-                    [tf.compat.v1.saved_model.tag_constants.SERVING],
-                    str(model_dir),
-                )
-        finally:
-            tf_logger.setLevel(previous_level)
 
         signatures = dict(meta_graph.signature_def)
         if not signatures:
