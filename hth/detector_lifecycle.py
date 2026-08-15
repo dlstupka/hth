@@ -1,6 +1,6 @@
 # detector lifecycle
 from __future__ import annotations
-import argparse, hashlib, importlib.util, json, os, re, shlex, shutil, tempfile, urllib.request, zipfile
+import argparse, hashlib, importlib.metadata, importlib.resources, importlib.util, json, os, re, shlex, shutil, tempfile, urllib.request, zipfile
 import cv2
 import numpy as np
 from datetime import datetime, timezone
@@ -16,6 +16,11 @@ DHSEGMENT_REPOSITORY="https://github.com/dhlab-epfl/dhSegment"
 DHSEGMENT_LICENSE="GPL-3.0"
 DHSEGMENT_MODEL_ID="dhsegment-page-v0.2"
 DHSEGMENT_MODEL_URL="https://github.com/dhlab-epfl/dhSegment/releases/download/v0.2/model.zip"
+
+KRAKEN_REPOSITORY="https://github.com/mittagessen/kraken"
+KRAKEN_LICENSE="Apache-2.0"
+KRAKEN_PACKAGE_VERSION="7.0.2"
+KRAKEN_MODEL_ID="kraken-blla-default-7.0.2"
 
 def _sha256(path):
     h=hashlib.sha256()
@@ -240,6 +245,80 @@ def _finalize_dhsegment_page_mask_hook(*,results_root):
     )
     return payload
 
+def _prepare_kraken_page_mask_hook(*,results_root,policy,env_file):
+    if policy not in {"reuse","refresh"}:
+        raise ValueError(f"Unsupported lifecycle policy: {policy}")
+    if importlib.util.find_spec("kraken") is None:
+        raise RuntimeError(
+            "kraken_page_mask requires Kraken; the regression/optimizer workflow "
+            "must install the detector-specific runtime before PREPARE"
+        )
+
+    installed_version=importlib.metadata.version("kraken")
+    if installed_version != KRAKEN_PACKAGE_VERSION:
+        raise RuntimeError(
+            f"kraken_page_mask requires Kraken {KRAKEN_PACKAGE_VERSION}; "
+            f"found {installed_version}"
+        )
+
+    packaged_model=Path(str(importlib.resources.files("kraken").joinpath("blla.mlmodel")))
+    if not packaged_model.is_file():
+        raise RuntimeError(f"Kraken default BLLA model is missing: {packaged_model}")
+
+    root=Path(results_root)/"models"/KRAKEN_MODEL_ID
+    model=root/"blla.mlmodel"
+    provenance=root/"model-provenance.json"
+    complete=model.is_file() and provenance.is_file()
+
+    if policy=="refresh" or not complete:
+        root.mkdir(parents=True,exist_ok=True)
+        shutil.copy2(packaged_model,model)
+        payload={
+            "schema_version":"1.0",
+            "model_id":KRAKEN_MODEL_ID,
+            "model_family":"Kraken BLLA",
+            "variant":"bundled default baseline/region segmentation model",
+            "kraken_version":installed_version,
+            "upstream_repository":KRAKEN_REPOSITORY,
+            "license":KRAKEN_LICENSE,
+            "model_filename":"blla.mlmodel",
+            "model_sha256":_sha256(model),
+            "prepared_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),
+            "inference_backend":"kraken-7-task-api",
+            "serving_contract":"PIL image -> Segmentation(regions, lines)",
+            "device":"cpu",
+        }
+        provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+
+    payload=json.loads(provenance.read_text(encoding="utf-8"))
+    if payload.get("model_sha256") != _sha256(model):
+        raise RuntimeError("Kraken default BLLA model SHA mismatch")
+
+    env={
+        "HTH_KRAKEN_PAGE_MODEL":model.resolve().as_posix(),
+        "HTH_KRAKEN_PAGE_PROVENANCE":provenance.resolve().as_posix(),
+        "CUDA_VISIBLE_DEVICES":"-1",
+    }
+    _write_env(env_file,env); os.environ.update(env)
+    print(
+        f"Kraken Page-Mask ready: model={KRAKEN_MODEL_ID} "
+        f"kraken={installed_version} model_sha256={str(payload.get('model_sha256') or '')[:12]}"
+    )
+    return payload
+
+
+def _finalize_kraken_page_mask_hook(*,results_root):
+    provenance=Path(results_root)/"models"/KRAKEN_MODEL_ID/"model-provenance.json"
+    if not provenance.is_file():
+        raise RuntimeError("Kraken Page-Mask model provenance missing")
+    payload=json.loads(provenance.read_text(encoding="utf-8"))
+    print(
+        f"Detector lifecycle finalize: kraken_page_mask "
+        f"model_sha256={str(payload.get('model_sha256') or '')[:12]}"
+    )
+    return payload
+
+
 def _prepare_learned_page_mask_hook(*,results_root,policy,env_file):
     return prepare_detector_legacy(
         "learned_page_mask",
@@ -253,10 +332,12 @@ def _finalize_learned_page_mask_hook(*,results_root):
 
 _PREPARE_HOOKS={
     "dhsegment_page_mask":_prepare_dhsegment_page_mask_hook,
+    "kraken_page_mask":_prepare_kraken_page_mask_hook,
     "learned_page_mask":_prepare_learned_page_mask_hook,
 }
 _FINALIZE_HOOKS={
     "dhsegment_page_mask":_finalize_dhsegment_page_mask_hook,
+    "kraken_page_mask":_finalize_kraken_page_mask_hook,
     "learned_page_mask":_finalize_learned_page_mask_hook,
 }
 

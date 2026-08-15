@@ -37,6 +37,7 @@ on:
           - gradient_vote
           - hough
           - joint_rectangle_vote
+          - kraken_page_mask
           - learned_page_mask
           - lsd
           - msre_bfq_spbv_pbg
@@ -460,6 +461,14 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install "tensorflow-cpu>=2.18,<2.21"
+          python -m pip check
+
+      - name: Install Kraken historical-document segmentation runtime
+        if: ${{ inputs.algorithm == 'kraken_page_mask' || inputs.algorithm == 'all' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install "kraken==7.0.2"
           python -m pip check
 
       - name: Verify Python dependency ABI
