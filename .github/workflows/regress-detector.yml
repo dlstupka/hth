@@ -331,7 +331,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        detector: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.algorithm == 'all' && (inputs.specific_runner == 'custom' || inputs.runner != 'github-hosted') && '["contour","convex_hull","distance_transform","distance_transform_rect","polar_boundary_vote","signed_polar_boundary_vote","segment_supported_polar_vote","joint_rectangle_vote","learned_page_mask","whitespace_frame","page_background","text_flow","radon_boundary","star_convex","contour_quad","contour_components","contour_projection","contour_grabcut","grabcut_contour","consensus_quad","edge_contour","cross_edge_contour","gradient_vote","radial_edge","adaptive_radial_edge","adaptive_multi_scale_radial_edge","amsre_bfq_spbv_pbg","msre_bfq_spbv_pbg","multi_scale_radial_edge","projective_gradient_vote","border_fusion_quad","border_energy","components","ransac","grabcut","hough","lsd"]' || format('["{0}"]', github.event_name == 'workflow_dispatch' && inputs.algorithm || 'all')) }}
+        # GitHub schedules machines; HTH schedules detector concurrency inside
+        # one self-hosted machine. Keep `all` as one aggregate job.
+        detector: ${{ fromJSON(format('["{0}"]', github.event_name == 'workflow_dispatch' && inputs.algorithm || 'all')) }}
     name: >-
       ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
           && format('Regress {0} against Golden Set', matrix.detector)
@@ -363,7 +365,7 @@ jobs:
       SHARDS: ${{ github.event_name == 'workflow_dispatch' && inputs.shards || '' }}
       SHARD_TARGET_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.shard_target_minutes || '30' }}
       SHARD_LEASE_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.shard_lease_minutes || '5' }}
-      DETECTOR_PIPELINES: '4'
+      DETECTOR_PIPELINES: ${{ matrix.detector == 'all' && needs.resolve-execution-dispatch.outputs.github_hosted != '1' && 'auto' || '4' }}
       DETECTOR_LOADING_STRATEGY: ${{ github.event_name == 'workflow_dispatch' && inputs.detector_loading_strategy || 'lpt' }}
       PIPELINE_STAGGER_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.pipeline_stagger_minutes || '0' }}
       DEBUG_LEVEL: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_level || 'none' }}

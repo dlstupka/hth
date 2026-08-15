@@ -95,8 +95,8 @@ print(runner_max_threads(sys.argv[1]))
 PYMAX
   )"
 fi
-if [[ ! "$requested_pipelines" =~ ^[0-9]+$ ]] || (( requested_pipelines < 1 || requested_pipelines > runner_pipeline_max )); then
-  echo "::error::Detector pipelines must be an integer from 1 through runner budget $runner_pipeline_max: $requested_pipelines"
+if [[ "$requested_pipelines" != "auto" ]] && { [[ ! "$requested_pipelines" =~ ^[0-9]+$ ]] || (( requested_pipelines < 1 || requested_pipelines > runner_pipeline_max )); }; then
+  echo "::error::Detector pipelines must be auto or an integer from 1 through runner budget $runner_pipeline_max: $requested_pipelines"
   exit 1
 fi
 if [[ "$THREADS" != "auto" ]] && { [[ ! "$THREADS" =~ ^[0-9]+$ ]] || (( THREADS < 1 || THREADS > 1024 )); }; then
@@ -105,6 +105,17 @@ if [[ "$THREADS" != "auto" ]] && { [[ ! "$THREADS" =~ ^[0-9]+$ ]] || (( THREADS 
 fi
 if [[ "${DETECTOR_ALGORITHM,,}" != "all" ]]; then
   effective_pipelines=1
+elif [[ "$requested_pipelines" == "auto" ]]; then
+  effective_pipelines="$(python - "${#detector_configs[@]}" "$runner_pipeline_max" <<'PYAUTO'
+import sys
+from hth.domain.multidetector_schedule import plan_lpt_workers
+print(plan_lpt_workers(int(sys.argv[1]), int(sys.argv[2])))
+PYAUTO
+  )"
+elif [[ "$requested_pipelines" == "auto" ]]; then
+  if (( effective_pipelines > ${#detector_configs[@]} )); then
+    effective_pipelines=${#detector_configs[@]}
+  fi
 elif (( requested_pipelines > ${#detector_configs[@]} )); then
   effective_pipelines=${#detector_configs[@]}
 else
@@ -262,7 +273,11 @@ echo "Regression mode    : $REGRESSION_MODE"
 echo "Algorithm          : '$DETECTOR_ALGORITHM'"
 echo "Effective limit    : '${effective_limit:-unlimited}' ($effective_limit_source)"
 echo "Detectors          : $detector_count"
-echo "Detector pipelines : $effective_pipelines (requested $requested_pipelines)"
+if [[ "$requested_pipelines" == "auto" ]]; then
+  echo "Detector pipelines : $effective_pipelines (auto LPT; ${detector_count} detectors, ${runner_pipeline_max}t runner budget)"
+else
+  echo "Detector pipelines : $effective_pipelines (requested $requested_pipelines)"
+fi
 echo "Shards             : ${#detector_configs[@]}${SHARDS:+ (explicit request $SHARDS; capped at one parameter set per shard)}"
 echo "Thread budget      : $allocated_threads allocated / $runner_thread_budget max; $unused_threads free; $effective_threads_per_pipeline per active pipeline"
 if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then

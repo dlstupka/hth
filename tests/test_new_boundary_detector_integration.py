@@ -24,7 +24,6 @@ class NewBoundaryDetectorIntegrationTests(unittest.TestCase):
         for method in self.METHODS:
             self.assertIn(f"          - {method}\n", regression)
             self.assertIn(f"          - {method}\n", optimizer)
-            self.assertIn(f'"{method}"', regression)
 
     def test_calibration_intelligence_has_explicit_characterization(self) -> None:
         for method in self.METHODS:
