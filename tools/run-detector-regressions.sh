@@ -112,10 +112,6 @@ from hth.domain.multidetector_schedule import plan_lpt_workers
 print(plan_lpt_workers(int(sys.argv[1]), int(sys.argv[2])))
 PYAUTO
   )"
-elif [[ "$requested_pipelines" == "auto" ]]; then
-  if (( effective_pipelines > ${#detector_configs[@]} )); then
-    effective_pipelines=${#detector_configs[@]}
-  fi
 elif (( requested_pipelines > ${#detector_configs[@]} )); then
   effective_pipelines=${#detector_configs[@]}
 else
@@ -227,7 +223,14 @@ detector_configs=("${task_configs[@]}")
 detector_estimates=("${task_estimates[@]}")
 detector_estimate_sources=("${task_estimate_sources[@]}")
 detector_quality=("${task_quality[@]}")
-if (( requested_pipelines > ${#detector_configs[@]} )); then
+# Shard expansion can change the task count. For auto mode, the
+# literal request has already been resolved into numeric effective_pipelines;
+# clamp that resolved value rather than re-entering "auto" into arithmetic.
+if [[ "$requested_pipelines" == "auto" ]]; then
+  if (( effective_pipelines > ${#detector_configs[@]} )); then
+    effective_pipelines=${#detector_configs[@]}
+  fi
+elif (( requested_pipelines > ${#detector_configs[@]} )); then
   effective_pipelines=${#detector_configs[@]}
 else
   effective_pipelines=$requested_pipelines

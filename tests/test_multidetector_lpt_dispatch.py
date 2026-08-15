@@ -21,6 +21,31 @@ class MultiDetectorLptDispatchTests(unittest.TestCase):
         self.assertIn("plan_lpt_workers", self.driver)
         self.assertIn('requested_pipelines" != "auto"', self.driver)
 
+    def test_auto_resolution_is_not_repeated_after_initial_planning(self):
+        self.assertEqual(
+            self.driver.count('elif [[ "$requested_pipelines" == "auto" ]]; then'),
+            1,
+        )
+
+    def test_post_shard_clamp_preserves_resolved_auto_worker_count(self):
+        marker = "# Shard expansion can change the task count."
+        self.assertIn(marker, self.driver)
+        start = self.driver.index(marker)
+        end = self.driver.index(
+            'if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]',
+            start,
+        )
+        block = self.driver[start:end]
+        self.assertIn('if [[ "$requested_pipelines" == "auto" ]]; then', block)
+        self.assertIn(
+            'if (( effective_pipelines > ${#detector_configs[@]} )); then',
+            block,
+        )
+        self.assertIn(
+            'elif (( requested_pipelines > ${#detector_configs[@]} )); then',
+            block,
+        )
+
     def test_existing_runtime_store_remains_lpt_order_source(self):
         self.assertIn("python -m hth.runtime_store order", self.driver)
         self.assertIn('--loading-strategy "$DETECTOR_LOADING_STRATEGY"', self.driver)
