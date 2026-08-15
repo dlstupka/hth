@@ -66,6 +66,15 @@ if [[ -s "$lifecycle_env" ]]; then
   set +a
 fi
 
+# Prove that Kraken PREPARE state is visible in the actual regression shell
+# before any worker launches. During this debug cycle also load the bundled
+# BLLA model here so import/model failures produce an ordinary traceback.
+if [[ " ${detector_configs[*]} " == *"kraken_page_mask.json"* ]]; then
+  echo "Kraken Page-Mask worker preflight"
+  echo "================================="
+  PYTHONFAULTHANDLER=1 python -m hth.kraken_page_mask_preflight --load-model
+fi
+
 if [[ ! "${PIPELINE_STAGGER_MINUTES:-0}" =~ ^[0-9]+$ ]]; then
   echo "::error::Pipeline stagger must be a non-negative whole number of minutes: ${PIPELINE_STAGGER_MINUTES:-}"
   exit 1
@@ -432,6 +441,13 @@ PYLEASE
   renew_lease &
   lease_pid=$!
 
+  if [[ "$detector_name" == "kraken_page_mask" ]]; then
+    echo "[pipeline $pipeline_number][$detector_name] Worker model path: ${HTH_KRAKEN_PAGE_MODEL:-<unset>}"
+    echo "[pipeline $pipeline_number][$detector_name] Worker model exists: $([[ -f "${HTH_KRAKEN_PAGE_MODEL:-}" ]] && echo yes || echo no)"
+    echo "[pipeline $pipeline_number][$detector_name] Worker provenance path: ${HTH_KRAKEN_PAGE_PROVENANCE:-<unset>}"
+    echo "[pipeline $pipeline_number][$detector_name] Worker provenance exists: $([[ -f "${HTH_KRAKEN_PAGE_PROVENANCE:-}" ]] && echo yes || echo no)"
+  fi
+
   if ! HTH_DETECTOR_PIPELINES="$effective_pipelines" \
     HTH_DETECTOR_PIPELINE_NUMBER="$pipeline_number" \
     HTH_PIPELINE_STAGGER_MINUTES="$PIPELINE_STAGGER_MINUTES" \
@@ -440,6 +456,7 @@ PYLEASE
     HTH_DETECTOR_RUNTIME_ESTIMATE_SOURCE="$detector_estimate_source" \
     HTH_DETECTOR_QUEUE_POSITION="$((task_index + 1))" \
     HTH_DETECTOR_RANKED_QUALITY="$detector_ranked_quality" \
+    PYTHONFAULTHANDLER=1 \
     "${args[@]}" 2>&1 \
       | sed -u -E 's/^(Machine[[:space:]]*:).*/\1 [obfuscated]/' \
       | sed -u "s/^/[pipeline $pipeline_number][$detector_name] /" \
@@ -579,7 +596,7 @@ for detector_name in "${unique_detectors[@]}"; do
   detector_shard_dirs=()
   for ((shard_index = 0; shard_index < expected_detector_shards; shard_index++)); do
     shard_root="$OUTPUT_DIR/.shards/$detector_name/shard-$(printf '%04d' "$shard_index")/$detector_name"
-    shard_run_dir="$(find "$shard_root" -mindepth 1 -maxdepth 1 -type d -name 'run-*' | sort | tail -n 1)"
+    shard_run_dir="$(find "$shard_root" -mindepth 1 -maxdepth 1 -type d -name 'run-*' 2>/dev/null | sort | tail -n 1 || true)"
     if [[ -z "$shard_run_dir" ]]; then
       echo "::error::Missing completed shard $((shard_index + 1))/$expected_detector_shards for $detector_name"
       exit 1
