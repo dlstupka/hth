@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from hth.domain.multidetector_schedule import preferred_short_schedule, workload_class
 from hth.domain.execution_shape import (
     optimizer_row_matches_workload,
     runner_match_tier,
@@ -467,6 +468,7 @@ def resolve_workflow_shape(
     detector: str, manual_shape: str | None, parallelism_index: Path,
     predictions_index: Path | None, detector_config_root: Path, golden_set: Path,
     max_dimension: int, profile: RunnerProfile, prediction_out: Path | None,
+    multidetector_index: Path | None = None,
     runner_budget: int | None = None, pre_resolved_pipelines: int | None = None,
     pre_resolved_threads: int | None = None, pre_resolved_source: str | None = None,
 ) -> dict[str, Any]:
@@ -506,10 +508,29 @@ def resolve_workflow_shape(
     if mode != "preferred":
         raise ValueError(f"Unknown execution shape mode: {shape_mode}")
 
+    is_multidetector = detector in {"all", "all-without-exhaustive"}
+    if is_multidetector and workload_class(regression_mode, strategy, limit) == "short":
+        golden_sha = hashlib.sha256(golden_set.read_bytes()).hexdigest() if golden_set.is_file() else None
+        detector_count = len(list(detector_config_root.glob("*.json")))
+        preferred_multi = preferred_short_schedule(
+            index_path=multidetector_index, detector_count=detector_count,
+            runner_thread_budget=budget, runner_label=profile.label,
+            golden_set_sha256=golden_sha,
+        )
+        if preferred_multi:
+            result = exact(
+                int(preferred_multi["pipelines"]), int(preferred_multi["threads_per_pipeline"]),
+                f"preferred-{preferred_multi['source']}",
+            )
+            result["multidetector"] = True
+            result["evidence_observation_id"] = preferred_multi.get("evidence_observation_id")
+            return result
+        return {"exact": False, "source": "auto-fallback-no-multidetector-history", "runner_budget": budget}
+
     if regression_mode != "full" or strategy != "exhaustive" or str(limit or "").strip():
         return {"exact": False, "source": "auto-fallback-incompatible-workload", "runner_budget": budget}
-    if detector == "all":
-        return {"exact": False, "source": "auto-fallback-all", "runner_budget": budget}
+    if is_multidetector:
+        return {"exact": False, "source": "auto-fallback-all-full-exhaustive", "runner_budget": budget}
 
     detector_config = detector_config_root / f"{detector}.json"
     preferred = resolve_preferred_shape(
@@ -548,10 +569,11 @@ def workflow_shape_env(result: dict[str, Any]) -> dict[str, Any]:
         env.update({
             "THREADS": int(result["threads_per_pipeline"]),
             "DETECTOR_PIPELINES": int(result["pipelines"]),
-            "SHARDS": int(result["pipelines"]),
             "HTH_EXACT_EXECUTION_SHAPE": "1",
             "HTH_ALLOW_THREAD_OVERSUBSCRIPTION": "false",
         })
+        if not result.get("multidetector"):
+            env["SHARDS"] = int(result["pipelines"])
     if result.get("prediction_file"):
         env["HTH_SHAPE_PREDICTION_FILE"] = result["prediction_file"]
     return env
@@ -610,6 +632,7 @@ def main() -> int:
     workflow.add_argument("--manual-shape", default="")
     workflow.add_argument("--parallelism-index", type=Path, required=True)
     workflow.add_argument("--predictions-index", type=Path)
+    workflow.add_argument("--multidetector-index", type=Path)
     workflow.add_argument("--detector-config-root", type=Path, required=True)
     workflow.add_argument("--golden-set", type=Path, required=True)
     workflow.add_argument("--max-dimension", type=int, required=True)
@@ -648,7 +671,7 @@ def main() -> int:
             shape_mode=args.shape_mode, regression_mode=args.regression_mode,
             strategy=args.strategy, limit=args.limit, detector=args.detector,
             manual_shape=args.manual_shape, parallelism_index=args.parallelism_index,
-            predictions_index=args.predictions_index,
+            predictions_index=args.predictions_index, multidetector_index=args.multidetector_index,
             detector_config_root=args.detector_config_root, golden_set=args.golden_set,
             max_dimension=args.max_dimension, profile=profile,
             prediction_out=args.prediction_out, runner_budget=args.runner_budget,

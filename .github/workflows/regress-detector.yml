@@ -766,6 +766,7 @@ jobs:
             --manual-shape "${MANUAL_EXECUTION_SHAPE:-}" \
             --parallelism-index results-repo/parallelism-index.json \
             --predictions-index results-repo/optimizer-predictions.json \
+            --multidetector-index results-repo/multidetector-index.json \
             --detector-config-root hth-pipeline/config/detectors \
             --golden-set "hth-pipeline/$GOLDEN_SET" \
             --max-dimension "$MAX_DIMENSION" \
@@ -828,7 +829,7 @@ jobs:
 
             git -C results-repo fetch origin main
             git -C results-repo reset --hard origin/main
-            git -C results-repo clean -fd -- calibration-index.json runtime-index.json parallelism-index.json optimizer-predictions.json source-documents/
+            git -C results-repo clean -fd -- calibration-index.json runtime-index.json parallelism-index.json multidetector-index.json optimizer-predictions.json source-documents/
 
             if [[ -n "${HTH_SHAPE_PREDICTION_FILE:-}" && -f "${HTH_SHAPE_PREDICTION_FILE}" ]]; then
               python -m hth.regression_shape record-prediction \
@@ -851,7 +852,13 @@ jobs:
               --sha "${{ github.sha }}" \
               --run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-            git -C results-repo add calibration-index.json runtime-index.json parallelism-index.json source-documents/
+            if [[ -f regression-output/multidetector-execution.json ]]; then
+              python -m hth.multidetector_store publish \
+                --metadata regression-output/multidetector-execution.json \
+                --results-root results-repo
+            fi
+
+            git -C results-repo add calibration-index.json runtime-index.json parallelism-index.json multidetector-index.json source-documents/
             if [[ -d results-repo/models ]]; then git -C results-repo add models/; fi
             if [[ -f results-repo/optimizer-predictions.json ]]; then
               git -C results-repo add optimizer-predictions.json

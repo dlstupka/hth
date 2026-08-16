@@ -314,7 +314,9 @@ done
 queue_dir="$OUTPUT_DIR/.detector-queue"
 rm -rf "$queue_dir"
 mkdir -p "$queue_dir/claims" "$queue_dir/done" "$queue_dir/failed" \
-  "$queue_dir/run-dirs" "$queue_dir/logs"
+  "$queue_dir/run-dirs" "$queue_dir/logs" "$queue_dir/telemetry/workers" "$queue_dir/telemetry/tasks"
+telemetry_root="$queue_dir/telemetry"
+printf 'start\t%s\n' "$(date +%s.%N)" > "$telemetry_root/batch.tsv"
 : > "$OUTPUT_DIR/run-directories.txt"
 : > "$OUTPUT_DIR/runner-output.log"
 
@@ -418,6 +420,7 @@ PY
     sleep "$start_delay_seconds"
   fi
   detector_started_epoch="$(date +%s)"
+  printf 'start\t%s\n' "$(date +%s.%N)" >> "$telemetry_root/tasks/$task_index.tsv"
   lifecycle_time="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   echo "[pipeline $pipeline_number] START detector=$detector_name shard=$((shard_index + 1))/$shard_count threads=$detector_threads time=$lifecycle_time"
   echo "======================================================================"
@@ -482,6 +485,7 @@ PYLEASE
     kill "$lease_pid" 2>/dev/null || true
     wait "$lease_pid" 2>/dev/null || true
     detector_finished_epoch="$(date +%s)"
+    printf 'finish\t%s\tfailed\n' "$(date +%s.%N)" >> "$telemetry_root/tasks/$task_index.tsv"
     detector_wall_seconds="$((detector_finished_epoch - detector_started_epoch))"
     lifecycle_time="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
     echo "[pipeline $pipeline_number] UNLOAD detector=$detector_name shard=$((shard_index + 1))/$shard_count status=failed wall=${detector_wall_seconds}s time=$lifecycle_time"
@@ -505,6 +509,7 @@ PYLEASE
 
   printf '%s\n' "$run_dir" > "$queue_dir/run-dirs/$(printf '%04d' "$task_index")"
   detector_finished_epoch="$(date +%s)"
+  printf 'finish\t%s\tcomplete\n' "$(date +%s.%N)" >> "$telemetry_root/tasks/$task_index.tsv"
   detector_wall_seconds="$((detector_finished_epoch - detector_started_epoch))"
 
   if [[ -n "${HTH_OPTIMIZER_SHARD_LOG:-}" && -n "${HTH_OPTIMIZER_RUN_ID:-}" && -n "${HTH_OPTIMIZER_SHAPE_SEQUENCE:-}" ]]; then
@@ -571,6 +576,7 @@ detector_worker() {
   }
 
   local first_task=1
+  printf 'start\t%s\n' "$(date +%s.%N)" > "$telemetry_root/workers/$pipeline_number.tsv"
   echo "[pipeline $pipeline_number] Started."
 
   while true; do
@@ -619,9 +625,15 @@ PYLEASE
     release_claim_lock
 
     if [[ -z "$claimed" ]]; then
+      printf 'end\t%s\n' "$(date +%s.%N)" >> "$telemetry_root/workers/$pipeline_number.tsv"
       echo "[pipeline $pipeline_number] Detector queue empty."
       return 0
     fi
+
+    printf 'claim\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$(date +%s.%N)" "$pipeline_number" "${task_detectors[$claimed]}" \
+      "${task_shard_indexes[$claimed]}" "${task_shard_counts[$claimed]}" "${task_threads[$claimed]}" \
+      > "$telemetry_root/tasks/$claimed.tsv"
 
     task_start_delay=0
     if (( first_task == 1 )); then
@@ -632,6 +644,7 @@ PYLEASE
       : > "$queue_dir/done/$claimed"
     else
       : > "$queue_dir/failed/$claimed"
+      printf 'end\t%s\n' "$(date +%s.%N)" >> "$telemetry_root/workers/$pipeline_number.tsv"
       echo "::error::Pipeline $pipeline_number failed detector config ${detector_configs[$claimed]}"
       return 1
     fi
@@ -650,6 +663,29 @@ for worker_pid in "${worker_pids[@]}"; do
     queue_failed=1
   fi
 done
+printf 'end\t%s\n' "$(date +%s.%N)" >> "$telemetry_root/batch.tsv"
+
+if [[ "${DETECTOR_ALGORITHM,,}" == "all" ]]; then
+  multidetector_observation_id="${GITHUB_RUN_ID:-local}:${GITHUB_RUN_ATTEMPT:-1}:${REGRESSION_MODE}:${effective_strategy}:${detector_count}"
+  python -m hth.multidetector_store finalize \
+    --telemetry-root "$telemetry_root" \
+    --output "$OUTPUT_DIR/multidetector-execution.json" \
+    --observation-id "$multidetector_observation_id" \
+    --github-run-id "${GITHUB_RUN_ID:-}" \
+    --github-run-number "${GITHUB_RUN_NUMBER:-}" \
+    --mode "$REGRESSION_MODE" \
+    --strategy "$effective_strategy" \
+    --limit "${effective_limit:-}" \
+    --detector-count "$detector_count" \
+    --golden-set-sha256 "$golden_set_sha256" \
+    --runner-label "${HTH_RUNNER_LABEL:-unknown}" \
+    --runner-name "${HTH_RUNNER_NAME:-${RUNNER_NAME:-unknown}}" \
+    --runner-thread-budget "$runner_thread_budget" \
+    --threads-per-worker "$effective_threads_per_pipeline" \
+    --allocated-threads "$allocated_threads" \
+    --loading-strategy "$DETECTOR_LOADING_STRATEGY" \
+    --scheduler-source "${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-${requested_pipelines}}"
+fi
 
 : > "$OUTPUT_DIR/run-directories.txt"
 mapfile -t unique_detectors < <(printf '%s\n' "${task_detectors[@]}" | sort -u)
