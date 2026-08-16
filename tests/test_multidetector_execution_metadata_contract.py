@@ -8,8 +8,9 @@ class MultiDetectorExecutionMetadataContractTests(unittest.TestCase):
     def test_executor_records_claim_start_finish_worker_and_batch_events(self):
         text = (ROOT / "tools/run-detector-regressions.sh").read_text(encoding="utf-8")
         for token in (
-            'telemetry/workers', 'telemetry/tasks', r"printf 'claim\t", r"printf 'start\t",
-            r"printf 'finish\t", 'multidetector-execution.json', 'hth.multidetector_store finalize',
+            'telemetry/workers', 'telemetry/tasks', 'telemetry/claim-batches', r"printf 'claim_batch\t",
+            r"printf 'start\t", r"printf 'finish\t", 'multidetector-execution.json',
+            'hth.multidetector_store finalize',
         ):
             self.assertIn(token, text)
 

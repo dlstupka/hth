@@ -311,23 +311,40 @@ PY
     "${detector_quality[$queue_index]:-unknown}"
 done
 
+CLAIM_BATCH_TARGET_DECISECONDS=100
+CLAIM_ESTIMATE_FLOOR_DECISECONDS=1
 initial_claim_strategy="dynamic-lpt"
-seed_initial_wave=0
+batch_claims_enabled=0
 if [[ "${DETECTOR_ALGORITHM,,}" == "all" ]] \
   && [[ "${DETECTOR_LOADING_STRATEGY,,}" == "lpt" ]] \
   && { [[ "$REGRESSION_MODE" != "full" ]] || [[ -n "${effective_limit:-}" ]] || [[ "$effective_strategy" != "exhaustive" ]]; } \
   && (( effective_pipelines > 1 )); then
-  initial_claim_strategy="seeded-first-wave+lpt-refill"
-  seed_initial_wave=1
+  initial_claim_strategy="lpt-batches-10s"
+  batch_claims_enabled=1
 fi
 echo "Claim strategy     : $initial_claim_strategy"
 
 queue_dir="$OUTPUT_DIR/.detector-queue"
 rm -rf "$queue_dir"
 mkdir -p "$queue_dir/claims" "$queue_dir/done" "$queue_dir/failed" \
-  "$queue_dir/run-dirs" "$queue_dir/logs" "$queue_dir/telemetry/workers" "$queue_dir/telemetry/tasks"
+  "$queue_dir/run-dirs" "$queue_dir/logs" "$queue_dir/telemetry/workers" \
+  "$queue_dir/telemetry/tasks" "$queue_dir/telemetry/claim-batches"
 telemetry_root="$queue_dir/telemetry"
 printf 'start\t%s\n' "$(date +%s.%N)" > "$telemetry_root/batch.tsv"
+
+# Scheduling only needs decisecond precision for these short workloads.
+mapfile -t task_claim_units < <(
+  python - "${detector_estimates[@]}" <<'PYCLAIMUNITS'
+import math
+import sys
+for raw in sys.argv[1:]:
+    try:
+        seconds=float(raw)
+    except (TypeError,ValueError):
+        seconds=0.1
+    print(max(1,int(math.ceil(max(0.1,seconds)*10.0))))
+PYCLAIMUNITS
+)
 : > "$OUTPUT_DIR/run-directories.txt"
 : > "$OUTPUT_DIR/runner-output.log"
 
@@ -335,6 +352,7 @@ run_detector_config() {
   local task_index="$1"
   local pipeline_number="$2"
   local start_delay_seconds="${3:-0}"
+  local claim_batch_id="${4:-unbatched}"
   local detector_config="${detector_configs[$task_index]}"
 
   if [[ ! -f "$detector_config" ]]; then
@@ -431,7 +449,9 @@ PY
     sleep "$start_delay_seconds"
   fi
   detector_started_epoch="$(date +%s)"
-  printf 'start\t%s\n' "$(date +%s.%N)" >> "$telemetry_root/tasks/$task_index.tsv"
+  printf 'start\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$(date +%s.%N)" "$pipeline_number" "$detector_name" "$shard_index" "$shard_count" "$detector_threads" "$claim_batch_id" \
+    >> "$telemetry_root/tasks/$task_index.tsv"
   lifecycle_time="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   echo "[pipeline $pipeline_number] START detector=$detector_name shard=$((shard_index + 1))/$shard_count threads=$detector_threads time=$lifecycle_time"
   echo "======================================================================"
@@ -550,41 +570,90 @@ PYLEASE
   echo "======================================================================"
 }
 
+claim_batch_from_queue() {
+  claimed_batch=()
+  claimed_batch_units=0
+  local task_index claim_dir units
+  for ((task_index=0; task_index<${#detector_configs[@]}; task_index++)); do
+    [[ -f "$queue_dir/done/$task_index" ]] && continue
+    [[ -f "$queue_dir/failed/$task_index" ]] && continue
+    claim_dir="$queue_dir/claims/$task_index"
+    if mkdir "$claim_dir" 2>/dev/null; then
+      claimed_batch+=("$task_index")
+      units="${task_claim_units[$task_index]:-$CLAIM_ESTIMATE_FLOOR_DECISECONDS}"
+      claimed_batch_units=$((claimed_batch_units + units))
+      if (( batch_claims_enabled == 0 || claimed_batch_units >= CLAIM_BATCH_TARGET_DECISECONDS )); then
+        break
+      fi
+    fi
+  done
+}
+
+reclaim_expired_task() {
+  claimed_batch=()
+  claimed_batch_units=0
+  local task_index claim_dir
+  for ((task_index=0; task_index<${#detector_configs[@]}; task_index++)); do
+    [[ -f "$queue_dir/done/$task_index" ]] && continue
+    [[ -f "$queue_dir/failed/$task_index" ]] && continue
+    claim_dir="$queue_dir/claims/$task_index"
+    [[ -f "$claim_dir/lease.json" ]] || continue
+    if python - "$claim_dir/lease.json" <<'PYLEASE'
+from pathlib import Path
+import sys
+from hth.regression.sharding import lease_expired
+raise SystemExit(0 if lease_expired(Path(sys.argv[1])) else 1)
+PYLEASE
+    then
+      echo "[pipeline recovery] Reclaiming expired shard lease $task_index."
+      rm -rf "$claim_dir"
+      if mkdir "$claim_dir" 2>/dev/null; then
+        claimed_batch=("$task_index")
+        claimed_batch_units="${task_claim_units[$task_index]:-$CLAIM_ESTIMATE_FLOOR_DECISECONDS}"
+        break
+      fi
+    fi
+  done
+}
+
+write_claim_batch_telemetry() {
+  local pipeline_number="$1" batch_sequence="$2" claimed_at="$3"
+  shift 3
+  local -a batch_tasks=("$@")
+  local batch_id task_csv first_task
+  batch_id="$(printf 'p%03d-b%05d' "$pipeline_number" "$batch_sequence")"
+  task_csv="$(IFS=,; echo "${batch_tasks[*]}")"
+  first_task="${batch_tasks[0]}"
+  printf 'claim_batch\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$claimed_at" "$pipeline_number" "${task_threads[$first_task]}" \
+    "$((claimed_batch_units/10)).$((claimed_batch_units%10))" "$task_csv" "$batch_id" \
+    > "$telemetry_root/claim-batches/$batch_id.tsv"
+  printf '%s\n' "$batch_id"
+}
+
 detector_worker() {
-  local pipeline_index="$1"
-  local seeded_task="${2:-}"
-  local pipeline_number=$((pipeline_index + 1))
-  local delay_seconds=$((pipeline_index * PIPELINE_STAGGER_MINUTES * 60))
-  local task_index claimed task_start_delay claim_dir
+  local pipeline_index="$1" seeded_batch_csv="${2:-}"
+  local pipeline_number=$((pipeline_index+1))
+  local delay_seconds=$((pipeline_index*PIPELINE_STAGGER_MINUTES*60))
+  local task_index task_start_delay claim_batch_id claimed_at
+  local batch_sequence=0
   local claim_lock_fd="" claim_lock_dir="$queue_dir/.claim-lock"
+  local -a claimed_batch=()
+  local claimed_batch_units=0
 
   # Every background worker opens the lock independently so flock owns a
-  # distinct open-file description per process. This serializes only queue
-  # assignment; detector loading and execution remain fully parallel.
+  # distinct open-file description per process. Only batch assignment is
+  # serialized; detector loading and execution remain fully parallel.
   if command -v flock >/dev/null 2>&1; then
     exec {claim_lock_fd}>"$queue_dir/claim.lock"
   fi
 
   acquire_claim_lock() {
-    if [[ -n "$claim_lock_fd" ]]; then
-      flock -x "$claim_lock_fd"
-      return
-    fi
-
-    # Portable fallback for environments without util-linux flock. The lock is
-    # held only for the tiny claim critical section, so a 10 ms retry avoids a
-    # hot spin without introducing pipeline-scale launch staggering.
-    while ! mkdir "$claim_lock_dir" 2>/dev/null; do
-      sleep 0.01
-    done
+    if [[ -n "$claim_lock_fd" ]]; then flock -x "$claim_lock_fd"; return; fi
+    while ! mkdir "$claim_lock_dir" 2>/dev/null; do sleep 0.01; done
   }
-
   release_claim_lock() {
-    if [[ -n "$claim_lock_fd" ]]; then
-      flock -u "$claim_lock_fd"
-    else
-      rmdir "$claim_lock_dir"
-    fi
+    if [[ -n "$claim_lock_fd" ]]; then flock -u "$claim_lock_fd"; else rmdir "$claim_lock_dir"; fi
   }
 
   local first_task=1
@@ -592,104 +661,63 @@ detector_worker() {
   echo "[pipeline $pipeline_number] Started."
 
   while true; do
-    claimed=""
-
-    # Pre-assign one first-wave LPT task per pipeline for short multi-detector
-    # runs. Parent-side claim creation eliminates startup claim-lock contention;
-    # all later refills return to the normal serialized dynamic queue.
-    if [[ -n "$seeded_task" ]]; then
-      claimed="$seeded_task"
-      seeded_task=""
-      echo "[pipeline $pipeline_number] Seeded initial LPT claim task=$claimed detector=${task_detectors[$claimed]}"
+    claimed_batch=()
+    claimed_batch_units=0
+    if [[ -n "$seeded_batch_csv" ]]; then
+      IFS=',' read -r -a claimed_batch <<< "$seeded_batch_csv"
+      seeded_batch_csv=""
+      for task_index in "${claimed_batch[@]}"; do
+        claimed_batch_units=$((claimed_batch_units + ${task_claim_units[$task_index]:-$CLAIM_ESTIMATE_FLOOR_DECISECONDS}))
+      done
+      echo "[pipeline $pipeline_number] Seeded initial LPT batch tasks=$(IFS=,; echo "${claimed_batch[*]}")"
     else
       acquire_claim_lock
-
-    # First pass: claim an actually unclaimed task. Do not inspect active lease
-    # files while normal work remains; that previously caused every later
-    # pipeline to spawn Python lease checks for all earlier active claims.
-    for ((task_index = 0; task_index < ${#detector_configs[@]}; task_index++)); do
-      [[ -f "$queue_dir/done/$task_index" ]] && continue
-      [[ -f "$queue_dir/failed/$task_index" ]] && continue
-      claim_dir="$queue_dir/claims/$task_index"
-      if mkdir "$claim_dir" 2>/dev/null; then
-        claimed="$task_index"
-        break
-      fi
-    done
-
-    # Recovery pass: only when no unclaimed work remains, inspect occupied
-    # claims for expired leases. This preserves lease recovery while keeping
-    # the normal multi-pipeline startup path free of redundant Python workers.
-    if [[ -z "$claimed" ]]; then
-      for ((task_index = 0; task_index < ${#detector_configs[@]}; task_index++)); do
-        [[ -f "$queue_dir/done/$task_index" ]] && continue
-        [[ -f "$queue_dir/failed/$task_index" ]] && continue
-        claim_dir="$queue_dir/claims/$task_index"
-        [[ -f "$claim_dir/lease.json" ]] || continue
-        if python - "$claim_dir/lease.json" <<'PYLEASE'
-from pathlib import Path
-import sys
-from hth.regression.sharding import lease_expired
-raise SystemExit(0 if lease_expired(Path(sys.argv[1])) else 1)
-PYLEASE
-        then
-          echo "[pipeline $pipeline_number] Reclaiming expired shard lease $task_index."
-          rm -rf "$claim_dir"
-          if mkdir "$claim_dir" 2>/dev/null; then
-            claimed="$task_index"
-            break
-          fi
-        fi
-      done
-    fi
-
+      claim_batch_from_queue
+      (( ${#claimed_batch[@]} == 0 )) && reclaim_expired_task
       release_claim_lock
     fi
 
-    if [[ -z "$claimed" ]]; then
+    if (( ${#claimed_batch[@]} == 0 )); then
       printf 'end\t%s\n' "$(date +%s.%N)" >> "$telemetry_root/workers/$pipeline_number.tsv"
       echo "[pipeline $pipeline_number] Detector queue empty."
       return 0
     fi
 
-    printf 'claim\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$(date +%s.%N)" "$pipeline_number" "${task_detectors[$claimed]}" \
-      "${task_shard_indexes[$claimed]}" "${task_shard_counts[$claimed]}" "${task_threads[$claimed]}" \
-      > "$telemetry_root/tasks/$claimed.tsv"
+    batch_sequence=$((batch_sequence+1))
+    claimed_at="$(date +%s.%N)"
+    claim_batch_id="$(write_claim_batch_telemetry "$pipeline_number" "$batch_sequence" "$claimed_at" "${claimed_batch[@]}")"
+    echo "[pipeline $pipeline_number] CLAIM-BATCH id=$claim_batch_id tasks=${#claimed_batch[@]} estimate=$((claimed_batch_units/10)).$((claimed_batch_units%10))s"
 
-    task_start_delay=0
-    if (( first_task == 1 )); then
-      task_start_delay="$delay_seconds"
-      first_task=0
-    fi
-    if run_detector_config "$claimed" "$pipeline_number" "$task_start_delay"; then
-      : > "$queue_dir/done/$claimed"
-    else
-      : > "$queue_dir/failed/$claimed"
-      printf 'end\t%s\n' "$(date +%s.%N)" >> "$telemetry_root/workers/$pipeline_number.tsv"
-      echo "::error::Pipeline $pipeline_number failed detector config ${detector_configs[$claimed]}"
-      return 1
-    fi
+    for task_index in "${claimed_batch[@]}"; do
+      task_start_delay=0
+      if (( first_task == 1 )); then task_start_delay="$delay_seconds"; first_task=0; fi
+      if run_detector_config "$task_index" "$pipeline_number" "$task_start_delay" "$claim_batch_id"; then
+        : > "$queue_dir/done/$task_index"
+      else
+        : > "$queue_dir/failed/$task_index"
+        printf 'end\t%s\n' "$(date +%s.%N)" >> "$telemetry_root/workers/$pipeline_number.tsv"
+        echo "::error::Pipeline $pipeline_number failed detector config ${detector_configs[$task_index]}"
+        return 1
+      fi
+    done
   done
 }
 
 worker_pids=()
-declare -a initial_seed_tasks=()
-if (( seed_initial_wave == 1 )); then
-  seed_count="$effective_pipelines"
-  (( seed_count > ${#detector_configs[@]} )) && seed_count=${#detector_configs[@]}
-  echo "Initial LPT seed"
-  echo "================"
-  for ((pipeline_index = 0; pipeline_index < seed_count; pipeline_index++)); do
-    task_index="$pipeline_index"
-    mkdir "$queue_dir/claims/$task_index"
-    initial_seed_tasks[$pipeline_index]="$task_index"
-    echo "pipeline=$((pipeline_index + 1)) task=$task_index detector=${task_detectors[$task_index]} estimate=${detector_estimates[$task_index]:-unknown}s threads=${task_threads[$task_index]}"
+declare -a initial_seed_batches=()
+if (( batch_claims_enabled == 1 )); then
+  echo "Initial LPT claim batches"
+  echo "========================="
+  for ((pipeline_index=0; pipeline_index<effective_pipelines; pipeline_index++)); do
+    claim_batch_from_queue
+    (( ${#claimed_batch[@]} == 0 )) && break
+    initial_seed_batches[$pipeline_index]="$(IFS=,; echo "${claimed_batch[*]}")"
+    echo "pipeline=$((pipeline_index+1)) tasks=${initial_seed_batches[$pipeline_index]} estimate=$((claimed_batch_units/10)).$((claimed_batch_units%10))s"
   done
 fi
 
-for ((pipeline_index = 0; pipeline_index < effective_pipelines; pipeline_index++)); do
-  detector_worker "$pipeline_index" "${initial_seed_tasks[$pipeline_index]:-}" &
+for ((pipeline_index=0; pipeline_index<effective_pipelines; pipeline_index++)); do
+  detector_worker "$pipeline_index" "${initial_seed_batches[$pipeline_index]:-}" &
   worker_pids+=("$!")
 done
 

@@ -1701,26 +1701,38 @@ def _queue_rows(
 
 
 def _next_claim_optimization(queue_rows: list[dict[str, Any]], execution: dict[str, Any]) -> dict[str, Any]:
-    pipelines = int(execution.get("pipeline_count", 1) or 1)
-    loading = str(execution.get("loading_strategy", "")).strip().lower()
-    seed_count = min(max(1, pipelines), len(queue_rows)) if queue_rows else 0
-    if pipelines > 1 and loading == "lpt" and seed_count > 0:
-        return {
-            "strategy": "seeded-first-wave + dynamic LPT refill",
-            "seed_count": seed_count,
-            "initial_lock": "bypassed",
-            "refill": "serialized dynamic LPT claims",
-            "claim_wait": "0 startup claim wait",
-            "basis": "current LPT runtime intelligence + persisted short-run occupation",
-        }
-    return {
-        "strategy": "dynamic queue claims",
-        "seed_count": 0,
-        "initial_lock": "serialized",
-        "refill": "serialized dynamic claims",
-        "claim_wait": "minimal",
-        "basis": "current execution profile",
-    }
+    pipelines=int(execution.get("pipeline_count",1) or 1)
+    loading=str(execution.get("loading_strategy","")).strip().lower()
+    seed_count=min(pipelines,len(queue_rows)) if queue_rows else 0
+    if pipelines>1 and loading=="lpt" and queue_rows:
+        return {"strategy":"10s LPT claim batches","seed_count":seed_count,
+                "target_seconds":10.0,"estimate_floor_seconds":0.1,
+                "initial_lock":"parent pre-batched",
+                "refill":"one serialized claim per >=10s LPT batch",
+                "claim_wait":"amortized per batch",
+                "basis":"current LPT runtime intelligence + persisted short-run occupation"}
+    return {"strategy":"dynamic queue claims","seed_count":0,
+            "target_seconds":None,"estimate_floor_seconds":0.1,
+            "initial_lock":"serialized","refill":"serialized dynamic claims",
+            "claim_wait":"minimal","basis":"current execution profile"}
+
+
+def _initial_claim_batches(queue_rows: list[dict[str, Any]], pipeline_count: int,
+                           *, target_seconds: float=10.0,
+                           estimate_floor_seconds: float=0.1) -> list[dict[str, Any]]:
+    batches=[]; cursor=0
+    for pipeline in range(1,max(1,pipeline_count)+1):
+        tasks=[]; total=0.0
+        while cursor<len(queue_rows):
+            row=queue_rows[cursor]; cursor+=1
+            try: seconds=float(row.get("estimate_seconds"))
+            except (TypeError,ValueError): seconds=estimate_floor_seconds
+            seconds=max(estimate_floor_seconds,seconds)
+            tasks.append(row); total+=seconds
+            if total>=target_seconds: break
+        if not tasks: break
+        batches.append({"pipeline":pipeline,"tasks":tasks,"estimated_seconds":total})
+    return batches
 
 
 def _github_url(repository: str) -> str:
@@ -2024,29 +2036,33 @@ def build_combined_summary(
         "| Setting | Preferred next run |",
         "|---|---|",
         f"| Claim strategy | {claim_optimization['strategy']} |",
-        f"| Initial seeded claims | {claim_optimization['seed_count']} |",
-        f"| Initial-wave claim lock | {claim_optimization['initial_lock']} |",
+        f"| Batch target | {claim_optimization['target_seconds'] or 'n/a'}s estimated work |",
+        f"| Scheduling estimate floor | {claim_optimization['estimate_floor_seconds']}s |",
+        f"| Initial-wave claims | {claim_optimization['initial_lock']} |",
         f"| Refill strategy | {claim_optimization['refill']} |",
-        f"| Claim-wait target | {claim_optimization['claim_wait']} |",
+        f"| Claim-wait objective | {claim_optimization['claim_wait']} |",
         f"| Optimization basis | {claim_optimization['basis']} |",
     ])
-    if claim_optimization["seed_count"] > 0:
-        lines.extend([
-            "",
-            "| Pipeline | Initial LPT seed | Estimated Runtime | Threads |",
-            "|---:|---|---:|---:|",
-        ])
-        for pipeline_index, row in enumerate(queue_rows[: int(claim_optimization["seed_count"])], start=1):
-            estimate_seconds = row.get("estimate_seconds")
-            estimate = "no history" if estimate_seconds is None else _duration(estimate_seconds)
-            lines.append(
-                f"| {pipeline_index} | {_detector_friendly_name(str(row['detector']))} (`{row['detector']}`) | "
-                f"{estimate} | {execution.get('threads', 'unknown')} |"
+    if claim_optimization["target_seconds"] is not None:
+        initial_batches=_initial_claim_batches(
+            queue_rows,int(execution.get("pipeline_count",1) or 1),
+            target_seconds=float(claim_optimization["target_seconds"]),
+            estimate_floor_seconds=float(claim_optimization["estimate_floor_seconds"]),
+        )
+        lines.extend(["","| Pipeline | Initial LPT claim batch | Estimated Work | Threads |",
+                      "|---:|---|---:|---:|"])
+        for batch in initial_batches:
+            names="<br>".join(
+                f"{_detector_friendly_name(str(row['detector']))} (`{row['detector']}`)"
+                for row in batch["tasks"]
             )
-
+            lines.append(
+                f"| {batch['pipeline']} | {names} | {_duration(batch['estimated_seconds'])} | "
+                f"{execution.get('threads','unknown')} |"
+            )
     lines.extend([
         "",
-        "The initial LPT seed is assigned by the parent scheduler before workers start, so first-wave workers do not contend for the claim lock. After a seeded detector completes, its worker rejoins the shared dynamic LPT queue for adaptive tail balancing.",
+        "Each short-run claim atomically removes consecutive work from the LPT queue until the batch contains at least 10 seconds of estimated work, using a 0.1-second scheduling floor. The parent constructs the initial batches before workers start; refill batches use one serialized queue transaction each. The final claimant drains whatever work remains—there is no special tail-mode reversion.",
         "",
         "Queue order reflects the selected loading strategy. LPT (Longest Processing Time first) schedules the longest estimated detector work first, FIFO preserves configured detector order, and Ranked uses historical detector quality.",
         "",

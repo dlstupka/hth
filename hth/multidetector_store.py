@@ -47,22 +47,41 @@ def _read_worker(path: Path) -> dict[str, Any]:
 
 
 def _read_task(path: Path) -> dict[str, Any]:
-    row: dict[str, Any] = {"task_index": int(path.stem)}
+    row: dict[str, Any]={"task_index":int(path.stem)}
     for line in path.read_text(encoding="utf-8").splitlines():
-        parts = line.split("\t")
-        if parts[0] == "claim":
-            _, ts, pipeline, detector, shard_index, shard_count, threads = parts
-            row.update({"claimed_epoch": _float(ts), "pipeline": int(pipeline), "detector": detector, "shard_index": int(shard_index), "shard_count": int(shard_count), "allocated_threads": int(threads)})
-        elif parts[0] == "start":
-            row["started_epoch"] = _float(parts[1])
-        elif parts[0] == "finish":
-            row["finished_epoch"] = _float(parts[1]); row["status"] = parts[2]
-    required = {"claimed_epoch", "started_epoch", "finished_epoch"}
-    if not required.issubset(row):
+        parts=line.split("\t")
+        if parts[0]=="claim":  # legacy one-task claim telemetry
+            _,ts,pipeline,detector,shard_index,shard_count,threads=parts
+            row.update({"claimed_epoch":_float(ts),"pipeline":int(pipeline),"detector":detector,
+                        "shard_index":int(shard_index),"shard_count":int(shard_count),
+                        "allocated_threads":int(threads)})
+        elif parts[0]=="start":
+            if len(parts)>=8:
+                _,ts,pipeline,detector,shard_index,shard_count,threads,batch_id=parts[:8]
+                row.update({"started_epoch":_float(ts),"pipeline":int(pipeline),"detector":detector,
+                            "shard_index":int(shard_index),"shard_count":int(shard_count),
+                            "allocated_threads":int(threads),"claim_batch_id":batch_id})
+            else:
+                row["started_epoch"]=_float(parts[1])
+        elif parts[0]=="finish":
+            row["finished_epoch"]=_float(parts[1]); row["status"]=parts[2]
+    if not {"started_epoch","finished_epoch"}.issubset(row):
         raise ValueError(f"Incomplete task telemetry: {path}")
-    row["claim_wait_seconds"] = max(0.0, row["started_epoch"]-row["claimed_epoch"])
-    row["busy_seconds"] = max(0.0, row["finished_epoch"]-row["started_epoch"])
+    row["busy_seconds"]=max(0.0,row["finished_epoch"]-row["started_epoch"])
+    if "claimed_epoch" in row:
+        row["claim_wait_seconds"]=max(0.0,row["started_epoch"]-row["claimed_epoch"])
     return row
+
+
+def _read_claim_batch(path: Path) -> dict[str, Any]:
+    parts=path.read_text(encoding="utf-8").strip().split("\t")
+    if len(parts)!=7 or parts[0]!="claim_batch":
+        raise ValueError(f"Invalid claim batch telemetry: {path}")
+    _,ts,pipeline,threads,estimated_seconds,task_csv,batch_id=parts
+    task_indexes=[int(value) for value in task_csv.split(",") if value]
+    return {"claim_batch_id":batch_id,"claimed_epoch":_float(ts),"pipeline":int(pipeline),
+            "allocated_threads":int(threads),"estimated_seconds":float(estimated_seconds),
+            "task_indexes":task_indexes,"task_count":len(task_indexes)}
 
 
 def _active_timeline(tasks: list[dict[str, Any]]) -> tuple[dict[str, float], float, dict[str, float]]:
@@ -92,6 +111,16 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
     batch_start, batch_end = _float(batch["start"]), _float(batch["end"]); makespan=max(0.0,batch_end-batch_start)
     workers=[_read_worker(p) for p in sorted((telemetry/"workers").glob("*.tsv"))]
     tasks=[_read_task(p) for p in sorted((telemetry/"tasks").glob("*.tsv"))]
+    claim_batch_dir=telemetry/"claim-batches"
+    claim_batches=[_read_claim_batch(p) for p in sorted(claim_batch_dir.glob("*.tsv"))] if claim_batch_dir.is_dir() else []
+    batches_by_id={row["claim_batch_id"]:row for row in claim_batches}
+    for task in tasks:
+        batch_row=batches_by_id.get(task.get("claim_batch_id"))
+        if batch_row:
+            task["claimed_epoch"]=batch_row["claimed_epoch"]
+            task["claim_wait_seconds"]=max(0.0,task["started_epoch"]-batch_row["claimed_epoch"])
+        else:
+            task.setdefault("claim_wait_seconds",0.0)
     busy_by_worker={w["pipeline"]:0.0 for w in workers}
     for task in tasks: busy_by_worker[task["pipeline"]]=busy_by_worker.get(task["pipeline"],0.0)+task["busy_seconds"]
     for worker in workers:
@@ -111,7 +140,8 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
         "batch_started_epoch":batch_start, "batch_finished_epoch":batch_end, "makespan_seconds":makespan,
         "total_worker_busy_seconds":total_busy, "total_worker_idle_seconds":max(0.0,worker_count*makespan-total_busy),
         "worker_utilization":util, "active_worker_seconds":active_seconds, "final_tail_seconds":final_tail,
-        "final_tail_seconds_by_active_workers":tail_by_active, "workers":workers, "tasks":tasks,
+        "final_tail_seconds_by_active_workers":tail_by_active, "claim_batch_count":len(claim_batches),
+        "claim_batches":claim_batches, "workers":workers, "tasks":tasks,
     }
     _write_json(args.output,observation); return observation
 
