@@ -41,6 +41,10 @@ def _results_from_raw(path: Path) -> list[dict[str, Any]]:
                 "parameter_grid_sha256": row.get("parameter_grid_sha256") or None,
                 "parameter_grid_ordinal": int(row["parameter_grid_ordinal"]) if row.get("parameter_grid_ordinal") not in (None, "") else None,
                 "profile": row.get("profile") or None,
+                "search_rank": int(row["search_rank"]) if row.get("search_rank") not in (None, "") else None,
+                "requested_search_member": str(row.get("requested_search_member") or "0") in {"1", "true", "True"},
+                "reference_roles": json.loads(row.get("reference_roles_json") or "[]"),
+                "historic_reference": json.loads(row.get("historic_reference_json") or "{}"),
                 "parameters": json.loads(row["parameters_json"]),
                 "pages": [],
             })
@@ -173,6 +177,17 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         attach_identity(result, detector, detector_configuration)
         result["rank"] = rank
         result["run_id"] = run_id
+    search_ranked = [
+        result for result in ranked
+        if result.get("requested_search_member")
+        and not result.get("reference_roles")
+    ]
+    for search_rank, result in enumerate(search_ranked, 1):
+        result["search_rank"] = search_rank
+    historic_best = next(
+        (result for result in ranked if "historic_best" in (result.get("reference_roles") or [])),
+        None,
+    )
     parameter_provenance = build_provenance(
         detector,
         detector_configuration,
@@ -203,7 +218,7 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         "successful_page_evaluation_count": sum(r["summary"]["success_count"] for r in ranked),
         "fully_successful_parameter_set_count": sum(1 for r in ranked if r["summary"]["failure_count"] == 0),
         "golden_set_sha256": first_info.get("golden_set_sha256"), "winner": ranked[0], "baseline": baseline,
-        "top_parameter_sets": ranked[:5], "winner_page_report": winner_pages,
+        "historic_best": historic_best, "top_parameter_sets": ranked[:5], "search_top_parameter_sets": search_ranked[:5], "winner_page_report": winner_pages,
         "runner": first_summary.get("runner", {}), "source_commit": first_info.get("source_commit"),
         "elapsed_seconds": round(elapsed, 3),
         "estimated_serial_runtime_seconds": round(serial_runtime_seconds, 3),

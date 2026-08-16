@@ -251,6 +251,7 @@ def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
     p.add_argument("--output",type=Path,required=True,help="Regression root; a detector/run-* directory is created below it.")
     p.add_argument("--strategy",choices=("exhaustive","binary-refine","non-dormant","low+","moderate+","important+","critical"),default="exhaustive")
     p.add_argument("--calibration-intelligence",type=Path,default=None,help="Prior calibration-intelligence.json used for effect-size-domain strategies.")
+    p.add_argument("--historic-best",type=Path,default=None,help="Exact historic best-known parameter reference injected into every regression.")
     p.add_argument("--max-dimension",type=int,default=1800)
     p.add_argument("--limit",type=int,default=None)
     p.add_argument("--top",type=int,default=20)
@@ -898,6 +899,16 @@ def run(args:argparse.Namespace)->Path:
             raise ValueError("Detector configuration must define profiles.baseline")
         baseline_key=canonical_parameters(baseline_parameters)
 
+        historic_best_reference = None
+        historic_best_parameters = None
+        historic_best_key = None
+        if args.historic_best is not None and args.historic_best.is_file():
+            historic_best_reference = json.loads(args.historic_best.read_text(encoding="utf-8"))
+            candidate = historic_best_reference.get("parameters") if isinstance(historic_best_reference, dict) else None
+            if isinstance(candidate, dict):
+                historic_best_parameters = dict(candidate)
+                historic_best_key = canonical_parameters(historic_best_parameters)
+
         all_parameter_sets=cartesian_generate(config)
         possible_parameter_set_count=len(all_parameter_sets)
         calibration_metadata = None
@@ -907,12 +918,15 @@ def run(args:argparse.Namespace)->Path:
         effective_strategy, effect_domain, strategy_fallback_reason = _resolve_effect_strategy(requested_strategy, calibration_metadata)
         if effect_domain is not None:
             all_parameter_sets = _filter_parameter_sets(all_parameter_sets, effect_domain)
+        requested_search_keys = {canonical_parameters(parameters) for parameters in all_parameter_sets}
+        historic_best_in_requested_search = bool(historic_best_key and historic_best_key in requested_search_keys)
         write_json(run_dir/"parameters.json",{"schema_version":"0.4","detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"detector_config":str(args.detector_config),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"image_root":str(args.image_root),"max_dimension":args.max_dimension,"limit":args.limit,"threads":args.threads,"debug_level":debug_level,"debug_artifacts":debug_policy,"detector_pipeline":detector_pipeline_context,"shard":{"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved"},"configuration":config})
         manifest.update({"strategy": effective_strategy, "requested_strategy": requested_strategy, "strategy_fallback_reason": strategy_fallback_reason})
         write_json(run_dir/"manifest.json", manifest)
         exhaustive_candidates=[
             parameters for parameters in all_parameter_sets
             if canonical_parameters(parameters) != baseline_key
+            and (historic_best_key is None or canonical_parameters(parameters) != historic_best_key)
         ]
         if args.limit is not None:
             # The execution limit is the total number of parameter sets, including baseline.
@@ -923,8 +937,14 @@ def run(args:argparse.Namespace)->Path:
                 parameters for index, parameters in enumerate(exhaustive_candidates)
                 if index % args.shard_count == args.shard_index
             ]
+        historic_best_planned = int(
+            args.shard_index == 0
+            and historic_best_parameters is not None
+            and historic_best_key != baseline_key
+        )
         planned_parameter_set_count=(
-            1 + len(exhaustive_candidates) if effective_strategy=="exhaustive" or effective_strategy in EFFECT_STRATEGY_KEYS else None
+            1 + historic_best_planned + len(exhaustive_candidates)
+            if effective_strategy=="exhaustive" or effective_strategy in EFFECT_STRATEGY_KEYS else None
         )
         estimated_total=len(exhaustive_candidates) if effective_strategy=="exhaustive" or effective_strategy in EFFECT_STRATEGY_KEYS else max(0,possible_parameter_set_count-1)
 
@@ -960,6 +980,9 @@ def run(args:argparse.Namespace)->Path:
                 f"Shared baseline            : {'reused' if baseline_reused else 'evaluated'} "
                 f"({args.shared_baseline})"
             )
+
+        baseline_result["reference_roles"] = ["baseline"]
+        baseline_result["requested_search_member"] = False
 
         active_lock=threading.Lock()
         active_evaluations=0
@@ -999,6 +1022,19 @@ def run(args:argparse.Namespace)->Path:
             if observe:
                 progress.observe(result,profile)
             return result
+        historic_best_result = None
+        if (
+            args.shard_index == 0
+            and historic_best_parameters is not None
+            and historic_best_key != baseline_key
+        ):
+            progress.begin_evaluation("historic-best")
+            historic_best_result = evaluate(dict(historic_best_parameters), observe=False)
+            historic_best_result["reference_roles"] = ["historic_best"]
+            historic_best_result["requested_search_member"] = historic_best_in_requested_search
+            historic_best_result["historic_reference"] = historic_best_reference
+            progress.observe(historic_best_result, "historic-best")
+
         if effective_strategy=="exhaustive" or effective_strategy in EFFECT_STRATEGY_KEYS:
             if args.threads == 1:
                 candidate_results=[evaluate(p) for p in exhaustive_candidates]
@@ -1013,11 +1049,35 @@ def run(args:argparse.Namespace)->Path:
                         profile=profiles.get(canonical_parameters(result["parameters"]))
                         progress.observe(result,profile)
                 candidate_results=[result for result in indexed_results if result is not None]
-            results=[baseline_result,*candidate_results]
+            for result in candidate_results:
+                result["reference_roles"] = []
+                result["requested_search_member"] = True
+            results=[baseline_result]
+            if historic_best_result is not None:
+                results.append(historic_best_result)
+            results.extend(candidate_results)
         else:
             results=binary_search(config,evaluate,ranking_key)
+            for result in results:
+                result["reference_roles"] = []
+                result["requested_search_member"] = True
             if not any(canonical_parameters(r["parameters"]) == baseline_key for r in results):
                 results.insert(0,baseline_result)
+            else:
+                for result in results:
+                    if canonical_parameters(result["parameters"]) == baseline_key:
+                        result["reference_roles"] = ["baseline"]
+                        result["requested_search_member"] = False
+            if historic_best_result is not None:
+                duplicate = next(
+                    (result for result in results if canonical_parameters(result["parameters"]) == historic_best_key),
+                    None,
+                )
+                if duplicate is None:
+                    results.append(historic_best_result)
+                else:
+                    duplicate["reference_roles"] = sorted(set(duplicate.get("reference_roles", [])) | {"historic_best"})
+                    duplicate["historic_reference"] = historic_best_reference
         progress_snapshot=progress.finish()
         performance_samples=performance.finish()
         for r in results:
@@ -1025,7 +1085,19 @@ def run(args:argparse.Namespace)->Path:
             r["profile"]=profiles.get(canonical_parameters(r["parameters"]))
             r["run_id"]=run_id
         ranked=sorted(results,key=ranking_key)
-        for rank,r in enumerate(ranked,1): r["rank"]=rank
+        for rank,r in enumerate(ranked,1):
+            r["rank"]=rank
+        search_ranked = [
+            result for result in ranked
+            if result.get("requested_search_member")
+            and not result.get("reference_roles")
+        ]
+        for search_rank, result in enumerate(search_ranked, 1):
+            result["search_rank"] = search_rank
+        historic_best_result = next(
+            (result for result in ranked if "historic_best" in (result.get("reference_roles") or [])),
+            None,
+        )
         complete_cartesian = (
             effective_strategy == "exhaustive"
             and args.limit is None
@@ -1046,7 +1118,7 @@ def run(args:argparse.Namespace)->Path:
         winner_pages = build_winner_page_report(ranked[0], baseline)
         locally_evaluated_parameter_sets = max(0, len(results) - 1) + (0 if baseline_reused else 1)
         locally_evaluated_page_evaluations = locally_evaluated_parameter_sets * len(pages)
-        summary={"schema_version":"0.8","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"threads":args.threads,"shard":{"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved","full_candidate_count":full_exhaustive_candidate_count},"detector_pipeline":detector_pipeline_context,"parameter_space":{"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated","shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ranked)*len(pages),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated"},"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"detector_config_sha256":detector_config_sha256,"max_dimension":args.max_dimension,"winner":ranked[0],"baseline":baseline,"top_parameter_sets":ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,"performance":{"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl"},"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":baseline_surpassed(ranked[0], baseline),"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds,"winner_history":progress_snapshot.winner_history,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
+        summary={"schema_version":"0.8","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"threads":args.threads,"shard":{"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved","full_candidate_count":full_exhaustive_candidate_count},"detector_pipeline":detector_pipeline_context,"parameter_space":{"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated","shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ranked)*len(pages),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated"},"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"detector_config_sha256":detector_config_sha256,"max_dimension":args.max_dimension,"winner":ranked[0],"baseline":baseline,"historic_best":historic_best_result,"top_parameter_sets":ranked[:5],"search_top_parameter_sets":search_ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,"performance":{"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl"},"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":baseline_surpassed(ranked[0], baseline),"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds,"winner_history":progress_snapshot.winner_history,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
         write_json(run_dir/"reports"/"summary.json",summary)
         write_json(run_dir/"reports"/"winner-pages.json",winner_pages)
         try:

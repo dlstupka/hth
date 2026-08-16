@@ -433,6 +433,98 @@ def _search_space_percent(observation: dict[str, Any]) -> str:
     return _percent(fraction, 2) if fraction is not None else "unknown"
 
 
+def _known_builds_for_parameter(
+    *,
+    detector: str,
+    full_sha: str,
+    info: dict[str, Any],
+    run_url: str,
+    calibration_index: Path | None,
+) -> list[tuple[str, str, str, str]]:
+    builds: list[tuple[str, str, str, str]] = []
+    current_number = info.get("github_run_number")
+    current_url = info.get("github_run_url") or info.get("run_url") or run_url
+    if current_number or current_url:
+        builds.append((
+            str(current_number or "current"),
+            str(current_url or ""),
+            str(info.get("started_at_utc") or "")[:10],
+            "current run",
+        ))
+    if full_sha and calibration_index and calibration_index.is_file():
+        try:
+            index = _read_json(calibration_index)
+        except (OSError, ValueError, json.JSONDecodeError):
+            index = {}
+        for entry in index.get("entries", []):
+            if not isinstance(entry, dict) or str(entry.get("detector_id") or "") != detector:
+                continue
+            prov_rel = entry.get("parameter_provenance_path")
+            if not prov_rel:
+                continue
+            prov_path = calibration_index.parent / str(prov_rel)
+            if not prov_path.is_file():
+                continue
+            try:
+                match = resolve_parameter_set(_read_json(prov_path), full_sha)
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+            if not match or str(match.get("sha256") or "") != full_sha:
+                continue
+            build = entry.get("build") if isinstance(entry.get("build"), dict) else {}
+            row = (
+                str(build.get("github_run_number") or "unknown"),
+                str(build.get("run_url") or ""),
+                str(entry.get("created_at_utc") or "")[:10],
+                str(entry.get("calibration_status") or "known"),
+            )
+            if row not in builds:
+                builds.append(row)
+    return builds
+
+
+def _last_build_for_parameter(
+    result: dict[str, Any] | None,
+    *,
+    detector: str,
+    info: dict[str, Any],
+    run_url: str,
+    calibration_index: Path | None,
+) -> str:
+    if not result:
+        return "unknown"
+    full_sha = str(result.get("parameter_identity_sha256") or "")
+    if not full_sha:
+        return "unknown"
+    builds = _known_builds_for_parameter(
+        detector=detector,
+        full_sha=full_sha,
+        info={},  # Last Build means the most recent known build prior to this report's run.
+        run_url="",
+        calibration_index=calibration_index,
+    )
+    current_number = str(info.get("github_run_number") or "")
+    current_url = str(info.get("github_run_url") or info.get("run_url") or run_url or "")
+    builds = [
+        row for row in builds
+        if not (current_number and row[0] == current_number)
+        and not (current_url and row[1] == current_url)
+    ]
+    if not builds:
+        return "—"
+
+    def build_key(row: tuple[str, str, str, str]) -> tuple[int, str]:
+        try:
+            number = int(row[0])
+        except (TypeError, ValueError):
+            number = -1
+        return number, row[2]
+
+    number, url, _, _ = max(builds, key=build_key)
+    label = f"#{number}" if number not in {"current", "unknown"} else ("current" if number == "current" else "unknown")
+    return f"[{label}]({url})" if url else label
+
+
 def _parameter_set_details(
     run_dir: Path,
     winner: dict[str, Any],
@@ -475,35 +567,13 @@ def _parameter_set_details(
     else:
         lines.append("| _unavailable_ | Legacy record does not contain reconstructable parameter provenance. |")
 
-    builds: list[tuple[str, str, str, str]] = []
-    current_number = info.get("github_run_number")
-    current_url = info.get("github_run_url") or info.get("run_url") or run_url
-    if current_number or current_url:
-        builds.append((str(current_number or "current"), str(current_url or ""), str(info.get("started_at_utc") or "")[:10], "current run"))
-    if full_sha and calibration_index and calibration_index.is_file():
-        try:
-            index = _read_json(calibration_index)
-        except (OSError, ValueError, json.JSONDecodeError):
-            index = {}
-        for entry in index.get("entries", []):
-            if not isinstance(entry, dict) or str(entry.get("detector_id") or "") != detector:
-                continue
-            prov_rel = entry.get("parameter_provenance_path")
-            if not prov_rel:
-                continue
-            prov_path = calibration_index.parent / str(prov_rel)
-            if not prov_path.is_file():
-                continue
-            try:
-                match = resolve_parameter_set(_read_json(prov_path), full_sha)
-            except (OSError, ValueError, json.JSONDecodeError):
-                continue
-            if not match or str(match.get("sha256") or "") != full_sha:
-                continue
-            build = entry.get("build") if isinstance(entry.get("build"), dict) else {}
-            row = (str(build.get("github_run_number") or "unknown"), str(build.get("run_url") or ""), str(entry.get("created_at_utc") or "")[:10], str(entry.get("calibration_status") or "known"))
-            if row not in builds:
-                builds.append(row)
+    builds = _known_builds_for_parameter(
+        detector=detector,
+        full_sha=full_sha,
+        info=info,
+        run_url=run_url,
+        calibration_index=calibration_index,
+    )
     lines.extend(["", "#### Known Builds Using This Exact Parameter Set", "", "Builds known at the time this report was generated; matching is by the authoritative full parameter identity.", "", "| Build | Date | Evidence |", "|---|---|---|"])
     if builds:
         for number, url, date, evidence in builds:
@@ -572,6 +642,7 @@ def build_summary(
     winner_stats = winner.get("summary", {}) if winner else {}
     baseline = summary.get("baseline") if isinstance(summary.get("baseline"), dict) else None
     baseline_stats = baseline.get("summary", {}) if baseline else {}
+    historic_best = summary.get("historic_best") if isinstance(summary.get("historic_best"), dict) else None
     outputs = manifest.get("outputs", []) if isinstance(manifest.get("outputs"), list) else []
     progress = summary.get("progress", {}) if isinstance(summary.get("progress"), dict) else {}
     page_ordinals = summary.get("page_ordinals", []) if isinstance(summary.get("page_ordinals"), list) else []
@@ -689,31 +760,83 @@ def build_summary(
     ])
     lines.extend(_preferred_execution_shape_lines(info, summary))
 
-    top_parameter_sets = summary.get("top_parameter_sets", [])
-    if isinstance(top_parameter_sets, list) and top_parameter_sets:
+    search_top_parameter_sets = summary.get("search_top_parameter_sets", [])
+    if not isinstance(search_top_parameter_sets, list):
+        search_top_parameter_sets = []
+    if not search_top_parameter_sets:
+        legacy_top = summary.get("top_parameter_sets", [])
+        if isinstance(legacy_top, list):
+            reference_ids = {
+                _parameter_id(result)
+                for result in (baseline, historic_best)
+                if isinstance(result, dict)
+            }
+            search_top_parameter_sets = [
+                result for result in legacy_top
+                if isinstance(result, dict) and _parameter_id(result) not in reference_ids
+            ]
+
+    reference_rows: list[tuple[str, dict[str, Any]]] = []
+    if baseline:
+        reference_rows.append(("Baseline*", baseline))
+    if historic_best and _parameter_id(historic_best) != _parameter_id(baseline):
+        reference_rows.append(("Best**", historic_best))
+
+    if reference_rows or search_top_parameter_sets:
         winner_mean = float(winner_stats.get("mean_iou", 0.0) or 0.0)
         lines.extend([
             "",
             "### Top Parameter Sets",
             "",
-            "| Rank | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Avg IoU Success | Failures | Discovery Time | Search Space % |",
-            "|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| Rank | Last Build | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Avg IoU Success | Failures | Discovery Time | Search Space % |",
+            "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
         ])
-        for result in top_parameter_sets[:5]:
+
+        def append_parameter_row(rank_label: str, result: dict[str, Any], *, reference: bool) -> None:
             stats = result.get("summary", {}) if isinstance(result, dict) else {}
             mean_iou = float(stats.get("mean_iou", 0.0) or 0.0)
             delta_mean_iou = mean_iou - winner_mean
             parameter_set_name = _parameter_short_name(result)
             failure_count = stats.get("failure_count", "unknown")
             observation = _search_observation(result)
-
+            last_build = _last_build_for_parameter(
+                result,
+                detector=detector_name,
+                info=info,
+                run_url=run_url,
+                calibration_index=calibration_index,
+            )
             lines.append(
-                f"| {result.get('rank', 'unknown')} | `{_parameter_id(result)}` | `{parameter_set_name}` | "
+                f"| {rank_label} | {last_build} | `{_parameter_id(result)}` | `{parameter_set_name}` | "
                 f"{_number(mean_iou)} | {_number(stats.get('minimum_iou'))} | "
                 f"{_number(stats.get('stddev_iou'))} | {delta_mean_iou:+.4f} | "
-                f"{_number(stats.get('mean_iou_success', stats.get('mean_iou')))} | {failure_count} | {_duration(observation.get('elapsed_seconds'))} | "
-                f"{_search_space_percent(observation)} |"
+                f"{_number(stats.get('mean_iou_success', stats.get('mean_iou')))} | {failure_count} | "
+                f"{'reference' if reference else _duration(observation.get('elapsed_seconds'))} | "
+                f"{'reference' if reference else _search_space_percent(observation)} |"
             )
+
+        for label, result in reference_rows:
+            append_parameter_row(label, result, reference=True)
+
+        shown_reference_ids = {_parameter_id(result) for _, result in reference_rows}
+        displayed = 0
+        for result in search_top_parameter_sets:
+            if _parameter_id(result) in shown_reference_ids:
+                continue
+            displayed += 1
+            append_parameter_row(str(result.get("search_rank", displayed)), result, reference=False)
+            if displayed >= 5:
+                break
+
+        lines.extend([
+            "",
+            r"\* **Baseline** is the detector's default parameter-set configuration.",
+            r"\*\* **Best** is the historic best-known compatible parameter set prior to this regression run.",
+            "",
+            "**Last Build** is the most recent known prior build that evaluated the exact absolute parameter identity; the current manifest build is intentionally excluded.",
+            "",
+            "Baseline and Best are mandatory evaluated references in every regression and are not assigned numeric search ranks. If either exact reference parameter set is also present in the requested search, it is evaluated once and shown only as the reference row.",
+        ])
 
     winner_page_report = summary.get("winner_page_report", {})
     winner_pages = (

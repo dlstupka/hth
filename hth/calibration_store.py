@@ -13,6 +13,7 @@ from typing import Any
 
 from hth.runtime_store import observation_from_run, update_runtime_index
 from hth.parallelism_store import observation_from_run as parallelism_observation_from_run, update_parallelism_index
+from hth.regression.parameter_provenance import provenance_from_legacy_parameters, resolve_parameter_set
 
 from hth.contracts import CALIBRATION_INDEX_SCHEMA_VERSION, adapt_calibration_index
 from hth.domain.calibration import authoritative_record
@@ -267,6 +268,72 @@ def resolve(index_path: Path, *, detector: str, golden_set_sha256: str, detector
     return index_path.parent / str(selected["intelligence_path"]) if selected else None
 
 
+def resolve_best_parameter_reference(
+    index_path: Path,
+    *,
+    detector: str,
+    golden_set_sha256: str,
+) -> dict[str, Any] | None:
+    """Resolve the strongest historic exact parameter set for regression reference.
+
+    Parameter search-grid/config hashes are intentionally not a gate here. The
+    detector and Golden Set must match, while absolute parameter provenance lets
+    HTH reevaluate the historic best even after the declared search grid changes.
+    """
+    index = _read_json(index_path)
+    candidates = [
+        item for item in index.get("entries", [])
+        if isinstance(item, dict)
+        and item.get("detector_id") == detector
+        and item.get("golden_set_sha256") == golden_set_sha256
+    ]
+    selected = authoritative_record(candidates)
+    if not selected:
+        return None
+
+    selection = selected.get("selection") if isinstance(selected.get("selection"), dict) else {}
+    legacy_id = str(selection.get("recommended_parameter_set_id") or "").strip()
+    if not legacy_id:
+        return None
+
+    provenance = None
+    provenance_source = None
+    provenance_rel = selected.get("parameter_provenance_path")
+    if provenance_rel:
+        provenance_path = index_path.parent / str(provenance_rel)
+        if provenance_path.is_file():
+            provenance = _read_json(provenance_path)
+            provenance_source = "parameter-provenance"
+
+    if provenance is None:
+        record_dir = index_path.parent / str(selected.get("record_path") or "")
+        legacy_parameters = record_dir / "parameters.json"
+        if legacy_parameters.is_file():
+            provenance = provenance_from_legacy_parameters(legacy_parameters)
+            provenance_source = "legacy-parameters"
+
+    if provenance is None:
+        return None
+
+    resolved = resolve_parameter_set(provenance, legacy_id)
+    if not resolved or not isinstance(resolved.get("parameters"), dict):
+        return None
+
+    build = selected.get("build") if isinstance(selected.get("build"), dict) else {}
+    return {
+        "detector": detector,
+        "golden_set_sha256": golden_set_sha256,
+        "parameters": resolved["parameters"],
+        "parameter_set_id": resolved.get("legacy_parameter_set_id") or legacy_id,
+        "parameter_identity_sha256": resolved.get("sha256"),
+        "historic_build_number": build.get("github_run_number"),
+        "historic_build_url": build.get("run_url"),
+        "historic_calibration_id": selected.get("calibration_id"),
+        "historic_created_at_utc": selected.get("created_at_utc"),
+        "provenance_source": provenance_source,
+    }
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="command", required=True)
@@ -290,6 +357,11 @@ def parser() -> argparse.ArgumentParser:
     resolve_parser.add_argument("--detector", required=True)
     resolve_parser.add_argument("--golden-set-sha256", required=True)
     resolve_parser.add_argument("--detector-config-sha256")
+
+    best_parser = sub.add_parser("resolve-best-parameter")
+    best_parser.add_argument("--index", type=Path, required=True)
+    best_parser.add_argument("--detector", required=True)
+    best_parser.add_argument("--golden-set-sha256", required=True)
     return p
 
 
@@ -300,6 +372,17 @@ def main(argv: list[str] | None = None) -> int:
         if path is None:
             return 1
         print(path)
+        return 0
+
+    if args.command == "resolve-best-parameter":
+        reference = resolve_best_parameter_reference(
+            args.index,
+            detector=args.detector,
+            golden_set_sha256=args.golden_set_sha256,
+        )
+        if reference is None:
+            return 1
+        print(json.dumps(reference, sort_keys=True))
         return 0
 
     build = {

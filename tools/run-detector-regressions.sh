@@ -398,6 +398,23 @@ PY
     args+=(--shared-baseline "$shared_baseline")
   fi
 
+  # Every regression evaluates the detector default baseline and the strongest
+  # historic exact parameter set known before this run, independent of search.
+  local historic_best_file
+  historic_best_file="$OUTPUT_DIR/.references/$detector_name-task-$task_index-best.json"
+  mkdir -p "$(dirname "$historic_best_file")"
+  if [[ -f results-repo/calibration-index.json ]] && python -m hth.calibration_store resolve-best-parameter \
+      --index results-repo/calibration-index.json \
+      --detector "$detector_name" \
+      --golden-set-sha256 "$golden_set_sha256" \
+      > "$historic_best_file" 2>/dev/null; then
+    echo "[pipeline $pipeline_number][$detector_name] Historic best reference: $historic_best_file"
+    args+=(--historic-best "$historic_best_file")
+  else
+    rm -f "$historic_best_file"
+    echo "[pipeline $pipeline_number][$detector_name] No reconstructable historic best reference found."
+  fi
+
   if [[ -n "${effective_limit:-}" ]]; then
     args+=(--strategy exhaustive --limit "$effective_limit")
   else
