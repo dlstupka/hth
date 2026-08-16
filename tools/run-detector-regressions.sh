@@ -311,6 +311,17 @@ PY
     "${detector_quality[$queue_index]:-unknown}"
 done
 
+initial_claim_strategy="dynamic-lpt"
+seed_initial_wave=0
+if [[ "${DETECTOR_ALGORITHM,,}" == "all" ]] \
+  && [[ "${DETECTOR_LOADING_STRATEGY,,}" == "lpt" ]] \
+  && { [[ "$REGRESSION_MODE" != "full" ]] || [[ -n "${effective_limit:-}" ]] || [[ "$effective_strategy" != "exhaustive" ]]; } \
+  && (( effective_pipelines > 1 )); then
+  initial_claim_strategy="seeded-first-wave+lpt-refill"
+  seed_initial_wave=1
+fi
+echo "Claim strategy     : $initial_claim_strategy"
+
 queue_dir="$OUTPUT_DIR/.detector-queue"
 rm -rf "$queue_dir"
 mkdir -p "$queue_dir/claims" "$queue_dir/done" "$queue_dir/failed" \
@@ -541,6 +552,7 @@ PYLEASE
 
 detector_worker() {
   local pipeline_index="$1"
+  local seeded_task="${2:-}"
   local pipeline_number=$((pipeline_index + 1))
   local delay_seconds=$((pipeline_index * PIPELINE_STAGGER_MINUTES * 60))
   local task_index claimed task_start_delay claim_dir
@@ -581,7 +593,16 @@ detector_worker() {
 
   while true; do
     claimed=""
-    acquire_claim_lock
+
+    # Pre-assign one first-wave LPT task per pipeline for short multi-detector
+    # runs. Parent-side claim creation eliminates startup claim-lock contention;
+    # all later refills return to the normal serialized dynamic queue.
+    if [[ -n "$seeded_task" ]]; then
+      claimed="$seeded_task"
+      seeded_task=""
+      echo "[pipeline $pipeline_number] Seeded initial LPT claim task=$claimed detector=${task_detectors[$claimed]}"
+    else
+      acquire_claim_lock
 
     # First pass: claim an actually unclaimed task. Do not inspect active lease
     # files while normal work remains; that previously caused every later
@@ -622,7 +643,8 @@ PYLEASE
       done
     fi
 
-    release_claim_lock
+      release_claim_lock
+    fi
 
     if [[ -z "$claimed" ]]; then
       printf 'end\t%s\n' "$(date +%s.%N)" >> "$telemetry_root/workers/$pipeline_number.tsv"
@@ -652,8 +674,22 @@ PYLEASE
 }
 
 worker_pids=()
+declare -a initial_seed_tasks=()
+if (( seed_initial_wave == 1 )); then
+  seed_count="$effective_pipelines"
+  (( seed_count > ${#detector_configs[@]} )) && seed_count=${#detector_configs[@]}
+  echo "Initial LPT seed"
+  echo "================"
+  for ((pipeline_index = 0; pipeline_index < seed_count; pipeline_index++)); do
+    task_index="$pipeline_index"
+    mkdir "$queue_dir/claims/$task_index"
+    initial_seed_tasks[$pipeline_index]="$task_index"
+    echo "pipeline=$((pipeline_index + 1)) task=$task_index detector=${task_detectors[$task_index]} estimate=${detector_estimates[$task_index]:-unknown}s threads=${task_threads[$task_index]}"
+  done
+fi
+
 for ((pipeline_index = 0; pipeline_index < effective_pipelines; pipeline_index++)); do
-  detector_worker "$pipeline_index" &
+  detector_worker "$pipeline_index" "${initial_seed_tasks[$pipeline_index]:-}" &
   worker_pids+=("$!")
 done
 
@@ -684,6 +720,7 @@ if [[ "${DETECTOR_ALGORITHM,,}" == "all" ]]; then
     --threads-per-worker "$effective_threads_per_pipeline" \
     --allocated-threads "$allocated_threads" \
     --loading-strategy "$DETECTOR_LOADING_STRATEGY" \
+    --claim-strategy "$initial_claim_strategy" \
     --scheduler-source "${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-${requested_pipelines}}"
 fi
 

@@ -107,7 +107,7 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
         "detector_count":args.detector_count, "task_count":len(tasks), "golden_set_sha256":args.golden_set_sha256,
         "runner_label":args.runner_label, "runner_name":args.runner_name, "runner_thread_budget":args.runner_thread_budget,
         "worker_count":worker_count, "threads_per_worker":args.threads_per_worker, "allocated_threads":args.allocated_threads,
-        "loading_strategy":args.loading_strategy, "scheduler_source":args.scheduler_source,
+        "loading_strategy":args.loading_strategy, "claim_strategy":getattr(args,"claim_strategy","dynamic-lpt"), "scheduler_source":args.scheduler_source,
         "batch_started_epoch":batch_start, "batch_finished_epoch":batch_end, "makespan_seconds":makespan,
         "total_worker_busy_seconds":total_busy, "total_worker_idle_seconds":max(0.0,worker_count*makespan-total_busy),
         "worker_utilization":util, "active_worker_seconds":active_seconds, "final_tail_seconds":final_tail,
@@ -128,7 +128,7 @@ def publish(metadata: Path, results_root: Path) -> dict[str, Any]:
 
 def parser() -> argparse.ArgumentParser:
     p=argparse.ArgumentParser(description=__doc__); sub=p.add_subparsers(dest="command",required=True)
-    f=sub.add_parser("finalize"); f.add_argument("--telemetry-root",type=Path,required=True); f.add_argument("--output",type=Path,required=True); f.add_argument("--observation-id",required=True); f.add_argument("--github-run-id",default=""); f.add_argument("--github-run-number",default=""); f.add_argument("--mode",required=True); f.add_argument("--strategy",required=True); f.add_argument("--limit",default=""); f.add_argument("--detector-count",type=int,required=True); f.add_argument("--golden-set-sha256",required=True); f.add_argument("--runner-label",required=True); f.add_argument("--runner-name",required=True); f.add_argument("--runner-thread-budget",type=int,required=True); f.add_argument("--threads-per-worker",type=int,required=True); f.add_argument("--allocated-threads",type=int,required=True); f.add_argument("--loading-strategy",required=True); f.add_argument("--scheduler-source",required=True)
+    f=sub.add_parser("finalize"); f.add_argument("--telemetry-root",type=Path,required=True); f.add_argument("--output",type=Path,required=True); f.add_argument("--observation-id",required=True); f.add_argument("--github-run-id",default=""); f.add_argument("--github-run-number",default=""); f.add_argument("--mode",required=True); f.add_argument("--strategy",required=True); f.add_argument("--limit",default=""); f.add_argument("--detector-count",type=int,required=True); f.add_argument("--golden-set-sha256",required=True); f.add_argument("--runner-label",required=True); f.add_argument("--runner-name",required=True); f.add_argument("--runner-thread-budget",type=int,required=True); f.add_argument("--threads-per-worker",type=int,required=True); f.add_argument("--allocated-threads",type=int,required=True); f.add_argument("--loading-strategy",required=True); f.add_argument("--claim-strategy",required=True); f.add_argument("--scheduler-source",required=True)
     q=sub.add_parser("publish"); q.add_argument("--metadata",type=Path,required=True); q.add_argument("--results-root",type=Path,required=True); return p
 
 

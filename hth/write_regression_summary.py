@@ -1700,6 +1700,29 @@ def _queue_rows(
     return rows
 
 
+def _next_claim_optimization(queue_rows: list[dict[str, Any]], execution: dict[str, Any]) -> dict[str, Any]:
+    pipelines = int(execution.get("pipeline_count", 1) or 1)
+    loading = str(execution.get("loading_strategy", "")).strip().lower()
+    seed_count = min(max(1, pipelines), len(queue_rows)) if queue_rows else 0
+    if pipelines > 1 and loading == "lpt" and seed_count > 0:
+        return {
+            "strategy": "seeded-first-wave + dynamic LPT refill",
+            "seed_count": seed_count,
+            "initial_lock": "bypassed",
+            "refill": "serialized dynamic LPT claims",
+            "claim_wait": "0 startup claim wait",
+            "basis": "current LPT runtime intelligence + persisted short-run occupation",
+        }
+    return {
+        "strategy": "dynamic queue claims",
+        "seed_count": 0,
+        "initial_lock": "serialized",
+        "refill": "serialized dynamic claims",
+        "claim_wait": "minimal",
+        "basis": "current execution profile",
+    }
+
+
 def _github_url(repository: str) -> str:
     return f"https://github.com/{repository}" if repository else ""
 
@@ -1993,7 +2016,37 @@ def build_combined_summary(
             f"{row.get('pipeline_number', 'unknown')} | {estimate} | {source} |"
         )
 
+    claim_optimization = _next_claim_optimization(queue_rows, execution)
     lines.extend([
+        "",
+        "#### Execution Optimization — Next Run Claim Strategy",
+        "",
+        "| Setting | Preferred next run |",
+        "|---|---|",
+        f"| Claim strategy | {claim_optimization['strategy']} |",
+        f"| Initial seeded claims | {claim_optimization['seed_count']} |",
+        f"| Initial-wave claim lock | {claim_optimization['initial_lock']} |",
+        f"| Refill strategy | {claim_optimization['refill']} |",
+        f"| Claim-wait target | {claim_optimization['claim_wait']} |",
+        f"| Optimization basis | {claim_optimization['basis']} |",
+    ])
+    if claim_optimization["seed_count"] > 0:
+        lines.extend([
+            "",
+            "| Pipeline | Initial LPT seed | Estimated Runtime | Threads |",
+            "|---:|---|---:|---:|",
+        ])
+        for pipeline_index, row in enumerate(queue_rows[: int(claim_optimization["seed_count"])], start=1):
+            estimate_seconds = row.get("estimate_seconds")
+            estimate = "no history" if estimate_seconds is None else _duration(estimate_seconds)
+            lines.append(
+                f"| {pipeline_index} | {_detector_friendly_name(str(row['detector']))} (`{row['detector']}`) | "
+                f"{estimate} | {execution.get('threads', 'unknown')} |"
+            )
+
+    lines.extend([
+        "",
+        "The initial LPT seed is assigned by the parent scheduler before workers start, so first-wave workers do not contend for the claim lock. After a seeded detector completes, its worker rejoins the shared dynamic LPT queue for adaptive tail balancing.",
         "",
         "Queue order reflects the selected loading strategy. LPT (Longest Processing Time first) schedules the longest estimated detector work first, FIFO preserves configured detector order, and Ranked uses historical detector quality.",
         "",
