@@ -35,6 +35,13 @@ class RegressionSummaryTests(unittest.TestCase):
             (run / "parameters.json").write_text(json.dumps({
                 "configuration": {"profiles": {"baseline": {}}}
             }), encoding="utf-8")
+            (run / "parameter-provenance.json").write_text(json.dumps({
+                "identity": {"identity_schema_version": "1", "detector": "grabcut", "parameter_schema_version": "1"},
+                "grid": {"sha256": "gridsha", "parameter_order": ["iterations", "margin"], "values": {"iterations": [5], "margin": [0.05]}, "cartesian_count": 1},
+                "profiles": {}, "explicit_parameter_sets": {
+                    "fullwinner": {"sha256": "fullwinner", "legacy_parameter_set_id": "winner", "parameters": {"iterations": 5, "margin": 0.05}}
+                },
+            }), encoding="utf-8")
             winner = {"profile": None, "parameter_short_name": "calibrated-winner", "parameter_set_id": "winner", "summary": {
                 "mean_iou": .97, "minimum_iou": .91, "failure_count": 0, "elapsed_ms_total": 12.3, "wall_ms": 18.7
             }}
@@ -196,6 +203,13 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("SHA-256: `abc123`", text)
             self.assertIn("Configured named profiles: `baseline`", text)
             self.assertIn("Evaluation Time", text)
+            self.assertIn("### Parameter Set Details", text)
+            self.assertIn("#### Exact Parameter Settings", text)
+            self.assertIn("| `iterations` | `5` |", text)
+            self.assertIn("| `margin` | `0.05` |", text)
+            self.assertIn("#### Known Builds Using This Exact Parameter Set", text)
+            self.assertLess(text.index("### Result"), text.index("### Parameter Set Details"))
+            self.assertLess(text.index("### Parameter Set Details"), text.index("### Detector Evidence"))
             self.assertIn("### Preferred Execution Shape", text)
             self.assertIn("| Source | Pipelines | Threads / pipeline | Allocated | Runner | Runner budget |", text)
             self.assertIn("| `preferred-exact-runner` | 8 | 48 | 384 | `rh8-test` | 384 |", text)

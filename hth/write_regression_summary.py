@@ -14,6 +14,7 @@ from hth.regression.authoritative_record import authoritative_record
 from hth.regression.calibration_intelligence import detector_characterization
 from hth.domain.result_metrics import baseline_surpassed, calibration_metric_view, result_metric_view
 from hth.runtime_store import coherent_execution_profile, select_runtime_observation
+from hth.regression.parameter_provenance import resolve_parameter_set
 
 
 
@@ -432,6 +433,88 @@ def _search_space_percent(observation: dict[str, Any]) -> str:
     return _percent(fraction, 2) if fraction is not None else "unknown"
 
 
+def _parameter_set_details(
+    run_dir: Path,
+    winner: dict[str, Any],
+    *,
+    detector: str,
+    info: dict[str, Any],
+    run_url: str,
+    calibration_index: Path | None,
+) -> list[str]:
+    """Render exact winner parameters and builds known to use that identity."""
+    provenance_path = run_dir / "parameter-provenance.json"
+    provenance = _read_json(provenance_path) if provenance_path.is_file() else {}
+    identifier = str(winner.get("parameter_identity_sha256") or winner.get("parameter_set_id") or "")
+    resolved = resolve_parameter_set(provenance, identifier) if provenance and identifier else None
+    parameters = dict((resolved or {}).get("parameters") or winner.get("parameters") or {})
+    full_sha = str((resolved or {}).get("sha256") or winner.get("parameter_identity_sha256") or "")
+    legacy_id = str((resolved or {}).get("legacy_parameter_set_id") or winner.get("legacy_parameter_set_id") or winner.get("parameter_set_id") or "unknown")
+    ordinal = (resolved or {}).get("grid_ordinal", winner.get("parameter_grid_ordinal"))
+    grid_sha = winner.get("parameter_grid_sha256") or (provenance.get("grid") or {}).get("sha256")
+    identity = provenance.get("identity") if isinstance(provenance.get("identity"), dict) else {}
+
+    lines = [
+        "", "### Parameter Set Details", "",
+        "This is the exact winning parameter configuration. The short Parameter Set ID is a legacy convenience alias; the full SHA-256 identity is authoritative.", "",
+        "| Identity field | Value |", "|---|---|",
+        f"| Parameter Set ID (legacy alias) | `{legacy_id}` |",
+        f"| Absolute parameter SHA-256 | `{full_sha or 'unavailable (legacy record)'}` |",
+        f"| Identity schema | `{identity.get('identity_schema_version', winner.get('parameter_identity_schema_version', 'unknown'))}` |",
+        f"| Parameter schema | `{identity.get('parameter_schema_version', winner.get('parameter_schema_version', 'unknown'))}` |",
+        f"| Grid SHA-256 | `{grid_sha or 'not a grid member'}` |",
+        f"| Grid ordinal | `{ordinal if ordinal is not None else 'not a grid member'}` |",
+        f"| Reproducibility | {'**Fully reproducible**' if parameters and full_sha else '**Legacy identity only / exact configuration unavailable**'} |",
+        "", "#### Exact Parameter Settings", "",
+        "| Parameter | Value |", "|---|---|",
+    ]
+    if parameters:
+        for name in sorted(parameters):
+            value = json.dumps(parameters[name], sort_keys=True, ensure_ascii=False)
+            lines.append(f"| `{name}` | `{value.replace('`', '&#96;')}` |")
+    else:
+        lines.append("| _unavailable_ | Legacy record does not contain reconstructable parameter provenance. |")
+
+    builds: list[tuple[str, str, str, str]] = []
+    current_number = info.get("github_run_number")
+    current_url = info.get("github_run_url") or info.get("run_url") or run_url
+    if current_number or current_url:
+        builds.append((str(current_number or "current"), str(current_url or ""), str(info.get("started_at_utc") or "")[:10], "current run"))
+    if full_sha and calibration_index and calibration_index.is_file():
+        try:
+            index = _read_json(calibration_index)
+        except (OSError, ValueError, json.JSONDecodeError):
+            index = {}
+        for entry in index.get("entries", []):
+            if not isinstance(entry, dict) or str(entry.get("detector_id") or "") != detector:
+                continue
+            prov_rel = entry.get("parameter_provenance_path")
+            if not prov_rel:
+                continue
+            prov_path = calibration_index.parent / str(prov_rel)
+            if not prov_path.is_file():
+                continue
+            try:
+                match = resolve_parameter_set(_read_json(prov_path), full_sha)
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+            if not match or str(match.get("sha256") or "") != full_sha:
+                continue
+            build = entry.get("build") if isinstance(entry.get("build"), dict) else {}
+            row = (str(build.get("github_run_number") or "unknown"), str(build.get("run_url") or ""), str(entry.get("created_at_utc") or "")[:10], str(entry.get("calibration_status") or "known"))
+            if row not in builds:
+                builds.append(row)
+    lines.extend(["", "#### Known Builds Using This Exact Parameter Set", "", "Builds known at the time this report was generated; matching is by the authoritative full parameter identity.", "", "| Build | Date | Evidence |", "|---|---|---|"])
+    if builds:
+        for number, url, date, evidence in builds:
+            label = f"#{number}" if number != "current" else "current run"
+            build_text = f"[{label}]({url})" if url else label
+            lines.append(f"| {build_text} | {date or 'unknown'} | {evidence} |")
+    else:
+        lines.append("| current/unknown | unknown | No build provenance was available. |")
+    return lines
+
+
 def _individual_heading(title: str, detector: str) -> str:
     """Render an individual-manifest section heading with obvious detector context."""
     return f"{title} — {detector}"
@@ -560,6 +643,10 @@ def build_summary(
             f"{baseline_stats.get('failure_count', 'unknown')} | "
             f"{_duration(_evaluation_seconds(baseline))} |"
         )
+
+    lines.extend(_parameter_set_details(
+        run_dir, winner or {}, detector=detector_name, info=info, run_url=run_url, calibration_index=calibration_index,
+    ))
 
     characterization = _detector_characterization(detector_name)
     lines.extend([
