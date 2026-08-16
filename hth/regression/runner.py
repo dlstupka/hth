@@ -62,6 +62,7 @@ from .adapters.ransac import (
 from .io import create_run_directory, environment_info, utc_now, write_json
 from .metrics import bbox_iou, edge_errors
 from .parameter_space import canonical_parameters, parameter_set_id, exhaustive_parameter_sets
+from .parameter_provenance import attach_identity, build_provenance
 from .reports import ranking_key, write_rankings, write_raw_results
 from .strategies.cartesian import generate as cartesian_generate
 from .strategies.binary_refine import search as binary_search
@@ -952,6 +953,7 @@ def run(args:argparse.Namespace)->Path:
         )
         if canonical_parameters(baseline_result.get("parameters", {})) != baseline_key:
             raise ValueError("Shared baseline cache does not match this detector baseline")
+        attach_identity(baseline_result, name, config)
         progress.observe_baseline(baseline_result)
         if args.shared_baseline is not None:
             print(
@@ -1018,9 +1020,26 @@ def run(args:argparse.Namespace)->Path:
                 results.insert(0,baseline_result)
         progress_snapshot=progress.finish()
         performance_samples=performance.finish()
-        for r in results: r["profile"]=profiles.get(canonical_parameters(r["parameters"])); r["run_id"]=run_id
+        for r in results:
+            attach_identity(r, name, config)
+            r["profile"]=profiles.get(canonical_parameters(r["parameters"]))
+            r["run_id"]=run_id
         ranked=sorted(results,key=ranking_key)
         for rank,r in enumerate(ranked,1): r["rank"]=rank
+        complete_cartesian = (
+            effective_strategy == "exhaustive"
+            and args.limit is None
+            and args.shard_count == 1
+            and len(ranked) >= possible_parameter_set_count
+        )
+        parameter_provenance = build_provenance(
+            name,
+            config,
+            ranked,
+            strategy=effective_strategy,
+            complete_cartesian=complete_cartesian,
+        )
+        write_json(run_dir/"parameter-provenance.json", parameter_provenance)
         baseline=next((r for r in ranked if r.get("profile")=="baseline"),None)
         raw=run_dir/"raw"/"results.csv"; rankings=run_dir/"reports"/"rankings.csv"; top=run_dir/"reports"/"top20.csv"
         write_raw_results(raw,ranked); write_rankings(rankings,ranked); write_rankings(top,ranked[:max(0,args.top)])
@@ -1106,6 +1125,7 @@ def run(args:argparse.Namespace)->Path:
             "outputs": [
                 "RUN-INFO.json",
                 "parameters.json",
+                "parameter-provenance.json",
                 "raw/results.csv",
                 "logs/runner-performance.jsonl",
                 "reports/summary.json",

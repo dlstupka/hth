@@ -22,6 +22,7 @@ STATUS_PRIORITY = {"provisional": 1, "partial": 2, "authoritative": 3}
 PERSISTED_FILES = (
     "manifest.json",
     "parameters.json",
+    "parameter-provenance.json",
     "RUN-INFO.json",
     "reports/summary.json",
     "reports/winner-pages.json",
@@ -160,6 +161,8 @@ def publish_run(
         "calibration_status": intelligence["calibration_status"],
         "record_path": relative_dir.as_posix(),
         "intelligence_path": (relative_dir / "calibration-intelligence.json").as_posix(),
+        "parameter_provenance_path": (relative_dir / "parameter-provenance.json").as_posix()
+            if (destination / "parameter-provenance.json").is_file() else None,
         "source_document_id": source_id,
         "golden_set_id": golden_id,
         "golden_set_sha256": golden_sha,
@@ -223,6 +226,29 @@ def update_index(results_root: Path, entries: list[dict[str, Any]]) -> dict[str,
         "preferred": preferred,
     })
     _write_json(index_path, index)
+
+    provenance_entries = []
+    for item in merged:
+        path = item.get("parameter_provenance_path")
+        if not path:
+            continue
+        provenance_entries.append({
+            "detector_id": item.get("detector_id"),
+            "calibration_id": item.get("calibration_id"),
+            "golden_set_sha256": item.get("golden_set_sha256"),
+            "created_at_utc": item.get("created_at_utc"),
+            "parameter_provenance_path": path,
+            "build": item.get("build"),
+        })
+    _write_json(
+        results_root / "parameter-provenance-index.json",
+        {
+            "schema_version": "1.0",
+            "updated_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "registries": provenance_entries,
+            "note": "Legacy 12-character IDs are aliases. Resolve against the referenced per-run provenance registry.",
+        },
+    )
     return index
 
 

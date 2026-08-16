@@ -8,8 +8,12 @@ def canonical_parameters(parameters: dict[str, Any]) -> str:
     return json.dumps(parameters, sort_keys=True, separators=(",", ":"))
 
 
+def parameter_set_sha256(parameters: dict[str, Any]) -> str:
+    return hashlib.sha256(canonical_parameters(parameters).encode("utf-8")).hexdigest()
+
+
 def parameter_set_id(parameters: dict[str, Any]) -> str:
-    return hashlib.sha256(canonical_parameters(parameters).encode("utf-8")).hexdigest()[:12]
+    return parameter_set_sha256(parameters)[:12]
 
 
 def exhaustive_parameter_sets(config: dict[str, Any]) -> list[dict[str, Any]]:

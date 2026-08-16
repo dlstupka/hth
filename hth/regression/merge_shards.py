@@ -14,6 +14,7 @@ from hth.domain.result_metrics import baseline_surpassed
 from .calibration_intelligence import build_calibration_intelligence
 from .io import create_run_directory, write_json
 from .parameter_space import canonical_parameters
+from .parameter_provenance import attach_identity, build_provenance
 from .reports import normalize_result_record, ranking_key, write_rankings, write_raw_results
 from .runner import build_winner_page_report, file_sha256, load_pages, write_debug_artifacts
 from hth.regression.result_metrics import aggregate_page_metrics
@@ -32,8 +33,13 @@ def _results_from_raw(path: Path) -> list[dict[str, Any]]:
     with path.open(newline="", encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
             parameter_id = row["parameter_set_id"]
-            result = grouped.setdefault(parameter_id, {
+            identity_sha = row.get("parameter_identity_sha256") or parameter_id
+            result = grouped.setdefault(identity_sha, {
                 "parameter_set_id": parameter_id,
+                "parameter_identity_sha256": row.get("parameter_identity_sha256") or None,
+                "parameter_schema_version": row.get("parameter_schema_version") or None,
+                "parameter_grid_sha256": row.get("parameter_grid_sha256") or None,
+                "parameter_grid_ordinal": int(row["parameter_grid_ordinal"]) if row.get("parameter_grid_ordinal") not in (None, "") else None,
                 "profile": row.get("profile") or None,
                 "parameters": json.loads(row["parameters_json"]),
                 "pages": [],
@@ -125,7 +131,7 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
     for shard_dir, info in zip(shard_dirs, infos):
         shard_start = _parse_time(str(info["started_at_utc"]))
         for result in _results_from_raw(shard_dir / "raw" / "results.csv"):
-            existing = by_id.setdefault(result["parameter_set_id"], result)
+            existing = by_id.setdefault(str(result.get("parameter_identity_sha256") or result["parameter_set_id"]), result)
             if existing is not result:
                 continue
             observation = result.get("search_observation") or {}
@@ -161,10 +167,20 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
             })
 
     ranked = sorted(by_id.values(), key=ranking_key)
+    detector_configuration = _read(detector_config)
     run_id, run_dir = create_run_directory(output, detector, None)
     for rank, result in enumerate(ranked, 1):
+        attach_identity(result, detector, detector_configuration)
         result["rank"] = rank
         result["run_id"] = run_id
+    parameter_provenance = build_provenance(
+        detector,
+        detector_configuration,
+        ranked,
+        strategy="exhaustive",
+        complete_cartesian=(len(ranked) >= int(infos[0].get("possible_parameter_sets") or 0)),
+    )
+    write_json(run_dir / "parameter-provenance.json", parameter_provenance)
     baseline = next((result for result in ranked if result.get("profile") == "baseline"), None)
     first_summary = summaries[0]
     first_info = infos[0]
@@ -276,7 +292,7 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         "shard": shard_context,
     })
     write_json(run_dir / "RUN-INFO.json", info)
-    write_json(run_dir / "manifest.json", {"schema_version": "0.1", "run_id": run_id, "detector": detector, "strategy": "exhaustive", "status": "complete", "started_at_utc": start.isoformat(), "finished_at_utc": finish.isoformat(), "shard": shard_context, "outputs": ["RUN-INFO.json", "parameters.json", "raw/results.csv", "reports/summary.json", "reports/winner-pages.json", "reports/calibration-intelligence.json", "reports/rankings.csv", "reports/top20.csv"], "debug_outputs": debug_outputs})
+    write_json(run_dir / "manifest.json", {"schema_version": "0.1", "run_id": run_id, "detector": detector, "strategy": "exhaustive", "status": "complete", "started_at_utc": start.isoformat(), "finished_at_utc": finish.isoformat(), "shard": shard_context, "outputs": ["RUN-INFO.json", "parameters.json", "parameter-provenance.json", "raw/results.csv", "reports/summary.json", "reports/winner-pages.json", "reports/calibration-intelligence.json", "reports/rankings.csv", "reports/top20.csv"], "debug_outputs": debug_outputs})
     write_rankings(run_dir.parent / f"{detector}-regression-results.csv", ranked)
     return run_dir
 

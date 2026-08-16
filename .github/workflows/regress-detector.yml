@@ -829,7 +829,7 @@ jobs:
 
             git -C results-repo fetch origin main
             git -C results-repo reset --hard origin/main
-            git -C results-repo clean -fd -- calibration-index.json runtime-index.json parallelism-index.json multidetector-index.json optimizer-predictions.json source-documents/
+            git -C results-repo clean -fd -- calibration-index.json parameter-provenance-index.json runtime-index.json parallelism-index.json multidetector-index.json optimizer-predictions.json source-documents/
 
             if [[ -n "${HTH_SHAPE_PREDICTION_FILE:-}" && -f "${HTH_SHAPE_PREDICTION_FILE}" ]]; then
               python -m hth.regression_shape record-prediction \
@@ -858,7 +858,7 @@ jobs:
                 --results-root results-repo
             fi
 
-            git -C results-repo add calibration-index.json runtime-index.json parallelism-index.json multidetector-index.json source-documents/
+            git -C results-repo add calibration-index.json parameter-provenance-index.json runtime-index.json parallelism-index.json multidetector-index.json source-documents/
             if [[ -d results-repo/models ]]; then git -C results-repo add models/; fi
             if [[ -f results-repo/optimizer-predictions.json ]]; then
               git -C results-repo add optimizer-predictions.json
