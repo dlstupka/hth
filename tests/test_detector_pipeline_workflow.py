@@ -165,7 +165,11 @@ def test_all_without_exhaustive_is_first_and_dispatches_missing_authoritative_ru
     assert "python -m hth.regression_dispatch" in text
     assert "inputs.algorithm != 'all-without-exhaustive'" in text
     assert "actions: write" in text
-    assert "inputs.algorithm" in text.split("concurrency:", 1)[1].split("jobs:", 1)[0]
+    concurrency = text.split("concurrency:", 1)[1].split("jobs:", 1)[0]
+    assert "github.event_name == 'workflow_dispatch'" in concurrency
+    assert "format('manual-{0}', github.run_id)" in concurrency
+    assert "|| 'automatic'" in concurrency
+    assert "inputs.algorithm" not in concurrency
 
 
 
