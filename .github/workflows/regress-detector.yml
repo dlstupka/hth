@@ -397,10 +397,8 @@ jobs:
           # dotfile, and other HTH state beneath it. Subsequent checkout/setup
           # steps rebuild the job from scratch.
           find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-          if [[ -n "${RUNNER_TOOL_CACHE:-}" ]]; then
-            echo "Removing reusable HTH runtime: $RUNNER_TOOL_CACHE/hth-runtime"
-            rm -rf "$RUNNER_TOOL_CACHE/hth-runtime"
-          fi
+          echo "Removing reusable HTH runtime: /tmp/.ar/.hth-runtime"
+          rm -rf "/tmp/.ar/.hth-runtime"
           echo "Runner workspace and reusable HTH runtime wiped; continuing with fresh checkouts."
 
       - name: Checkout HTH pipeline
@@ -532,11 +530,7 @@ jobs:
           "$bootstrap_python" -m pip --version
 
           if [[ "${{ runner.environment }}" == "self-hosted" ]]; then
-            if [[ -z "${RUNNER_TOOL_CACHE:-}" ]]; then
-              echo "::error::RUNNER_TOOL_CACHE is not defined on this self-hosted runner."
-              exit 1
-            fi
-            runtime_root="$RUNNER_TOOL_CACHE/hth-runtime"
+            runtime_root="/tmp/.ar/.hth-runtime"
             venv_dir="$runtime_root/python-3.12-${RUNNER_OS:-unknown}-${RUNNER_ARCH:-unknown}"
 
           else
@@ -739,8 +733,26 @@ jobs:
             echo "Kraken runtime verified — using previous install; no install required."
           else
             echo "Kraken runtime verification failed; installing."
+
+            # HTH runs Kraken page-mask inference on CPU. Install the CPU wheel
+            # first so Kraken's unconstrained torch dependency cannot pull the
+            # multi-gigabyte CUDA/NVIDIA runtime stack into the reusable venv.
+            if [[ "${RUNNER_OS:-}" == "Linux" ]]; then
+              echo "Ensuring CPU-only PyTorch runtime before Kraken."
+              python -m pip install                 --index-url https://download.pytorch.org/whl/cpu                 "torch==2.10.0"
+            fi
+
             python -m pip install "kraken==7.0.2"
             verify_kraken_runtime
+
+            python - <<'PY'
+          import torch
+          print(f"PyTorch verified: {torch.__version__}")
+          if torch.cuda.is_available():
+              raise SystemExit("HTH Kraken runtime unexpectedly reports CUDA available")
+          print("PyTorch backend: CPU-only")
+          PY
+
             python -m pip check
           fi
 

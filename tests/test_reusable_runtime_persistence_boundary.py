@@ -12,14 +12,14 @@ class ReusableRuntimePersistenceBoundaryTests(unittest.TestCase):
     def test_self_hosted_runtime_is_outside_checkout_clean_tree(self):
         for workflow in WORKFLOWS:
             text = workflow.read_text(encoding="utf-8")
-            self.assertIn('runtime_root="$RUNNER_TOOL_CACHE/hth-runtime"', text, workflow.name)
+            self.assertIn('runtime_root="/tmp/.ar/.hth-runtime"', text, workflow.name)
             self.assertNotIn('runtime_root="$GITHUB_WORKSPACE/.hth-runtime"', text, workflow.name)
 
     def test_manual_wipe_removes_workspace_and_external_runtime(self):
         for workflow in WORKFLOWS:
             text = workflow.read_text(encoding="utf-8")
             self.assertIn('find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +', text)
-            self.assertIn('rm -rf "$RUNNER_TOOL_CACHE/hth-runtime"', text)
+            self.assertIn('rm -rf "/tmp/.ar/.hth-runtime"', text)
 
     def test_successful_verification_explicitly_reuses_previous_install(self):
         for workflow in WORKFLOWS:

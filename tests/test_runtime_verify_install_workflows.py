@@ -19,11 +19,10 @@ class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
             wipe = text.index("- name: Wipe runner workspace")
             checkout = text.index("- name: Checkout HTH pipeline", wipe)
             self.assertLess(wipe, checkout, workflow.name)
-            self.assertIn('runtime_root="$RUNNER_TOOL_CACHE/hth-runtime"', text, workflow.name)
+            self.assertIn('runtime_root="/tmp/.ar/.hth-runtime"', text, workflow.name)
             self.assertIn('Reusing verified Python environment', text, workflow.name)
             self.assertIn('HTH_VENV_REUSED', text, workflow.name)
-            self.assertIn('RUNNER_TOOL_CACHE', text, workflow.name)
-            self.assertIn('rm -rf "$RUNNER_TOOL_CACHE/hth-runtime"', text, workflow.name)
+            self.assertIn('rm -rf "/tmp/.ar/.hth-runtime"', text, workflow.name)
             self.assertIn('PIP_DISABLE_PIP_VERSION_CHECK=1', text, workflow.name)
 
     def test_install_steps_verify_before_installing(self):
