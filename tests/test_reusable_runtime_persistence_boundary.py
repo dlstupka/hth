@@ -6,6 +6,7 @@ WORKFLOWS = (
     ROOT / ".github/workflows/regress-detector.yml",
     ROOT / ".github/workflows/execution-optimizer.yml",
 )
+MANAGER = (ROOT / "tools" / "ensure-managed-runtime.sh").read_text(encoding="utf-8")
 
 
 class ReusableRuntimePersistenceBoundaryTests(unittest.TestCase):
@@ -22,11 +23,11 @@ class ReusableRuntimePersistenceBoundaryTests(unittest.TestCase):
             self.assertIn('rm -rf "/tmp/.ar/.hth-runtime"', text)
 
     def test_successful_verification_explicitly_reuses_previous_install(self):
+        self.assertIn("Managed runtime verified — using previous install; no install required.", MANAGER)
         for workflow in WORKFLOWS:
             text = workflow.read_text(encoding="utf-8")
-            self.assertIn("Base dependencies verified — using previous install; no install required.", text)
-            self.assertIn("dhSegment TensorFlow runtime verified — using previous install; no install required.", text)
-            self.assertIn("Kraken runtime verified — using previous install; no install required.", text)
+            self.assertIn("dhSegment TensorFlow runtime verified — using managed runtime:", text)
+            self.assertIn("Kraken runtime verified — using managed runtime:", text)
 
 
 if __name__ == "__main__":

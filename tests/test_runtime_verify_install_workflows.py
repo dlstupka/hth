@@ -6,6 +6,7 @@ WORKFLOWS = (
     ROOT / ".github/workflows/regress-detector.yml",
     ROOT / ".github/workflows/execution-optimizer.yml",
 )
+RUNTIME_MANAGER = ROOT / "tools" / "ensure-managed-runtime.sh"
 
 
 class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
@@ -25,29 +26,28 @@ class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
             self.assertIn('rm -rf "/tmp/.ar/.hth-runtime"', text, workflow.name)
             self.assertIn('PIP_DISABLE_PIP_VERSION_CHECK=1', text, workflow.name)
 
-    def test_install_steps_verify_before_installing(self):
+    def test_runtime_is_built_once_then_specialized_steps_only_verify(self):
+        manager = RUNTIME_MANAGER.read_text(encoding="utf-8")
         for workflow in WORKFLOWS:
             text = workflow.read_text(encoding="utf-8")
-            self.assertIn("- name: Verify / Install dependencies", text, workflow.name)
-            self.assertIn("- name: Verify / Install dhSegment TensorFlow runtime", text, workflow.name)
-            self.assertIn("- name: Verify / Install Kraken historical-document segmentation runtime", text, workflow.name)
-            self.assertIn("if verify_requirements; then", text, workflow.name)
-            self.assertIn("if verify_dhsegment_runtime; then", text, workflow.name)
-            self.assertIn("if verify_kraken_runtime", text, workflow.name)
-            self.assertIn("using previous install; no install required.", text, workflow.name)
+            self.assertIn("- name: Verify / Install complete managed runtime", text, workflow.name)
+            self.assertIn("bash hth-pipeline/tools/ensure-managed-runtime.sh", text, workflow.name)
+            self.assertIn("- name: Verify dhSegment TensorFlow runtime", text, workflow.name)
+            self.assertIn("- name: Verify Kraken historical-document segmentation runtime", text, workflow.name)
+            self.assertNotIn("- name: Verify / Install dhSegment TensorFlow runtime", text, workflow.name)
+            self.assertNotIn("- name: Verify / Install Kraken historical-document segmentation runtime", text, workflow.name)
+        self.assertIn("Managed runtime verified — using previous install; no install required.", manager)
+        self.assertIn("rebuilding once with the complete required dependency set", manager)
 
     def test_runtime_verification_checks_target_versions_and_imports(self):
-        for workflow in WORKFLOWS:
-            text = workflow.read_text(encoding="utf-8")
-            self.assertIn('Requirement(line)', text, workflow.name)
-            self.assertIn('SpecifierSet(">=2.18,<2.21")', text, workflow.name)
-            self.assertIn('import tensorflow as tf', text, workflow.name)
-            self.assertIn('version != "7.0.2"', text, workflow.name)
-            self.assertIn('from kraken.tasks.segmentation import SegmentationTaskModel', text, workflow.name)
-            self.assertIn('except metadata.PackageNotFoundError:', text, workflow.name)
-            self.assertIn('dhSegment TensorFlow runtime not present; install required.', text, workflow.name)
-            self.assertIn('Kraken runtime not present; install required.', text, workflow.name)
-            self.assertIn("python -m pip check", text, workflow.name)
+        manager = RUNTIME_MANAGER.read_text(encoding="utf-8")
+        self.assertIn('Requirement(line)', manager)
+        self.assertIn('SpecifierSet(">=2.18,<2.21")', manager)
+        self.assertIn('import tensorflow as tf', manager)
+        self.assertIn('version != "7.0.2"', manager)
+        self.assertIn('from kraken.tasks.segmentation import SegmentationTaskModel', manager)
+        self.assertIn('except metadata.PackageNotFoundError:', manager)
+        self.assertIn("python -m pip check", manager)
 
     def test_github_hosted_stays_run_local(self):
         for workflow in WORKFLOWS:

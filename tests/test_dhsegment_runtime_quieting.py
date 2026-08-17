@@ -47,13 +47,15 @@ class DhSegmentRuntimeQuietingTests(unittest.TestCase):
                         os.environ[key] = value
 
     def test_regression_and_optimizer_install_cpu_only_tensorflow(self):
+        manager = Path("tools/ensure-managed-runtime.sh").read_text(encoding="utf-8")
+        self.assertIn('tensorflow-cpu>=2.18,<2.21', manager)
+        self.assertNotIn('pip install "tensorflow>=2.18,<2.21"', manager)
         for rel in (
             ".github/workflows/regress-detector.yml",
             ".github/workflows/execution-optimizer.yml",
         ):
             text = Path(rel).read_text(encoding="utf-8")
-            self.assertIn('tensorflow-cpu>=2.18,<2.21', text, rel)
-            self.assertNotIn('pip install "tensorflow>=2.18,<2.21"', text, rel)
+            self.assertIn("hth-pipeline/tools/ensure-managed-runtime.sh", text, rel)
 
     def test_legacy_loader_suppresses_python_warning_chatter_locally(self):
         text = Path("hth/geometry/detector_dhsegment_page_mask.py").read_text(encoding="utf-8")
