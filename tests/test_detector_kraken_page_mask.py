@@ -137,11 +137,59 @@ class KrakenPageMaskTests(unittest.TestCase):
         tiny = np.array([[[5, 5]], [[10, 5]], [[10, 10]], [[5, 10]]], dtype=np.int32)
         selected, diagnostics = detector._select_evidence_envelope(
             [dominant, tiny],
-            image_area=1000 * 1000,
+            image_shape=(1000, 1000),
         )
         self.assertEqual(len(selected), 1)
         self.assertEqual(diagnostics["mode"], "dominant")
         self.assertEqual(diagnostics["selected_contours"], 1)
+
+
+    def test_sparse_multi_region_envelope_admits_small_component_that_extends_page_side(self):
+        dominant = np.array(
+            [[[100, 100]], [[650, 100]], [[650, 900]], [[100, 900]]],
+            dtype=np.int32,
+        )
+        # Too small for the normal 1.5% dominant-area gate, but real learned
+        # evidence far enough to the right to materially extend the page.
+        side_region = np.array(
+            [[[1050, 300]], [[1070, 300]], [[1070, 340]], [[1050, 340]]],
+            dtype=np.int32,
+        )
+        selected, diagnostics = detector._select_evidence_envelope(
+            [dominant, side_region],
+            image_shape=(1000, 1200),
+        )
+        self.assertEqual(diagnostics["mode"], "multi-region-envelope")
+        self.assertEqual(diagnostics["extension_admissions"], 1)
+        self.assertEqual(len(selected), 1)
+        self.assertGreater(cv2.boundingRect(selected[0])[0] + cv2.boundingRect(selected[0])[2], 1000)
+
+    def test_sparse_vertical_extent_recovers_bottom_when_width_is_strong(self):
+        contour = np.array(
+            [[[20, 10]], [[1180, 10]], [[1180, 810]], [[20, 810]]],
+            dtype=np.int32,
+        )
+        recovered, diagnostics = detector._recover_sparse_vertical_extent(
+            contour,
+            image_shape=(1000, 1200),
+        )
+        self.assertTrue(diagnostics["applied"])
+        self.assertEqual(diagnostics["recovered_edge"], "bottom")
+        _, _, _, height = cv2.boundingRect(recovered)
+        self.assertGreaterEqual(height, 990)
+
+    def test_sparse_vertical_extent_does_not_expand_narrow_text_region(self):
+        contour = np.array(
+            [[[200, 10]], [[700, 10]], [[700, 700]], [[200, 700]]],
+            dtype=np.int32,
+        )
+        recovered, diagnostics = detector._recover_sparse_vertical_extent(
+            contour,
+            image_shape=(1000, 1200),
+        )
+        self.assertFalse(diagnostics["applied"])
+        self.assertTrue(np.array_equal(recovered, contour))
+
 
 
     def test_runtime_chatter_filter_retains_diagnostics_but_replays_other_stderr(self):

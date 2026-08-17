@@ -412,16 +412,16 @@ def _evidence_mask(image_shape, evidence, values):
     return mask
 
 
-def _select_evidence_envelope(contours, *, image_area):
+def _select_evidence_envelope(contours, *, image_shape):
     """Return the contour set that best represents the learned page extent.
 
     Kraken can emit several disconnected regions on sparse or damaged pages.
-    Taking only the largest postprocessed contour can collapse the proposal onto
-    a single text block.  Keep the dominant component, then admit substantial
-    disconnected components that are large enough to be document evidence
-    rather than isolated noise.  This is deliberately parameter-free so it
-    improves envelope reconstruction without changing the declared calibration
-    grid.
+    Keep the dominant component, admit substantial secondary components, and
+    also admit smaller learned components when they materially extend the
+    dominant envelope.  The latter recovers sparse page-side evidence without
+    broadly accepting isolated noise.
+
+    This remains parameter-free so the declared calibration grid is unchanged.
     """
     if not contours:
         return [], {
@@ -430,21 +430,48 @@ def _select_evidence_envelope(contours, *, image_area):
             "selected_contours": 0,
         }
 
+    h, w = image_shape[:2]
+    image_area = float(h * w)
     ranked = sorted(contours, key=cv2.contourArea, reverse=True)
-    dominant_area = float(cv2.contourArea(ranked[0]))
-    absolute_floor = max(4.0, float(image_area) * 0.00025)
+    dominant = ranked[0]
+    dominant_area = float(cv2.contourArea(dominant))
+    absolute_floor = max(4.0, image_area * 0.00025)
     relative_floor = dominant_area * 0.015
     area_floor = max(absolute_floor, relative_floor)
 
-    selected = [ranked[0]]
-    selected.extend(
-        contour for contour in ranked[1:]
-        if float(cv2.contourArea(contour)) >= area_floor
-    )
+    x, y, cw, ch = cv2.boundingRect(dominant)
+    dominant_box = (float(x), float(y), float(x + cw - 1), float(y + ch - 1))
+    extension_x = max(8.0, float(w) * 0.035)
+    extension_y = max(8.0, float(h) * 0.035)
+    extension_area_floor = max(4.0, image_area * 0.00005)
 
-    # If secondary learned components survive the conservative area gate, use
-    # their joint convex envelope. Otherwise preserve the historic dominant-
-    # contour behavior exactly.
+    selected = [dominant]
+    admitted_by_extension = 0
+    for contour in ranked[1:]:
+        area = float(cv2.contourArea(contour))
+        if area >= area_floor:
+            selected.append(contour)
+            continue
+        if area < extension_area_floor:
+            continue
+
+        sx, sy, sw, sh = cv2.boundingRect(contour)
+        secondary_box = (
+            float(sx),
+            float(sy),
+            float(sx + sw - 1),
+            float(sy + sh - 1),
+        )
+        materially_extends = (
+            secondary_box[0] < dominant_box[0] - extension_x
+            or secondary_box[2] > dominant_box[2] + extension_x
+            or secondary_box[1] < dominant_box[1] - extension_y
+            or secondary_box[3] > dominant_box[3] + extension_y
+        )
+        if materially_extends:
+            selected.append(contour)
+            admitted_by_extension += 1
+
     if len(selected) == 1:
         return selected, {
             "mode": "dominant",
@@ -452,6 +479,8 @@ def _select_evidence_envelope(contours, *, image_area):
             "selected_contours": 1,
             "dominant_area": dominant_area,
             "component_area_floor": area_floor,
+            "extension_area_floor": extension_area_floor,
+            "extension_admissions": 0,
         }
 
     points = np.concatenate(selected, axis=0)
@@ -462,8 +491,59 @@ def _select_evidence_envelope(contours, *, image_area):
         "selected_contours": len(selected),
         "dominant_area": dominant_area,
         "component_area_floor": area_floor,
+        "extension_area_floor": extension_area_floor,
+        "extension_admissions": admitted_by_extension,
     }
 
+
+def _recover_sparse_vertical_extent(contour, *, image_shape):
+    """Conservatively recover a missing top/bottom page extent.
+
+    When Kraken evidence already spans nearly the full image width and reaches
+    one vertical image edge, a premature stop at the opposite end is usually
+    sparse-content truncation rather than a real page boundary.  Add only the
+    missing image-edge corners; otherwise leave the learned envelope untouched.
+    """
+    h, w = image_shape[:2]
+    x, y, cw, ch = cv2.boundingRect(contour)
+    width_fraction = float(cw) / float(w) if w else 0.0
+    height_fraction = float(ch) / float(h) if h else 0.0
+    top_gap = float(y) / float(h) if h else 1.0
+    bottom_gap = float(h - (y + ch)) / float(h) if h else 1.0
+
+    diagnostics = {
+        "applied": False,
+        "width_fraction": width_fraction,
+        "height_fraction": height_fraction,
+        "top_gap_fraction": top_gap,
+        "bottom_gap_fraction": bottom_gap,
+    }
+
+    # Require strong horizontal page evidence and a substantial existing
+    # vertical span.  Recover only one missing end, and only when the opposite
+    # end is already anchored very near the image boundary.
+    if width_fraction < 0.85 or height_fraction < 0.55:
+        return contour, diagnostics
+
+    left = max(0, x)
+    right = min(w - 1, x + cw - 1)
+    additions = []
+    recovered = None
+    if top_gap <= 0.05 and bottom_gap >= 0.08:
+        additions = [[[left, h - 1]], [[right, h - 1]]]
+        recovered = "bottom"
+    elif bottom_gap <= 0.05 and top_gap >= 0.08:
+        additions = [[[left, 0]], [[right, 0]]]
+        recovered = "top"
+
+    if not additions:
+        return contour, diagnostics
+
+    extra = np.asarray(additions, dtype=np.int32)
+    hull = cv2.convexHull(np.concatenate([contour, extra], axis=0))
+    diagnostics["applied"] = True
+    diagnostics["recovered_edge"] = recovered
+    return hull, diagnostics
 
 def _proposal(image_bgr, values):
     evidence = _infer_evidence(image_bgr)
@@ -473,12 +553,17 @@ def _proposal(image_bgr, values):
     image_area = float(h * w)
     selected, envelope_diagnostics = _select_evidence_envelope(
         contours,
-        image_area=image_area,
+        image_shape=mask.shape,
     )
     if not selected:
         return evidence, mask, None, None, 0.0, envelope_diagnostics
 
     contour = selected[0]
+    contour, vertical_recovery = _recover_sparse_vertical_extent(
+        contour,
+        image_shape=mask.shape,
+    )
+    envelope_diagnostics["vertical_extent_recovery"] = vertical_recovery
     rect = cv2.minAreaRect(contour)
     corners = cv2.boxPoints(rect).astype(np.float32)
 
