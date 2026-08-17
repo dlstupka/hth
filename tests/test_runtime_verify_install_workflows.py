@@ -37,7 +37,7 @@ class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
             self.assertNotIn("- name: Verify / Install dhSegment TensorFlow runtime", text, workflow.name)
             self.assertNotIn("- name: Verify / Install Kraken historical-document segmentation runtime", text, workflow.name)
         self.assertIn("Managed runtime verified — using previous install; no install required.", manager)
-        self.assertIn("rebuilding once with the complete required dependency set", manager)
+        self.assertIn("Managed base runtime verified; augmenting only missing optional runtime layer(s).", manager)
 
     def test_runtime_verification_checks_target_versions_and_imports(self):
         manager = RUNTIME_MANAGER.read_text(encoding="utf-8")

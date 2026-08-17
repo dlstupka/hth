@@ -129,62 +129,129 @@ verify_complete_runtime() {
   python -m pip check
 }
 
-install_complete_runtime() {
-  # Do not upgrade pip merely because a newer release exists. The venv's pip is
-  # sufficient unless it is actually absent/broken.
+ensure_pip() {
   if ! python -m pip --version >/dev/null 2>&1; then
-    echo "pip is unavailable in the new venv; repairing with ensurepip."
+    echo "pip is unavailable in the managed venv; repairing with ensurepip."
     python -m ensurepip --upgrade
-  fi
-
-  python -m pip install --requirement hth-pipeline/requirements.txt
-
-  if [[ "$need_dhsegment" == "true" ]]; then
-    python -m pip install "tensorflow-cpu>=2.18,<2.21"
-  fi
-
-  if [[ "$need_kraken" == "true" ]]; then
-    if [[ "${RUNNER_OS:-}" == "Linux" ]]; then
-      echo "Installing matched CPU-only PyTorch/Torchvision pair for Kraken."
-      python -m pip install \
-        "torch==2.10.0" \
-        "torchvision==0.25.0" \
-        --index-url https://download.pytorch.org/whl/cpu
-    fi
-    python -m pip install "kraken==7.0.2"
   fi
 }
 
-if verify_complete_runtime; then
-  echo "Managed runtime verified — using previous install; no install required."
-  exit 0
-fi
+install_base_runtime() {
+  ensure_pip
+  python -m pip install --requirement hth-pipeline/requirements.txt
+}
 
-echo "Managed runtime is incomplete for this job; rebuilding once with the complete required dependency set."
+install_dhsegment_layer() {
+  echo "Installing missing dhSegment TensorFlow layer only."
+  python -m pip install "tensorflow-cpu>=2.18,<2.21"
+}
 
-backup="${HTH_VENV}.backup-${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-1}"
-rm -rf "$backup"
-if [[ -d "$HTH_VENV" ]]; then
-  mv "$HTH_VENV" "$backup"
-fi
+install_kraken_layer() {
+  if [[ "${RUNNER_OS:-}" == "Linux" ]]; then
+    echo "Installing missing matched CPU-only PyTorch/Torchvision layer for Kraken."
+    python -m pip install \
+      "torch==2.10.0" \
+      "torchvision==0.25.0" \
+      --index-url https://download.pytorch.org/whl/cpu
+  fi
+  echo "Installing missing Kraken 7.0.2 layer only."
+  python -m pip install "kraken==7.0.2"
+}
 
-restore_previous_runtime() {
-  rc="$?"
+runtime_backup="${HTH_VENV}.backup-${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-1}"
+
+restore_runtime_backup() {
+  local rc="$?"
   if (( rc != 0 )); then
-    echo "::error::Managed runtime rebuild failed; restoring previous reusable runtime."
+    echo "::error::Managed runtime update failed; restoring previous reusable runtime."
     rm -rf "$HTH_VENV"
-    if [[ -d "$backup" ]]; then
-      mv "$backup" "$HTH_VENV"
+    if [[ -d "$runtime_backup" ]]; then
+      mv "$runtime_backup" "$HTH_VENV"
     fi
   fi
   return "$rc"
 }
-trap restore_previous_runtime EXIT
 
-"$HTH_BOOTSTRAP_PYTHON" -m venv "$HTH_VENV"
-install_complete_runtime
+begin_full_rebuild() {
+  rm -rf "$runtime_backup"
+  if [[ -d "$HTH_VENV" ]]; then
+    mv "$HTH_VENV" "$runtime_backup"
+  fi
+  trap restore_runtime_backup EXIT
+  "$HTH_BOOTSTRAP_PYTHON" -m venv "$HTH_VENV"
+}
+
+begin_incremental_update() {
+  rm -rf "$runtime_backup"
+
+  # Keep the canonical venv in place so its scripts and pyvenv metadata retain
+  # their original absolute paths. Snapshot it locally for rollback instead of
+  # rebuilding already-verified base packages. Reflinks make this effectively
+  # copy-on-write when the filesystem supports them; ordinary local copy is the
+  # safe fallback.
+  echo "Snapshotting verified managed runtime before incremental augmentation."
+  if cp --help 2>/dev/null | grep -q -- '--reflink'; then
+    cp -a --reflink=auto "$HTH_VENV" "$runtime_backup"
+  else
+    cp -a "$HTH_VENV" "$runtime_backup"
+  fi
+  trap restore_runtime_backup EXIT
+}
+
+commit_runtime_update() {
+  rm -rf "$runtime_backup"
+  trap - EXIT
+}
+
+# Verify the base layer first. A bad base is the only condition that justifies
+# recreating the environment and reinstalling requirements.txt.
+if ! verify_pip || ! verify_base; then
+  echo "Managed base runtime is invalid; rebuilding the base environment once."
+  begin_full_rebuild
+  install_base_runtime
+
+  if [[ "$need_dhsegment" == "true" ]]; then
+    install_dhsegment_layer
+  fi
+  if [[ "$need_kraken" == "true" ]]; then
+    install_kraken_layer
+  fi
+
+  verify_complete_runtime
+  commit_runtime_update
+  echo "Managed runtime rebuilt from base and fully verified."
+  exit 0
+fi
+
+# The base layer is already valid. Determine which optional layers, if any, are
+# missing before touching the environment.
+missing_dhsegment=false
+missing_kraken=false
+
+if [[ "$need_dhsegment" == "true" ]] && ! verify_dhsegment; then
+  missing_dhsegment=true
+fi
+
+if [[ "$need_kraken" == "true" ]] && ! verify_kraken; then
+  missing_kraken=true
+fi
+
+if [[ "$missing_dhsegment" == "false" && "$missing_kraken" == "false" ]]; then
+  python -m pip check
+  echo "Managed runtime verified — using previous install; no install required."
+  exit 0
+fi
+
+echo "Managed base runtime verified; augmenting only missing optional runtime layer(s)."
+begin_incremental_update
+
+if [[ "$missing_dhsegment" == "true" ]]; then
+  install_dhsegment_layer
+fi
+if [[ "$missing_kraken" == "true" ]]; then
+  install_kraken_layer
+fi
+
 verify_complete_runtime
-
-rm -rf "$backup"
-trap - EXIT
-echo "Managed runtime rebuilt once and fully verified."
+commit_runtime_update
+echo "Managed runtime augmentation completed and fully verified."
