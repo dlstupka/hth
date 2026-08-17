@@ -51,7 +51,7 @@ class HardeningInvariantTests(unittest.TestCase):
             env = workflow_shape_env(result)
             self.assertEqual(env["DETECTOR_PIPELINES"], 9)
             self.assertEqual(env["THREADS"], 42)
-            self.assertEqual(env["SHARDS"], 9)
+            self.assertNotIn("SHARDS", env)
             self.assertEqual(env["HTH_EXACT_EXECUTION_SHAPE"], "1")
 
     def test_authoritative_full_provenance_gates_higher_scoring_smoke(self):

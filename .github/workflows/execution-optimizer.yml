@@ -118,6 +118,11 @@ on:
         required: true
         default: true
         type: boolean
+      sharding:
+        description: "Sharding: auto uses runtime-based planning; a positive integer assigns that many shards per active pipeline"
+        required: true
+        default: "1"
+        type: string
       resume:
         description: Resume completed shapes from the latest compatible local checkpoint; use no to force a fresh run, or enter a prior optimizer run ID
         required: true
@@ -219,6 +224,7 @@ jobs:
             --thread-max "${{ inputs.thread_max }}" \
             --allow-thread-oversubscription "${{ inputs.allow_thread_oversubscription }}" \
             --early-stop "${{ inputs.early_stop }}" \
+            --sharding "${{ inputs.sharding }}" \
             --resume "${{ inputs.resume }}" \
             --results-repository "${{ inputs.results_repository }}" \
             --golden-set "${{ inputs.golden_set }}" \
@@ -251,7 +257,7 @@ jobs:
       MAX_DIMENSION: ${{ inputs.max_dimension }}
       TOP_COUNT: "20"
       THREADS: auto
-      SHARDS: ""
+      SHARDING: ${{ inputs.sharding }}
       SHARD_TARGET_MINUTES: "30"
       SHARD_LEASE_MINUTES: "5"
       DETECTOR_PIPELINES: "1"
@@ -734,7 +740,7 @@ jobs:
           except Exception:
               data = {"phase": "unknown"}
           fields = [f"phase={data.get('phase', 'unknown')}"]
-          for key in ("shape_sequence", "shape_total", "pipelines", "shards", "threads_per_pipeline"):
+          for key in ("shape_sequence", "shape_total", "pipelines", "sharding", "shards", "threads_per_pipeline"):
               if data.get(key) is not None:
                   fields.append(f"{key}={data[key]}")
           print(" ".join(fields))
@@ -843,9 +849,9 @@ jobs:
           echo "Shapes               : $pipelines"
           echo "Oversubscription     : $ALLOW_THREAD_OVERSUBSCRIPTION"
           if [[ "$ALLOW_THREAD_OVERSUBSCRIPTION" == "true" ]]; then
-            echo "Model                : shards = pipelines; threads = max(thread min, min(thread max, floor(runner budget / pipelines))); runner budget may be exceeded"
+            echo "Model                : sharding=${{ inputs.sharding }}; threads = max(thread min, min(thread max, floor(runner budget / pipelines))); runner budget may be exceeded"
           else
-            echo "Model                : shards = pipelines; threads = min(thread max, floor(runner budget / pipelines))"
+            echo "Model                : sharding=${{ inputs.sharding }}; threads = min(thread max, floor(runner budget / pipelines))"
           fi
           echo "Early stop           : ${{ inputs.early_stop }} (3 consecutive completed shapes <=2% improvement from perceived max)"
 
@@ -881,6 +887,7 @@ jobs:
             --thread-min "$THREAD_MIN" \
             --thread-max "$THREAD_MAX" \
             --enumeration "$ENUMERATION" \
+            --sharding "${{ inputs.sharding }}" \
             --allow-thread-oversubscription "$ALLOW_THREAD_OVERSUBSCRIPTION" \
             --pipeline-min "$PIPELINE_MIN" \
             --pipeline-max "$PIPELINE_MAX")"
@@ -922,7 +929,7 @@ jobs:
           shape_number="$resumed_shapes"
           stop_reason="shape_range_complete"
 
-          python - "$run_metadata" "$GITHUB_RUN_ID" "$DETECTOR_ALGORITHM" "$HTH_RUNNER_LABEL" "$RUNNER_BUDGET" "$THREAD_MIN" "$THREAD_MAX" "$ENUMERATION" "$EARLY_STOP" "$PIPELINE_MIN" "$PIPELINE_MAX" "$resumed_from" "$resumed_shapes" "$ALLOW_THREAD_OVERSUBSCRIPTION" "$optimization_started_epoch" <<'PYMETA'
+          python - "$run_metadata" "$GITHUB_RUN_ID" "$DETECTOR_ALGORITHM" "$HTH_RUNNER_LABEL" "$RUNNER_BUDGET" "$THREAD_MIN" "$THREAD_MAX" "$ENUMERATION" "${{ inputs.sharding }}" "$EARLY_STOP" "$PIPELINE_MIN" "$PIPELINE_MAX" "$resumed_from" "$resumed_shapes" "$ALLOW_THREAD_OVERSUBSCRIPTION" "$optimization_started_epoch" <<'PYMETA'
           import json, sys
           from pathlib import Path
           path = Path(sys.argv[1])
@@ -934,15 +941,16 @@ jobs:
               "thread_min": int(sys.argv[6]),
               "thread_max": int(sys.argv[7]),
               "pipeline_enumeration": sys.argv[8],
-              "early_stop_enabled": sys.argv[9].lower() == "true",
-              "pipeline_min": int(sys.argv[10]),
-              "pipeline_max": int(sys.argv[11]),
-              "resumed_from_optimizer_run_id": sys.argv[12] or None,
-              "resumed_shape_count": int(sys.argv[13]),
-              "allow_thread_oversubscription": sys.argv[14].lower() == "true",
-              "optimization_started_epoch": int(sys.argv[15]),
+              "sharding": sys.argv[9],
+              "early_stop_enabled": sys.argv[10].lower() == "true",
+              "pipeline_min": int(sys.argv[11]),
+              "pipeline_max": int(sys.argv[12]),
+              "resumed_from_optimizer_run_id": sys.argv[13] or None,
+              "resumed_shape_count": int(sys.argv[14]),
+              "allow_thread_oversubscription": sys.argv[15].lower() == "true",
+              "optimization_started_epoch": int(sys.argv[16]),
               "early_stop": {"threshold_pct": 2.0, "required_consecutive_shapes": 3},
-              "completed_shapes": int(sys.argv[13]),
+              "completed_shapes": int(sys.argv[14]),
               "stop_reason": None,
           }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
           PYMETA
@@ -1001,7 +1009,6 @@ jobs:
 
             shape_number=$((shape_number + 1))
             export DETECTOR_PIPELINES="$pipelines"
-            export SHARDS="$pipelines"
             export THREADS="$effective_threads"
             export HTH_REGRESSION_OUTPUT="optimizer-work/${pipelines}p-${effective_threads}t"
             export HTH_OPTIMIZER_RUN_ID="$GITHUB_RUN_ID"
@@ -1026,7 +1033,7 @@ jobs:
               "shape_total": int(sys.argv[4]),
               "detector_id": sys.argv[5],
               "pipelines": int(sys.argv[6]),
-              "shards": int(sys.argv[6]),
+              "sharding": "${{ inputs.sharding }}",
               "threads_per_pipeline": int(sys.argv[7]),
           }) + "\n", encoding="utf-8")
           PYSTATE
@@ -1036,7 +1043,7 @@ jobs:
             echo "Execution optimizer shape $shape_number/$total"
             echo "Detector          : $DETECTOR_ALGORITHM"
             echo "Pipelines         : $pipelines"
-            echo "Shards            : $pipelines"
+            echo "Sharding          : ${{ inputs.sharding }}"
             echo "Threads / pipeline: $effective_threads"
             echo "Allocated threads : $((pipelines * effective_threads)) / $RUNNER_BUDGET budget"
             echo "########################################################################"

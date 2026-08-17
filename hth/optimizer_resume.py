@@ -48,7 +48,7 @@ def _published_run_ids(results_root: Path) -> set[str]:
 
 
 def _matches(metadata: dict[str, Any], *, detector: str, runner_label: str, runner_budget: int,
-             thread_min: int, thread_max: int, enumeration: str,
+             thread_min: int, thread_max: int, enumeration: str, sharding: str,
              allow_thread_oversubscription: bool = False) -> bool:
     expected = {
         "detector_id": detector,
@@ -57,6 +57,7 @@ def _matches(metadata: dict[str, Any], *, detector: str, runner_label: str, runn
         "thread_min": thread_min,
         "thread_max": thread_max,
         "pipeline_enumeration": enumeration,
+        "sharding": sharding,
         "allow_thread_oversubscription": allow_thread_oversubscription,
     }
     for key, value in expected.items():
@@ -88,7 +89,7 @@ def _rewrite_run(rows: list[dict[str, Any]], *, old_run_id: str, new_run_id: str
 
 def prepare_resume(*, source_dir: Path, destination_dir: Path, results_root: Path, mode: str,
                    current_run_id: str, detector: str, runner_label: str, runner_budget: int,
-                   thread_min: int, thread_max: int, enumeration: str,
+                   thread_min: int, thread_max: int, enumeration: str, sharding: str,
                    pipeline_min: int, pipeline_max: int,
                    allow_thread_oversubscription: bool = False) -> dict[str, Any]:
     mode = mode.strip()
@@ -111,6 +112,7 @@ def prepare_resume(*, source_dir: Path, destination_dir: Path, results_root: Pat
         return {"resumed": False, "reason": "checkpoint-already-published", "completed_shapes": 0}
     if not _matches(metadata, detector=detector, runner_label=runner_label, runner_budget=runner_budget,
                     thread_min=thread_min, thread_max=thread_max, enumeration=enumeration,
+                    sharding=sharding,
                     allow_thread_oversubscription=allow_thread_oversubscription):
         return {"resumed": False, "reason": "checkpoint-incompatible", "completed_shapes": 0}
 
@@ -163,6 +165,7 @@ def main() -> int:
     prepare.add_argument("--thread-min", type=int, required=True)
     prepare.add_argument("--thread-max", type=int, required=True)
     prepare.add_argument("--enumeration", required=True)
+    prepare.add_argument("--sharding", required=True)
     prepare.add_argument("--pipeline-min", type=int, required=True)
     prepare.add_argument("--pipeline-max", type=int, required=True)
     prepare.add_argument("--allow-thread-oversubscription", choices=("true", "false"), default="false")
@@ -188,6 +191,7 @@ def main() -> int:
         thread_min=args.thread_min,
         thread_max=args.thread_max,
         enumeration=args.enumeration,
+        sharding=args.sharding,
         pipeline_min=args.pipeline_min,
         pipeline_max=args.pipeline_max,
         allow_thread_oversubscription=args.allow_thread_oversubscription == "true",

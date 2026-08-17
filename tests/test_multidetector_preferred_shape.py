@@ -39,6 +39,7 @@ class MultiDetectorPreferredShapeTests(unittest.TestCase):
             self.assertEqual(env["DETECTOR_PIPELINES"], 6)
             self.assertEqual(env["THREADS"], 64)
             self.assertNotIn("SHARDS", env)
+            self.assertNotIn("SHARDING", env)
 
 
 if __name__ == "__main__":

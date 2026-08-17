@@ -96,8 +96,8 @@ def test_auto_threads_shards_and_expiring_leases_are_wired() -> None:
     assert "default: preferred" in workflow
     assert "THREADS: auto" in workflow
     assert "shards:" in workflow
-    assert "shard count override" in workflow
-    assert "SHARDS:" in workflow
+    assert "Sharding: auto uses runtime-based planning" in workflow
+    assert "SHARDING:" in workflow
     assert "shard_target_minutes:" in workflow
     assert "shard_lease_minutes:" in workflow
     assert "from hth.regression.sharding import best_smoke_observation" in text
@@ -114,7 +114,8 @@ def test_execution_summary_and_merge_use_canonical_detector_shard_and_budget_cou
     text = DRIVER.read_text(encoding="utf-8")
     assert 'detector_count=${#detector_configs[@]}' in text
     assert 'echo "Detectors          : $detector_count"' in text
-    assert 'echo "Shards             : ${#detector_configs[@]}${SHARDS:+ (explicit request $SHARDS; capped at one parameter set per shard)}"' in text
+    assert 'echo "Sharding           : auto (runtime target ${SHARD_TARGET_MINUTES}m)"' in text
+    assert 'echo "Sharding           : ${sharding_policy} shard(s) / active pipeline"' in text
     assert 'from hth.regression.sharding import plan_execution' in text
     assert 'task_threads[$task_index]="$effective_threads_per_pipeline"' in text
     assert 'rm -rf "$queue_dir"' in text

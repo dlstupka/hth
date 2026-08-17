@@ -86,6 +86,7 @@ def main() -> int:
     parser.add_argument("--thread-max", required=True)
     parser.add_argument("--allow-thread-oversubscription", required=True)
     parser.add_argument("--early-stop", required=True)
+    parser.add_argument("--sharding", required=True)
     parser.add_argument("--resume", required=True)
     parser.add_argument("--results-repository", required=True)
     parser.add_argument("--golden-set", required=True)
@@ -112,6 +113,7 @@ def main() -> int:
         "thread_max": args.thread_max,
         "allow_thread_oversubscription": _bool(args.allow_thread_oversubscription),
         "early_stop": _bool(args.early_stop),
+        "sharding": args.sharding,
         "resume": args.resume,
         "results_repository": args.results_repository,
         "golden_set": args.golden_set,

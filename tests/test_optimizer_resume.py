@@ -20,6 +20,7 @@ class OptimizerResumeTests(unittest.TestCase):
             "thread_min": 192,
             "thread_max": 192,
             "pipeline_enumeration": "exhaustive",
+            "sharding": "1",
         }), encoding="utf-8")
         (work / "observations.jsonl").write_text(json.dumps({
             "observation_id": f"optimizer:{run_id}:1:run-a",
@@ -47,7 +48,7 @@ class OptimizerResumeTests(unittest.TestCase):
             result = prepare_resume(
                 source_dir=source, destination_dir=destination, results_root=results,
                 mode="auto", current_run_id="200", detector="grabcut", runner_label="e7k",
-                runner_budget=192, thread_min=192, thread_max=192, enumeration="exhaustive",
+                runner_budget=192, thread_min=192, thread_max=192, enumeration="exhaustive", sharding="1",
                 pipeline_min=1, pipeline_max=1,
             )
             self.assertTrue(result["resumed"])
@@ -68,7 +69,7 @@ class OptimizerResumeTests(unittest.TestCase):
             result = prepare_resume(
                 source_dir=source, destination_dir=root / "staged", results_root=results,
                 mode="auto", current_run_id="200", detector="grabcut", runner_label="e7k",
-                runner_budget=192, thread_min=192, thread_max=192, enumeration="exhaustive",
+                runner_budget=192, thread_min=192, thread_max=192, enumeration="exhaustive", sharding="1",
                 pipeline_min=1, pipeline_max=1,
             )
             self.assertFalse(result["resumed"])
@@ -83,7 +84,7 @@ class OptimizerResumeTests(unittest.TestCase):
             result = prepare_resume(
                 source_dir=source, destination_dir=root / "staged", results_root=results,
                 mode="auto", current_run_id="200", detector="adaptive_radial_edge", runner_label="e7k",
-                runner_budget=192, thread_min=192, thread_max=192, enumeration="exhaustive",
+                runner_budget=192, thread_min=192, thread_max=192, enumeration="exhaustive", sharding="1",
                 pipeline_min=1, pipeline_max=1,
             )
             self.assertFalse(result["resumed"])

@@ -572,8 +572,6 @@ def workflow_shape_env(result: dict[str, Any]) -> dict[str, Any]:
             "HTH_EXACT_EXECUTION_SHAPE": "1",
             "HTH_ALLOW_THREAD_OVERSUBSCRIPTION": "false",
         })
-        if not result.get("multidetector"):
-            env["SHARDS"] = int(result["pipelines"])
     if result.get("prediction_file"):
         env["HTH_SHAPE_PREDICTION_FILE"] = result["prediction_file"]
     return env

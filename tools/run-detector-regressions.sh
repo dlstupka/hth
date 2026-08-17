@@ -158,8 +158,9 @@ else
   detector_quality=("unknown")
 fi
 
-if [[ -n "${SHARDS:-}" && ! "${SHARDS}" =~ ^[1-9][0-9]*$ ]]; then
-  echo "::error::Shards must be a positive whole number or blank for wall-clock planning"
+sharding_policy="${SHARDING:-auto}"
+if [[ "$sharding_policy" != "auto" && ! "$sharding_policy" =~ ^[1-9][0-9]*$ ]]; then
+  echo "::error::Sharding must be 'auto' or a positive whole number of shards per active pipeline: $sharding_policy"
   exit 1
 fi
 if [[ ! "${SHARD_TARGET_MINUTES:-30}" =~ ^[1-9][0-9]*$ ]]; then
@@ -184,29 +185,69 @@ PYPLAN
   )"
   if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
     planned_threads="$THREADS"
-    planned_shards="${SHARDS:-1}"
     serial_estimate="unknown"
     plan_source="${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-optimizer}-exact-shape"
   else
-    read -r planned_threads planned_shards serial_estimate plan_source < <(
-      python - "$detector_config" "results-repo/runtime-index.json" "$detector_name" "${HTH_RUNNER_LABEL:-}" "$THREADS" "$SHARD_TARGET_MINUTES" "${SHARDS:-}" <<'PYPLAN'
+    read -r planned_threads auto_planned_shards serial_estimate plan_source < <(
+      python - "$detector_config" "results-repo/runtime-index.json" "$detector_name" "${HTH_RUNNER_LABEL:-}" "$THREADS" "$SHARD_TARGET_MINUTES" <<'PYPLAN'
 import json, sys
 from pathlib import Path
 from hth.regression.sharding import best_smoke_observation, estimate_serial_runtime, plan_shards
 from hth.regression.strategies.cartesian import generate
-config_path, index_path, detector, runner_label, requested_threads, target_minutes, requested_shards = sys.argv[1:]
+config_path, index_path, detector, runner_label, requested_threads, target_minutes = sys.argv[1:]
 config = json.loads(Path(config_path).read_text(encoding="utf-8"))
 possible = len(generate(config))
 observation = best_smoke_observation(Path(index_path), detector)
 serial = estimate_serial_runtime(observation, possible) if observation else None
-plan = plan_shards(serial, runner_label=runner_label, requested_threads=requested_threads, target_shard_seconds=int(target_minutes) * 60, maximum_shards=possible, requested_shards=int(requested_shards) if requested_shards else None, possible_parameter_sets=possible, estimate_source="smoke-runtime-index" if observation else "no-smoke-history")
+plan = plan_shards(serial, runner_label=runner_label, requested_threads=requested_threads, target_shard_seconds=int(target_minutes)*60, maximum_shards=possible, requested_shards=None, possible_parameter_sets=possible, estimate_source="smoke-runtime-index" if observation else "no-smoke-history")
 print(plan.threads, plan.shard_count, "unknown" if serial is None else f"{serial:.3f}", plan.estimate_source)
 PYPLAN
     )
   fi
-  # User limits and smoke runs are already bounded; do not shard them.
-  if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" != "1" ]] && { [[ "$REGRESSION_MODE" != "full" ]] || [[ -n "${effective_limit:-}" ]] || [[ "$effective_strategy" != "exhaustive" ]]; }; then
-    planned_shards=1
+
+  if [[ "$sharding_policy" == "auto" ]]; then
+    if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
+      read -r _unused_threads planned_shards serial_estimate plan_source < <(
+        python - "$detector_config" "results-repo/runtime-index.json" "$detector_name" "${HTH_RUNNER_LABEL:-}" "$THREADS" "$SHARD_TARGET_MINUTES" <<'PYPLAN'
+import json, sys
+from pathlib import Path
+from hth.regression.sharding import best_smoke_observation, estimate_serial_runtime, plan_shards
+from hth.regression.strategies.cartesian import generate
+config_path, index_path, detector, runner_label, requested_threads, target_minutes = sys.argv[1:]
+config = json.loads(Path(config_path).read_text(encoding="utf-8"))
+possible = len(generate(config))
+observation = best_smoke_observation(Path(index_path), detector)
+serial = estimate_serial_runtime(observation, possible) if observation else None
+plan = plan_shards(serial, runner_label=runner_label, requested_threads=requested_threads, target_shard_seconds=int(target_minutes)*60, maximum_shards=possible, requested_shards=None, possible_parameter_sets=possible, estimate_source="smoke-runtime-index" if observation else "no-smoke-history")
+print(plan.threads, plan.shard_count, "unknown" if serial is None else f"{serial:.3f}", plan.estimate_source)
+PYPLAN
+      )
+    else
+      planned_shards="$auto_planned_shards"
+    fi
+    if [[ "$REGRESSION_MODE" != "full" || -n "${effective_limit:-}" ]]; then
+      planned_shards=1
+    fi
+  else
+    shard_pipeline_count="$effective_pipelines"
+    if [[ "$requested_pipelines" != "auto" ]]; then
+      shard_pipeline_count="$requested_pipelines"
+    fi
+    planned_shards=$((shard_pipeline_count * sharding_policy))
+    possible_shards="$(python - "$detector_config" <<'PYSHARDCAP'
+import json, sys
+from pathlib import Path
+from hth.regression.strategies.cartesian import generate
+config = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(max(1, len(generate(config))))
+PYSHARDCAP
+    )"
+    if (( planned_shards > possible_shards )); then
+      planned_shards="$possible_shards"
+      plan_source="explicit-${sharding_policy}-shards-per-pipeline-capped-to-parameter-space"
+    else
+      plan_source="explicit-${sharding_policy}-shards-per-pipeline"
+    fi
   fi
   for ((shard_index = 0; shard_index < planned_shards; shard_index++)); do
     task_configs+=("$detector_config")
@@ -281,7 +322,12 @@ if [[ "$requested_pipelines" == "auto" ]]; then
 else
   echo "Detector pipelines : $effective_pipelines (requested $requested_pipelines)"
 fi
-echo "Shards             : ${#detector_configs[@]}${SHARDS:+ (explicit request $SHARDS; capped at one parameter set per shard)}"
+if [[ "$sharding_policy" == "auto" ]]; then
+  echo "Sharding           : auto (runtime target ${SHARD_TARGET_MINUTES}m)"
+else
+  echo "Sharding           : ${sharding_policy} shard(s) / active pipeline"
+fi
+echo "Shards             : ${#detector_configs[@]}"
 echo "Thread budget      : $allocated_threads allocated / $runner_thread_budget max; $unused_threads free; $effective_threads_per_pipeline per active pipeline"
 if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
   echo "Execution shape    : ${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-optimizer}-exact (${effective_pipelines}p/${effective_threads_per_pipeline}t)"

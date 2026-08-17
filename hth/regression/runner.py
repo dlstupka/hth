@@ -278,8 +278,8 @@ def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
     p.add_argument("--top",type=int,default=20)
     p.add_argument("--threads",type=int,default=1,help="Parallel exhaustive-search threads from 1 through 1024; default: 1.")
     p.add_argument("--run-id",default=None)
-    p.add_argument("--shard-index",type=int,default=0,help="Zero-based interleaved exhaustive-search shard index.")
-    p.add_argument("--shard-count",type=int,default=1,help="Total interleaved exhaustive-search shard count.")
+    p.add_argument("--shard-index",type=int,default=0,help="Zero-based interleaved selected-parameter shard index.")
+    p.add_argument("--shard-count",type=int,default=1,help="Total interleaved selected-parameter shard count.")
     p.add_argument("--shared-baseline",type=Path,default=None,help="Optional run-local baseline cache shared by parallel shards.")
     p.add_argument(
         "--debug-artifacts",
@@ -298,8 +298,8 @@ def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
         p.error(f"--threads must be within [{MIN_THREAD_COUNT}, {MAX_THREAD_COUNT}]")
     if args.shard_count < 1 or not 0 <= args.shard_index < args.shard_count:
         p.error("--shard-index must be within [0, --shard-count)")
-    if args.shard_count > 1 and args.strategy != "exhaustive":
-        p.error("sharding currently requires --strategy exhaustive")
+    if args.shard_count > 1 and args.strategy == "binary-refine":
+        p.error("binary-refine cannot be sharded because its search path is sequential")
     return args
 
 def find_image(root:Path, ordinal:int)->Path:

@@ -127,6 +127,11 @@ on:
         required: false
         default: ""
         type: string
+      sharding:
+        description: "Sharding: auto uses runtime-based planning; a positive integer assigns that many shards per active pipeline"
+        required: true
+        default: auto
+        type: string
       runner:
         description: Execution runner
         required: true
@@ -166,11 +171,6 @@ on:
         description: "Advanced — maximum analysis image dimension"
         required: true
         default: "1800"
-        type: string
-      shards:
-        description: "Advanced — shard count override for auto shape; blank uses wall-clock planning"
-        required: false
-        default: ""
         type: string
       shard_target_minutes:
         description: "Advanced — target shard wall time for auto planning"
@@ -268,7 +268,7 @@ jobs:
             --specific-runner "${{ inputs.specific_runner }}" \
             --custom-runner-label "${{ inputs.custom_runner_label }}" \
             --max-dimension "${{ inputs.max_dimension }}" \
-            --shards "${{ inputs.shards }}" \
+            --sharding "${{ inputs.sharding }}" \
             --shard-target-minutes "${{ inputs.shard_target_minutes }}" \
             --shard-lease-minutes "${{ inputs.shard_lease_minutes }}" \
             --detector-loading-strategy "${{ inputs.detector_loading_strategy }}" \
@@ -367,7 +367,7 @@ jobs:
       EXECUTION_SHAPE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_shape || 'auto' }}
       MANUAL_EXECUTION_SHAPE: ${{ github.event_name == 'workflow_dispatch' && inputs.manual_execution_shape || '' }}
       THREADS: auto
-      SHARDS: ${{ github.event_name == 'workflow_dispatch' && inputs.shards || '' }}
+      SHARDING: ${{ github.event_name == 'workflow_dispatch' && inputs.sharding || 'auto' }}
       SHARD_TARGET_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.shard_target_minutes || '30' }}
       SHARD_LEASE_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.shard_lease_minutes || '5' }}
       DETECTOR_PIPELINES: ${{ matrix.detector == 'all' && needs.resolve-execution-dispatch.outputs.github_hosted != '1' && 'auto' || '4' }}

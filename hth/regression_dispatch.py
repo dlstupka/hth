@@ -108,7 +108,7 @@ def main() -> int:
     parser.add_argument("--specific-runner", required=True)
     parser.add_argument("--custom-runner-label", default="")
     parser.add_argument("--max-dimension", required=True)
-    parser.add_argument("--shards", default="")
+    parser.add_argument("--sharding", default="auto")
     parser.add_argument("--shard-target-minutes", required=True)
     parser.add_argument("--shard-lease-minutes", required=True)
     parser.add_argument("--detector-loading-strategy", required=True)
@@ -139,7 +139,7 @@ def main() -> int:
         "specific_runner": args.specific_runner,
         "custom_runner_label": args.custom_runner_label,
         "max_dimension": args.max_dimension,
-        "shards": args.shards,
+        "sharding": args.sharding,
         "shard_target_minutes": args.shard_target_minutes,
         "shard_lease_minutes": args.shard_lease_minutes,
         "detector_loading_strategy": args.detector_loading_strategy,
