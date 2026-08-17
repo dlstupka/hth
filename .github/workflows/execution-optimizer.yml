@@ -75,7 +75,7 @@ on:
         default: ""
         type: string
       clean_runner:
-        description: "Advanced — wipe the reusable HTH Python runtime on the selected self-hosted runner before this build"
+        description: "Advanced — Wipe runner workspace and rebuild from scratch"
         required: true
         default: false
         type: boolean
@@ -279,6 +279,19 @@ jobs:
       HTH_SPECIFIC_RUNNER_BUDGET: ""
 
     steps:
+      - name: Wipe runner workspace
+        if: ${{ runner.environment == 'self-hosted' && inputs.clean_runner }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Wiping self-hosted runner workspace: $GITHUB_WORKSPACE"
+          # Preserve the workspace directory itself because the runner owns it,
+          # but remove every checked-out repo, reusable runtime, artifact, cache,
+          # dotfile, and other HTH state beneath it. Subsequent checkout/setup
+          # steps rebuild the job from scratch.
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+          echo "Runner workspace wiped; continuing with fresh checkouts."
+
       - name: Checkout HTH pipeline
         uses: actions/checkout@v6
         with:
@@ -411,10 +424,6 @@ jobs:
             runtime_root="$GITHUB_WORKSPACE/.hth-runtime"
             venv_dir="$runtime_root/python-3.12-${RUNNER_OS:-unknown}-${RUNNER_ARCH:-unknown}"
 
-            if [[ "${{ inputs.clean_runner }}" == "true" ]]; then
-              echo "Clean runner requested: removing reusable HTH runtime $runtime_root"
-              rm -rf "$runtime_root"
-            fi
           else
             venv_dir="$RUNNER_TEMP/hth-python-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
             rm -rf "$venv_dir"

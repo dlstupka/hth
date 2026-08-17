@@ -20,20 +20,111 @@
     }
   },
   "parameters": {
-    "minimum_contour_area_fraction": {"type": "float", "values": [0.06, 0.12, 0.2]},
-    "close_kernel_fraction": {"type": "float", "values": [0.0, 0.008, 0.018]},
-    "close_iterations": {"type": "integer", "values": [0, 1, 2]},
-    "epsilon_min_fraction": {"type": "float", "values": [0.004, 0.008, 0.012]},
-    "epsilon_max_fraction": {"type": "float", "values": [0.025, 0.04, 0.06]},
-    "epsilon_steps": {"type": "integer", "values": [5, 9, 13]},
-    "minimum_rectangularity": {"type": "float", "values": [0.45, 0.55, 0.7]},
-    "area_weight": {"type": "float", "values": [0.25, 0.35, 0.45]},
-    "rectangularity_weight": {"type": "float", "values": [0.2, 0.3, 0.4]},
-    "angle_weight": {"type": "float", "values": [0.1, 0.2, 0.3]},
-    "edge_support_weight": {"type": "float", "values": [0.1, 0.15, 0.25]},
-    "edge_support_dilation_fraction": {"type": "float", "values": [0.002, 0.004, 0.008]},
-    "merge_fragmented_contours": {"type": "boolean", "values": [false, true]}
+    "minimum_contour_area_fraction": {
+      "type": "float",
+      "values": [
+        0.12,
+        0.2
+      ]
+    },
+    "close_kernel_fraction": {
+      "type": "float",
+      "values": [
+        0.008,
+        0.018
+      ]
+    },
+    "close_iterations": {
+      "type": "integer",
+      "values": [
+        1,
+        2
+      ]
+    },
+    "epsilon_min_fraction": {
+      "type": "float",
+      "values": [
+        0.008,
+        0.012
+      ]
+    },
+    "epsilon_max_fraction": {
+      "type": "float",
+      "values": [
+        0.04,
+        0.06
+      ]
+    },
+    "epsilon_steps": {
+      "type": "integer",
+      "values": [
+        9,
+        13
+      ]
+    },
+    "minimum_rectangularity": {
+      "type": "float",
+      "values": [
+        0.55,
+        0.7
+      ]
+    },
+    "area_weight": {
+      "type": "float",
+      "values": [
+        0.35,
+        0.45
+      ]
+    },
+    "rectangularity_weight": {
+      "type": "float",
+      "values": [
+        0.2,
+        0.3,
+        0.4
+      ]
+    },
+    "angle_weight": {
+      "type": "float",
+      "values": [
+        0.1,
+        0.2,
+        0.3
+      ]
+    },
+    "edge_support_weight": {
+      "type": "float",
+      "values": [
+        0.1,
+        0.15,
+        0.25
+      ]
+    },
+    "edge_support_dilation_fraction": {
+      "type": "float",
+      "values": [
+        0.002,
+        0.004,
+        0.008
+      ]
+    },
+    "merge_fragmented_contours": {
+      "type": "boolean",
+      "values": [
+        false,
+        true
+      ]
+    }
   },
-  "binary_refine": {"passes": 3, "local_exhaustive_radius": 1},
-  "regression": {"debug_artifacts": "winner"}
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "winner",
+    "full_space_policy": "bounded-cartesian-v1",
+    "full_space_max_parameter_sets": 50176,
+    "historic_best_reference": "mandatory-exact",
+    "previous_declared_parameter_sets": 1062882
+  }
 }

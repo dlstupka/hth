@@ -22,14 +22,8 @@
       "type": "float",
       "values": [
         0.6,
-        0.8,
-        1.0,
         1.2,
-        1.4,
-        1.6,
         1.8,
-        2.0,
-        2.2,
         2.4
       ]
     },
@@ -37,12 +31,9 @@
       "type": "int",
       "values": [
         64,
-        80,
         96,
-        112,
         128,
         144,
-        180,
         224
       ]
     },
@@ -70,14 +61,9 @@
       "type": "float",
       "values": [
         74.0,
-        78.0,
-        80.0,
         82.0,
         84.0,
-        86.0,
-        88.0,
         90.0,
-        92.0,
         94.0
       ]
     },
@@ -111,7 +97,11 @@
     "local_exhaustive_radius": 1
   },
   "regression": {
-    "debug_artifacts": "winner"
+    "debug_artifacts": "winner",
+    "full_space_policy": "bounded-cartesian-v1",
+    "full_space_max_parameter_sets": 50176,
+    "historic_best_reference": "mandatory-exact",
+    "previous_declared_parameter_sets": 400000
   },
   "optimizer_shape_compatibility": "detector-implementation"
 }

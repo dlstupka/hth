@@ -13,9 +13,14 @@ class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
         for workflow in WORKFLOWS:
             text = workflow.read_text(encoding="utf-8")
             self.assertIn("clean_runner:", text, workflow.name)
+            self.assertIn('description: "Advanced — Wipe runner workspace and rebuild from scratch"', text, workflow.name)
+            self.assertIn("- name: Wipe runner workspace", text, workflow.name)
+            self.assertIn('find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +', text, workflow.name)
+            wipe = text.index("- name: Wipe runner workspace")
+            checkout = text.index("- name: Checkout HTH pipeline", wipe)
+            self.assertLess(wipe, checkout, workflow.name)
             self.assertIn('runtime_root="$GITHUB_WORKSPACE/.hth-runtime"', text, workflow.name)
             self.assertIn('Reusing verified Python environment', text, workflow.name)
-            self.assertIn('Clean runner requested: removing reusable HTH runtime', text, workflow.name)
             self.assertIn('HTH_VENV_REUSED', text, workflow.name)
 
     def test_install_steps_verify_before_installing(self):

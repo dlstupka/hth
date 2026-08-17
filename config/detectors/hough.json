@@ -6,42 +6,70 @@
     "baseline": {
       "canny_low_threshold": 40,
       "hough_threshold_fraction": 0.055,
-      "minimum_length_fraction": 0.20,
+      "minimum_length_fraction": 0.2,
       "maximum_gap_fraction": 0.055,
       "axis_angle_tolerance_degrees": 22.0,
       "outer_percentile": 10.0,
-      "minimum_bbox_area_fraction": 0.10,
+      "minimum_bbox_area_fraction": 0.1,
       "bbox_padding_fraction": 0.0
     }
   },
   "parameters": {
     "canny_low_threshold": {
       "type": "integer",
-      "values": [25, 40, 65]
+      "values": [
+        25,
+        40,
+        65
+      ]
     },
     "hough_threshold_fraction": {
       "type": "float",
-      "values": [0.035, 0.055, 0.08]
+      "values": [
+        0.035,
+        0.055,
+        0.08
+      ]
     },
     "minimum_length_fraction": {
       "type": "float",
-      "values": [0.12, 0.20, 0.30]
+      "values": [
+        0.12,
+        0.2,
+        0.3
+      ]
     },
     "maximum_gap_fraction": {
       "type": "float",
-      "values": [0.025, 0.055, 0.09]
+      "values": [
+        0.025,
+        0.055,
+        0.09
+      ]
     },
     "axis_angle_tolerance_degrees": {
       "type": "float",
-      "values": [12.0, 22.0, 32.0]
+      "values": [
+        12.0,
+        22.0,
+        32.0
+      ]
     },
     "outer_percentile": {
       "type": "float",
-      "values": [5.0, 10.0, 20.0]
+      "values": [
+        5.0,
+        10.0,
+        20.0
+      ]
     },
     "bbox_padding_fraction": {
       "type": "float",
-      "values": [0.0, 0.005, 0.015]
+      "values": [
+        0.0,
+        0.005,
+        0.015
+      ]
     }
   },
   "binary_refine": {
@@ -49,6 +77,9 @@
     "local_exhaustive_radius": 1
   },
   "regression": {
-    "debug_artifacts": "failures"
+    "debug_artifacts": "failures",
+    "full_space_policy": "declared-cartesian",
+    "full_space_max_parameter_sets": 50176,
+    "historic_best_reference": "mandatory-exact"
   }
 }

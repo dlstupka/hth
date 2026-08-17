@@ -40,9 +40,9 @@ class PageBackgroundTests(unittest.TestCase):
         self.assertIn("page-background-candidate.png", images)
         self.assertIn("page-background-border-samples.png", images)
 
-    def test_generation_3_calibration_domain_is_200000_sets_and_pushes_color_boundary(self) -> None:
+    def test_generation_3_calibration_domain_is_48400_sets_and_pushes_color_boundary(self) -> None:
         config = json.loads(Path("config/detectors/page_background.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(exhaustive_parameter_sets(config)), 200000)
+        self.assertEqual(len(exhaustive_parameter_sets(config)), 48400)
         baseline = config["profiles"]["baseline"]
         self.assertEqual(baseline["border_band_fraction"], detector_page_background.BASELINE_PARAMETERS["border_band_fraction"])
         self.assertIn(0.035, config["parameters"]["border_band_fraction"]["values"])

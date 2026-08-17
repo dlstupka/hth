@@ -40,7 +40,7 @@ class SegmentSupportedPolarVoteTests(unittest.TestCase):
 
     def test_generation_3_calibration_domain_collapses_dormant_support_and_refines_winner(self) -> None:
         config = json.loads(Path("config/detectors/segment_supported_polar_vote.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(exhaustive_parameter_sets(config)), 180000)
+        self.assertEqual(len(exhaustive_parameter_sets(config)), 45360)
         self.assertEqual(config["parameters"]["minimum_support_fraction"]["values"], [0.20])
         self.assertEqual(config["parameters"]["minimum_segment_support_fraction"]["values"], [0.10])
         self.assertEqual(config["parameters"]["bbox_padding_fraction"]["values"], [0.0])

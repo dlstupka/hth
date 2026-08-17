@@ -29,16 +29,87 @@
     }
   },
   "parameters": {
-    "minimum_contour_area_fraction": {"type": "float", "values": [0.08, 0.12, 0.18]},
-    "epsilon_max_fraction": {"type": "float", "values": [0.03, 0.04, 0.06]},
-    "minimum_rectangularity": {"type": "float", "values": [0.45, 0.55, 0.7]},
-    "component_minimum_area_fraction": {"type": "float", "values": [0.0008, 0.0015, 0.003]},
-    "component_merge_gap_fraction": {"type": "float", "values": [0.02, 0.035, 0.06]},
-    "component_close_fraction": {"type": "float", "values": [0.004, 0.008, 0.012]},
-    "component_dilate_fraction": {"type": "float", "values": [0.008, 0.015, 0.025]},
-    "minimum_component_score": {"type": "float", "values": [0.02, 0.05, 0.12]},
-    "component_weight": {"type": "float", "values": [0.25, 0.4, 0.55]}
+    "minimum_contour_area_fraction": {
+      "type": "float",
+      "values": [
+        0.08,
+        0.12,
+        0.18
+      ]
+    },
+    "epsilon_max_fraction": {
+      "type": "float",
+      "values": [
+        0.03,
+        0.04,
+        0.06
+      ]
+    },
+    "minimum_rectangularity": {
+      "type": "float",
+      "values": [
+        0.45,
+        0.55,
+        0.7
+      ]
+    },
+    "component_minimum_area_fraction": {
+      "type": "float",
+      "values": [
+        0.0008,
+        0.0015,
+        0.003
+      ]
+    },
+    "component_merge_gap_fraction": {
+      "type": "float",
+      "values": [
+        0.02,
+        0.035,
+        0.06
+      ]
+    },
+    "component_close_fraction": {
+      "type": "float",
+      "values": [
+        0.004,
+        0.008,
+        0.012
+      ]
+    },
+    "component_dilate_fraction": {
+      "type": "float",
+      "values": [
+        0.008,
+        0.015,
+        0.025
+      ]
+    },
+    "minimum_component_score": {
+      "type": "float",
+      "values": [
+        0.02,
+        0.05,
+        0.12
+      ]
+    },
+    "component_weight": {
+      "type": "float",
+      "values": [
+        0.25,
+        0.4,
+        0.55
+      ]
+    }
   },
-  "binary_refine": {"passes": 3, "local_exhaustive_radius": 1},
-  "regression": {"debug_artifacts": "winner"}
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "winner",
+    "full_space_policy": "declared-cartesian",
+    "full_space_max_parameter_sets": 50176,
+    "historic_best_reference": "mandatory-exact"
+  }
 }

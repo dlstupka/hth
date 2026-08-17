@@ -10,7 +10,7 @@
       "grabcut_iterations": 3,
       "close_kernel_fraction": 0.02,
       "close_iterations": 1,
-      "minimum_bbox_area_fraction": 0.10,
+      "minimum_bbox_area_fraction": 0.1,
       "minimum_contour_area_fraction": 0.04,
       "polygon_epsilon_fraction": 0.018
     }
@@ -18,43 +18,83 @@
   "parameters": {
     "border_fraction": {
       "type": "float",
-      "values": [0.01, 0.02, 0.03]
+      "values": [
+        0.01,
+        0.02,
+        0.03
+      ]
     },
     "erosion_kernel_fraction": {
       "type": "float",
-      "values": [0.0075, 0.015, 0.025]
+      "values": [
+        0.0075,
+        0.015,
+        0.025
+      ]
     },
     "erosion_iterations": {
       "type": "integer",
-      "values": [0, 1, 2]
+      "values": [
+        0,
+        1,
+        2
+      ]
     },
     "grabcut_iterations": {
       "type": "integer",
-      "values": [1, 3, 5]
+      "values": [
+        1,
+        3,
+        5
+      ]
     },
     "close_kernel_fraction": {
       "type": "float",
-      "values": [0.01, 0.02, 0.035]
+      "values": [
+        0.01,
+        0.02,
+        0.035
+      ]
     },
     "close_iterations": {
       "type": "integer",
-      "values": [1, 2]
+      "values": [
+        1,
+        2
+      ]
     },
     "minimum_bbox_area_fraction": {
       "type": "float",
-      "values": [0.07, 0.10, 0.15]
+      "values": [
+        0.07,
+        0.1,
+        0.15
+      ]
     },
     "minimum_contour_area_fraction": {
       "type": "float",
-      "values": [0.02, 0.04, 0.07]
+      "values": [
+        0.02,
+        0.04,
+        0.07
+      ]
     },
     "polygon_epsilon_fraction": {
       "type": "float",
-      "values": [0.01, 0.018, 0.03]
+      "values": [
+        0.01,
+        0.018,
+        0.03
+      ]
     }
   },
   "binary_refine": {
     "passes": 3,
     "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "full_space_policy": "declared-cartesian",
+    "full_space_max_parameter_sets": 50176,
+    "historic_best_reference": "mandatory-exact"
   }
 }

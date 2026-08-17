@@ -555,7 +555,10 @@
     "local_exhaustive_radius": 1
   },
   "regression": {
-    "debug_artifacts": "winner"
+    "debug_artifacts": "winner",
+    "full_space_policy": "declared-cartesian",
+    "full_space_max_parameter_sets": 50176,
+    "historic_best_reference": "mandatory-exact"
   },
   "optimizer_shape_compatibility": "detector-implementation"
 }

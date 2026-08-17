@@ -29,7 +29,7 @@ class RadialEdgeTests(unittest.TestCase):
 
     def test_generation_2_calibration_domain_is_broad_and_retains_baseline(self):
         config = json.loads(Path("config/detectors/radial_edge.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(exhaustive_parameter_sets(config)), 400000)
+        self.assertEqual(len(exhaustive_parameter_sets(config)), 50000)
         self.assertIn(BASELINE_PARAMETERS["gaussian_sigma"], config["parameters"]["gaussian_sigma"]["values"])
         self.assertIn(BASELINE_PARAMETERS["ray_count"], config["parameters"]["ray_count"]["values"])
         self.assertIn(BASELINE_PARAMETERS["gradient_percentile"], config["parameters"]["gradient_percentile"]["values"])

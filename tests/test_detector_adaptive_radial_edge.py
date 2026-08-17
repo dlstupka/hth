@@ -47,7 +47,7 @@ class AdaptiveRadialEdgeTests(unittest.TestCase):
 
     def test_generation_2_calibration_domain_expands_radial_and_refinement_controls(self):
         config = json.loads(Path("config/detectors/adaptive_radial_edge.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(exhaustive_parameter_sets(config)), 750000)
+        self.assertEqual(len(exhaustive_parameter_sets(config)), 49152)
         self.assertIn(BASELINE_PARAMETERS["gaussian_sigma"], config["parameters"]["gaussian_sigma"]["values"])
         self.assertIn(BASELINE_PARAMETERS["gradient_percentile"], config["parameters"]["gradient_percentile"]["values"])
         self.assertIn(BASELINE_PARAMETERS["refined_angle_step_degrees"], config["parameters"]["refined_angle_step_degrees"]["values"])

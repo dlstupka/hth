@@ -27,7 +27,7 @@ class SignedPolarBoundaryVoteTests(unittest.TestCase):
 
     def test_generation_2_calibration_domain_expands_winner_boundaries(self) -> None:
         config = json.loads(Path("config/detectors/signed_polar_boundary_vote.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(exhaustive_parameter_sets(config)), 453600)
+        self.assertEqual(len(exhaustive_parameter_sets(config)), 46875)
         self.assertIn(0.45, config["parameters"]["outer_radius_fraction"]["values"])
         self.assertIn(0.22, config["parameters"]["inner_radius_fraction"]["values"])
         self.assertIn(95.0, config["parameters"]["gradient_percentile"]["values"])

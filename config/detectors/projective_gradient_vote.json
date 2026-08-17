@@ -21,13 +21,63 @@
     }
   },
   "parameters": {
-    "gaussian_sigma": {"type": "float", "values": [0.8, 1.2, 1.8]},
-    "gradient_percentile": {"type": "float", "values": [74.0, 82.0, 90.0]},
-    "minimum_segment_fraction": {"type": "float", "values": [0.10, 0.16, 0.24]},
-    "family_tolerance_degrees": {"type": "float", "values": [10.0, 16.0, 24.0]},
-    "orthogonality_tolerance_degrees": {"type": "float", "values": [12.0, 22.0, 32.0]},
-    "minimum_side_support": {"type": "float", "values": [0.08, 0.18, 0.30]}
+    "gaussian_sigma": {
+      "type": "float",
+      "values": [
+        0.8,
+        1.2,
+        1.8
+      ]
+    },
+    "gradient_percentile": {
+      "type": "float",
+      "values": [
+        74.0,
+        82.0,
+        90.0
+      ]
+    },
+    "minimum_segment_fraction": {
+      "type": "float",
+      "values": [
+        0.1,
+        0.16,
+        0.24
+      ]
+    },
+    "family_tolerance_degrees": {
+      "type": "float",
+      "values": [
+        10.0,
+        16.0,
+        24.0
+      ]
+    },
+    "orthogonality_tolerance_degrees": {
+      "type": "float",
+      "values": [
+        12.0,
+        22.0,
+        32.0
+      ]
+    },
+    "minimum_side_support": {
+      "type": "float",
+      "values": [
+        0.08,
+        0.18,
+        0.3
+      ]
+    }
   },
-  "binary_refine": {"passes": 3, "local_exhaustive_radius": 1},
-  "regression": {"debug_artifacts": "winner"}
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "winner",
+    "full_space_policy": "declared-cartesian",
+    "full_space_max_parameter_sets": 50176,
+    "historic_best_reference": "mandatory-exact"
+  }
 }

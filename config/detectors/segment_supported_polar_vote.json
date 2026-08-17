@@ -20,14 +20,10 @@
       "type": "integer",
       "values": [
         48,
-        54,
         60,
-        66,
         72,
         84,
-        96,
         120,
-        150,
         180
       ]
     },
@@ -46,14 +42,10 @@
       "type": "float",
       "values": [
         0.66,
-        0.68,
         0.7,
         0.72,
-        0.74,
         0.76,
-        0.78,
         0.82,
-        0.86,
         0.9
       ]
     },
@@ -61,13 +53,10 @@
       "type": "float",
       "values": [
         78.0,
-        80.0,
         82.0,
         83.0,
         84.0,
-        85.0,
         86.0,
-        88.0,
         90.0,
         92.0
       ]
@@ -117,7 +106,11 @@
     "local_exhaustive_radius": 1
   },
   "regression": {
-    "debug_artifacts": "failures"
+    "debug_artifacts": "failures",
+    "full_space_policy": "bounded-cartesian-v1",
+    "full_space_max_parameter_sets": 50176,
+    "historic_best_reference": "mandatory-exact",
+    "previous_declared_parameter_sets": 180000
   },
   "optimizer_shape_compatibility": "detector-implementation"
 }
