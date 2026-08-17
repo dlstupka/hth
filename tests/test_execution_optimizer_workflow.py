@@ -56,10 +56,10 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         regression = REGRESSION.read_text(encoding="utf-8")
         for step in (
             "Checkout HTH pipeline", "Checkout results repository", "Runner diagnostics",
-            "Set up Python — GitHub-hosted Linux", "Verify Python — self-hosted Linux",
+            "Set up Python — GitHub-hosted Linux",
             "Use repaired Python tool cache — Windows", "Verify / Create reusable Python environment",
             "Verify / Install complete managed runtime", "Verify Python dependency ABI", "Show toolchain environment",
-            "Show OpenCV build", "Benchmark OpenCV",
+            "Verify / Benchmark OpenCV runtime",
         ):
             marker = f"- name: {step}"
             self.assertIn(marker, regression)

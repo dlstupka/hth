@@ -440,28 +440,6 @@ jobs:
           cache: pip
           cache-dependency-path: hth-pipeline/requirements.txt
 
-      - name: Verify Python — self-hosted Linux
-        if: ${{ runner.os == 'Linux' && runner.environment == 'self-hosted' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "python: $(command -v python)"
-          python --version
-          python -m pip --version
-
-          python - <<'PY'
-          import sys
-
-          if sys.version_info[:2] != (3, 12):
-              raise SystemExit(
-                  f"Expected Python 3.12, got {sys.version} "
-                  f"from {sys.executable}"
-              )
-
-          print(f"Python executable: {sys.executable}")
-          PY
-          
       - name: Use repaired Python tool cache — Windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -527,7 +505,20 @@ jobs:
           bootstrap_python="$(command -v python)"
           echo "Bootstrap Python: $bootstrap_python"
           "$bootstrap_python" --version
-          "$bootstrap_python" -m pip --version
+          if ! "$bootstrap_python" -m pip --version; then
+            echo "Bootstrap pip is missing; repairing with ensurepip."
+            "$bootstrap_python" -m ensurepip --upgrade
+            "$bootstrap_python" -m pip --version
+          fi
+          "$bootstrap_python" - <<'PY'
+          import sys
+          if sys.version_info[:2] != (3, 12):
+              raise SystemExit(
+                  f"Expected bootstrap Python 3.12, got {sys.version} "
+                  f"from {sys.executable}"
+              )
+          print(f"Bootstrap Python executable: {sys.executable}")
+          PY
 
           if [[ "${{ runner.environment }}" == "self-hosted" ]]; then
             runtime_root="/tmp/.ar/.hth-runtime"
@@ -768,13 +759,18 @@ jobs:
           echo "------------"
           tr ':' '\n' <<< "$PATH"
 
-      - name: Show OpenCV build
+      - name: Verify / Benchmark OpenCV runtime
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
         run: |
+          set -euo pipefail
           python - <<'EOF'
+          import os
+          import time
+
           import cv2
+          import numpy as np
 
           print(f"OpenCV version: {cv2.__version__}")
           print()
@@ -795,22 +791,12 @@ jobs:
           for line in cv2.getBuildInformation().splitlines():
               if any(token in line for token in wanted):
                   print(line)
-          EOF
- 
-      - name: Benchmark OpenCV
-        shell: bash
-        run: |
-          python - <<'EOF'
-          import os
-          import time
-          import cv2
-          import numpy as np
 
+          print()
           image = np.random.default_rng(12345).integers(
               0, 256, size=(3000, 3000), dtype=np.uint8
           )
 
-          # Warm-up
           for _ in range(5):
               cv2.GaussianBlur(image, (9, 9), 0)
 
@@ -818,8 +804,8 @@ jobs:
           for _ in range(100):
               cv2.GaussianBlur(image, (9, 9), 0)
           elapsed = time.perf_counter() - started
-
           average = elapsed / 100
+
           print(f"GaussianBlur 100 iterations: {elapsed:.3f} seconds")
           print(f"Average per iteration: {average:.6f} seconds")
 
@@ -829,7 +815,6 @@ jobs:
                   stream.write(f"HTH_OPENCV_BENCHMARK_SECONDS={elapsed:.9f}\n")
                   stream.write(f"HTH_OPENCV_BENCHMARK_AVERAGE_SECONDS={average:.9f}\n")
           EOF
-          
       - name: Resolve regression execution shape
         shell: bash
         env:
@@ -908,7 +893,7 @@ jobs:
           for attempt in $(seq 1 "$max_publish_attempts"); do
             if (( attempt > 1 )); then
               retry_delay=$((5 * (attempt - 1)))
-              echo "Publish collision detected; waiting ${retry_delay}s for calibration intelligence to free up before retrying..."
+              echo "Calibration publish collision confirmed; waiting ${retry_delay}s before retrying against the latest main."
               sleep "$retry_delay"
             fi
 
@@ -943,10 +928,23 @@ jobs:
                 --results-root results-repo
             fi
 
-            git -C results-repo add calibration-index.json parameter-provenance-index.json runtime-index.json parallelism-index.json multidetector-index.json source-documents/
-            if [[ -d results-repo/models ]]; then git -C results-repo add models/; fi
+            # Persist calibration intelligence only. Learned-model payloads are
+            # runtime assets and must never be swept into calibration commits.
+            git -C results-repo add \
+              calibration-index.json \
+              parameter-provenance-index.json \
+              runtime-index.json \
+              parallelism-index.json \
+              multidetector-index.json \
+              source-documents/
             if [[ -f results-repo/optimizer-predictions.json ]]; then
               git -C results-repo add optimizer-predictions.json
+            fi
+
+            if git -C results-repo diff --cached --name-only | grep -E '(^|/)models/' >/dev/null; then
+              echo "::error::Calibration persistence attempted to stage a model payload."
+              git -C results-repo diff --cached --name-only
+              exit 1
             fi
 
             if git -C results-repo diff --cached --quiet; then
@@ -957,10 +955,25 @@ jobs:
 
             git -C results-repo commit -m \
               "Update calibration intelligence from HTH run ${{ github.run_number }}"
-            if git -C results-repo push origin HEAD:main; then
+
+            push_log="$RUNNER_TEMP/hth-calibration-push-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}.log"
+            if git -C results-repo push origin HEAD:main 2>&1 | tee "$push_log"; then
               published=1
               break
             fi
+
+            if grep -Eqi \
+              'non-fast-forward|fetch first|failed to push some refs|updates were rejected because the remote contains work' \
+              "$push_log"; then
+              if (( attempt == max_publish_attempts )); then
+                echo "::error::Calibration publish collision persisted through ${max_publish_attempts} attempts."
+                break
+              fi
+              continue
+            fi
+
+            echo "::error::Calibration intelligence push failed for a reason other than concurrent publication; not retrying as a collision."
+            exit 1
           done
 
           if (( published == 0 )); then

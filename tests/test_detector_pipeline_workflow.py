@@ -52,7 +52,12 @@ def test_loading_strategies_runtime_index_and_announcements_are_wired() -> None:
     assert "START detector=$detector_name shard=$((shard_index + 1))/$shard_count" in text
     assert "UNLOAD detector=$detector_name shard=$((shard_index + 1))/$shard_count status=complete" in text
     assert "time=$lifecycle_time" in text
-    assert "git -C results-repo add calibration-index.json runtime-index.json parallelism-index.json source-documents/" in workflow
+    assert "calibration-index.json" in workflow
+    assert "parameter-provenance-index.json" in workflow
+    assert "runtime-index.json" in workflow
+    assert "parallelism-index.json" in workflow
+    assert "source-documents/" in workflow
+    assert "git -C results-repo add models/" not in workflow
     assert "if [[ -f results-repo/optimizer-predictions.json ]]; then" in workflow
     assert "git -C results-repo add optimizer-predictions.json" in workflow
 
@@ -62,12 +67,14 @@ def test_intelligence_publisher_rebuilds_from_latest_results_state_on_retry() ->
     assert 'max_publish_attempts=5' in text
     assert 'git -C results-repo fetch origin main' in text
     assert 'git -C results-repo reset --hard origin/main' in text
-    assert 'git -C results-repo clean -fd -- calibration-index.json runtime-index.json parallelism-index.json optimizer-predictions.json source-documents/' in text
+    assert 'git -C results-repo clean -fd -- calibration-index.json parameter-provenance-index.json runtime-index.json parallelism-index.json multidetector-index.json optimizer-predictions.json source-documents/' in text
     assert 'python -m hth.calibration_store publish' in text
     assert 'git -C results-repo push origin HEAD:main' in text
     assert 'git -C results-repo pull --rebase origin main' not in text
     assert 'retry_delay=$((5 * (attempt - 1)))' in text
-    assert 'Publish collision detected; waiting ${retry_delay}s for calibration intelligence to free up before retrying...' in text
+    assert 'Calibration publish collision confirmed; waiting ${retry_delay}s before retrying against the latest main.' in text
+    assert 'not retrying as a collision' in text
+    assert "non-fast-forward|fetch first|failed to push some refs" in text
 
 
 def test_manual_debug_level_choices_default_to_none_and_are_forwarded() -> None:
