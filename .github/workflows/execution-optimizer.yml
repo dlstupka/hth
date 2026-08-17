@@ -290,7 +290,11 @@ jobs:
           # dotfile, and other HTH state beneath it. Subsequent checkout/setup
           # steps rebuild the job from scratch.
           find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-          echo "Runner workspace wiped; continuing with fresh checkouts."
+          if [[ -n "${RUNNER_TOOL_CACHE:-}" ]]; then
+            echo "Removing reusable HTH runtime: $RUNNER_TOOL_CACHE/hth-runtime"
+            rm -rf "$RUNNER_TOOL_CACHE/hth-runtime"
+          fi
+          echo "Runner workspace and reusable HTH runtime wiped; continuing with fresh checkouts."
 
       - name: Checkout HTH pipeline
         uses: actions/checkout@v6
@@ -421,7 +425,11 @@ jobs:
           "$bootstrap_python" -m pip --version
 
           if [[ "${{ runner.environment }}" == "self-hosted" ]]; then
-            runtime_root="$GITHUB_WORKSPACE/.hth-runtime"
+            if [[ -z "${RUNNER_TOOL_CACHE:-}" ]]; then
+              echo "::error::RUNNER_TOOL_CACHE is not defined on this self-hosted runner."
+              exit 1
+            fi
+            runtime_root="$RUNNER_TOOL_CACHE/hth-runtime"
             venv_dir="$runtime_root/python-3.12-${RUNNER_OS:-unknown}-${RUNNER_ARCH:-unknown}"
 
           else
@@ -476,6 +484,7 @@ jobs:
           echo "HTH_VENV=$venv_dir" >> "$GITHUB_ENV"
           echo "HTH_BOOTSTRAP_PYTHON=$bootstrap_python" >> "$GITHUB_ENV"
           echo "HTH_VENV_REUSED=$reuse" >> "$GITHUB_ENV"
+          echo "PIP_DISABLE_PIP_VERSION_CHECK=1" >> "$GITHUB_ENV"
 
           "$venv_python" - <<'PY'
           import site
@@ -537,7 +546,7 @@ jobs:
           }
 
           if verify_requirements; then
-            echo "Base dependencies verified; install skipped."
+            echo "Base dependencies verified — using previous install; no install required."
           else
             echo "Base dependency verification failed; installing current requirements."
             python -m pip install --upgrade pip
@@ -579,7 +588,7 @@ jobs:
           }
 
           if verify_dhsegment_runtime; then
-            echo "dhSegment TensorFlow runtime verified; install skipped."
+            echo "dhSegment TensorFlow runtime verified — using previous install; no install required."
           else
             echo "dhSegment TensorFlow runtime verification failed; installing."
             python -m pip install "tensorflow-cpu>=2.18,<2.21"
@@ -620,7 +629,7 @@ jobs:
           }
 
           if verify_kraken_runtime; then
-            echo "Kraken runtime verified; install skipped."
+            echo "Kraken runtime verified — using previous install; no install required."
           else
             echo "Kraken runtime verification failed; installing."
             python -m pip install "kraken==7.0.2"

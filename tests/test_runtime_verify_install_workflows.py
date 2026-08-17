@@ -19,9 +19,12 @@ class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
             wipe = text.index("- name: Wipe runner workspace")
             checkout = text.index("- name: Checkout HTH pipeline", wipe)
             self.assertLess(wipe, checkout, workflow.name)
-            self.assertIn('runtime_root="$GITHUB_WORKSPACE/.hth-runtime"', text, workflow.name)
+            self.assertIn('runtime_root="$RUNNER_TOOL_CACHE/hth-runtime"', text, workflow.name)
             self.assertIn('Reusing verified Python environment', text, workflow.name)
             self.assertIn('HTH_VENV_REUSED', text, workflow.name)
+            self.assertIn('RUNNER_TOOL_CACHE', text, workflow.name)
+            self.assertIn('rm -rf "$RUNNER_TOOL_CACHE/hth-runtime"', text, workflow.name)
+            self.assertIn('PIP_DISABLE_PIP_VERSION_CHECK=1', text, workflow.name)
 
     def test_install_steps_verify_before_installing(self):
         for workflow in WORKFLOWS:
@@ -32,7 +35,7 @@ class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
             self.assertIn("if verify_requirements; then", text, workflow.name)
             self.assertIn("if verify_dhsegment_runtime; then", text, workflow.name)
             self.assertIn("if verify_kraken_runtime; then", text, workflow.name)
-            self.assertIn("install skipped", text, workflow.name)
+            self.assertIn("using previous install; no install required.", text, workflow.name)
 
     def test_runtime_verification_checks_target_versions_and_imports(self):
         for workflow in WORKFLOWS:
