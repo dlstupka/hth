@@ -603,9 +603,20 @@ def _known_builds_for_parameter(
             if row not in builds:
                 builds.append(row)
 
-    # Human build history is deliberately newest-first.
-    builds.sort(key=_build_sort_key, reverse=True)
-    return builds
+    # The report being generated is the newest observation by definition.
+    # Pin it first, then retain newest-to-oldest ordering for filtered prior
+    # authoritative history.
+    current_rows = [row for row in builds if row[3] == "current run"]
+    current_numbers = {row[0] for row in current_rows if row[0] not in {"", "current", "unknown"}}
+    current_urls = {row[1] for row in current_rows if row[1]}
+    prior_rows = [
+        row for row in builds
+        if row[3] != "current run"
+        and row[0] not in current_numbers
+        and row[1] not in current_urls
+    ]
+    prior_rows.sort(key=_build_sort_key, reverse=True)
+    return current_rows + prior_rows
 
 
 def _last_build_for_parameter(

@@ -1,6 +1,6 @@
 import unittest
 
-from hth.regression.calibration_intelligence import build_calibration_intelligence
+from hth.regression.calibration_intelligence import build_calibration_intelligence, detector_characterization
 
 
 class CalibrationIntelligenceTests(unittest.TestCase):
@@ -45,6 +45,16 @@ class CalibrationIntelligenceTests(unittest.TestCase):
         self.assertIn("parameters", report["parameter_intelligence"])
         self.assertIn("domains", report["domain_space_intelligence"])
         self.assertEqual(report["detector_selection_intelligence"]["recommended_detector_id"], "example")
+
+    def test_kraken_characterization_is_registered_as_generator(self):
+        characterization = detector_characterization("kraken_page_mask")
+        self.assertEqual(characterization["friendly_name"], "Kraken Page Mask")
+        self.assertEqual(characterization["role"], "Generator")
+        evidence = {row[0]: row for row in characterization["evidence"]}
+        self.assertIn("Kraken BLLA segmentation", evidence)
+        self.assertIn("Sparse multi-region envelope", evidence)
+        self.assertIn("Model identity", evidence)
+
 
     def test_marks_flat_parameter_as_dormant(self):
         ranked = [

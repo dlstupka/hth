@@ -412,16 +412,73 @@ def _evidence_mask(image_shape, evidence, values):
     return mask
 
 
+def _select_evidence_envelope(contours, *, image_area):
+    """Return the contour set that best represents the learned page extent.
+
+    Kraken can emit several disconnected regions on sparse or damaged pages.
+    Taking only the largest postprocessed contour can collapse the proposal onto
+    a single text block.  Keep the dominant component, then admit substantial
+    disconnected components that are large enough to be document evidence
+    rather than isolated noise.  This is deliberately parameter-free so it
+    improves envelope reconstruction without changing the declared calibration
+    grid.
+    """
+    if not contours:
+        return [], {
+            "mode": "none",
+            "external_contours": 0,
+            "selected_contours": 0,
+        }
+
+    ranked = sorted(contours, key=cv2.contourArea, reverse=True)
+    dominant_area = float(cv2.contourArea(ranked[0]))
+    absolute_floor = max(4.0, float(image_area) * 0.00025)
+    relative_floor = dominant_area * 0.015
+    area_floor = max(absolute_floor, relative_floor)
+
+    selected = [ranked[0]]
+    selected.extend(
+        contour for contour in ranked[1:]
+        if float(cv2.contourArea(contour)) >= area_floor
+    )
+
+    # If secondary learned components survive the conservative area gate, use
+    # their joint convex envelope. Otherwise preserve the historic dominant-
+    # contour behavior exactly.
+    if len(selected) == 1:
+        return selected, {
+            "mode": "dominant",
+            "external_contours": len(ranked),
+            "selected_contours": 1,
+            "dominant_area": dominant_area,
+            "component_area_floor": area_floor,
+        }
+
+    points = np.concatenate(selected, axis=0)
+    hull = cv2.convexHull(points)
+    return [hull], {
+        "mode": "multi-region-envelope",
+        "external_contours": len(ranked),
+        "selected_contours": len(selected),
+        "dominant_area": dominant_area,
+        "component_area_floor": area_floor,
+    }
+
+
 def _proposal(image_bgr, values):
     evidence = _infer_evidence(image_bgr)
     mask = _evidence_mask(image_bgr.shape, evidence, values)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        return evidence, mask, None, None, 0.0
-
-    contour = max(contours, key=cv2.contourArea)
     h, w = mask.shape
     image_area = float(h * w)
+    selected, envelope_diagnostics = _select_evidence_envelope(
+        contours,
+        image_area=image_area,
+    )
+    if not selected:
+        return evidence, mask, None, None, 0.0, envelope_diagnostics
+
+    contour = selected[0]
     rect = cv2.minAreaRect(contour)
     corners = cv2.boxPoints(rect).astype(np.float32)
 
@@ -433,22 +490,23 @@ def _proposal(image_bgr, values):
     corners = center + vectors * ((safe + pad) / safe)[:, None]
     corners = _canonical_quad(corners, width=w, height=h)
     if corners is None:
-        return evidence, mask, contour, None, 0.0
+        return evidence, mask, contour, None, 0.0, envelope_diagnostics
 
     polygon_area = abs(float(cv2.contourArea(corners.astype(np.float32))))
     page_area_fraction = polygon_area / image_area if image_area else 0.0
-    return evidence, mask, contour, corners, page_area_fraction
+    return evidence, mask, contour, corners, page_area_fraction, envelope_diagnostics
 
 
 def detect(*, image_bgr, mask, parameters=None):
     del mask
     values = _parameters(parameters)
-    evidence, evidence_mask, contour, corners, area_fraction = _proposal(image_bgr, values)
+    evidence, evidence_mask, contour, corners, area_fraction, envelope_diagnostics = _proposal(image_bgr, values)
 
     runtime_diagnostics = _runtime_diagnostics_for(_image_key(image_bgr))
     diagnostics = {
         "parameters": values,
         "evidence": "kraken_default_blla_regions_and_lines",
+        "envelope": envelope_diagnostics,
         "region_count": len(evidence["regions"]),
         "line_polygon_count": len(evidence["lines"]),
         "baseline_count": len(evidence["baselines"]),
@@ -493,7 +551,7 @@ def detect(*, image_bgr, mask, parameters=None):
 def debug_images(*, image_bgr, mask, parameters=None, candidate_corners=None, verbose=False):
     del mask, verbose
     values = _parameters(parameters)
-    evidence, evidence_mask, contour, corners, _ = _proposal(image_bgr, values)
+    evidence, evidence_mask, contour, corners, _, _ = _proposal(image_bgr, values)
     overlay = image_bgr.copy()
 
     for polygon in evidence["regions"]:

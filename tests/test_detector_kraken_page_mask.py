@@ -97,6 +97,53 @@ class KrakenPageMaskTests(unittest.TestCase):
         )
         self.assertIsNone(detector._canonical_quad(degenerate, width=100, height=100))
 
+    def test_sparse_multi_region_envelope_combines_substantial_disconnected_regions(self):
+        image = np.zeros((1000, 1200, 3), dtype=np.uint8)
+        evidence = {
+            "regions": [
+                [(80, 80), (1120, 80), (1120, 240), (80, 240), (80, 80)],
+                [(100, 700), (1100, 700), (1100, 930), (100, 930), (100, 700)],
+            ],
+            "lines": [],
+            "baselines": [],
+            "text_direction": "horizontal-lr",
+        }
+        with patch.object(detector, "_infer_evidence", return_value=evidence):
+            _, _, _, corners, area_fraction, diagnostics = detector._proposal(
+                image,
+                detector._parameters({
+                    "include_lines": 0,
+                    "dilation_fraction": 0.0,
+                    "close_kernel_fraction": 0.0,
+                    "page_padding_fraction": 0.0,
+                    "minimum_page_area_fraction": 0.08,
+                    "fill_holes": 0,
+                }),
+            )
+
+        self.assertIsNotNone(corners)
+        self.assertEqual(diagnostics["mode"], "multi-region-envelope")
+        self.assertEqual(diagnostics["selected_contours"], 2)
+        xs = corners[:, 0]
+        ys = corners[:, 1]
+        self.assertLessEqual(xs.min(), 105)
+        self.assertGreaterEqual(xs.max(), 1095)
+        self.assertLessEqual(ys.min(), 85)
+        self.assertGreaterEqual(ys.max(), 925)
+        self.assertGreater(area_fraction, 0.65)
+
+    def test_sparse_multi_region_envelope_ignores_tiny_isolated_noise(self):
+        dominant = np.array([[[100, 100]], [[900, 100]], [[900, 800]], [[100, 800]]], dtype=np.int32)
+        tiny = np.array([[[5, 5]], [[10, 5]], [[10, 10]], [[5, 10]]], dtype=np.int32)
+        selected, diagnostics = detector._select_evidence_envelope(
+            [dominant, tiny],
+            image_area=1000 * 1000,
+        )
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(diagnostics["mode"], "dominant")
+        self.assertEqual(diagnostics["selected_contours"], 1)
+
+
     def test_runtime_chatter_filter_retains_diagnostics_but_replays_other_stderr(self):
         import os
         import tempfile
@@ -133,7 +180,7 @@ class KrakenPageMaskTests(unittest.TestCase):
             prov = Path(td) / "prov.json"
             prov.write_text('{"model_id":"kraken-blla-default-7.0.2"}', encoding="utf-8")
             with patch.dict(os.environ, {detector.PROVENANCE_ENV: str(prov)}), \
-                 patch.object(detector, "_proposal", return_value=(evidence, np.zeros((100, 100), dtype=np.uint8), np.array([[[1,1]]], dtype=np.int32), None, 0.0)):
+                 patch.object(detector, "_proposal", return_value=(evidence, np.zeros((100, 100), dtype=np.uint8), np.array([[[1,1]]], dtype=np.int32), None, 0.0, {"mode": "dominant"})):
                 candidate = detector.detect(image_bgr=image, mask=None)
         self.assertEqual(candidate.status, "no_candidate")
         self.assertEqual(candidate.diagnostics["reason"], "invalid_page_quadrilateral")
