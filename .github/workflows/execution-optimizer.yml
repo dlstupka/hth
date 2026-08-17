@@ -539,14 +539,78 @@ jobs:
           PY
           }
 
+
+          atomic_rebuild_runtime() {
+            local install_kind="$1"
+            local backup="${HTH_VENV}.backup-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            local failed=0
+
+            echo "Rebuilding managed runtime atomically for: $install_kind"
+            rm -rf "$backup"
+            if [[ -d "$HTH_VENV" ]]; then
+              mv "$HTH_VENV" "$backup"
+            fi
+
+            restore_previous_runtime() {
+              local rc="$?"
+              if (( rc != 0 )); then
+                echo "::error::Runtime rebuild failed; restoring previous reusable runtime."
+                rm -rf "$HTH_VENV"
+                if [[ -d "$backup" ]]; then
+                  mv "$backup" "$HTH_VENV"
+                fi
+              fi
+              return "$rc"
+            }
+            trap restore_previous_runtime EXIT
+
+            "$HTH_BOOTSTRAP_PYTHON" -m venv "$HTH_VENV"
+            python -m pip install --upgrade pip
+            python -m pip install --requirement hth-pipeline/requirements.txt
+
+            case "$install_kind" in
+              base)
+                ;;
+              dhsegment)
+                python -m pip install "tensorflow-cpu>=2.18,<2.21"
+                ;;
+              kraken)
+                # Preserve TensorFlow in all-detector runtimes so replacing a
+                # damaged Kraken stack cannot silently discard dhSegment.
+                if [[ "${HTH_INCLUDE_DHSEGMENT:-false}" == "true" ]]; then
+                  python -m pip install "tensorflow-cpu>=2.18,<2.21"
+                fi
+
+                if [[ "${RUNNER_OS:-}" == "Linux" ]]; then
+                  echo "Installing matched CPU-only PyTorch/Torchvision pair for Kraken."
+                  python -m pip install \
+                    "torch==2.10.0" \
+                    "torchvision==0.25.0" \
+                    --index-url https://download.pytorch.org/whl/cpu
+                  python -m pip install "kraken==7.0.2"
+                else
+                  python -m pip install "kraken==7.0.2"
+                fi
+                ;;
+              *)
+                echo "::error::Unknown runtime rebuild kind: $install_kind"
+                return 2
+                ;;
+            esac
+
+            python -m pip check
+
+            rm -rf "$backup"
+            trap - EXIT
+            echo "Atomic runtime rebuild completed successfully."
+          }
+
           if verify_requirements; then
             echo "Base dependencies verified — using previous install; no install required."
           else
-            echo "Base dependency verification failed; installing current requirements."
-            python -m pip install --upgrade pip
-            python -m pip install --requirement hth-pipeline/requirements.txt
+            echo "Base dependency verification failed; rebuilding managed runtime."
+            atomic_rebuild_runtime base
             verify_requirements
-            python -m pip check
           fi
 
       - name: Verify / Install dhSegment TensorFlow runtime
@@ -581,13 +645,80 @@ jobs:
           PY
           }
 
+
+          atomic_rebuild_runtime() {
+            local install_kind="$1"
+            local backup="${HTH_VENV}.backup-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            local failed=0
+
+            echo "Rebuilding managed runtime atomically for: $install_kind"
+            rm -rf "$backup"
+            if [[ -d "$HTH_VENV" ]]; then
+              mv "$HTH_VENV" "$backup"
+            fi
+
+            restore_previous_runtime() {
+              local rc="$?"
+              if (( rc != 0 )); then
+                echo "::error::Runtime rebuild failed; restoring previous reusable runtime."
+                rm -rf "$HTH_VENV"
+                if [[ -d "$backup" ]]; then
+                  mv "$backup" "$HTH_VENV"
+                fi
+              fi
+              return "$rc"
+            }
+            trap restore_previous_runtime EXIT
+
+            "$HTH_BOOTSTRAP_PYTHON" -m venv "$HTH_VENV"
+            python -m pip install --upgrade pip
+            python -m pip install --requirement hth-pipeline/requirements.txt
+
+            case "$install_kind" in
+              base)
+                ;;
+              dhsegment)
+                python -m pip install "tensorflow-cpu>=2.18,<2.21"
+                ;;
+              kraken)
+                # Preserve TensorFlow in all-detector runtimes so replacing a
+                # damaged Kraken stack cannot silently discard dhSegment.
+                if [[ "${HTH_INCLUDE_DHSEGMENT:-false}" == "true" ]]; then
+                  python -m pip install "tensorflow-cpu>=2.18,<2.21"
+                fi
+
+                if [[ "${RUNNER_OS:-}" == "Linux" ]]; then
+                  cat > "$RUNNER_TEMP/hth-pytorch-cpu-constraints.txt" <<'EOF'
+          torch==2.10.0+cpu
+          torchvision==0.25.0+cpu
+          EOF
+                  python -m pip install \
+                    --extra-index-url https://download.pytorch.org/whl/cpu \
+                    --constraint "$RUNNER_TEMP/hth-pytorch-cpu-constraints.txt" \
+                    "kraken==7.0.2"
+                else
+                  python -m pip install "kraken==7.0.2"
+                fi
+                ;;
+              *)
+                echo "::error::Unknown runtime rebuild kind: $install_kind"
+                return 2
+                ;;
+            esac
+
+            python -m pip check
+
+            rm -rf "$backup"
+            trap - EXIT
+            echo "Atomic runtime rebuild completed successfully."
+          }
+
           if verify_dhsegment_runtime; then
             echo "dhSegment TensorFlow runtime verified — using previous install; no install required."
           else
-            echo "dhSegment TensorFlow runtime verification failed; installing."
-            python -m pip install "tensorflow-cpu>=2.18,<2.21"
+            echo "dhSegment TensorFlow runtime verification failed; rebuilding managed runtime atomically."
+            atomic_rebuild_runtime dhsegment
             verify_dhsegment_runtime
-            python -m pip check
           fi
 
       - name: Verify / Install Kraken historical-document segmentation runtime
@@ -595,6 +726,7 @@ jobs:
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
+          HTH_INCLUDE_DHSEGMENT: ${{ inputs.algorithm == 'all' && 'true' || 'false' }}
         run: |
           set -euo pipefail
 
@@ -622,31 +754,98 @@ jobs:
           PY
           }
 
-          if verify_kraken_runtime; then
-            echo "Kraken runtime verified — using previous install; no install required."
-          else
-            echo "Kraken runtime verification failed; installing."
 
-            # HTH runs Kraken page-mask inference on CPU. Install the CPU wheel
-            # first so Kraken's unconstrained torch dependency cannot pull the
-            # multi-gigabyte CUDA/NVIDIA runtime stack into the reusable venv.
-            if [[ "${RUNNER_OS:-}" == "Linux" ]]; then
-              echo "Ensuring CPU-only PyTorch runtime before Kraken."
-              python -m pip install                 --index-url https://download.pytorch.org/whl/cpu                 "torch==2.10.0"
+          atomic_rebuild_runtime() {
+            local install_kind="$1"
+            local backup="${HTH_VENV}.backup-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            local failed=0
+
+            echo "Rebuilding managed runtime atomically for: $install_kind"
+            rm -rf "$backup"
+            if [[ -d "$HTH_VENV" ]]; then
+              mv "$HTH_VENV" "$backup"
             fi
 
-            python -m pip install "kraken==7.0.2"
-            verify_kraken_runtime
+            restore_previous_runtime() {
+              local rc="$?"
+              if (( rc != 0 )); then
+                echo "::error::Runtime rebuild failed; restoring previous reusable runtime."
+                rm -rf "$HTH_VENV"
+                if [[ -d "$backup" ]]; then
+                  mv "$backup" "$HTH_VENV"
+                fi
+              fi
+              return "$rc"
+            }
+            trap restore_previous_runtime EXIT
 
-            python - <<'PY'
-          import torch
-          print(f"PyTorch verified: {torch.__version__}")
-          if torch.cuda.is_available():
-              raise SystemExit("HTH Kraken runtime unexpectedly reports CUDA available")
-          print("PyTorch backend: CPU-only")
-          PY
+            "$HTH_BOOTSTRAP_PYTHON" -m venv "$HTH_VENV"
+            python -m pip install --upgrade pip
+            python -m pip install --requirement hth-pipeline/requirements.txt
+
+            case "$install_kind" in
+              base)
+                ;;
+              dhsegment)
+                python -m pip install "tensorflow-cpu>=2.18,<2.21"
+                ;;
+              kraken)
+                # Preserve TensorFlow in all-detector runtimes so replacing a
+                # damaged Kraken stack cannot silently discard dhSegment.
+                if [[ "${HTH_INCLUDE_DHSEGMENT:-false}" == "true" ]]; then
+                  python -m pip install "tensorflow-cpu>=2.18,<2.21"
+                fi
+
+                if [[ "${RUNNER_OS:-}" == "Linux" ]]; then
+                  cat > "$RUNNER_TEMP/hth-pytorch-cpu-constraints.txt" <<'EOF'
+          torch==2.10.0+cpu
+          torchvision==0.25.0+cpu
+          EOF
+                  python -m pip install \
+                    --extra-index-url https://download.pytorch.org/whl/cpu \
+                    --constraint "$RUNNER_TEMP/hth-pytorch-cpu-constraints.txt" \
+                    "kraken==7.0.2"
+                else
+                  python -m pip install "kraken==7.0.2"
+                fi
+                ;;
+              *)
+                echo "::error::Unknown runtime rebuild kind: $install_kind"
+                return 2
+                ;;
+            esac
 
             python -m pip check
+
+            rm -rf "$backup"
+            trap - EXIT
+            echo "Atomic runtime rebuild completed successfully."
+          }
+
+          verify_kraken_cpu_stack() {
+            python - <<'PY'
+          import torch
+          import torchvision
+
+          print(f"PyTorch verified    : {torch.__version__}")
+          print(f"Torchvision verified: {torchvision.__version__}")
+          if torch.cuda.is_available():
+              raise SystemExit("HTH Kraken runtime unexpectedly reports CUDA available")
+          if "+cpu" not in torch.__version__:
+              raise SystemExit(f"Expected CPU-only PyTorch wheel, got {torch.__version__}")
+          if "+cpu" not in torchvision.__version__:
+              raise SystemExit(f"Expected CPU-only Torchvision wheel, got {torchvision.__version__}")
+          print("PyTorch/Torchvision backend: CPU-only")
+          PY
+          }
+
+          if verify_kraken_runtime && { [[ "${RUNNER_OS:-}" != "Linux" ]] || verify_kraken_cpu_stack; }; then
+            echo "Kraken runtime verified — using previous install; no install required."
+          else
+            echo "Kraken runtime verification failed; rebuilding managed runtime atomically."
+            atomic_rebuild_runtime kraken
+            verify_kraken_cpu_stack
+            verify_kraken_runtime
           fi
 
       - name: Verify Python dependency ABI

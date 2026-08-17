@@ -33,7 +33,7 @@ class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
             self.assertIn("- name: Verify / Install Kraken historical-document segmentation runtime", text, workflow.name)
             self.assertIn("if verify_requirements; then", text, workflow.name)
             self.assertIn("if verify_dhsegment_runtime; then", text, workflow.name)
-            self.assertIn("if verify_kraken_runtime; then", text, workflow.name)
+            self.assertIn("if verify_kraken_runtime", text, workflow.name)
             self.assertIn("using previous install; no install required.", text, workflow.name)
 
     def test_runtime_verification_checks_target_versions_and_imports(self):
