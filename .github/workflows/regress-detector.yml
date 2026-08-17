@@ -664,12 +664,23 @@ jobs:
           from importlib import metadata
           from pip._vendor.packaging.specifiers import SpecifierSet
 
-          version = metadata.version("tensorflow-cpu")
+          try:
+              version = metadata.version("tensorflow-cpu")
+          except metadata.PackageNotFoundError:
+              print("dhSegment TensorFlow runtime not present; install required.")
+              raise SystemExit(1)
+
           required = SpecifierSet(">=2.18,<2.21")
           if version not in required:
-              raise SystemExit(f"tensorflow-cpu {version} does not satisfy {required}")
+              print(f"dhSegment TensorFlow runtime version mismatch: tensorflow-cpu {version} does not satisfy {required}")
+              raise SystemExit(1)
 
-          import tensorflow as tf
+          try:
+              import tensorflow as tf
+          except Exception as exc:
+              print(f"dhSegment TensorFlow runtime import failed: {type(exc).__name__}: {exc}")
+              raise SystemExit(1)
+
           print(f"TensorFlow verified: {tf.__version__}")
           PY
           }
@@ -695,11 +706,22 @@ jobs:
             python - <<'PY'
           from importlib import metadata
 
-          version = metadata.version("kraken")
-          if version != "7.0.2":
-              raise SystemExit(f"Expected kraken 7.0.2, found {version}")
+          try:
+              version = metadata.version("kraken")
+          except metadata.PackageNotFoundError:
+              print("Kraken runtime not present; install required.")
+              raise SystemExit(1)
 
-          from kraken.tasks.segmentation import SegmentationTaskModel
+          if version != "7.0.2":
+              print(f"Kraken runtime version mismatch: expected 7.0.2, found {version}")
+              raise SystemExit(1)
+
+          try:
+              from kraken.tasks.segmentation import SegmentationTaskModel
+          except Exception as exc:
+              print(f"Kraken runtime import failed: {type(exc).__name__}: {exc}")
+              raise SystemExit(1)
+
           print(f"Kraken verified: {version}; SegmentationTaskModel import OK")
           PY
           }

@@ -42,6 +42,9 @@ class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
             self.assertIn('import tensorflow as tf', text, workflow.name)
             self.assertIn('version != "7.0.2"', text, workflow.name)
             self.assertIn('from kraken.tasks.segmentation import SegmentationTaskModel', text, workflow.name)
+            self.assertIn('except metadata.PackageNotFoundError:', text, workflow.name)
+            self.assertIn('dhSegment TensorFlow runtime not present; install required.', text, workflow.name)
+            self.assertIn('Kraken runtime not present; install required.', text, workflow.name)
             self.assertIn("python -m pip check", text, workflow.name)
 
     def test_github_hosted_stays_run_local(self):
