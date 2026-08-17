@@ -15,7 +15,7 @@ class KrakenPageMaskPreflightTests(unittest.TestCase):
     def test_shell_runs_preflight_after_lifecycle_source_and_enables_faulthandler(self):
         text = Path("tools/run-detector-regressions.sh").read_text(encoding="utf-8")
         source_pos = text.index('source "$lifecycle_env"')
-        preflight_pos = text.index("python -m hth.kraken_page_mask_preflight --load-model")
+        preflight_pos = text.index("python -m hth.kraken_page_mask_preflight")
         worker_pos = text.index('PYTHONFAULTHANDLER=1 \\\n    "${args[@]}"')
         self.assertLess(source_pos, preflight_pos)
         self.assertLess(preflight_pos, worker_pos)

@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -362,14 +363,94 @@ def _infer_evidence(image_bgr: np.ndarray) -> tuple[np.ndarray, tuple[int, int]]
         return evidence
 
 
-def precompute_golden_set_evidence(images):
+def precompute_golden_set_evidence(images, *, progress=None):
     """Populate immutable dhSegment probability maps before thread fan-out."""
     keys = []
-    for image_bgr in images:
+    total = len(images)
+    for index, image_bgr in enumerate(images, 1):
         key = _image_key(image_bgr)
+        started = time.perf_counter()
+        if progress is not None:
+            progress("start", index, total, key, 0.0)
         _infer_evidence(image_bgr)
+        elapsed = time.perf_counter() - started
+        if progress is not None:
+            progress("finish", index, total, key, elapsed)
         keys.append(key)
     return tuple(keys)
+
+
+def export_precomputed_golden_set_evidence(images, output_dir, *, progress=None):
+    """Persist one process-independent dhSegment Golden Set probability-map set."""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    keys = precompute_golden_set_evidence(images, progress=progress)
+    records = []
+    with _EVIDENCE_CACHE_LOCK:
+        for index, key in enumerate(keys):
+            probability, original_shape = _EVIDENCE_CACHE[key]
+            filename = f"page-{index:04d}.npy"
+            target = output_dir / filename
+            temporary = output_dir / f".{filename}.tmp"
+            with temporary.open("wb") as handle:
+                np.save(handle, probability, allow_pickle=False)
+            os.replace(temporary, target)
+            records.append({
+                "image_key": key,
+                "probability_file": filename,
+                "original_shape": list(original_shape),
+            })
+    payload = {
+        "schema_version": "0.1",
+        "detector": METHOD,
+        "representation": "readonly-npy",
+        "page_count": len(records),
+        "records": records,
+    }
+    target = output_dir / "manifest.json"
+    temporary = target.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    os.replace(temporary, target)
+    return target
+
+
+def load_precomputed_golden_set_evidence(output_dir, images):
+    """Load parent-precomputed dhSegment probability maps without TensorFlow inference."""
+    output_dir = Path(output_dir)
+    payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    if payload.get("detector") != METHOD:
+        raise ValueError(f"Shared evidence detector mismatch: {payload.get('detector')} != {METHOD}")
+    records = {
+        str(record["image_key"]): record
+        for record in payload.get("records", [])
+        if isinstance(record, dict) and record.get("image_key")
+    }
+    expected = tuple(_image_key(image_bgr) for image_bgr in images)
+    missing = [key for key in expected if key not in records]
+    if missing:
+        raise ValueError(f"Shared dhSegment evidence is missing {len(missing)} Golden Set page(s)")
+    with _EVIDENCE_CACHE_LOCK:
+        for key in expected:
+            record = records[key]
+            # Windows keeps an mmap-backed .npy file locked until the array is
+            # released, which breaks normal temp/artifact cleanup. Keep the
+            # zero-copy read-only mmap on POSIX, but load a normal ndarray on
+            # Windows and mark it immutable. Golden Set evidence is tiny enough
+            # that the Windows copy is negligible compared with model inference.
+            mmap_mode = None if os.name == "nt" else "r"
+            probability = np.load(
+                output_dir / str(record["probability_file"]),
+                mmap_mode=mmap_mode,
+                allow_pickle=False,
+            )
+            if mmap_mode is None:
+                probability.setflags(write=False)
+            original_shape = tuple(int(v) for v in record["original_shape"])
+            _EVIDENCE_CACHE[key] = (probability, original_shape)
+            _EVIDENCE_CACHE.move_to_end(key)
+            while len(_EVIDENCE_CACHE) > _EVIDENCE_CACHE_LIMIT:
+                _EVIDENCE_CACHE.popitem(last=False)
+    return expected
 
 
 def _fill_holes(binary: np.ndarray) -> np.ndarray:
@@ -595,4 +676,6 @@ __all__ = [
     "debug_images",
     "detect",
     "precompute_golden_set_evidence",
+    "export_precomputed_golden_set_evidence",
+    "load_precomputed_golden_set_evidence",
 ]

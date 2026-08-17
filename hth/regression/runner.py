@@ -93,6 +93,11 @@ PRECOMPUTED_EVIDENCE_PREPARERS={
     "dhsegment_page_mask":detector_dhsegment_page_mask.precompute_golden_set_evidence,
 }
 
+PRECOMPUTED_EVIDENCE_LOADERS={
+    "kraken_page_mask":detector_kraken_page_mask.load_precomputed_golden_set_evidence,
+    "dhsegment_page_mask":detector_dhsegment_page_mask.load_precomputed_golden_set_evidence,
+}
+
 
 def logical_golden_set(pages:list[dict[str,Any]])->list[dict[str,Any]]:
     """Give each parameter evaluation its own page metadata view.
@@ -267,6 +272,7 @@ def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
     p.add_argument("--strategy",choices=("exhaustive","binary-refine","non-dormant","low+","moderate+","important+","critical"),default="exhaustive")
     p.add_argument("--calibration-intelligence",type=Path,default=None,help="Prior calibration-intelligence.json used for effect-size-domain strategies.")
     p.add_argument("--historic-best",type=Path,default=None,help="Exact historic best-known parameter reference injected into every regression.")
+    p.add_argument("--precomputed-evidence",type=Path,default=None,help="Parent-precomputed immutable learned Golden Set evidence shared by all shards.")
     p.add_argument("--max-dimension",type=int,default=1800)
     p.add_argument("--limit",type=int,default=None)
     p.add_argument("--top",type=int,default=20)
@@ -909,11 +915,45 @@ def run(args:argparse.Namespace)->Path:
                 f"{type(detector).__name__}"
             )
         evidence_preparer = PRECOMPUTED_EVIDENCE_PREPARERS.get(name)
+        evidence_loader = PRECOMPUTED_EVIDENCE_LOADERS.get(name)
         evidence_precompute_seconds = None
-        if evidence_preparer is not None:
+        evidence_source = None
+        if args.precomputed_evidence is not None:
+            if evidence_loader is None:
+                raise ValueError(f"Detector {name} does not support --precomputed-evidence")
             evidence_started = time.perf_counter()
-            prepared_keys = evidence_preparer([page["image"] for page in pages])
+            prepared_keys = evidence_loader(
+                args.precomputed_evidence,
+                [page["image"] for page in pages],
+            )
             evidence_precompute_seconds = time.perf_counter() - evidence_started
+            evidence_source = "parent-shared"
+            print(
+                f"Golden Set evidence        : loaded {len(prepared_keys)} parent-precomputed immutable pages "
+                f"in {evidence_precompute_seconds:.2f}s from {args.precomputed_evidence}"
+            )
+        elif evidence_preparer is not None:
+            evidence_started = time.perf_counter()
+
+            def local_progress(event, index, total, image_key, elapsed):
+                if event == "start":
+                    print(
+                        f"Golden Set evidence        : page {index}/{total} START key={image_key[:12]}",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"Golden Set evidence        : page {index}/{total} READY "
+                        f"key={image_key[:12]} elapsed={elapsed:.2f}s",
+                        flush=True,
+                    )
+
+            prepared_keys = evidence_preparer(
+                [page["image"] for page in pages],
+                progress=local_progress,
+            )
+            evidence_precompute_seconds = time.perf_counter() - evidence_started
+            evidence_source = "process-local-fallback"
             print(
                 f"Golden Set evidence        : precomputed {len(prepared_keys)} immutable pages "
                 f"in {evidence_precompute_seconds:.2f}s before parameter concurrency"
@@ -945,7 +985,7 @@ def run(args:argparse.Namespace)->Path:
             all_parameter_sets = _filter_parameter_sets(all_parameter_sets, effect_domain)
         requested_search_keys = {canonical_parameters(parameters) for parameters in all_parameter_sets}
         historic_best_in_requested_search = bool(historic_best_key and historic_best_key in requested_search_keys)
-        write_json(run_dir/"parameters.json",{"schema_version":"0.4","detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"detector_config":str(args.detector_config),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"image_root":str(args.image_root),"max_dimension":args.max_dimension,"limit":args.limit,"threads":args.threads,"debug_level":debug_level,"debug_artifacts":debug_policy,"detector_pipeline":detector_pipeline_context,"shard":{"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved"},"configuration":config})
+        write_json(run_dir/"parameters.json",{"schema_version":"0.4","detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"detector_config":str(args.detector_config),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"image_root":str(args.image_root),"max_dimension":args.max_dimension,"limit":args.limit,"threads":args.threads,"precomputed_evidence":str(args.precomputed_evidence) if args.precomputed_evidence is not None else None,"debug_level":debug_level,"debug_artifacts":debug_policy,"detector_pipeline":detector_pipeline_context,"shard":{"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved"},"configuration":config})
         manifest.update({"strategy": effective_strategy, "requested_strategy": requested_strategy, "strategy_fallback_reason": strategy_fallback_reason})
         write_json(run_dir/"manifest.json", manifest)
         exhaustive_candidates=[
@@ -1143,7 +1183,7 @@ def run(args:argparse.Namespace)->Path:
         winner_pages = build_winner_page_report(ranked[0], baseline)
         locally_evaluated_parameter_sets = max(0, len(results) - 1) + (0 if baseline_reused else 1)
         locally_evaluated_page_evaluations = locally_evaluated_parameter_sets * len(pages)
-        summary={"schema_version":"0.8","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"threads":args.threads,"shard":{"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved","full_candidate_count":full_exhaustive_candidate_count},"detector_pipeline":detector_pipeline_context,"parameter_space":{"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated","shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ranked)*len(pages),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated"},"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"detector_config_sha256":detector_config_sha256,"max_dimension":args.max_dimension,"winner":ranked[0],"baseline":baseline,"historic_best":historic_best_result,"top_parameter_sets":ranked[:5],"search_top_parameter_sets":search_ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,"performance":{"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl","precomputed_evidence":name in PRECOMPUTED_EVIDENCE_PREPARERS,"evidence_precompute_seconds":round(evidence_precompute_seconds,6) if evidence_precompute_seconds is not None else None},"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":baseline_surpassed(ranked[0], baseline),"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds,"winner_history":progress_snapshot.winner_history,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
+        summary={"schema_version":"0.8","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"threads":args.threads,"shard":{"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved","full_candidate_count":full_exhaustive_candidate_count},"detector_pipeline":detector_pipeline_context,"parameter_space":{"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated","shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ranked)*len(pages),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated"},"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"detector_config_sha256":detector_config_sha256,"max_dimension":args.max_dimension,"winner":ranked[0],"baseline":baseline,"historic_best":historic_best_result,"top_parameter_sets":ranked[:5],"search_top_parameter_sets":search_ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,"performance":{"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl","precomputed_evidence":name in PRECOMPUTED_EVIDENCE_PREPARERS,"evidence_source":evidence_source,"evidence_precompute_seconds":round(evidence_precompute_seconds,6) if evidence_precompute_seconds is not None else None},"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":baseline_surpassed(ranked[0], baseline),"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds,"winner_history":progress_snapshot.winner_history,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
         write_json(run_dir/"reports"/"summary.json",summary)
         write_json(run_dir/"reports"/"winner-pages.json",winner_pages)
         try:

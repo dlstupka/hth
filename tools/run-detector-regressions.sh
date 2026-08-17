@@ -67,12 +67,12 @@ if [[ -s "$lifecycle_env" ]]; then
 fi
 
 # Prove that Kraken PREPARE state is visible in the actual regression shell
-# before any worker launches. During this debug cycle also load the bundled
-# BLLA model here so import/model failures produce an ordinary traceback.
+# before any worker launches. Model inference itself is deliberately deferred
+# to the one parent shared-evidence producer when a learned detector is sharded.
 if [[ " ${detector_configs[*]} " == *"kraken_page_mask.json"* ]]; then
   echo "Kraken Page-Mask worker preflight"
   echo "================================="
-  PYTHONFAULTHANDLER=1 python -m hth.kraken_page_mask_preflight --load-model
+  PYTHONFAULTHANDLER=1 python -m hth.kraken_page_mask_preflight
 fi
 
 if [[ ! "${PIPELINE_STAGGER_MINUTES:-0}" =~ ^[0-9]+$ ]]; then
@@ -398,6 +398,13 @@ PY
     args+=(--shared-baseline "$shared_baseline")
   fi
 
+  local shared_evidence_dir
+  shared_evidence_dir="$OUTPUT_DIR/.learned-evidence/$detector_name"
+  if [[ -f "$shared_evidence_dir/manifest.json" ]]; then
+    echo "[pipeline $pipeline_number][$detector_name] Shared learned evidence: $shared_evidence_dir"
+    args+=(--precomputed-evidence "$shared_evidence_dir")
+  fi
+
   # Every regression evaluates the detector default baseline and the strongest
   # historic exact parameter set known before this run, independent of search.
   local historic_best_file
@@ -719,6 +726,38 @@ detector_worker() {
     done
   done
 }
+
+# Learned inference evidence is parameter-invariant. When a learned detector
+# expands into multiple shard tasks, compute its Golden Set evidence exactly
+# once in this parent process before any of those pipeline processes launch.
+# Single-task learned runs keep the process-local prewarm path to avoid delaying
+# unrelated multi-detector smoke work.
+shared_evidence_root="$OUTPUT_DIR/.learned-evidence"
+mkdir -p "$shared_evidence_root"
+declare -A learned_task_counts=()
+for task_detector in "${task_detectors[@]}"; do
+  case "$task_detector" in
+    kraken_page_mask|dhsegment_page_mask)
+      learned_task_counts["$task_detector"]=$(( ${learned_task_counts["$task_detector"]:-0} + 1 ))
+      ;;
+  esac
+done
+
+for learned_detector in kraken_page_mask dhsegment_page_mask; do
+  learned_count="${learned_task_counts[$learned_detector]:-0}"
+  if (( learned_count > 1 )); then
+    learned_output="$shared_evidence_root/$learned_detector"
+    rm -rf "$learned_output"
+    echo
+    echo "Shared Learned Golden Set Evidence — $learned_detector"
+    echo "======================================================"
+    echo "[learned-evidence][$learned_detector] shard tasks=$learned_count; preparing once before pipeline fan-out"
+    evidence_started_epoch="$(date +%s.%N)"
+    python -m hth.regression.learned_evidence prepare       --detector "$learned_detector"       --golden-set "hth-pipeline/$GOLDEN_SET"       --image-root "results-repo/$IMAGE_ROOT"       --max-dimension "$MAX_DIMENSION"       --output "$learned_output"
+    evidence_finished_epoch="$(date +%s.%N)"
+    printf 'shared_evidence\t%s\t%s\t%s\t%s\n'       "$learned_detector" "$learned_count" "$evidence_started_epoch" "$evidence_finished_epoch"       >> "$telemetry_root/learned-evidence.tsv"
+  fi
+done
 
 worker_pids=()
 declare -a initial_seed_batches=()

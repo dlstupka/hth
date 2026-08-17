@@ -8,6 +8,7 @@ import json
 import os
 import threading
 import tempfile
+import time
 import warnings
 from typing import Any
 
@@ -292,14 +293,77 @@ def _infer_evidence(image_bgr):
         return evidence
 
 
-def precompute_golden_set_evidence(images):
+def precompute_golden_set_evidence(images, *, progress=None):
     """Populate immutable Kraken evidence once before parameter-thread fan-out."""
     keys = []
-    for image_bgr in images:
+    total = len(images)
+    for index, image_bgr in enumerate(images, 1):
         key = _image_key(image_bgr)
+        started = time.perf_counter()
+        if progress is not None:
+            progress("start", index, total, key, 0.0)
         _infer_evidence(image_bgr)
+        elapsed = time.perf_counter() - started
+        if progress is not None:
+            progress("finish", index, total, key, elapsed)
         keys.append(key)
     return tuple(keys)
+
+
+def export_precomputed_golden_set_evidence(images, output_dir, *, progress=None):
+    """Persist one process-independent immutable Kraken Golden Set evidence set."""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    keys = precompute_golden_set_evidence(images, progress=progress)
+    records = []
+    with _EVIDENCE_CACHE_LOCK:
+        for key in keys:
+            evidence = _EVIDENCE_CACHE[key]
+            records.append({
+                "image_key": key,
+                "evidence": evidence,
+                "runtime_diagnostics": _runtime_diagnostics_for(key),
+            })
+    payload = {
+        "schema_version": "0.1",
+        "detector": METHOD,
+        "representation": "immutable-json",
+        "page_count": len(records),
+        "records": records,
+    }
+    target = output_dir / "manifest.json"
+    temporary = target.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    os.replace(temporary, target)
+    return target
+
+
+def load_precomputed_golden_set_evidence(output_dir, images):
+    """Load parent-precomputed Kraken evidence without loading/running Kraken."""
+    manifest = Path(output_dir) / "manifest.json"
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    if payload.get("detector") != METHOD:
+        raise ValueError(f"Shared evidence detector mismatch: {payload.get('detector')} != {METHOD}")
+    records = {
+        str(record["image_key"]): record
+        for record in payload.get("records", [])
+        if isinstance(record, dict) and record.get("image_key")
+    }
+    expected = tuple(_image_key(image_bgr) for image_bgr in images)
+    missing = [key for key in expected if key not in records]
+    if missing:
+        raise ValueError(f"Shared Kraken evidence is missing {len(missing)} Golden Set page(s)")
+    with _EVIDENCE_CACHE_LOCK:
+        for key in expected:
+            evidence = _freeze_evidence(records[key]["evidence"])
+            _EVIDENCE_CACHE[key] = evidence
+            _EVIDENCE_CACHE.move_to_end(key)
+            while len(_EVIDENCE_CACHE) > _EVIDENCE_CACHE_LIMIT:
+                _EVIDENCE_CACHE.popitem(last=False)
+            diagnostics = records[key].get("runtime_diagnostics")
+            if isinstance(diagnostics, dict):
+                _store_runtime_diagnostics(key, diagnostics)
+    return expected
 
 
 def _odd_kernel(size):
@@ -453,4 +517,4 @@ def debug_images(*, image_bgr, mask, parameters=None, candidate_corners=None, ve
     }
 
 
-__all__ = ["BASELINE_PARAMETERS", "METHOD", "debug_images", "detect", "precompute_golden_set_evidence"]
+__all__ = ["BASELINE_PARAMETERS", "METHOD", "debug_images", "detect", "precompute_golden_set_evidence", "export_precomputed_golden_set_evidence", "load_precomputed_golden_set_evidence"]
