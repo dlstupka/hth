@@ -830,19 +830,34 @@ def build_summary(
             state = "present" if path.exists() else "missing"
             lines.append(f"- `{output}` — {state}")
 
+    golden_set_id, _ = _golden_set_identity(run_dir, info, parameters, summary)
+    detector_config_sha = str(
+        info.get("detector_config_sha256")
+        or parameters.get("detector_config_sha256")
+        or "unknown"
+    )
+    detector_config_id = _short(detector_config_sha, 12)
+    implementation_id = _short(
+        info.get("pipeline_commit")
+        or info.get("source_commit")
+        or summary.get("source_commit")
+        or "unknown",
+        12,
+    )
+
     lines.extend([
         "",
         f"## {_individual_heading('Results', detector_name)}",
         "",
         "### Result",
         "",
-        "| Result | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Avg IoU Success | Failures | Evaluation Time |",
-        "|---|---|---|---:|---:|---:|---:|---:|---:|",
-        f"| Winner | `{_parameter_id(winner)}` | `{_parameter_short_name(winner)}` | {_number(winner_stats.get('mean_iou'))} | {_number(winner_stats.get('minimum_iou'))} | {_number(winner_stats.get('stddev_iou'))} | {_number(winner_stats.get('mean_iou_success', winner_stats.get('mean_iou')))} | {winner_stats.get('failure_count', 'unknown')} | {_duration(_evaluation_seconds(winner))} |",
+        "| Result | Golden Set ID | Detector Config ID* | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Avg IoU Success | Failures | Evaluation Time |",
+        "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|",
+        f"| Winner | `{golden_set_id}` | `{detector_config_id}` | `{_parameter_id(winner)}` | `{_parameter_short_name(winner)}` | {_number(winner_stats.get('mean_iou'))} | {_number(winner_stats.get('minimum_iou'))} | {_number(winner_stats.get('stddev_iou'))} | {_number(winner_stats.get('mean_iou_success', winner_stats.get('mean_iou')))} | {winner_stats.get('failure_count', 'unknown')} | {_duration(_evaluation_seconds(winner))} |",
     ])
     if baseline and _parameter_id(baseline) != _parameter_id(winner):
         lines.append(
-            f"| Baseline | `{_parameter_id(baseline)}` | `{_parameter_short_name(baseline)}` | "
+            f"| Baseline | `{golden_set_id}` | `{detector_config_id}` | `{_parameter_id(baseline)}` | `{_parameter_short_name(baseline)}` | "
             f"{_number(baseline_stats.get('mean_iou'))} | "
             f"{_number(baseline_stats.get('minimum_iou'))} | "
             f"{_number(baseline_stats.get('stddev_iou'))} | "
@@ -850,6 +865,15 @@ def build_summary(
             f"{baseline_stats.get('failure_count', 'unknown')} | "
             f"{_duration(_evaluation_seconds(baseline))} |"
         )
+
+    lines.extend([
+        "",
+        f"\\* **Detector Config ID** is the short SHA-256 of the detector configuration used by this run. "
+        f"It identifies the declared detector settings, while detector implementation identity is pinned by "
+        f"the run's pipeline/source revision (`{implementation_id}`). Exact regression-result reproducibility "
+        f"requires the tuple **detector implementation + parameter set + Golden Set**; matching a parameter "
+        f"SHA alone does not imply identical results across detector-code revisions.",
+    ])
 
     lines.extend(_parameter_set_details(
         run_dir,

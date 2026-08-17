@@ -1,6 +1,6 @@
 import sys
-import threading
 import types
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -83,9 +83,13 @@ class PrecomputedLearnedEvidenceTests(unittest.TestCase):
         self.assertIsInstance(first["regions"], tuple)
         self.assertIsInstance(first["regions"][0], tuple)
 
-    def test_fd2_capture_paths_have_dedicated_locks(self):
-        self.assertIsInstance(kraken._STDERR_CAPTURE_LOCK, type(threading.Lock()))
-        self.assertIsInstance(dh._STDERR_CAPTURE_LOCK, type(threading.Lock()))
+    def test_fd2_capture_paths_share_process_global_wrapper(self):
+        kraken_source = Path(kraken.__file__).read_text(encoding="utf-8")
+        dh_source = Path(dh.__file__).read_text(encoding="utf-8")
+        self.assertIn("capture_native_stderr", kraken_source)
+        self.assertIn("suppress_native_stderr", dh_source)
+        self.assertNotIn("_STDERR_CAPTURE_LOCK", kraken_source)
+        self.assertNotIn("_STDERR_CAPTURE_LOCK", dh_source)
 
 
 if __name__ == "__main__":

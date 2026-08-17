@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 
 from .model import Candidate
+from hth.thread_safe_stderr import suppress_native_stderr
 
 METHOD = "dhsegment_page_mask"
 MODEL_DIR_ENV = "HTH_DHSEGMENT_PAGE_MODEL_DIR"
@@ -31,7 +32,6 @@ BASELINE_PARAMETERS = {
 
 _MODEL_CACHE: dict[str, _SavedModel] = {}
 _MODEL_CACHE_LOCK = threading.Lock()
-_STDERR_CAPTURE_LOCK = threading.Lock()
 _INFERENCE_LOCK = threading.Lock()
 _EVIDENCE_CACHE: OrderedDict[str, tuple[np.ndarray, tuple[int, int]]] = OrderedDict()
 _EVIDENCE_CACHE_LOCK = threading.Lock()
@@ -81,21 +81,14 @@ def _provenance():
 
 @contextlib.contextmanager
 def _suppress_native_stderr_during_tensorflow_startup():
-    """Thread-safe native TensorFlow startup stderr suppression.
+    """Suppress TensorFlow native startup chatter via HTH's global fd2 lock.
 
-    fd 2 is process-global. Serialize the redirect/restore interval explicitly;
-    normal parameter evaluation never enters this path after model/evidence
+    All native stderr redirection in detector evaluation shares one process-wide
+    lock; normal parameter evaluation remains parallel after learned evidence
     preparation.
     """
-    with _STDERR_CAPTURE_LOCK:
-        saved_fd = os.dup(2)
-        try:
-            with open(os.devnull, "w") as sink:
-                os.dup2(sink.fileno(), 2)
-                yield
-        finally:
-            os.dup2(saved_fd, 2)
-            os.close(saved_fd)
+    with suppress_native_stderr():
+        yield
 
 
 def _configure_tensorflow_runtime_environment():

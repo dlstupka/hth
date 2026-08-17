@@ -71,11 +71,14 @@ class SharedLearnedEvidenceParentTests(unittest.TestCase):
         self.assertIn("page {index}/{total} READY", text)
         self.assertIn("SHARED EVIDENCE READY", text)
 
-    def test_stderr_capture_remains_serialized(self):
+    def test_stderr_capture_remains_serialized_process_wide(self):
         ktext = Path("hth/geometry/detector_kraken_page_mask.py").read_text(encoding="utf-8")
         dtext = Path("hth/geometry/detector_dhsegment_page_mask.py").read_text(encoding="utf-8")
-        self.assertIn("with _STDERR_CAPTURE_LOCK:", ktext)
-        self.assertIn("with _STDERR_CAPTURE_LOCK:", dtext)
+        shared = Path("hth/thread_safe_stderr.py").read_text(encoding="utf-8")
+        self.assertIn("capture_native_stderr", ktext)
+        self.assertIn("suppress_native_stderr", dtext)
+        self.assertIn("_FD2_LOCK", shared)
+        self.assertIn("with _FD2_LOCK:", shared)
 
 
 if __name__ == "__main__":
