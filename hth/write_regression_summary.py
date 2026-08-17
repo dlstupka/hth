@@ -14,7 +14,7 @@ from hth.regression.authoritative_record import authoritative_record
 from hth.regression.calibration_intelligence import detector_characterization
 from hth.domain.result_metrics import baseline_surpassed, calibration_metric_view, result_metric_view
 from hth.runtime_store import coherent_execution_profile, select_runtime_observation
-from hth.regression.parameter_provenance import resolve_parameter_set
+from hth.regression.parameter_provenance import parameter_identity_sha256, resolve_parameter_set
 
 
 
@@ -433,13 +433,146 @@ def _search_space_percent(observation: dict[str, Any]) -> str:
     return _percent(fraction, 2) if fraction is not None else "unknown"
 
 
+def _build_parameter_build_index(
+    calibration_index: Path | None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Read historical parameter provenance once and prepare cheap reverse lookups.
+
+    The previous reporter reopened and reparsed every provenance file for every
+    Top Parameter Sets row, then called resolve_parameter_set(), which can scan
+    the entire Cartesian grid.  A combined manifest multiplied that work across
+    every detector.  This index loads each historical provenance file once and
+    keeps only the compact identity/grid metadata needed to answer subsequent
+    exact-parameter build queries.
+    """
+    by_detector: dict[str, list[dict[str, Any]]] = {}
+    if calibration_index is None or not calibration_index.is_file():
+        return by_detector
+    try:
+        index = _read_json(calibration_index)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return by_detector
+
+    for entry in index.get("entries", []):
+        if not isinstance(entry, dict):
+            continue
+
+        # Provisional calibration records are smoke evidence in HTH's persisted
+        # calibration contract.  They are intentionally excluded from human
+        # "Known Builds" / "Last Build" history to keep those lists useful.
+        if str(entry.get("calibration_status") or "").lower() == "provisional":
+            continue
+
+        detector = str(entry.get("detector_id") or "")
+        prov_rel = entry.get("parameter_provenance_path")
+        if not detector or not prov_rel:
+            continue
+        prov_path = calibration_index.parent / str(prov_rel)
+        if not prov_path.is_file():
+            continue
+        try:
+            provenance = _read_json(prov_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+
+        identity = provenance.get("identity", {}) if isinstance(provenance.get("identity"), dict) else {}
+        schema = str(identity.get("parameter_schema_version") or "1")
+        grid = provenance.get("grid", {}) if isinstance(provenance.get("grid"), dict) else {}
+        grid_order = tuple(str(name) for name in grid.get("parameter_order", []))
+        grid_values = grid.get("values", {}) if isinstance(grid.get("values"), dict) else {}
+
+        explicit = provenance.get("explicit_parameter_sets", {})
+        explicit_shas = frozenset(
+            str(full)
+            for full in explicit
+        ) if isinstance(explicit, dict) else frozenset()
+
+        profile_shas: set[str] = set()
+        profiles = provenance.get("profiles", {})
+        if isinstance(profiles, dict):
+            for parameters in profiles.values():
+                if not isinstance(parameters, dict):
+                    continue
+                profile_shas.add(
+                    parameter_identity_sha256(detector, parameters, schema_version=schema)
+                )
+
+        build = entry.get("build") if isinstance(entry.get("build"), dict) else {}
+        by_detector.setdefault(detector, []).append({
+            "build_number": str(build.get("github_run_number") or "unknown"),
+            "build_url": str(build.get("run_url") or ""),
+            "date": str(entry.get("created_at_utc") or "")[:10],
+            "evidence": str(entry.get("calibration_status") or "known"),
+            "schema": schema,
+            "grid_order": grid_order,
+            "grid_values": grid_values,
+            "explicit_shas": explicit_shas,
+            "profile_shas": frozenset(profile_shas),
+        })
+
+    return by_detector
+
+
+def _parameter_in_index_record(
+    record: dict[str, Any],
+    *,
+    detector: str,
+    full_sha: str,
+    parameters: dict[str, Any] | None,
+) -> bool:
+    if full_sha in record.get("explicit_shas", ()):
+        return True
+    if full_sha in record.get("profile_shas", ()):
+        return True
+    if not parameters:
+        return False
+
+    order = tuple(record.get("grid_order") or ())
+    values = record.get("grid_values") if isinstance(record.get("grid_values"), dict) else {}
+    if not order or set(parameters) != set(order):
+        return False
+
+    # Test grid membership directly instead of scanning itertools.product().
+    # JSON canonicalization handles scalar/list values consistently with
+    # parameter provenance identity construction.
+    for name in order:
+        target = json.dumps(parameters[name], sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        domain = values.get(name, [])
+        if not isinstance(domain, list):
+            return False
+        if not any(
+            json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False) == target
+            for value in domain
+        ):
+            return False
+
+    schema = str(record.get("schema") or "1")
+    return parameter_identity_sha256(
+        detector,
+        parameters,
+        schema_version=schema,
+    ) == full_sha
+
+
+def _build_sort_key(row: tuple[str, str, str, str]) -> tuple[int, str]:
+    number = row[0]
+    try:
+        numeric = int(number)
+    except (TypeError, ValueError):
+        numeric = -1
+    # GitHub run numbers are monotonic for this workflow/repository and are the
+    # clearest definition of newest build; date is only a fallback/tiebreaker.
+    return numeric, row[2]
+
+
 def _known_builds_for_parameter(
     *,
     detector: str,
     full_sha: str,
+    parameters: dict[str, Any] | None,
     info: dict[str, Any],
     run_url: str,
-    calibration_index: Path | None,
+    parameter_build_index: dict[str, list[dict[str, Any]]],
 ) -> list[tuple[str, str, str, str]]:
     builds: list[tuple[str, str, str, str]] = []
     current_number = info.get("github_run_number")
@@ -451,35 +584,27 @@ def _known_builds_for_parameter(
             str(info.get("started_at_utc") or "")[:10],
             "current run",
         ))
-    if full_sha and calibration_index and calibration_index.is_file():
-        try:
-            index = _read_json(calibration_index)
-        except (OSError, ValueError, json.JSONDecodeError):
-            index = {}
-        for entry in index.get("entries", []):
-            if not isinstance(entry, dict) or str(entry.get("detector_id") or "") != detector:
+
+    if full_sha:
+        for record in parameter_build_index.get(detector, []):
+            if not _parameter_in_index_record(
+                record,
+                detector=detector,
+                full_sha=full_sha,
+                parameters=parameters,
+            ):
                 continue
-            prov_rel = entry.get("parameter_provenance_path")
-            if not prov_rel:
-                continue
-            prov_path = calibration_index.parent / str(prov_rel)
-            if not prov_path.is_file():
-                continue
-            try:
-                match = resolve_parameter_set(_read_json(prov_path), full_sha)
-            except (OSError, ValueError, json.JSONDecodeError):
-                continue
-            if not match or str(match.get("sha256") or "") != full_sha:
-                continue
-            build = entry.get("build") if isinstance(entry.get("build"), dict) else {}
             row = (
-                str(build.get("github_run_number") or "unknown"),
-                str(build.get("run_url") or ""),
-                str(entry.get("created_at_utc") or "")[:10],
-                str(entry.get("calibration_status") or "known"),
+                str(record.get("build_number") or "unknown"),
+                str(record.get("build_url") or ""),
+                str(record.get("date") or ""),
+                str(record.get("evidence") or "known"),
             )
             if row not in builds:
                 builds.append(row)
+
+    # Human build history is deliberately newest-first.
+    builds.sort(key=_build_sort_key, reverse=True)
     return builds
 
 
@@ -489,19 +614,21 @@ def _last_build_for_parameter(
     detector: str,
     info: dict[str, Any],
     run_url: str,
-    calibration_index: Path | None,
+    parameter_build_index: dict[str, list[dict[str, Any]]],
 ) -> str:
     if not result:
         return "unknown"
     full_sha = str(result.get("parameter_identity_sha256") or "")
     if not full_sha:
         return "unknown"
+    parameters = result.get("parameters") if isinstance(result.get("parameters"), dict) else None
     builds = _known_builds_for_parameter(
         detector=detector,
         full_sha=full_sha,
+        parameters=parameters,
         info={},  # Last Build means the most recent known build prior to this report's run.
         run_url="",
-        calibration_index=calibration_index,
+        parameter_build_index=parameter_build_index,
     )
     current_number = str(info.get("github_run_number") or "")
     current_url = str(info.get("github_run_url") or info.get("run_url") or run_url or "")
@@ -513,14 +640,7 @@ def _last_build_for_parameter(
     if not builds:
         return "—"
 
-    def build_key(row: tuple[str, str, str, str]) -> tuple[int, str]:
-        try:
-            number = int(row[0])
-        except (TypeError, ValueError):
-            number = -1
-        return number, row[2]
-
-    number, url, _, _ = max(builds, key=build_key)
+    number, url, _, _ = builds[0]
     label = f"#{number}" if number not in {"current", "unknown"} else ("current" if number == "current" else "unknown")
     return f"[{label}]({url})" if url else label
 
@@ -532,7 +652,7 @@ def _parameter_set_details(
     detector: str,
     info: dict[str, Any],
     run_url: str,
-    calibration_index: Path | None,
+    parameter_build_index: dict[str, list[dict[str, Any]]],
 ) -> list[str]:
     """Render exact winner parameters and builds known to use that identity."""
     provenance_path = run_dir / "parameter-provenance.json"
@@ -570,9 +690,10 @@ def _parameter_set_details(
     builds = _known_builds_for_parameter(
         detector=detector,
         full_sha=full_sha,
+        parameters=parameters,
         info=info,
         run_url=run_url,
-        calibration_index=calibration_index,
+        parameter_build_index=parameter_build_index,
     )
     lines.extend(["", "#### Known Builds Using This Exact Parameter Set", "", "Builds known at the time this report was generated; matching is by the authoritative full parameter identity.", "", "| Build | Date | Evidence |", "|---|---|---|"])
     if builds:
@@ -631,11 +752,15 @@ def build_summary(
     results_repository: str = "",
     results_commit: str = "",
     calibration_index: Path | None = None,
+    parameter_build_index: dict[str, list[dict[str, Any]]] | None = None,
 ) -> str:
     manifest = _read_json(run_dir / "manifest.json")
     info = _read_json(run_dir / "RUN-INFO.json")
     parameters = _read_json(run_dir / "parameters.json")
     summary = normalize_summary_metrics(_read_json(run_dir / "reports" / "summary.json"))
+
+    if parameter_build_index is None:
+        parameter_build_index = _build_parameter_build_index(calibration_index)
 
     winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else None
     baseline = summary.get("baseline") if isinstance(summary.get("baseline"), dict) else None
@@ -716,7 +841,12 @@ def build_summary(
         )
 
     lines.extend(_parameter_set_details(
-        run_dir, winner or {}, detector=detector_name, info=info, run_url=run_url, calibration_index=calibration_index,
+        run_dir,
+        winner or {},
+        detector=detector_name,
+        info=info,
+        run_url=run_url,
+        parameter_build_index=parameter_build_index,
     ))
 
     characterization = _detector_characterization(detector_name)
@@ -804,7 +934,7 @@ def build_summary(
                 detector=detector_name,
                 info=info,
                 run_url=run_url,
-                calibration_index=calibration_index,
+                parameter_build_index=parameter_build_index,
             )
             lines.append(
                 f"| {rank_label} | {last_build} | `{_parameter_id(result)}` | `{parameter_set_name}` | "
@@ -2064,6 +2194,7 @@ def build_combined_summary(
 ) -> str:
     if not run_dirs:
         raise ValueError("At least one regression run directory is required")
+    parameter_build_index = _build_parameter_build_index(calibration_index)
     if len(run_dirs) == 1:
         return build_summary(
             run_dirs[0],
@@ -2072,6 +2203,7 @@ def build_combined_summary(
             results_repository=results_repository,
             results_commit=results_commit,
             calibration_index=calibration_index,
+            parameter_build_index=parameter_build_index,
         )
 
     combined_rows = sorted(
@@ -2313,6 +2445,7 @@ def build_combined_summary(
                 include_title=False,
                 include_metric_definitions=False,
                 calibration_index=calibration_index,
+                parameter_build_index=parameter_build_index,
             ).rstrip()
         )
         lines.extend(["", "</details>"])
