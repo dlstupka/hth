@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
 import os
 import tempfile
 import threading
+from collections import OrderedDict
 from pathlib import Path
 
 import cv2
@@ -28,6 +30,11 @@ BASELINE_PARAMETERS = {
 
 _MODEL_CACHE: dict[str, _SavedModel] = {}
 _MODEL_CACHE_LOCK = threading.Lock()
+_STDERR_CAPTURE_LOCK = threading.Lock()
+_INFERENCE_LOCK = threading.Lock()
+_EVIDENCE_CACHE: OrderedDict[str, tuple[np.ndarray, tuple[int, int]]] = OrderedDict()
+_EVIDENCE_CACHE_LOCK = threading.Lock()
+_EVIDENCE_CACHE_LIMIT = 16
 
 
 def _parameters(parameters):
@@ -73,21 +80,21 @@ def _provenance():
 
 @contextlib.contextmanager
 def _suppress_native_stderr_during_tensorflow_startup():
-    """Silence only native TensorFlow startup chatter.
+    """Thread-safe native TensorFlow startup stderr suppression.
 
-    TensorFlow/XLA emits pre-absl and MLIR initialization messages directly to
-    file descriptor 2 before Python logging is ready. Redirect fd 2 only while
-    TensorFlow is imported and the legacy graph/session is initialized; restore
-    it immediately afterward so real runtime errors remain visible.
+    fd 2 is process-global. Serialize the redirect/restore interval explicitly;
+    normal parameter evaluation never enters this path after model/evidence
+    preparation.
     """
-    saved_fd = os.dup(2)
-    try:
-        with open(os.devnull, "w") as sink:
-            os.dup2(sink.fileno(), 2)
-            yield
-    finally:
-        os.dup2(saved_fd, 2)
-        os.close(saved_fd)
+    with _STDERR_CAPTURE_LOCK:
+        saved_fd = os.dup(2)
+        try:
+            with open(os.devnull, "w") as sink:
+                os.dup2(sink.fileno(), 2)
+                yield
+        finally:
+            os.dup2(saved_fd, 2)
+            os.close(saved_fd)
 
 
 def _configure_tensorflow_runtime_environment():
@@ -316,6 +323,55 @@ def _model():
     return model
 
 
+def _image_key(image_bgr: np.ndarray) -> str:
+    arr = np.ascontiguousarray(image_bgr)
+    h = hashlib.blake2b(digest_size=16)
+    h.update(str(arr.shape).encode("ascii"))
+    h.update(str(arr.dtype).encode("ascii"))
+    h.update(memoryview(arr))
+    return h.hexdigest()
+
+
+def _infer_evidence(image_bgr: np.ndarray) -> tuple[np.ndarray, tuple[int, int]]:
+    key = _image_key(image_bgr)
+    with _EVIDENCE_CACHE_LOCK:
+        cached = _EVIDENCE_CACHE.get(key)
+        if cached is not None:
+            _EVIDENCE_CACHE.move_to_end(key)
+            return cached
+
+    # Single-flight inference. The expensive TensorFlow prediction is invariant
+    # across the parameter grid, so only the first cache miss for an image runs
+    # the model. Waiters recheck after acquiring the lock.
+    with _INFERENCE_LOCK:
+        with _EVIDENCE_CACHE_LOCK:
+            cached = _EVIDENCE_CACHE.get(key)
+            if cached is not None:
+                _EVIDENCE_CACHE.move_to_end(key)
+                return cached
+
+        probability, original_shape = _model().predict(image_bgr)
+        probability = np.array(probability, copy=True)
+        probability.setflags(write=False)
+        evidence = (probability, tuple(int(v) for v in original_shape))
+        with _EVIDENCE_CACHE_LOCK:
+            _EVIDENCE_CACHE[key] = evidence
+            _EVIDENCE_CACHE.move_to_end(key)
+            while len(_EVIDENCE_CACHE) > _EVIDENCE_CACHE_LIMIT:
+                _EVIDENCE_CACHE.popitem(last=False)
+        return evidence
+
+
+def precompute_golden_set_evidence(images):
+    """Populate immutable dhSegment probability maps before thread fan-out."""
+    keys = []
+    for image_bgr in images:
+        key = _image_key(image_bgr)
+        _infer_evidence(image_bgr)
+        keys.append(key)
+    return tuple(keys)
+
+
 def _fill_holes(binary: np.ndarray) -> np.ndarray:
     if not np.any(binary):
         return binary
@@ -401,7 +457,7 @@ def _postprocess(probability: np.ndarray, values):
 
 
 def _proposal(image_bgr, values):
-    probability, original_shape = _model().predict(image_bgr)
+    probability, original_shape = _infer_evidence(image_bgr)
     binary, contour = _postprocess(probability, values)
     return probability, binary, contour, original_shape
 
@@ -538,4 +594,5 @@ __all__ = [
     "PROVENANCE_ENV",
     "debug_images",
     "detect",
+    "precompute_golden_set_evidence",
 ]

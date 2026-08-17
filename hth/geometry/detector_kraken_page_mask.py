@@ -33,6 +33,7 @@ _MODEL = None
 _MODEL_KEY = None
 _MODEL_LOCK = threading.Lock()
 _INFERENCE_LOCK = threading.Lock()
+_STDERR_CAPTURE_LOCK = threading.Lock()
 _EVIDENCE_CACHE: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _EVIDENCE_CACHE_LOCK = threading.Lock()
 _EVIDENCE_CACHE_LIMIT = 16
@@ -43,52 +44,53 @@ _RUNTIME_DIAGNOSTICS_LOCK = threading.Lock()
 
 @contextmanager
 def _capture_kraken_runtime_chatter():
-    """Filter only known third-party advisory/polygonizer chatter.
+    """Thread-safe capture of known native Kraken/GEOS stderr chatter.
 
-    Kraken/Lightning can write known non-fatal messages directly to stderr while
-    still returning usable segmentation. Capture stderr around one inference,
-    retain/replay everything except those exact known messages, and return counts
-    to detector diagnostics so the signal is not silently lost.
+    fd 2 is process-global, so redirection itself cannot be thread-local. Protect
+    the complete redirect/restore interval with a dedicated lock. Regression
+    parameter threads normally never enter this path because Golden Set evidence
+    is precomputed once before parameter concurrency begins.
     """
-    saved_fd = os.dup(2)
-    captured = tempfile.TemporaryFile(mode="w+b")
-    diagnostics = {
-        "lightning_srun_advisories": 0,
-        "kraken_polygonizer_warnings": 0,
-        "filtered_messages": [],
-    }
-    try:
-        os.dup2(captured.fileno(), 2)
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message=r".*The `srun` command is available on your system but is not used.*",
-            )
-            yield diagnostics
-    finally:
-        os.dup2(saved_fd, 2)
-        os.close(saved_fd)
-        captured.seek(0)
-        text = captured.read().decode("utf-8", errors="replace")
-        captured.close()
+    with _STDERR_CAPTURE_LOCK:
+        saved_fd = os.dup(2)
+        captured = tempfile.TemporaryFile(mode="w+b")
+        diagnostics = {
+            "lightning_srun_advisories": 0,
+            "kraken_polygonizer_warnings": 0,
+            "filtered_messages": [],
+        }
+        try:
+            os.dup2(captured.fileno(), 2)
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=r".*The `srun` command is available on your system but is not used.*",
+                )
+                yield diagnostics
+        finally:
+            os.dup2(saved_fd, 2)
+            os.close(saved_fd)
+            captured.seek(0)
+            text = captured.read().decode("utf-8", errors="replace")
+            captured.close()
 
-        replay = []
-        for line in text.splitlines():
-            stripped = line.strip()
-            if "The `srun` command is available on your system but is not used" in stripped:
-                diagnostics["lightning_srun_advisories"] += 1
-                if len(diagnostics["filtered_messages"]) < 8:
-                    diagnostics["filtered_messages"].append(stripped)
-                continue
-            if "TopologyException: side location conflict" in stripped or "Polygonizer failed on line" in stripped:
-                diagnostics["kraken_polygonizer_warnings"] += 1
-                if len(diagnostics["filtered_messages"]) < 8:
-                    diagnostics["filtered_messages"].append(stripped)
-                continue
-            replay.append(line)
+            replay = []
+            for line in text.splitlines():
+                stripped = line.strip()
+                if "The `srun` command is available on your system but is not used" in stripped:
+                    diagnostics["lightning_srun_advisories"] += 1
+                    if len(diagnostics["filtered_messages"]) < 8:
+                        diagnostics["filtered_messages"].append(stripped)
+                    continue
+                if "TopologyException: side location conflict" in stripped or "Polygonizer failed on line" in stripped:
+                    diagnostics["kraken_polygonizer_warnings"] += 1
+                    if len(diagnostics["filtered_messages"]) < 8:
+                        diagnostics["filtered_messages"].append(stripped)
+                    continue
+                replay.append(line)
 
-        if replay:
-            os.write(2, ("\n".join(replay) + "\n").encode("utf-8", errors="replace"))
+            if replay:
+                os.write(2, ("\n".join(replay) + "\n").encode("utf-8", errors="replace"))
 
 
 def _runtime_diagnostics_for(key):
@@ -242,6 +244,16 @@ def _extract_evidence(segmentation):
     }
 
 
+def _freeze_evidence(evidence):
+    """Return an immutable-by-convention evidence snapshot safe for all threads."""
+    return {
+        "regions": tuple(tuple(tuple(point) for point in polygon) for polygon in evidence["regions"]),
+        "lines": tuple(tuple(tuple(point) for point in polygon) for polygon in evidence["lines"]),
+        "baselines": tuple(tuple(tuple(point) for point in baseline) for baseline in evidence["baselines"]),
+        "text_direction": str(evidence["text_direction"]),
+    }
+
+
 def _infer_evidence(image_bgr):
     key = _image_key(image_bgr)
     with _EVIDENCE_CACHE_LOCK:
@@ -250,29 +262,44 @@ def _infer_evidence(image_bgr):
             _EVIDENCE_CACHE.move_to_end(key)
             return cached
 
-    from PIL import Image
-    from kraken.configs import SegmentationInferenceConfig
-
-    rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-    image = Image.fromarray(rgb)
-    model = _load_model()
-    config = SegmentationInferenceConfig()
-
-    # Model objects are process-cached. Serialize inference because the Kraken
-    # task/model stack is not documented as thread-safe; HTH parallelism remains
-    # at detector-pipeline/process level and is measured by the optimizer.
+    # Single-flight cache fill. A second thread that missed before the first
+    # inference completed rechecks after acquiring the inference lock and uses
+    # the now-populated immutable snapshot instead of repeating model.predict().
     with _INFERENCE_LOCK:
+        with _EVIDENCE_CACHE_LOCK:
+            cached = _EVIDENCE_CACHE.get(key)
+            if cached is not None:
+                _EVIDENCE_CACHE.move_to_end(key)
+                return cached
+
+        from PIL import Image
+        from kraken.configs import SegmentationInferenceConfig
+
+        rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        image = Image.fromarray(rgb)
+        model = _load_model()
+        config = SegmentationInferenceConfig()
         with _capture_kraken_runtime_chatter() as runtime_diagnostics:
             segmentation = model.predict(im=image, config=config)
-    evidence = _extract_evidence(segmentation)
-    _store_runtime_diagnostics(key, runtime_diagnostics)
+        evidence = _freeze_evidence(_extract_evidence(segmentation))
+        _store_runtime_diagnostics(key, runtime_diagnostics)
 
-    with _EVIDENCE_CACHE_LOCK:
-        _EVIDENCE_CACHE[key] = evidence
-        _EVIDENCE_CACHE.move_to_end(key)
-        while len(_EVIDENCE_CACHE) > _EVIDENCE_CACHE_LIMIT:
-            _EVIDENCE_CACHE.popitem(last=False)
-    return evidence
+        with _EVIDENCE_CACHE_LOCK:
+            _EVIDENCE_CACHE[key] = evidence
+            _EVIDENCE_CACHE.move_to_end(key)
+            while len(_EVIDENCE_CACHE) > _EVIDENCE_CACHE_LIMIT:
+                _EVIDENCE_CACHE.popitem(last=False)
+        return evidence
+
+
+def precompute_golden_set_evidence(images):
+    """Populate immutable Kraken evidence once before parameter-thread fan-out."""
+    keys = []
+    for image_bgr in images:
+        key = _image_key(image_bgr)
+        _infer_evidence(image_bgr)
+        keys.append(key)
+    return tuple(keys)
 
 
 def _odd_kernel(size):
@@ -426,4 +453,4 @@ def debug_images(*, image_bgr, mask, parameters=None, candidate_corners=None, ve
     }
 
 
-__all__ = ["BASELINE_PARAMETERS", "METHOD", "debug_images", "detect"]
+__all__ = ["BASELINE_PARAMETERS", "METHOD", "debug_images", "detect", "precompute_golden_set_evidence"]
