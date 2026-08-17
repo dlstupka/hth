@@ -152,6 +152,11 @@ on:
         required: false
         default: ""
         type: string
+      clean_runner:
+        description: "Advanced — wipe the reusable HTH Python runtime on the selected self-hosted runner before this build"
+        required: true
+        default: false
+        type: boolean
       limit:
         description: "Advanced — exhaustive parameter-set limit; blank means no limit"
         required: false
@@ -499,20 +504,28 @@ jobs:
           & $pythonExe --version
           & $pythonExe -m pip --version
 
-      - name: Create isolated Python environment
+      - name: Verify / Create reusable Python environment
         shell: bash
         run: |
           set -euo pipefail
 
           bootstrap_python="$(command -v python)"
-          venv_dir="$RUNNER_TEMP/hth-python-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-
           echo "Bootstrap Python: $bootstrap_python"
           "$bootstrap_python" --version
           "$bootstrap_python" -m pip --version
 
-          rm -rf "$venv_dir"
-          "$bootstrap_python" -m venv "$venv_dir"
+          if [[ "${{ runner.environment }}" == "self-hosted" ]]; then
+            runtime_root="$GITHUB_WORKSPACE/.hth-runtime"
+            venv_dir="$runtime_root/python-3.12-${RUNNER_OS:-unknown}-${RUNNER_ARCH:-unknown}"
+
+            if [[ "${{ github.event_name == 'workflow_dispatch' && inputs.clean_runner || false }}" == "true" ]]; then
+              echo "Clean runner requested: removing reusable HTH runtime $runtime_root"
+              rm -rf "$runtime_root"
+            fi
+          else
+            venv_dir="$RUNNER_TEMP/hth-python-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            rm -rf "$venv_dir"
+          fi
 
           if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
             venv_bin="$venv_dir/Scripts"
@@ -524,6 +537,34 @@ jobs:
             github_path_entry="$venv_bin"
           fi
 
+          reuse=0
+          if [[ -x "$venv_python" ]]; then
+            if "$venv_python" - <<'PY'
+          import site
+          import sys
+          if sys.version_info[:2] != (3, 12):
+              raise SystemExit(1)
+          if sys.prefix == sys.base_prefix:
+              raise SystemExit(1)
+          if site.ENABLE_USER_SITE:
+              raise SystemExit(1)
+          PY
+            then
+              reuse=1
+            else
+              echo "Existing reusable environment failed verification; rebuilding."
+              rm -rf "$venv_dir"
+            fi
+          fi
+
+          if (( reuse == 0 )); then
+            echo "Creating Python environment: $venv_dir"
+            mkdir -p "$(dirname "$venv_dir")"
+            "$bootstrap_python" -m venv "$venv_dir"
+          else
+            echo "Reusing verified Python environment: $venv_dir"
+          fi
+
           if [[ ! -x "$venv_python" ]]; then
             echo "::error::Virtual-environment Python is missing: $venv_python"
             exit 1
@@ -532,26 +573,25 @@ jobs:
           echo "$github_path_entry" >> "$GITHUB_PATH"
           echo "HTH_VENV=$venv_dir" >> "$GITHUB_ENV"
           echo "HTH_BOOTSTRAP_PYTHON=$bootstrap_python" >> "$GITHUB_ENV"
-
-          "$venv_python" -m pip install --upgrade pip
+          echo "HTH_VENV_REUSED=$reuse" >> "$GITHUB_ENV"
 
           "$venv_python" - <<'PY'
           import site
           import sys
-
           print(f"Venv executable : {sys.executable}")
           print(f"sys.prefix      : {sys.prefix}")
           print(f"sys.base_prefix : {sys.base_prefix}")
           print(f"User site       : {site.USER_SITE}")
           print(f"User site active: {site.ENABLE_USER_SITE}")
-
+          if sys.version_info[:2] != (3, 12):
+              raise SystemExit(f"Expected Python 3.12, got {sys.version}")
           if sys.prefix == sys.base_prefix:
               raise SystemExit("Virtual environment is not active")
           if site.ENABLE_USER_SITE:
               raise SystemExit("User site-packages unexpectedly enabled")
           PY
 
-      - name: Install dependencies
+      - name: Verify / Install dependencies
         shell: bash
         run: |
           set -euo pipefail
@@ -559,30 +599,117 @@ jobs:
           echo "Active Python: $(command -v python)"
           python --version
           python -m pip --version
-          python -m pip install --requirement hth-pipeline/requirements.txt
-          python -m pip check
 
-      - name: Install dhSegment TensorFlow runtime
+          verify_requirements() {
+            python - <<'PY'
+          from importlib import metadata
+          from pathlib import Path
+          from pip._vendor.packaging.requirements import Requirement
+
+          failures = []
+          for raw in Path("hth-pipeline/requirements.txt").read_text(encoding="utf-8").splitlines():
+              line = raw.strip()
+              if not line or line.startswith("#") or line.startswith(("-", "http:", "https:", "git+")):
+                  continue
+              try:
+                  req = Requirement(line)
+              except Exception as exc:
+                  failures.append(f"{line}: cannot verify ({exc})")
+                  continue
+              if req.marker is not None and not req.marker.evaluate():
+                  continue
+              try:
+                  installed = metadata.version(req.name)
+              except metadata.PackageNotFoundError:
+                  failures.append(f"{req.name}: not installed")
+                  continue
+              if req.specifier and installed not in req.specifier:
+                  failures.append(f"{req.name}: installed {installed}, requires {req.specifier}")
+          if failures:
+              print("Dependency verification failed:")
+              for failure in failures:
+                  print(f"  - {failure}")
+              raise SystemExit(1)
+          print("Declared dependency versions satisfy requirements.txt")
+          PY
+          }
+
+          if verify_requirements; then
+            echo "Base dependencies verified; install skipped."
+          else
+            echo "Base dependency verification failed; installing current requirements."
+            python -m pip install --upgrade pip
+            python -m pip install --requirement hth-pipeline/requirements.txt
+            verify_requirements
+            python -m pip check
+          fi
+
+      - name: Verify / Install dhSegment TensorFlow runtime
         if: ${{ matrix.detector == 'dhsegment_page_mask' || matrix.detector == 'all' }}
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install "tensorflow-cpu>=2.18,<2.21"
-          python -m pip check
 
-      - name: Install Kraken historical-document segmentation runtime
+          verify_dhsegment_runtime() {
+            python - <<'PY'
+          from importlib import metadata
+          from pip._vendor.packaging.specifiers import SpecifierSet
+
+          version = metadata.version("tensorflow-cpu")
+          required = SpecifierSet(">=2.18,<2.21")
+          if version not in required:
+              raise SystemExit(f"tensorflow-cpu {version} does not satisfy {required}")
+
+          import tensorflow as tf
+          print(f"TensorFlow verified: {tf.__version__}")
+          PY
+          }
+
+          if verify_dhsegment_runtime; then
+            echo "dhSegment TensorFlow runtime verified; install skipped."
+          else
+            echo "dhSegment TensorFlow runtime verification failed; installing."
+            python -m pip install "tensorflow-cpu>=2.18,<2.21"
+            verify_dhsegment_runtime
+            python -m pip check
+          fi
+
+      - name: Verify / Install Kraken historical-document segmentation runtime
         if: ${{ matrix.detector == 'kraken_page_mask' || matrix.detector == 'all' }}
         shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
         run: |
           set -euo pipefail
-          python -m pip install "kraken==7.0.2"
-          python -m pip check
+
+          verify_kraken_runtime() {
+            python - <<'PY'
+          from importlib import metadata
+
+          version = metadata.version("kraken")
+          if version != "7.0.2":
+              raise SystemExit(f"Expected kraken 7.0.2, found {version}")
+
+          from kraken.tasks.segmentation import SegmentationTaskModel
+          print(f"Kraken verified: {version}; SegmentationTaskModel import OK")
+          PY
+          }
+
+          if verify_kraken_runtime; then
+            echo "Kraken runtime verified; install skipped."
+          else
+            echo "Kraken runtime verification failed; installing."
+            python -m pip install "kraken==7.0.2"
+            verify_kraken_runtime
+            python -m pip check
+          fi
 
       - name: Verify Python dependency ABI
         shell: bash
         run: |
           set -euo pipefail
 
+          python -m pip check
           python - <<'PY'
           import sys
           import cv2

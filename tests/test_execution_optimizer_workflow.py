@@ -57,8 +57,8 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         for step in (
             "Checkout HTH pipeline", "Checkout results repository", "Runner diagnostics",
             "Set up Python — GitHub-hosted Linux", "Verify Python — self-hosted Linux",
-            "Use repaired Python tool cache — Windows", "Create isolated Python environment",
-            "Install dependencies", "Verify Python dependency ABI", "Show toolchain environment",
+            "Use repaired Python tool cache — Windows", "Verify / Create reusable Python environment",
+            "Verify / Install dependencies", "Verify Python dependency ABI", "Show toolchain environment",
             "Show OpenCV build", "Benchmark OpenCV",
         ):
             marker = f"- name: {step}"
