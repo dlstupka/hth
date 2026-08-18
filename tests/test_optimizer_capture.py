@@ -66,6 +66,26 @@ class OptimizerCaptureTests(unittest.TestCase):
             self.assertEqual(observation["source"], "execution-optimizer")
             self.assertEqual(len(log.read_text(encoding="utf-8").splitlines()), 1)
 
+
+    def test_optimizer_capture_keeps_startup_overhead_separate_but_included_in_raw_wall(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            results = root / "results"
+            results.mkdir()
+            observation = capture_observation(
+                results_root=results,
+                run_dir=self._run_dir(root),
+                wall_clock_seconds=240.0,
+                runner_label="e7k",
+                github_run_id="5678",
+                shape_sequence=1,
+                startup_overhead_seconds=180.0,
+            )
+            self.assertEqual(observation["wall_clock_seconds"], 240.0)
+            self.assertEqual(observation["startup_overhead_seconds"], 180.0)
+            self.assertTrue(observation["startup_overhead_included_in_wall_clock"])
+            self.assertAlmostEqual(observation["parameter_sets_per_second"], 100 / 240.0)
+
     def test_optimizer_shard_is_persisted_immediately_and_replayable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

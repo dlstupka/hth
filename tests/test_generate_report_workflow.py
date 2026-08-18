@@ -30,6 +30,15 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertIn("inputs.runner == 'self-hosted-e7k'", text)
         self.assertIn("inputs.runner == 'self-hosted-e9k'", text)
 
+
+    def test_core_report_results_checkout_is_shallow_main_only(self) -> None:
+        text = CORE.read_text(encoding="utf-8")
+        report_job = text.split("generate-report:", 1)[1]
+        checkout = report_job.split("- name: Checkout results repository", 1)[1].split("- name: Set up Python", 1)[0]
+        self.assertIn("ref: main", checkout)
+        self.assertIn("fetch-depth: 1", checkout)
+        self.assertNotIn("fetch-depth: 0", checkout)
+
     def test_core_report_summary_is_appended_after_successful_publish(self) -> None:
         text = CORE.read_text(encoding="utf-8")
         generate_step = text.split("- name: Generate selected report", 1)[1].split("- name: Publish regenerated report", 1)[0]

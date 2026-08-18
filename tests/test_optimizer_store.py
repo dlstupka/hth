@@ -265,6 +265,20 @@ class OptimizerStoreTests(unittest.TestCase):
             self.assertIn("8t", svg)
 
 
+
+    def test_shape_report_preserves_and_labels_startup_overhead(self) -> None:
+        row = _row("startup", "e7k", 8, 48, 240.0, optimizer_run_id="555")
+        row["startup_overhead_seconds"] = 180.0
+        row["startup_overhead_included_in_wall_clock"] = True
+        index = build_optimizer_index({"observations": [row]}, "adaptive_radial_edge", "555")
+        shape = index["runners"][0]["shapes"][0]
+        self.assertEqual(shape["startup_overhead_seconds"], 180.0)
+        markdown = render_markdown(index, {"pipeline_enumeration": "adaptive"}, preferred_index=index)
+        self.assertIn("Startup overhead", markdown)
+        self.assertIn("| 3m |", markdown)
+        self.assertIn("remains included in **Wall**", markdown)
+        self.assertIn("Per-shard parameter-set throughput is timed after fan-out", markdown)
+
     def test_shape_data_table_sorts_pipeline_count_least_to_greatest(self) -> None:
         index = build_optimizer_index(
             {"schema_version": "2.2", "observations": [

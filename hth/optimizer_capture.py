@@ -36,6 +36,7 @@ def capture_observation(
     runner_label: str,
     github_run_id: str,
     shape_sequence: int,
+    startup_overhead_seconds: float | None = None,
     observation_log: Path | None = None,
     runner_metrics_log: Path | None = None,
 ) -> dict[str, Any]:
@@ -52,6 +53,9 @@ def capture_observation(
     observation["optimizer_run_id"] = str(github_run_id)
     observation["optimizer_shape_sequence"] = shape_sequence
     observation["source"] = "execution-optimizer"
+    if startup_overhead_seconds is not None:
+        observation["startup_overhead_seconds"] = max(0.0, float(startup_overhead_seconds))
+        observation["startup_overhead_included_in_wall_clock"] = True
     if runner_metrics_log is not None:
         observation["runner_metrics"] = summarize_runner_metrics(
             runner_metrics_log,
@@ -224,6 +228,7 @@ def main() -> int:
     parser.add_argument("--runner-label")
     parser.add_argument("--github-run-id")
     parser.add_argument("--shape-sequence", type=int)
+    parser.add_argument("--startup-overhead-seconds", type=float)
     parser.add_argument("--pipeline-number", type=int)
     parser.add_argument("--shard-index", type=int)
     parser.add_argument("--shard-count", type=int)
@@ -281,6 +286,7 @@ def main() -> int:
         runner_label=str(args.runner_label),
         github_run_id=str(args.github_run_id),
         shape_sequence=int(args.shape_sequence),
+        startup_overhead_seconds=args.startup_overhead_seconds,
         observation_log=args.observation_log,
         runner_metrics_log=args.runner_metrics_log,
     )

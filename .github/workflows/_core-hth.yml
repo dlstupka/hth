@@ -1070,7 +1070,9 @@ jobs:
           path: results-repo
           ref: main
           token: ${{ secrets.HTH_RESULTS_TOKEN }}
-          fetch-depth: 0
+          # Reports consume the authoritative tree at current main. History is
+          # neither queried nor needed for publish retries, so keep this shallow.
+          fetch-depth: 1
           persist-credentials: true
 
       - name: Set up Python

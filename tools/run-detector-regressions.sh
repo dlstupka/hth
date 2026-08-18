@@ -3,6 +3,7 @@ set -euo pipefail
 
 OUTPUT_DIR="${HTH_REGRESSION_OUTPUT:-regression-output}"
 mkdir -p "$OUTPUT_DIR"
+executor_started_epoch="$(date +%s.%N)"
 export HTH_SOURCE_COMMIT="$(git -C results-repo rev-parse HEAD)"
 
 effective_limit="${LIMIT:-}"
@@ -53,10 +54,18 @@ PYLIFECYCLE
   if [[ -z "${lifecycle_configs_seen[$detector_key]+x}" ]]; then
     lifecycle_configs_seen[$detector_key]=1
     lifecycle_configs+=("$detector_config")
+    lifecycle_prepare_started="$(date +%s.%N)"
     python -m hth.detector_lifecycle prepare-config \
       --config "$detector_config" \
       --results-root results-repo \
       --env-file "$lifecycle_env"
+    lifecycle_prepare_finished="$(date +%s.%N)"
+    lifecycle_prepare_elapsed="$(python - "$lifecycle_prepare_started" "$lifecycle_prepare_finished" <<'PYLIFECYCLETIME'
+import sys
+print(f"{max(0.0, float(sys.argv[2]) - float(sys.argv[1])):.3f}")
+PYLIFECYCLETIME
+    )"
+    echo "Detector lifecycle PREPARE timing detector=${detector_key} elapsed=${lifecycle_prepare_elapsed}s"
   fi
 done
 if [[ -s "$lifecycle_env" ]]; then
@@ -76,7 +85,15 @@ if [[ " ${detector_configs[*]} " == *"kraken_page_mask.json"* ]]; then
 fi
 if [[ " ${detector_configs[*]} " == *"orli_page_mask.json"* ]]; then
   echo "Running Orli Page-Mask worker preflight after lifecycle environment load."
+  orli_preflight_started="$(date +%s.%N)"
   PYTHONFAULTHANDLER=1 python -m hth.orli_page_mask_preflight
+  orli_preflight_finished="$(date +%s.%N)"
+  orli_preflight_elapsed="$(python - "$orli_preflight_started" "$orli_preflight_finished" <<'PYORLIPREFLIGHTTIME'
+import sys
+print(f"{max(0.0, float(sys.argv[2]) - float(sys.argv[1])):.3f}")
+PYORLIPREFLIGHTTIME
+  )"
+  echo "Orli Page-Mask preflight timing: ${orli_preflight_elapsed}s"
 fi
 
 
@@ -108,7 +125,12 @@ if [[ "$THREADS" != "auto" ]] && { [[ ! "$THREADS" =~ ^[0-9]+$ ]] || (( THREADS 
   echo "::error::Threads must be auto or an integer from 1 through 1024: $THREADS"
   exit 1
 fi
-if [[ "${DETECTOR_ALGORITHM,,}" != "all" ]]; then
+if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" && "$requested_pipelines" != "auto" ]]; then
+  # Exact optimizer/preferred shapes are an atomic pipelines x threads contract.
+  # A single detector can and must fan out across multiple shards/pipelines when
+  # replaying an optimizer-selected execution shape.
+  effective_pipelines="$requested_pipelines"
+elif [[ "${DETECTOR_ALGORITHM,,}" != "all" ]]; then
   effective_pipelines=1
 elif [[ "$requested_pipelines" == "auto" ]]; then
   effective_pipelines="$(python - "${#detector_configs[@]}" "$runner_pipeline_max" <<'PYAUTO'
@@ -212,21 +234,12 @@ PYPLAN
 
   if [[ "$sharding_policy" == "auto" ]]; then
     if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
-      read -r _unused_threads planned_shards serial_estimate plan_source < <(
-        python - "$detector_config" "results-repo/runtime-index.json" "$detector_name" "${HTH_RUNNER_LABEL:-}" "$THREADS" "$SHARD_TARGET_MINUTES" <<'PYPLAN'
-import json, sys
-from pathlib import Path
-from hth.regression.sharding import best_smoke_observation, estimate_serial_runtime, plan_shards
-from hth.regression.strategies.cartesian import generate
-config_path, index_path, detector, runner_label, requested_threads, target_minutes = sys.argv[1:]
-config = json.loads(Path(config_path).read_text(encoding="utf-8"))
-possible = len(generate(config))
-observation = best_smoke_observation(Path(index_path), detector)
-serial = estimate_serial_runtime(observation, possible) if observation else None
-plan = plan_shards(serial, runner_label=runner_label, requested_threads=requested_threads, target_shard_seconds=int(target_minutes)*60, maximum_shards=possible, requested_shards=None, possible_parameter_sets=possible, estimate_source="smoke-runtime-index" if observation else "no-smoke-history")
-print(plan.threads, plan.shard_count, "unknown" if serial is None else f"{serial:.3f}", plan.estimate_source)
-PYPLAN
-      )
+      # Replaying an exact optimizer/preferred shape requires one shard per
+      # requested active pipeline. Standalone runtime-based shard planning must
+      # not collapse an N-pipeline optimizer shape back to a single task.
+      planned_shards="$effective_pipelines"
+      serial_estimate="unknown"
+      plan_source="${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-optimizer}-one-shard-per-pipeline"
     else
       planned_shards="$auto_planned_shards"
     fi
@@ -280,6 +293,11 @@ elif (( requested_pipelines > ${#detector_configs[@]} )); then
   effective_pipelines=${#detector_configs[@]}
 else
   effective_pipelines=$requested_pipelines
+fi
+
+if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" && "$requested_pipelines" != "auto" && "$effective_pipelines" != "$requested_pipelines" ]]; then
+  echo "::error::Exact execution shape requested ${requested_pipelines} pipelines but executor resolved ${effective_pipelines} after shard expansion"
+  exit 1
 fi
 
 if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
@@ -841,6 +859,16 @@ if (( batch_claims_enabled == 1 )); then
     echo "pipeline=$((pipeline_index+1)) tasks=${initial_seed_batches[$pipeline_index]} estimate=$((claimed_batch_units/10)).$((claimed_batch_units%10))s"
   done
 fi
+
+startup_complete_epoch="$(date +%s.%N)"
+startup_overhead_seconds="$(python - "$executor_started_epoch" "$startup_complete_epoch" <<'PYSTARTUP'
+import sys
+print(f"{max(0.0, float(sys.argv[2]) - float(sys.argv[1])):.6f}")
+PYSTARTUP
+)"
+printf '{"executor_startup_overhead_seconds": %s, "definition": "run-detector-regressions start through pre-fan-out lifecycle, planning, and shared-evidence preparation"}\n' \
+  "$startup_overhead_seconds" > "$OUTPUT_DIR/optimizer-overhead.json"
+echo "Executor startup overhead: ${startup_overhead_seconds}s (included in optimizer shape wall time; shard timings start after fan-out)"
 
 for ((pipeline_index=0; pipeline_index<effective_pipelines; pipeline_index++)); do
   detector_worker "$pipeline_index" "${initial_seed_batches[$pipeline_index]:-}" &

@@ -102,6 +102,24 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn('effective_threads_per_pipeline="$THREADS"', text)
         self.assertIn('Execution shape    : ${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-optimizer}-exact', text)
         self.assertIn('Exact shape requested ${THREADS} threads/pipeline but regression executor resolved', text)
+        self.assertIn('effective_pipelines="$requested_pipelines"', text)
+        self.assertIn('planned_shards="$effective_pipelines"', text)
+        self.assertIn('Exact execution shape requested ${requested_pipelines} pipelines but executor resolved', text)
+
+
+    def test_execution_optimizer_persists_startup_overhead_without_subtracting_it_from_shape_wall(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        driver = DRIVER.read_text(encoding="utf-8")
+        store = (ROOT / "hth" / "optimizer_store.py").read_text(encoding="utf-8")
+        self.assertIn("optimizer-overhead.json", driver)
+        self.assertIn("Executor startup overhead:", driver)
+        self.assertIn("Detector lifecycle PREPARE timing detector=", driver)
+        self.assertIn("Orli Page-Mask preflight timing:", driver)
+        self.assertIn("--startup-overhead-seconds", workflow)
+        self.assertIn("shape_wall=$((shape_finished - shape_started))", workflow)
+        self.assertIn("Startup overhead", store)
+        self.assertIn("remains included in **Wall**", store)
+        self.assertIn("Per-shard parameter-set throughput is timed after fan-out", store)
 
     def test_execution_optimizer_records_shards_and_current_run_only_reports(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")

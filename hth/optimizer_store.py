@@ -172,6 +172,8 @@ def _shape_from_row(row: dict[str, Any], *, baseline_wall: float | None, observa
         "observation_count": observation_count,
         "fastest_wall_clock_seconds": wall,
         "median_wall_clock_seconds": wall if median_wall is None else median_wall,
+        "startup_overhead_seconds": _as_float(row.get("startup_overhead_seconds")),
+        "startup_overhead_included_in_wall_clock": bool(row.get("startup_overhead_included_in_wall_clock")),
         "parameter_sets_per_second": _as_float(row.get("parameter_sets_per_second")),
         "page_evaluations_per_second": _as_float(row.get("page_evaluations_per_second")),
         "effective_acceleration": _as_float(row.get("effective_acceleration")),
@@ -490,8 +492,8 @@ def _render_shape_table(index: dict[str, Any]) -> list[str]:
     lines = [
         "This table contains measurements from this optimizer execution only. Bold identifies this run’s measured throughput winner; the preferred configuration above is selected from all compatible coalesced optimizer evidence.",
         "",
-        "| Runner | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Sets/s | Speedup | Δ from run best | Avg load | Peak load | Avg CPU | Peak RAM |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Runner | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Startup overhead | Sets/s | Speedup | Δ from run best | Avg load | Peak load | Avg CPU | Peak RAM |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     rows: list[tuple[str, dict[str, Any], bool]] = []
     for runner in index.get("runners", []):
@@ -520,13 +522,14 @@ def _render_shape_table(index: dict[str, Any]) -> list[str]:
         if delta_from_best is not None and abs(delta_from_best) < 0.005:
             delta_from_best = 0.0
         lines.append(
-            "| {runner} | {pipelines} | {shards} | {threads} | {allocated} | {wall} | {rate} | {speedup} | {delta_from_best} | {avg_load} | {peak_load} | {avg_cpu} | {peak_ram} |".format(
+            "| {runner} | {pipelines} | {shards} | {threads} | {allocated} | {wall} | {startup} | {rate} | {speedup} | {delta_from_best} | {avg_load} | {peak_load} | {avg_cpu} | {peak_ram} |".format(
                 runner=f"**{runner_title}**" if best else runner_title,
                 pipelines=shape.get("pipelines") or "?",
                 shards=shape.get("shards") or "?",
                 threads=shape.get("threads_per_pipeline") or "?",
                 allocated=shape.get("allocated_threads") or "?",
                 wall=_duration(shape.get("fastest_wall_clock_seconds")),
+                startup=_duration(shape.get("startup_overhead_seconds")) if shape.get("startup_overhead_seconds") is not None else "—",
                 rate=f"{rate:.2f}" if rate is not None else "unknown",
                 speedup=f"{speedup:.2f}×" if speedup is not None else "—",
                 delta_from_best=f"{delta_from_best:.2f}%" if delta_from_best is not None else "—",
@@ -536,7 +539,11 @@ def _render_shape_table(index: dict[str, Any]) -> list[str]:
                 peak_ram=_format_bytes(peak_ram) if peak_ram is not None else "—",
             )
         )
-    lines.append("")
+    lines.extend([
+        "",
+        "**Startup-overhead note:** executor startup is measured from `run-detector-regressions` entry through detector lifecycle preparation, planning, shared learned-evidence resolution/preparation, and initial queue setup before pipeline fan-out. It remains included in **Wall** and therefore in shape-level **Sets/s** as a constant reminder of incurred end-to-end cost. Per-shard parameter-set throughput is timed after fan-out and does not include this pre-fan-out startup overhead.",
+        "",
+    ])
     return lines
 
 

@@ -1067,6 +1067,17 @@ jobs:
             bash hth-pipeline/tools/run-detector-regressions.sh
             shape_finished="$(date +%s)"
             shape_wall=$((shape_finished - shape_started))
+            startup_overhead="$(python - "$HTH_REGRESSION_OUTPUT/optimizer-overhead.json" <<'PYSTARTUP'
+          import json, sys
+          from pathlib import Path
+          path = Path(sys.argv[1])
+          if not path.is_file():
+              print("0")
+          else:
+              payload = json.loads(path.read_text(encoding="utf-8"))
+              print(payload.get("executor_startup_overhead_seconds") or 0)
+          PYSTARTUP
+            )"
 
             run_dir="$(tail -n 1 "$HTH_REGRESSION_OUTPUT/run-directories.txt")"
             [[ -d "$run_dir" ]] || {
@@ -1081,6 +1092,7 @@ jobs:
               --runner-label "$HTH_RUNNER_LABEL" \
               --github-run-id "$GITHUB_RUN_ID" \
               --shape-sequence "$shape_number" \
+              --startup-overhead-seconds "$startup_overhead" \
               --observation-log "$observation_log" \
               --runner-metrics-log "$HTH_OPTIMIZER_RUNNER_METRICS_LOG" \
               --observation-json optimizer-work/latest-shape.json
@@ -1108,7 +1120,7 @@ jobs:
           print(row.get("parameter_sets_per_second") or "unknown")
           PYRATE
             )"
-            echo "Execution optimizer shape $shape_number/$total complete: pipelines=$pipelines threads=$effective_threads wall=${shape_wall}s sets/s=$rate"
+            echo "Execution optimizer shape $shape_number/$total complete: pipelines=$pipelines threads=$effective_threads wall=${shape_wall}s startup=${startup_overhead}s sets/s=$rate"
             rm -rf "$HTH_REGRESSION_OUTPUT"
 
             should_stop="$(python - "$assessment" <<'PYSTOP'
