@@ -14,6 +14,7 @@ INTERACTION_PARAMETER_LIMIT = 6
 
 
 _EFFECT_GROUP_RANK = {
+    "Zombie": -1,
     "Dormant": 0,
     "Low": 1,
     "Moderate": 2,
@@ -235,20 +236,25 @@ def _quantile_desc(values: list[float], quantile: float) -> float | None:
 
 
 def _eta_squared(groups: dict[str, list[float]], overall_mean: float, total_ss: float) -> float:
-    if total_ss <= 0.0:
+    if total_ss <= 1e-15:
         return 0.0
     between = sum(bucket[0] * ((bucket[1] / bucket[0]) - overall_mean) ** 2 for bucket in groups.values() if bucket[0])
     return max(0.0, min(1.0, between / total_ss))
 
 
 def _influence_class(eta_squared: float, mean_range: float) -> str:
-    if mean_range < EQUIVALENT_ABSOLUTE_TOLERANCE or eta_squared < 0.001:
+    # HTH engineering effect-size classification.  The upper bands retain the
+    # conventional eta-squared landmarks; Zombie/Dormant deliberately subdivide
+    # the sub-small region by practical materiality for deterministic calibration.
+    if eta_squared < 0.0005 and mean_range < 0.0005:
+        return "Zombie"
+    if eta_squared < 0.005:
         return "Dormant"
-    if eta_squared >= 0.25:
+    if eta_squared >= 0.14:
         return "Critical"
-    if eta_squared >= 0.10:
+    if eta_squared >= 0.06:
         return "Important"
-    if eta_squared >= 0.03:
+    if eta_squared >= 0.02:
         return "Moderate"
     return "Low"
 
@@ -450,17 +456,40 @@ def build_calibration_intelligence(
         raw_zombies = regression_context.get("zombie_parameters")
         if isinstance(raw_zombies, list):
             configured_zombies = {str(name) for name in raw_zombies}
-    # Default searches keep audited zombies pinned and report them separately;
-    # only exhaustive-with-zombies reintroduces them into influence analysis.
+    # Default searches keep audited zombies pinned, so current-run statistics cannot
+    # characterize them.  Keep them visible using the last audited measurement carried
+    # by the canonical regression context; retained evidence is display-only and never
+    # participates in current-run domain counts or interaction calculations.
+    for item in parameters_report:
+        item["evidence_source"] = "current run"
     if strategy != "exhaustive-with-zombies" and configured_zombies:
         parameters_report = [item for item in parameters_report if str(item.get("parameter")) not in configured_zombies]
+        retained = regression_context.get("zombie_parameter_evidence", {}) if isinstance(regression_context, dict) else {}
+        if isinstance(retained, dict):
+            for name in sorted(configured_zombies):
+                evidence = retained.get(name)
+                if not isinstance(evidence, dict):
+                    continue
+                parameters_report.append({
+                    "parameter": name,
+                    "value_count": int(evidence.get("value_count", 0) or 0),
+                    "eta_squared": float(evidence.get("eta_squared", 0.0) or 0.0),
+                    "mean_iou_range": float(evidence.get("mean_iou_range", 0.0) or 0.0),
+                    "classification": str(evidence.get("classification") or _influence_class(float(evidence.get("eta_squared", 0.0) or 0.0), float(evidence.get("mean_iou_range", 0.0) or 0.0))),
+                    "near_best_value_coverage": evidence.get("near_best_value_coverage"),
+                    "best_values": list(evidence.get("best_values", [])) if isinstance(evidence.get("best_values"), list) else [],
+                    "evidence_source": str(evidence.get("source", "retained audited measurement")),
+                    "retained": True,
+                })
+        parameters_report.sort(key=lambda item: (-_EFFECT_GROUP_RANK.get(str(item.get("classification")), -1), -float(item.get("eta_squared", 0.0) or 0.0), str(item.get("parameter"))))
     if not measurement_state["informative"]:
         # A field of identical failure/zero-overlap scores is not evidence that
         # parameters are dormant. Withhold influence and reduction claims until
         # the detector produces an actual calibration signal.
         parameters_report = []
 
-    interaction_parameters = [item["parameter"] for item in parameters_report[:INTERACTION_PARAMETER_LIMIT]]
+    current_parameters_report = [item for item in parameters_report if not bool(item.get("retained"))]
+    interaction_parameters = [item["parameter"] for item in current_parameters_report[:INTERACTION_PARAMETER_LIMIT]]
     sample_step = max(1, math.ceil(count / INTERACTION_SAMPLE_LIMIT))
     sample = ranked[::sample_step]
     sample_scores = [float(result.get("summary", {}).get("mean_iou", 0.0) or 0.0) for result in sample]
@@ -527,6 +556,7 @@ def build_calibration_intelligence(
         set_count=count,
     )
     dormant = [item["parameter"] for item in parameters_report if item["classification"] == "Dormant"]
+    zombies = [item["parameter"] for item in parameters_report if item["classification"] == "Zombie"]
     winner_parameters = ranked[0].get("parameters", {}) if isinstance(ranked[0].get("parameters"), dict) else {}
     live_possible_parameter_sets = possible_parameter_sets
     zombie_possible_parameter_sets = possible_parameter_sets
@@ -535,7 +565,7 @@ def build_calibration_intelligence(
         zombie_possible_parameter_sets = regression_context.get("zombie_possible_parameter_sets", zombie_possible_parameter_sets)
     domain_space = (
         _domain_space(
-            parameters_report,
+            current_parameters_report,
             winner_parameters,
             live_possible_parameter_sets,
             zombie_possible_parameter_sets,
@@ -555,16 +585,18 @@ def build_calibration_intelligence(
     parameter_intelligence = {
         "effect_size_method": "one-way eta-squared over Avg IoU",
         "classification_thresholds": {
-            "dormant": {"eta_squared_below": 0.001, "or_avg_iou_range_below": EQUIVALENT_ABSOLUTE_TOLERANCE},
-            "low": {"eta_squared_minimum": 0.001},
-            "moderate": {"eta_squared_minimum": 0.03},
-            "important": {"eta_squared_minimum": 0.10},
-            "critical": {"eta_squared_minimum": 0.25},
+            "zombie": {"eta_squared_below": 0.0005, "and_avg_iou_range_below": 0.0005},
+            "dormant": {"eta_squared_minimum": 0.0005, "eta_squared_below": 0.005, "note": "also includes eta^2 < 0.0005 when the zombie practical-range test is not met"},
+            "low": {"eta_squared_minimum": 0.005, "eta_squared_below": 0.02},
+            "moderate": {"eta_squared_minimum": 0.02, "eta_squared_below": 0.06},
+            "important": {"eta_squared_minimum": 0.06, "eta_squared_below": 0.14},
+            "critical": {"eta_squared_minimum": 0.14},
         },
         "parameters": parameters_report,
         "dormant_parameters": dormant,
+        "zombie_parameters": zombies,
         "configured_zombie_parameters": sorted(configured_zombies),
-        "active_parameters": [item["parameter"] for item in parameters_report if item["classification"] != "Dormant"],
+        "active_parameters": [item["parameter"] for item in parameters_report if item["classification"] not in {"Dormant", "Zombie"}],
         "interactions": interactions[:10],
         "interaction_method": {
             "parameters_considered": interaction_parameters,
@@ -659,8 +691,10 @@ def build_calibration_intelligence(
         "page_sensitivity": page_report,
         "recommendations": {
             "dormant_parameters": dormant,
-            "retain_for_revalidation": bool(dormant),
-            "note": "Dormant parameters may be omitted from future searches for this Golden Set, but should be re-evaluated when the Golden Set changes.",
+            "zombie_parameters": zombies,
+            "configured_zombie_parameters": sorted(configured_zombies),
+            "retain_for_revalidation": bool(dormant or zombies),
+            "note": "Dormant and Zombie are measured effect-size classes scoped to this Golden Set/grid. Zombie parameters may be isolated from normal search only when retained audited domains support explicit revalidation.",
         },
         "calibration_confidence": {
             "rating": confidence,

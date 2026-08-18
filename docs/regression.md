@@ -420,7 +420,20 @@ HTH distinguishes ordinary exhaustive calibration from deliberate revalidation o
 - `non-dormant`, `low+`, `moderate+`, `important+`, and `critical` — use persisted calibration intelligence to restrict the current live space by measured effect-size classification, with the established fallback toward broader domains when a requested domain is empty.
 - `binary-refine` — retains the sequential local-refinement strategy and is not a sharded exhaustive search.
 
-`Dormant` and `zombie` are intentionally different claims. Dormant means a parameter had no material measured effect in one calibration sample and may become active with another Golden Set or grid. Zombie is a stronger, explicit configuration decision made only after completed calibration evidence is judged sufficient to remove that dimension from the default search. Zombie metadata therefore retains the prior value domain, an audited pinned value, scope, and reason. The detector implementation still accepts the parameter; `exhaustive-with-zombies` can reanimate it at any time.
+Parameter influence has one canonical HTH classification, based on one-way η² over Avg IoU for the characterized Golden Set/grid:
+
+| Class | Criterion | Engineering interpretation |
+|---|---|---|
+| Zombie | η² < 0.0005 **and** Avg-IoU range < 0.0005 | Practically indistinguishable from zero |
+| Dormant | η² < 0.005, excluding Zombie | Measurable or potentially measurable, but operationally negligible |
+| Low | 0.005 ≤ η² < 0.02 | Small effect |
+| Moderate | 0.02 ≤ η² < 0.06 | Meaningful secondary influence |
+| Important | 0.06 ≤ η² < 0.14 | Strong influence |
+| Critical | η² ≥ 0.14 | Dominant influence |
+
+Zombie and Dormant are therefore adjacent **measured effect-size classes**, not separate policy concepts and not synonyms. A parameter classified Zombie may be isolated from the ordinary exhaustive space only when its prior domain, pinned value, audit scope, and last compatible measured evidence are retained so `exhaustive-with-zombies` can revalidate the conclusion. Dormant parameters remain distinct: they are non-zombie dimensions below the normal Low threshold. All classifications are scoped to the document/Golden Set/declared grid and must be reconsidered when that characterization scope materially changes.
+
+HTH currently standardizes on η² so the present document/baptismal collection remains internally comparable. **TODO:** evaluate ω² as a less-biased effect-size estimator and compare η²/ω² classifications on retained calibration evidence before considering any future metric migration. Do not mix estimators within the current collection's canonical reports.
 
 The configuration-level liveness audit is intentionally conservative. It never promotes a parameter to zombie merely because it is singleton, baseline-only, or historically described as dormant. Run `python tools/audit-parameter-liveness.py` to validate all detector liveness metadata; use `--json` for machine-readable output.
 

@@ -56,7 +56,7 @@ class CalibrationIntelligenceTests(unittest.TestCase):
         self.assertIn("Model identity", evidence)
 
 
-    def test_marks_flat_parameter_as_dormant(self):
+    def test_marks_flat_parameter_as_zombie(self):
         ranked = [
             {
                 "parameters": {"unused": value},
@@ -71,8 +71,8 @@ class CalibrationIntelligenceTests(unittest.TestCase):
             strategy="exhaustive",
             possible_parameter_sets=3,
         )
-        self.assertEqual(report["parameter_influence"][0]["classification"], "Dormant")
-        self.assertEqual(report["recommendations"]["dormant_parameters"], ["unused"])
+        self.assertEqual(report["parameter_influence"][0]["classification"], "Zombie")
+        self.assertEqual(report["recommendations"]["zombie_parameters"], ["unused"])
 
 
     def test_preserves_calibration_and_regression_context(self):
@@ -235,3 +235,42 @@ class CalibrationIntelligenceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class CanonicalEffectSizeClassificationTests(unittest.TestCase):
+    def test_canonical_threshold_spec_is_persisted(self):
+        ranked = [
+            {"parameters": {"p": v}, "summary": {"mean_iou": score, "failure_count": 0}, "pages": []}
+            for v, score in [(0, 0.80), (1, 0.81), (2, 0.79)]
+        ]
+        report = build_calibration_intelligence(ranked, detector="thresholds", strategy="exhaustive", possible_parameter_sets=3)
+        thresholds = report["parameter_intelligence"]["classification_thresholds"]
+        self.assertEqual(thresholds["zombie"]["eta_squared_below"], 0.0005)
+        self.assertEqual(thresholds["dormant"]["eta_squared_below"], 0.005)
+        self.assertEqual(thresholds["low"]["eta_squared_minimum"], 0.005)
+        self.assertEqual(thresholds["moderate"]["eta_squared_minimum"], 0.02)
+        self.assertEqual(thresholds["important"]["eta_squared_minimum"], 0.06)
+        self.assertEqual(thresholds["critical"]["eta_squared_minimum"], 0.14)
+
+    def test_retained_zombie_evidence_is_visible_but_not_active(self):
+        ranked = [
+            {"parameters": {"live": v, "dead": 1}, "summary": {"mean_iou": score, "failure_count": 0}, "pages": []}
+            for v, score in [(0, 0.70), (1, 0.90)]
+        ]
+        report = build_calibration_intelligence(
+            ranked, detector="retained", strategy="exhaustive", possible_parameter_sets=2,
+            regression_context={
+                "zombie_parameters": ["dead"],
+                "live_possible_parameter_sets": 2,
+                "zombie_possible_parameter_sets": 4,
+                "zombie_parameter_evidence": {
+                    "dead": {"classification": "Zombie", "eta_squared": 0.0, "mean_iou_range": 0.0,
+                             "near_best_value_coverage": 1.0, "value_count": 2, "source": "retained test evidence"}
+                },
+            },
+        )
+        influence = {item["parameter"]: item for item in report["parameter_influence"]}
+        self.assertTrue(influence["dead"]["retained"])
+        self.assertEqual(influence["dead"]["evidence_source"], "retained test evidence")
+        self.assertNotIn("dead", report["parameter_intelligence"]["active_parameters"])
+        self.assertEqual(report["domain_space"]["exhaustive"]["parameter_set_count"], 2)
+        self.assertEqual(report["domain_space"]["exhaustive_with_zombies"]["parameter_set_count"], 4)

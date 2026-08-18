@@ -1699,20 +1699,35 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
         lines.extend([
             "", "#### Parameter Influence", "",
             "Influence uses one-way η² over Avg IoU. It measures association within this configured grid; it does not establish causation.", "",
-            "| Parameter | Classification | η² | Avg-IoU range | Near-best value coverage | Best observed values |",
-            "|---|---|---:|---:|---:|---|",
+            "| Classification | Canonical HTH criterion | Engineering interpretation |",
+            "|---|---|---|",
+            "| Zombie | η² < 0.0005 **and** Avg-IoU range < 0.0005 | Practically indistinguishable from zero in this characterized grid |",
+            "| Dormant | η² < 0.005, excluding Zombie | Measurable or potentially measurable, but operationally negligible |",
+            "| Low | 0.005 ≤ η² < 0.02 | Small effect |",
+            "| Moderate | 0.02 ≤ η² < 0.06 | Meaningful secondary influence |",
+            "| Important | 0.06 ≤ η² < 0.14 | Strong influence |",
+            "| Critical | η² ≥ 0.14 | Dominant influence |",
+            "",
+            "| Parameter | Classification | η² | Avg-IoU range | Near-best value coverage | Best observed values | Evidence |",
+            "|---|---|---:|---:|---:|---|---|",
         ])
-        for item in parameters[:12]:
+        for item in parameters:
             best_values = item.get("best_values", []) if isinstance(item.get("best_values"), list) else []
             rendered_values = ", ".join(
                 f"`{entry.get('value')}` ({_number(entry.get('mean_iou'))})"
                 for entry in best_values[:3] if isinstance(entry, dict)
             ) or "unknown"
+            coverage = _percent(item.get("near_best_value_coverage")) if item.get("near_best_value_coverage") is not None else "unknown"
             lines.append(
                 f"| `{item.get('parameter', 'unknown')}` | {item.get('classification', 'unknown')} | "
                 f"{_number(item.get('eta_squared'))} | {_number(item.get('mean_iou_range'))} | "
-                f"{_percent(item.get('near_best_value_coverage'))} | {rendered_values} |"
+                f"{coverage} | {rendered_values} | {item.get('evidence_source', 'current run')} |"
             )
+        if any(bool(item.get("retained")) for item in parameters):
+            lines.extend([
+                "",
+                "*Dormant and Zombie are canonical measured effect-size classifications, not synonyms. Retained rows were not varied in this run: their last compatible audited measurements are shown for visibility only and do not contribute to this run's search-space counts, influence calculations, interactions, or winner selection.*",
+            ])
 
     dormant = recommendations.get("dormant_parameters", []) if isinstance(recommendations.get("dormant_parameters"), list) else []
     if dormant:

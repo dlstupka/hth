@@ -1249,6 +1249,7 @@ def run(args:argparse.Namespace)->Path:
             "average_eval_rate": progress_snapshot.eval_rate,
             "execution_environment": environment,
             "zombie_parameters": sorted(str(name) for name in (config.get("zombie_parameters", {}) if isinstance(config.get("zombie_parameters"), dict) else {})),
+            "zombie_parameter_evidence": {str(name): dict(spec.get("last_measured", {})) for name, spec in (config.get("zombie_parameters", {}) if isinstance(config.get("zombie_parameters"), dict) else {}).items() if isinstance(spec, dict) and isinstance(spec.get("last_measured"), dict)},
             "live_possible_parameter_sets": live_possible_parameter_set_count,
             "zombie_possible_parameter_sets": zombie_possible_parameter_set_count,
             "canonical_search_space": search_space_contract,

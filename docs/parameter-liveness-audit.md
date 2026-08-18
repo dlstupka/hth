@@ -6,7 +6,9 @@ This audit was introduced after Orli's completed 10,000-set calibration exposed 
 
 All detector configurations in `config/detectors/` were reviewed for the new liveness contract. The audit is deliberately evidence-conservative: fixed values, baseline-only controls, and dimensions previously collapsed during a detector refinement are **not** automatically called zombies. Those controls may be intentionally pinned for architectural or generation-specific reasons, and the current source snapshot does not necessarily retain the complete historical value domain needed for an honest reanimation search.
 
-The only detector promoted to explicit zombie metadata in this audit is `orli_page_mask`:
+The canonical effect-size specification is defined in [Regression](regression.md#search-strategy-legend-and-zombie-parameters). Zombie is the lowest measured influence class (η² < 0.0005 and Avg-IoU range < 0.0005); Dormant is the next class (η² < 0.005 after excluding Zombie). Configuration-level `zombie_parameters` metadata preserves the domain and evidence needed to keep a measured Zombie out of routine exhaustive work without deleting its ability to be revalidated.
+
+The only detector with retained zombie-domain metadata in this audit is `orli_page_mask`:
 
 | Parameter | Default exhaustive behavior | Retained zombie domain | Audit evidence |
 |---|---|---|---|
