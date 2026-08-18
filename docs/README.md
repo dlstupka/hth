@@ -261,6 +261,8 @@ This directory contains the design, operating, and project-reference documentati
 - [Golden Set](golden-set.md) — approved references and evaluation inputs.
 - [Calibration selection](calibration-selection.md) — selection and promotion of calibrated parameters.
 - [Detector regression](regression.md) — regression execution, telemetry, reports, and debug artifacts.
+- [Orli Page-Mask detector](detector-orli-page-mask.md) — learned historical-document page-mask detector and calibration contract.
+- [Orli learned-evidence persistence](orli-evidence-persistence.md) — deterministic inference reuse, persistent evidence index, identity, and invalidation.
 
 ## Publication and review tools
 
@@ -330,6 +332,7 @@ Their calibration JSON files define the complete discrete search grids used by e
 
 - Detector execution has canonical config-driven `prepare` and `finalize` lifecycle hooks owned by `tools/run-detector-regressions.sh`, the shared detector executor used by normal regressions and the execution optimizer. Workflow YAML does not implement detector-specific lifecycle logic.
 - Each unique detector is prepared exactly once before any shard/pipeline worker starts and finalized exactly once after all of its shards are complete. Ordinary detectors with no lifecycle declaration are no-ops; model-backed detectors may provision and validate external assets.
+- `orli_page_mask` uses a fixed managed Orli historical-document base model. Its calibration parameters consume immutable model evidence rather than modifying or retraining the neural model; compatible learned evidence is persisted in the results repository and indexed by `orli-evidence-index.json`. See [Orli learned-evidence persistence](orli-evidence-persistence.md).
 - `learned_page_mask` uses the released PageNet Ohio Death Records model from `ctensmeyer/pagenet` (BSD-3-Clause). HTH does not train on the Golden Set, avoiding evaluation leakage.
 - On first execution the prepare hook checks `results-repo/models/pagenet-ohio/`; when absent it downloads the released prototxt and weights, derives an inference-only OpenCV-DNN prototxt, records SHA-256 provenance, exports the asset paths, and continues through the ordinary detector flow.
 - Subsequent executions validate and reuse the persisted model. Calibration tunes only deterministic mask-to-boundary post-processing.

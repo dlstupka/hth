@@ -915,6 +915,9 @@ jobs:
             git -C results-repo fetch origin main
             git -C results-repo reset --hard origin/main
             git -C results-repo clean -fd -- calibration-index.json parameter-provenance-index.json runtime-index.json parallelism-index.json multidetector-index.json optimizer-predictions.json source-documents/
+            if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
+              python -m hth.regression.learned_evidence rebuild-orli-index --results-root results-repo
+            fi
 
             if [[ -n "${HTH_SHAPE_PREDICTION_FILE:-}" && -f "${HTH_SHAPE_PREDICTION_FILE}" ]]; then
               python -m hth.regression_shape record-prediction \
@@ -954,6 +957,9 @@ jobs:
               source-documents/
             if [[ -f results-repo/optimizer-predictions.json ]]; then
               git -C results-repo add optimizer-predictions.json
+            fi
+            if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
+              git -C results-repo add learned-evidence/orli_page_mask orli-evidence-index.json
             fi
 
             if git -C results-repo diff --cached --name-only | grep -E '(^|/)models/' >/dev/null; then

@@ -787,8 +787,9 @@ detector_worker() {
 # Learned inference evidence is parameter-invariant. When a learned detector
 # expands into multiple shard tasks, compute its Golden Set evidence exactly
 # once in this parent process before any of those pipeline processes launch.
-# Single-task learned runs keep the process-local prewarm path to avoid delaying
-# unrelated multi-detector smoke work.
+# Single-task Kraken/dhSegment runs keep the process-local prewarm path to avoid
+# delaying unrelated multi-detector smoke work. Orli always uses the parent path
+# because its deterministic evidence is persisted across builds.
 shared_evidence_root="$OUTPUT_DIR/.learned-evidence"
 mkdir -p "$shared_evidence_root"
 declare -A learned_task_counts=()
@@ -802,7 +803,13 @@ done
 
 for learned_detector in kraken_page_mask orli_page_mask dhsegment_page_mask; do
   learned_count="${learned_task_counts[$learned_detector]:-0}"
+  prepare_shared_evidence=0
   if (( learned_count > 1 )); then
+    prepare_shared_evidence=1
+  elif [[ "$learned_detector" == "orli_page_mask" && "$learned_count" -gt 0 ]]; then
+    prepare_shared_evidence=1
+  fi
+  if (( prepare_shared_evidence == 1 )); then
     learned_output="$shared_evidence_root/$learned_detector"
     rm -rf "$learned_output"
     echo
@@ -810,7 +817,13 @@ for learned_detector in kraken_page_mask orli_page_mask dhsegment_page_mask; do
     echo "======================================================"
     echo "[learned-evidence][$learned_detector] shard tasks=$learned_count; preparing once before pipeline fan-out"
     evidence_started_epoch="$(date +%s.%N)"
-    python -m hth.regression.learned_evidence prepare       --detector "$learned_detector"       --golden-set "hth-pipeline/$GOLDEN_SET"       --image-root "results-repo/$IMAGE_ROOT"       --max-dimension "$MAX_DIMENSION"       --output "$learned_output"
+    python -m hth.regression.learned_evidence prepare \
+      --detector "$learned_detector" \
+      --golden-set "hth-pipeline/$GOLDEN_SET" \
+      --image-root "results-repo/$IMAGE_ROOT" \
+      --max-dimension "$MAX_DIMENSION" \
+      --output "$learned_output" \
+      --results-root results-repo
     evidence_finished_epoch="$(date +%s.%N)"
     printf 'shared_evidence\t%s\t%s\t%s\t%s\n'       "$learned_detector" "$learned_count" "$evidence_started_epoch" "$evidence_finished_epoch"       >> "$telemetry_root/learned-evidence.tsv"
   fi

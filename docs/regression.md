@@ -344,6 +344,8 @@ Shard claims are leases rather than permanent locks. Active workers renew their 
 
 Parallel shards share one run-local baseline cache per detector. The first shard to reach the baseline evaluates and publishes it; sibling shards wait for and reuse that result instead of repeating the same Golden Set inference. The cache is discarded with the regression output, so it never becomes cross-run calibration state. Progress accounting includes the baseline as a completed parameter set, keeping the progress numerator/denominator consistent with **Planned Parameter Sets** and **Planned Page Evaluations**. Shard optimizer telemetry separately records locally evaluated parameter sets so reused baseline results do not inflate per-shard throughput.
 
+`orli_page_mask` additionally persists its deterministic parameter-invariant neural evidence in the results repository. Compatible model/page/inference identities hydrate the run-local shared-evidence manifest without rerunning Orli, so execution-optimizer shapes and later builds reuse the same expensive inference work. See [Orli learned-evidence persistence](orli-evidence-persistence.md) for the identity and `orli-evidence-index.json` contract.
+
 ### Parallel completion ordering
 
 Parallel parameter evaluation records `completion_index` in actual parameter-completion order. Shard coalescing reconstructs one global completion sequence from shard start times and per-result completion elapsed time, then derives discovery time, search-space percentage, winner history, and stabilization from that sequence. When runtime history is absent, queue reports display `no history` rather than `unknown`.

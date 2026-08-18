@@ -1198,6 +1198,9 @@ jobs:
             git -C results-repo fetch origin main
             git -C results-repo reset --hard origin/main
             git -C results-repo clean -fd -- optimizer-index.json optimizer-predictions.json execution-optimizer/
+            if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
+              python -m hth.regression.learned_evidence rebuild-orli-index --results-root results-repo
+            fi
             python -m hth.optimizer_capture \
               --results-root results-repo \
               --replay-log "$observation_log" \
@@ -1216,6 +1219,9 @@ jobs:
               "execution-optimizer/$DETECTOR_ALGORITHM/heatmap.svg"
             if [[ -d results-repo/models ]]; then
               git -C results-repo add models/
+            fi
+            if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
+              git -C results-repo add learned-evidence/orli_page_mask orli-evidence-index.json
             fi
             if [[ -f results-repo/optimizer-predictions.json ]]; then
               git -C results-repo add optimizer-predictions.json
