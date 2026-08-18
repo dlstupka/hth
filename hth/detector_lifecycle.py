@@ -22,6 +22,13 @@ KRAKEN_LICENSE="Apache-2.0"
 KRAKEN_PACKAGE_VERSION="7.0.2"
 KRAKEN_MODEL_ID="kraken-blla-default-7.0.2"
 
+ORLI_REPOSITORY="https://pypi.org/project/orli/"
+ORLI_LICENSE="Apache-2.0"
+ORLI_PACKAGE_VERSION="0.0.2"
+ORLI_MODEL_ID="orli-base-2026"
+ORLI_MODEL_URL="https://zenodo.org/records/20558179/files/orli_base.safetensors?download=1"
+ORLI_MODEL_DOI="10.5281/zenodo.20558179"
+
 def _sha256(path):
     h=hashlib.sha256()
     with Path(path).open("rb") as f:
@@ -319,6 +326,50 @@ def _finalize_kraken_page_mask_hook(*,results_root):
     return payload
 
 
+def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
+    if policy not in {"reuse","refresh"}:
+        raise ValueError(f"Unsupported lifecycle policy: {policy}")
+    if importlib.util.find_spec("orli") is None:
+        raise RuntimeError("orli_page_mask requires Orli; the managed runtime must install the detector-specific runtime before PREPARE")
+    installed_version=importlib.metadata.version("orli")
+    if installed_version != ORLI_PACKAGE_VERSION:
+        raise RuntimeError(f"orli_page_mask requires Orli {ORLI_PACKAGE_VERSION}; found {installed_version}")
+
+    root=Path(results_root)/"models"/ORLI_MODEL_ID
+    model=root/"orli_base.safetensors"
+    provenance=root/"model-provenance.json"
+    complete=model.is_file() and provenance.is_file()
+    if policy=="refresh" or not complete:
+        root.mkdir(parents=True,exist_ok=True)
+        _download(ORLI_MODEL_URL,model)
+        payload={
+            "schema_version":"1.0", "model_id":ORLI_MODEL_ID, "model_family":"Orli",
+            "variant":"2026 high-resolution historical-document base model",
+            "orli_version":installed_version, "upstream_repository":ORLI_REPOSITORY,
+            "model_doi":ORLI_MODEL_DOI, "license":ORLI_LICENSE,
+            "model_filename":model.name, "model_sha256":_sha256(model),
+            "prepared_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),
+            "inference_backend":"orli.pred.segment", "serving_contract":"PIL image -> ordered baseline segmentation",
+            "device":"cpu",
+        }
+        provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+    payload=json.loads(provenance.read_text(encoding="utf-8"))
+    if payload.get("model_sha256") != _sha256(model):
+        raise RuntimeError("Orli base model SHA mismatch")
+    env={"HTH_ORLI_PAGE_MODEL":model.resolve().as_posix(), "HTH_ORLI_PAGE_PROVENANCE":provenance.resolve().as_posix(), "CUDA_VISIBLE_DEVICES":"-1"}
+    _write_env(env_file,env); os.environ.update(env)
+    print(f"Orli Page-Mask ready: model={ORLI_MODEL_ID} orli={installed_version} model_sha256={str(payload.get('model_sha256') or '')[:12]}")
+    return payload
+
+def _finalize_orli_page_mask_hook(*,results_root):
+    provenance=Path(results_root)/"models"/ORLI_MODEL_ID/"model-provenance.json"
+    if not provenance.is_file():
+        raise RuntimeError("Orli Page-Mask model provenance missing")
+    payload=json.loads(provenance.read_text(encoding="utf-8"))
+    print(f"Detector lifecycle finalize: orli_page_mask model_sha256={str(payload.get('model_sha256') or '')[:12]}")
+    return payload
+
+
 def _prepare_learned_page_mask_hook(*,results_root,policy,env_file):
     return prepare_detector_legacy(
         "learned_page_mask",
@@ -333,11 +384,13 @@ def _finalize_learned_page_mask_hook(*,results_root):
 _PREPARE_HOOKS={
     "dhsegment_page_mask":_prepare_dhsegment_page_mask_hook,
     "kraken_page_mask":_prepare_kraken_page_mask_hook,
+    "orli_page_mask":_prepare_orli_page_mask_hook,
     "learned_page_mask":_prepare_learned_page_mask_hook,
 }
 _FINALIZE_HOOKS={
     "dhsegment_page_mask":_finalize_dhsegment_page_mask_hook,
     "kraken_page_mask":_finalize_kraken_page_mask_hook,
+    "orli_page_mask":_finalize_orli_page_mask_hook,
     "learned_page_mask":_finalize_learned_page_mask_hook,
 }
 

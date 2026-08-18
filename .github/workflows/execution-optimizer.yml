@@ -42,6 +42,7 @@ on:
           - lsd
           - msre_bfq_spbv_pbg
           - multi_scale_radial_edge
+          - orli_page_mask
           - page_background
           - polar_boundary_vote
           - projective_gradient_vote
@@ -498,6 +499,7 @@ jobs:
         env:
           HTH_NEED_DHSEGMENT: ${{ inputs.algorithm == 'dhsegment_page_mask' || inputs.algorithm == 'all' }}
           HTH_NEED_KRAKEN: ${{ inputs.algorithm == 'kraken_page_mask' || inputs.algorithm == 'all' }}
+          HTH_NEED_ORLI: ${{ inputs.algorithm == 'orli_page_mask' || inputs.algorithm == 'all' }}
         run: |
           set -euo pipefail
           bash hth-pipeline/tools/ensure-managed-runtime.sh
@@ -516,6 +518,19 @@ jobs:
               raise SystemExit(f"tensorflow-cpu {version} does not satisfy {required}")
           import tensorflow as tf
           print(f"dhSegment TensorFlow runtime verified — using managed runtime: {tf.__version__}")
+          PY
+      - name: Verify Orli historical-document segmentation runtime
+        if: ${{ inputs.algorithm == 'orli_page_mask' || inputs.algorithm == 'all' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from importlib import metadata
+          from orli.pred import segment
+          version = metadata.version("orli")
+          if version != "0.0.2":
+              raise SystemExit(f"Expected orli 0.0.2, found {version}")
+          print(f"Orli runtime verified — using managed runtime: {version}")
           PY
       - name: Verify Kraken historical-document segmentation runtime
         if: ${{ inputs.algorithm == 'kraken_page_mask' || inputs.algorithm == 'all' }}

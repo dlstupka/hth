@@ -56,6 +56,17 @@ _DETECTOR_EVIDENCE: dict[str, dict[str, Any]] = {
             ("Page quadrilateral", "Geometry", "Fits and pads a minimum-area quadrilateral around the selected learned-evidence envelope."),
             ("Model identity", "Provenance", "Records the Kraken model provenance and model SHA-256 used to generate the immutable Golden Set evidence."),
         ],
+    },    "orli_page_mask": {
+        "friendly_name": "Orli Page Mask",
+        "short_name": "Orli Page Mask",
+        "role": "Generator",
+        "evidence": [
+            ("Orli historical baseline model", "Primary", "Uses Orli's historical-document base model to recover page-region and text-line evidence."),
+            ("Region and line evidence", "Generator", "Rasterizes learned regions, line polygons, and baselines into a common page-support mask."),
+            ("Sparse multi-region envelope", "Robustness", "Combines substantial disconnected learned regions when they jointly describe a larger document extent instead of accepting only the dominant component."),
+            ("Page quadrilateral", "Geometry", "Fits and pads a minimum-area quadrilateral around the selected learned-evidence envelope."),
+            ("Model identity", "Provenance", "Records the Orli model provenance and model SHA-256 used to generate the immutable Golden Set evidence."),
+        ],
     },
     "distance_transform": {
         "friendly_name": "Distance Transform Detector",

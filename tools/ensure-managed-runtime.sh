@@ -6,6 +6,7 @@ set -euo pipefail
 
 need_dhsegment="${HTH_NEED_DHSEGMENT:-false}"
 need_kraken="${HTH_NEED_KRAKEN:-false}"
+need_orli="${HTH_NEED_ORLI:-false}"
 
 verify_pip() {
   python -m pip --version >/dev/null 2>&1
@@ -117,6 +118,22 @@ print("Kraken SegmentationTaskModel import verified.")
 PY
 }
 
+verify_orli() {
+  python - <<'PY'
+from importlib import metadata
+try:
+    version = metadata.version("orli")
+except metadata.PackageNotFoundError:
+    print("Orli runtime not present.")
+    raise SystemExit(1)
+if version != "0.0.2":
+    print(f"Orli runtime version mismatch: expected 0.0.2, found {version}")
+    raise SystemExit(1)
+from orli.pred import segment
+print(f"Orli runtime verified: {version}")
+PY
+}
+
 verify_complete_runtime() {
   verify_pip || return 1
   verify_base || return 1
@@ -125,6 +142,10 @@ verify_complete_runtime() {
   fi
   if [[ "$need_kraken" == "true" ]]; then
     verify_kraken || return 1
+  fi
+  if [[ "$need_orli" == "true" ]]; then
+    verify_kraken || return 1
+    verify_orli || return 1
   fi
   python -m pip check
 }
@@ -156,6 +177,12 @@ install_kraken_layer() {
   fi
   echo "Installing missing Kraken 7.0.2 layer only."
   python -m pip install "kraken==7.0.2"
+}
+
+install_orli_layer() {
+  install_kraken_layer
+  echo "Installing Orli 0.0.2 historical-document model plugin layer."
+  python -m pip install "orli==0.0.2"
 }
 
 runtime_backup="${HTH_VENV}.backup-${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-1}"
@@ -213,7 +240,9 @@ if ! verify_pip || ! verify_base; then
   if [[ "$need_dhsegment" == "true" ]]; then
     install_dhsegment_layer
   fi
-  if [[ "$need_kraken" == "true" ]]; then
+  if [[ "$need_orli" == "true" ]]; then
+    install_orli_layer
+  elif [[ "$need_kraken" == "true" ]]; then
     install_kraken_layer
   fi
 
@@ -227,6 +256,7 @@ fi
 # missing before touching the environment.
 missing_dhsegment=false
 missing_kraken=false
+missing_orli=false
 
 if [[ "$need_dhsegment" == "true" ]] && ! verify_dhsegment; then
   missing_dhsegment=true
@@ -236,7 +266,15 @@ if [[ "$need_kraken" == "true" ]] && ! verify_kraken; then
   missing_kraken=true
 fi
 
-if [[ "$missing_dhsegment" == "false" && "$missing_kraken" == "false" ]]; then
+if [[ "$need_orli" == "true" ]] && ! verify_kraken; then
+  missing_kraken=true
+fi
+
+if [[ "$need_orli" == "true" ]] && ! verify_orli; then
+  missing_orli=true
+fi
+
+if [[ "$missing_dhsegment" == "false" && "$missing_kraken" == "false" && "$missing_orli" == "false" ]]; then
   python -m pip check
   echo "Managed runtime verified — using previous install; no install required."
   exit 0
@@ -248,7 +286,9 @@ begin_incremental_update
 if [[ "$missing_dhsegment" == "true" ]]; then
   install_dhsegment_layer
 fi
-if [[ "$missing_kraken" == "true" ]]; then
+if [[ "$missing_orli" == "true" ]]; then
+  install_orli_layer
+elif [[ "$missing_kraken" == "true" ]]; then
   install_kraken_layer
 fi
 

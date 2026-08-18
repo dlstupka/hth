@@ -74,6 +74,11 @@ if [[ " ${detector_configs[*]} " == *"kraken_page_mask.json"* ]]; then
   echo "================================="
   PYTHONFAULTHANDLER=1 python -m hth.kraken_page_mask_preflight
 fi
+if [[ " ${detector_configs[*]} " == *"orli_page_mask.json"* ]]; then
+  echo "Running Orli Page-Mask worker preflight after lifecycle environment load."
+  PYTHONFAULTHANDLER=1 python -m hth.orli_page_mask_preflight
+fi
+
 
 if [[ ! "${PIPELINE_STAGGER_MINUTES:-0}" =~ ^[0-9]+$ ]]; then
   echo "::error::Pipeline stagger must be a non-negative whole number of minutes: ${PIPELINE_STAGGER_MINUTES:-}"
@@ -569,6 +574,12 @@ PYLEASE
     echo "[pipeline $pipeline_number][$detector_name] Worker provenance path: ${HTH_KRAKEN_PAGE_PROVENANCE:-<unset>}"
     echo "[pipeline $pipeline_number][$detector_name] Worker provenance exists: $([[ -f "${HTH_KRAKEN_PAGE_PROVENANCE:-}" ]] && echo yes || echo no)"
   fi
+  if [[ "$detector_name" == "orli_page_mask" ]]; then
+    echo "[pipeline $pipeline_number][$detector_name] Worker model path: ${HTH_ORLI_PAGE_MODEL:-<unset>}"
+    echo "[pipeline $pipeline_number][$detector_name] Worker model exists: $([[ -f "${HTH_ORLI_PAGE_MODEL:-}" ]] && echo yes || echo no)"
+    echo "[pipeline $pipeline_number][$detector_name] Worker provenance path: ${HTH_ORLI_PAGE_PROVENANCE:-<unset>}"
+    echo "[pipeline $pipeline_number][$detector_name] Worker provenance exists: $([[ -f "${HTH_ORLI_PAGE_PROVENANCE:-}" ]] && echo yes || echo no)"
+  fi
 
   if ! HTH_DETECTOR_PIPELINES="$effective_pipelines" \
     HTH_DETECTOR_PIPELINE_NUMBER="$pipeline_number" \
@@ -783,13 +794,13 @@ mkdir -p "$shared_evidence_root"
 declare -A learned_task_counts=()
 for task_detector in "${task_detectors[@]}"; do
   case "$task_detector" in
-    kraken_page_mask|dhsegment_page_mask)
+    kraken_page_mask|orli_page_mask|dhsegment_page_mask)
       learned_task_counts["$task_detector"]=$(( ${learned_task_counts["$task_detector"]:-0} + 1 ))
       ;;
   esac
 done
 
-for learned_detector in kraken_page_mask dhsegment_page_mask; do
+for learned_detector in kraken_page_mask orli_page_mask dhsegment_page_mask; do
   learned_count="${learned_task_counts[$learned_detector]:-0}"
   if (( learned_count > 1 )); then
     learned_output="$shared_evidence_root/$learned_detector"
