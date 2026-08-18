@@ -1146,23 +1146,6 @@ def build_summary(
             "**Search strategy legend:** `exhaustive` covers the current live declared Cartesian space and keeps configured zombie parameters pinned; `exhaustive-with-zombies` deliberately restores retained zombie value domains for revalidation. Effect-size strategies operate on the current live space.",
             "",
         ])
-        canonical_space = calibration_payload.get("canonical_search_space", {}) if isinstance(calibration_payload.get("canonical_search_space"), dict) else {}
-        if canonical_space:
-            lines.extend([
-                "### Canonical Search-Space Accounting",
-                "",
-                "These counts are the authoritative search-space contract for this calibration. Mandatory baseline/historic-best reference evaluations do not expand the search universe or parameter-influence analysis.",
-                "",
-                "| Search-space measure | Parameter sets |",
-                "|---|---:|",
-                f"| Exhaustive-with-zombies universe | {canonical_space.get('exhaustive_with_zombies_parameter_sets', 'unknown')} |",
-                f"| Live exhaustive universe | {canonical_space.get('live_exhaustive_parameter_sets', 'unknown')} |",
-                f"| Resolved strategy universe | {canonical_space.get('effective_parameter_sets', 'unknown')} |",
-                f"| Evaluated search-space members | {canonical_space.get('evaluated_search_space_parameter_sets', 'unknown')} |",
-                "",
-                f"Configured zombies: `{', '.join(str(v) for v in canonical_space.get('configured_zombie_parameters', [])) if canonical_space.get('configured_zombie_parameters') else 'none'}`.",
-                "",
-            ])
         lines.extend([
             "### Detector-Selection Intelligence",
             "",
@@ -1699,15 +1682,6 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
         lines.extend([
             "", "#### Parameter Influence", "",
             "Influence uses one-way η² over Avg IoU. It measures association within this configured grid; it does not establish causation.", "",
-            "| Classification | Canonical HTH criterion | Engineering interpretation |",
-            "|---|---|---|",
-            "| Zombie | η² < 0.0005 **and** Avg-IoU range < 0.0005 | Practically indistinguishable from zero in this characterized grid |",
-            "| Dormant | η² < 0.005, excluding Zombie | Measurable or potentially measurable, but operationally negligible |",
-            "| Low | 0.005 ≤ η² < 0.02 | Small effect |",
-            "| Moderate | 0.02 ≤ η² < 0.06 | Meaningful secondary influence |",
-            "| Important | 0.06 ≤ η² < 0.14 | Strong influence |",
-            "| Critical | η² ≥ 0.14 | Dominant influence |",
-            "",
             "| Parameter | Classification | η² | Avg-IoU range | Near-best value coverage | Best observed values | Evidence |",
             "|---|---|---:|---:|---:|---|---|",
         ])
@@ -1728,6 +1702,17 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
                 "",
                 "*Dormant and Zombie are canonical measured effect-size classifications, not synonyms. Retained rows were not varied in this run: their last compatible audited measurements are shown for visibility only and do not contribute to this run's search-space counts, influence calculations, interactions, or winner selection.*",
             ])
+        lines.extend([
+            "", "#### Parameter Classification", "",
+            "| Classification | Canonical HTH criterion | Engineering interpretation |",
+            "|---|---|---|",
+            "| Zombie | η² < 0.0005 **and** Avg-IoU range < 0.0005 | Practically indistinguishable from zero in this characterized grid |",
+            "| Dormant | η² < 0.005, excluding Zombie | Measurable or potentially measurable, but operationally negligible |",
+            "| Low | 0.005 ≤ η² < 0.02 | Small effect |",
+            "| Moderate | 0.02 ≤ η² < 0.06 | Meaningful secondary influence |",
+            "| Important | 0.06 ≤ η² < 0.14 | Strong influence |",
+            "| Critical | η² ≥ 0.14 | Dominant influence |",
+        ])
 
     dormant = recommendations.get("dormant_parameters", []) if isinstance(recommendations.get("dormant_parameters"), list) else []
     if dormant:
