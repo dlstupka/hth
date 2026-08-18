@@ -151,15 +151,32 @@ def _detector_evidence(detector: str) -> dict[str, Any]:
     }
 
 
-def _domain_space(parameters_report: list[dict[str, Any]], winner_parameters: dict[str, Any], possible_parameter_sets: int | None) -> dict[str, Any]:
-    """Build executable cumulative effect-size parameter domains."""
-    exhaustive_count = int(possible_parameter_sets or 0)
+def _domain_space(
+    parameters_report: list[dict[str, Any]],
+    winner_parameters: dict[str, Any],
+    live_parameter_sets: int | None,
+    zombie_inclusive_parameter_sets: int | None,
+) -> dict[str, Any]:
+    """Build executable cumulative effect-size parameter domains.
+
+    ``exhaustive`` is always the current live Cartesian space.
+    ``exhaustive_with_zombies`` is the widest retained/revalidation space and is
+    intentionally reported even when it is identical to ordinary exhaustive.
+    """
+    exhaustive_count = int(live_parameter_sets or 0)
+    zombie_count = int(zombie_inclusive_parameter_sets or exhaustive_count)
+    included = [str(item.get("parameter")) for item in parameters_report]
     domains: dict[str, Any] = {
+        "exhaustive_with_zombies": {
+            "parameter_set_count": zombie_count,
+            "included_parameters": included,
+            "fixed_parameters": {},
+        },
         "exhaustive": {
             "parameter_set_count": exhaustive_count,
-            "included_parameters": [str(item.get("parameter")) for item in parameters_report],
+            "included_parameters": included,
             "fixed_parameters": {},
-        }
+        },
     }
     specifications = (
         ("non_dormant", 1),
@@ -502,8 +519,18 @@ def build_calibration_intelligence(
     )
     dormant = [item["parameter"] for item in parameters_report if item["classification"] == "Dormant"]
     winner_parameters = ranked[0].get("parameters", {}) if isinstance(ranked[0].get("parameters"), dict) else {}
+    live_possible_parameter_sets = possible_parameter_sets
+    zombie_possible_parameter_sets = possible_parameter_sets
+    if isinstance(regression_context, dict):
+        live_possible_parameter_sets = regression_context.get("live_possible_parameter_sets", live_possible_parameter_sets)
+        zombie_possible_parameter_sets = regression_context.get("zombie_possible_parameter_sets", zombie_possible_parameter_sets)
     domain_space = (
-        _domain_space(parameters_report, winner_parameters, possible_parameter_sets)
+        _domain_space(
+            parameters_report,
+            winner_parameters,
+            live_possible_parameter_sets,
+            zombie_possible_parameter_sets,
+        )
         if measurement_state["informative"] else {}
     )
     calibration_context = dict(calibration_context or {})

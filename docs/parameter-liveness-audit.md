@@ -23,4 +23,4 @@ The audit utility checks every detector configuration for malformed or ambiguous
 
 ## Policy
 
-Normal `exhaustive` means exhaustive over the detector's **current live declared space**, not over every parameter value ever tried in the detector's history. `exhaustive-with-zombies` is the explicit forensic/revalidation mode. This keeps default calibration honest and efficient while preserving the ability to regress on deceased controls if someone insists.
+Normal `exhaustive` means exhaustive over the detector's **current live declared space**, not over every parameter value ever tried in the detector's history. `exhaustive-with-zombies` is the explicit forensic/revalidation mode. The calibration domain-reduction table always shows the zombie-inclusive universe first, even when it is identical to ordinary exhaustive, so the cost of retained zombie dimensions remains visible and mathematically consistent across detectors. This keeps default calibration honest and efficient while preserving the ability to regress on deceased controls if someone insists.

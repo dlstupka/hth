@@ -1651,23 +1651,24 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
         ])
     elif domain_space:
         exhaustive_count = int((domain_space.get("exhaustive") or {}).get("parameter_set_count", 0) or 0)
+        zombie_exhaustive_count = int((domain_space.get("exhaustive_with_zombies") or {}).get("parameter_set_count", exhaustive_count) or exhaustive_count)
         exhaustive_time = full_search_metrics[2]
         estimated_full_seconds = None
-        if exhaustive_count and page_rate and page_count:
-            estimated_full_seconds = exhaustive_count * page_count / page_rate
+        if zombie_exhaustive_count and page_rate and page_count:
+            estimated_full_seconds = zombie_exhaustive_count * page_count / page_rate
         lines.extend([
             "", "#### Parameter Set Domain Space Reduction", "",
             "| Effect Size Group | Parameter Sets | % All Sets | New Time Est* | Set Reduction Factor |",
             "|---|---:|---:|---:|---:|",
         ])
-        for key, label in (("exhaustive", "Exhaustive"), ("non_dormant", "Non-dormant"), ("low_plus", "Low+"), ("moderate_plus", "Moderate+"), ("important_plus", "Important+"), ("critical", "Critical")):
+        for key, label in (("exhaustive_with_zombies", "Exhaustive-with-zombies"), ("exhaustive", "Exhaustive"), ("non_dormant", "Non-dormant"), ("low_plus", "Low+"), ("moderate_plus", "Moderate+"), ("important_plus", "Important+"), ("critical", "Critical")):
             entry = domain_space.get(key)
             if not isinstance(entry, dict):
                 continue
             count_value = int(entry.get("parameter_set_count", 0) or 0)
-            percent = count_value / exhaustive_count if exhaustive_count else 0.0
+            percent = count_value / zombie_exhaustive_count if zombie_exhaustive_count else 0.0
             seconds = estimated_full_seconds * percent if estimated_full_seconds is not None else None
-            factor = exhaustive_count / count_value if count_value else None
+            factor = zombie_exhaustive_count / count_value if count_value else None
             factor_text = f"{factor:.1f}×" if factor is not None else "unavailable"
             lines.append(f"| {label} | {count_value} | {_percent(percent)} | {_duration(seconds)} | {factor_text} |")
         lines.extend(["", r"\* Uses the same serial measured-page-rate assumptions as the Calibration Landscape serial-runtime estimate."])

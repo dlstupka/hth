@@ -138,6 +138,58 @@ class CalibrationIntelligenceTests(unittest.TestCase):
         self.assertEqual(report["measurement_state"]["status"], "no_overlap_signal")
         self.assertEqual(report["parameter_influence"], [])
 
+    def test_domain_space_reports_zombie_universe_separately_from_live_exhaustive(self):
+        ranked = [
+            {
+                "parameter_set_id": str(index),
+                "parameters": {"live": live, "zombie": zombie},
+                "summary": {"mean_iou": score, "failure_count": 0},
+                "pages": [{"global_ordinal": 1, "status": "ok", "iou": score}],
+            }
+            for index, (live, zombie, score) in enumerate([
+                (0, 0, 0.80),
+                (1, 0, 0.90),
+                (0, 1, 0.80),
+                (1, 1, 0.90),
+            ])
+        ]
+        report = build_calibration_intelligence(
+            ranked,
+            detector="example",
+            strategy="exhaustive-with-zombies",
+            possible_parameter_sets=4,
+            regression_context={
+                "zombie_parameters": ["zombie"],
+                "live_possible_parameter_sets": 2,
+                "zombie_possible_parameter_sets": 4,
+            },
+        )
+        domains = report["domain_space"]
+        self.assertEqual(domains["exhaustive_with_zombies"]["parameter_set_count"], 4)
+        self.assertEqual(domains["exhaustive"]["parameter_set_count"], 2)
+        self.assertEqual(domains["non_dormant"]["parameter_set_count"], 2)
+
+    def test_domain_space_reports_equal_exhaustive_rows_without_zombies(self):
+        ranked = [{
+            "parameter_set_id": "one",
+            "parameters": {"live": 1},
+            "summary": {"mean_iou": 0.9, "failure_count": 0},
+            "pages": [{"global_ordinal": 1, "status": "ok", "iou": 0.9}],
+        }]
+        report = build_calibration_intelligence(
+            ranked,
+            detector="example",
+            strategy="exhaustive",
+            possible_parameter_sets=1,
+            regression_context={
+                "live_possible_parameter_sets": 1,
+                "zombie_possible_parameter_sets": 1,
+            },
+        )
+        domains = report["domain_space"]
+        self.assertEqual(domains["exhaustive_with_zombies"]["parameter_set_count"], 1)
+        self.assertEqual(domains["exhaustive"]["parameter_set_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

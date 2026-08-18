@@ -978,6 +978,8 @@ def run(args:argparse.Namespace)->Path:
                 historic_best_key = canonical_parameters(historic_best_parameters)
 
         include_zombies = args.strategy == "exhaustive-with-zombies"
+        live_possible_parameter_set_count = len(cartesian_generate(config, include_zombies=False))
+        zombie_possible_parameter_set_count = len(cartesian_generate(config, include_zombies=True))
         all_parameter_sets=cartesian_generate(config, include_zombies=include_zombies)
         possible_parameter_set_count=len(all_parameter_sets)
         calibration_metadata = None
@@ -1237,6 +1239,8 @@ def run(args:argparse.Namespace)->Path:
             "average_eval_rate": progress_snapshot.eval_rate,
             "execution_environment": environment,
             "zombie_parameters": sorted(str(name) for name in (config.get("zombie_parameters", {}) if isinstance(config.get("zombie_parameters"), dict) else {})),
+            "live_possible_parameter_sets": live_possible_parameter_set_count,
+            "zombie_possible_parameter_sets": zombie_possible_parameter_set_count,
         }
         calibration_intelligence = build_calibration_intelligence(
             ranked,

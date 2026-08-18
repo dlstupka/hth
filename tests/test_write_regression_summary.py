@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.write_regression_summary import _best_known_calibrations, _estimate_scope_makespan, _render_best_known_calibrations, build_combined_summary, build_summary
+from hth.write_regression_summary import _best_known_calibrations, _estimate_scope_makespan, _render_best_known_calibrations, _render_detector_calibration, build_combined_summary, build_summary
 
 
 class RegressionSummaryTests(unittest.TestCase):
@@ -263,6 +263,31 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("Dormant parameters: `margin`", text)
             self.assertIn("Available domain spaces: `exhaustive, non_dormant, important_plus`", text)
             self.assertIn("[Open workflow run]", text)
+
+
+    def test_domain_reduction_table_uses_zombie_inclusive_universe_as_denominator(self):
+        payload = {
+            "scope_note": "test",
+            "search": {"exhaustive_complete": True, "parameter_sets": 1000, "fully_successful_parameter_sets": 1000, "fully_successful_rate": 1.0},
+            "landscape": {"best_mean_iou": 0.9, "minimum_mean_iou": 0.8, "stddev_mean_iou": 0.01, "near_best_count": 1, "near_best_share": 0.001, "equivalent_winner_count": 1, "equivalent_winner_share": 0.001},
+            "calibration_confidence": {"rating": "High", "reasons": []},
+            "measurement_state": {"informative": True},
+            "domain_space": {
+                "exhaustive_with_zombies": {"parameter_set_count": 10000},
+                "exhaustive": {"parameter_set_count": 1000},
+                "non_dormant": {"parameter_set_count": 1000},
+            },
+        }
+        summary = {
+            "page_ordinals": [1],
+            "elapsed_seconds": 10.0,
+            "winner": {"summary": {"elapsed_ms_total": 1.0}},
+        }
+        text = "\n".join(_render_detector_calibration("orli_page_mask", payload, summary))
+        self.assertIn("| Exhaustive-with-zombies | 10000 | 100.0% |", text)
+        self.assertIn("| Exhaustive | 1000 | 10.0% |", text)
+        self.assertIn("| Non-dormant | 1000 | 10.0% |", text)
+        self.assertLess(text.index("| Exhaustive-with-zombies |"), text.index("| Exhaustive |"))
 
 
     def test_scope_estimate_models_shard_level_lpt(self):

@@ -9,4 +9,4 @@ See [Orli learned-evidence persistence](orli-evidence-persistence.md) for the pe
 
 ## Parameter liveness
 
-The completed 10,000-set HTH-0001 characterization classified `close_kernel_fraction` and `fill_holes` as empirical zombies for the current Golden Set/grid. Normal `exhaustive` calibration pins them at `0.0` and `0`, respectively, and searches the four live dimensions. The explicit `exhaustive-with-zombies` strategy restores their retained historical domains and reconstructs the original 10,000-set space for deliberate revalidation. See [Detector Parameter Liveness Audit](parameter-liveness-audit.md).
+The completed 10,000-set HTH-0001 characterization classified `close_kernel_fraction` and `fill_holes` as empirical zombies for the current Golden Set/grid. Normal `exhaustive` calibration pins them at their audited baseline values `0.006` and `1`, respectively, and searches the four live dimensions. The explicit `exhaustive-with-zombies` strategy restores their retained historical domains and reconstructs the original 10,000-set space for deliberate revalidation. See [Detector Parameter Liveness Audit](parameter-liveness-audit.md).
