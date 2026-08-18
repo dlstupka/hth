@@ -4,6 +4,14 @@
 
 The expensive neural inference stage is therefore parameter-invariant. For a given model, resized Golden Set page, and inference contract, HTH can safely reuse the same Orli evidence for every calibration parameter set and every execution shape. The regression driver still creates a run-local shared-evidence manifest for worker fan-out, but that manifest may now be hydrated from the persistent results-repository evidence store instead of rerunning Orli.
 
+## Learned-geometry envelope refinement
+
+The Orli historical base model often emits baseline geometry without region or line polygons. Earlier page-mask conversion rasterized those baselines and selected an external connected contour. On dense two-page spreads that can collapse hundreds of valid learned baselines into one connected text block or one column, even though the complete Orli evidence spans the document.
+
+The detector now derives a second, parameter-free **learned-geometry consensus envelope** directly from the retained region, line, and baseline coordinates. Extremely short baseline fragments are rejected conservatively, the remaining learned points are combined into a convex outer support, and a minimum-area quadrilateral is fit to that global extent. HTH compares this learned-geometry envelope with the morphology-derived contour envelope and uses the larger learned document extent before applying the existing calibrated page padding and minimum-area gate.
+
+This changes only the deterministic interpretation of existing Orli evidence. It does not retrain the model, invalidate persisted evidence, or expand the live parameter grid. Diagnostics record the contour and learned-geometry areas plus the selected envelope mode so verbose regressions can show when the consensus path repaired a collapsed connected-component proposal.
+
 See [Orli learned-evidence persistence](orli-evidence-persistence.md) for the persistent identity, evidence index, repository layout, and invalidation rules.
 
 

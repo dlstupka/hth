@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "orli_page_mask",
-  "description": "Orli historical-document page-mask calibration. Default exhaustive search now concentrates on the four live dimensions from the completed 10,000-set characterization; two empirically deceased/zombie morphology controls are pinned by default and remain available only through exhaustive-with-zombies for deliberate revalidation.",
+  "description": "Orli historical-document page-mask calibration. Deterministic postprocessing now compares the morphology-derived contour envelope with a global learned-geometry consensus envelope built directly from Orli regions/lines/baselines, preventing dense disconnected baseline evidence from collapsing onto one text block or column. Default exhaustive search concentrates on the four live dimensions; audited zombie morphology controls remain pinned by default and are available through exhaustive-with-zombies for deliberate revalidation.",
   "profiles": {
     "baseline": {
       "include_lines": 1,

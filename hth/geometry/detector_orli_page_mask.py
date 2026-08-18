@@ -452,30 +452,166 @@ def _select_evidence_envelope(contours, *, image_area):
     }
 
 
+
+def _learned_geometry_envelope(evidence, *, image_shape):
+    """Build a robust outer envelope directly from Orli layout geometry.
+
+    Orli's historical base model can emit hundreds of disconnected baselines
+    without line polygons or regions. Rasterizing those baselines and then
+    selecting a connected contour can therefore collapse a page proposal onto
+    one dense text block or one column.  The learned geometry itself already
+    carries the global document extent, so construct a consensus envelope from
+    all substantial baseline/line/region geometry before morphology can break
+    it into components.
+
+    The filter is deliberately parameter-free: it removes only extremely short
+    baseline fragments relative to the page scale, then fits the minimum-area
+    rectangle around the surviving learned points.  Calibration parameters
+    continue to control only the existing morphology, padding, and area gate.
+    """
+    h, w = image_shape[:2]
+    min_dim = float(max(1, min(h, w)))
+    point_sets = []
+    baseline_lengths = []
+
+    for polygon in evidence.get("regions", ()):
+        pts = np.asarray(polygon, dtype=np.float32).reshape(-1, 2)
+        if len(pts) >= 3:
+            point_sets.append(pts)
+
+    for polygon in evidence.get("lines", ()):
+        pts = np.asarray(polygon, dtype=np.float32).reshape(-1, 2)
+        if len(pts) >= 3:
+            point_sets.append(pts)
+
+    baseline_sets = []
+    for baseline in evidence.get("baselines", ()):
+        pts = np.asarray(baseline, dtype=np.float32).reshape(-1, 2)
+        if len(pts) < 2:
+            continue
+        length = float(np.linalg.norm(np.diff(pts, axis=0), axis=1).sum())
+        baseline_sets.append((pts, length))
+        baseline_lengths.append(length)
+
+    if baseline_sets:
+        # Reject only obvious tiny fragments.  Use both an image-scale floor and
+        # a very small fraction of the median learned-line length so sparse short
+        # entries remain represented while isolated model specks cannot dominate
+        # the global envelope.
+        median_length = float(np.median(baseline_lengths)) if baseline_lengths else 0.0
+        length_floor = max(2.0, min_dim * 0.0025, median_length * 0.05)
+        for pts, length in baseline_sets:
+            if length >= length_floor:
+                point_sets.append(pts)
+    else:
+        median_length = 0.0
+        length_floor = 0.0
+
+    if not point_sets:
+        return None, {
+            "available": False,
+            "point_sets": 0,
+            "baseline_count": len(baseline_sets),
+            "baseline_length_floor": length_floor,
+        }
+
+    points = np.concatenate(point_sets, axis=0)
+    if len(points) < 4 or not np.isfinite(points).all():
+        return None, {
+            "available": False,
+            "point_sets": len(point_sets),
+            "baseline_count": len(baseline_sets),
+            "baseline_length_floor": length_floor,
+        }
+
+    # A convex hull makes the consensus insensitive to the order in which Orli
+    # emitted individual baselines while retaining the true outer layout extent.
+    hull = cv2.convexHull(points.reshape(-1, 1, 2))
+    if hull is None or len(hull) < 3:
+        return None, {
+            "available": False,
+            "point_sets": len(point_sets),
+            "baseline_count": len(baseline_sets),
+            "baseline_length_floor": length_floor,
+        }
+
+    rect = cv2.minAreaRect(hull)
+    corners = _canonical_quad(cv2.boxPoints(rect), width=w, height=h)
+    area = abs(float(cv2.contourArea(corners))) if corners is not None else 0.0
+    return corners, {
+        "available": corners is not None,
+        "point_sets": len(point_sets),
+        "point_count": int(len(points)),
+        "baseline_count": len(baseline_sets),
+        "baseline_median_length": median_length,
+        "baseline_length_floor": length_floor,
+        "area": area,
+    }
+
+
+def _pad_quad(corners, *, image_shape, padding_fraction):
+    if corners is None:
+        return None
+    h, w = image_shape[:2]
+    corners = np.asarray(corners, dtype=np.float32).reshape(4, 2)
+    center = corners.mean(axis=0)
+    vectors = corners - center
+    lengths = np.linalg.norm(vectors, axis=1)
+    pad = float(min(h, w)) * float(padding_fraction)
+    safe = np.maximum(lengths, 1e-6)
+    padded = center + vectors * ((safe + pad) / safe)[:, None]
+    return _canonical_quad(padded, width=w, height=h)
+
 def _proposal(image_bgr, values):
     evidence = _infer_evidence(image_bgr)
     mask = _evidence_mask(image_bgr.shape, evidence, values)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     h, w = mask.shape
     image_area = float(h * w)
-    selected, envelope_diagnostics = _select_evidence_envelope(
+    selected, contour_diagnostics = _select_evidence_envelope(
         contours,
         image_area=image_area,
     )
-    if not selected:
-        return evidence, mask, None, None, 0.0, envelope_diagnostics
 
-    contour = selected[0]
-    rect = cv2.minAreaRect(contour)
-    corners = cv2.boxPoints(rect).astype(np.float32)
+    contour = selected[0] if selected else None
+    contour_corners = None
+    contour_area = 0.0
+    if contour is not None:
+        contour_corners = _canonical_quad(cv2.boxPoints(cv2.minAreaRect(contour)), width=w, height=h)
+        if contour_corners is not None:
+            contour_area = abs(float(cv2.contourArea(contour_corners)))
 
-    center = corners.mean(axis=0)
-    vectors = corners - center
-    lengths = np.linalg.norm(vectors, axis=1)
-    pad = float(min(h, w)) * values["page_padding_fraction"]
-    safe = np.maximum(lengths, 1e-6)
-    corners = center + vectors * ((safe + pad) / safe)[:, None]
-    corners = _canonical_quad(corners, width=w, height=h)
+    learned_corners, learned_diagnostics = _learned_geometry_envelope(
+        evidence,
+        image_shape=image_bgr.shape,
+    )
+    learned_area = abs(float(cv2.contourArea(learned_corners))) if learned_corners is not None else 0.0
+
+    # Prefer the envelope that captures the larger learned document extent.
+    # This specifically prevents a connected-component accident from collapsing
+    # hundreds of valid Orli baselines onto a single dense text block/column.
+    if learned_corners is not None and learned_area > contour_area:
+        raw_corners = learned_corners
+        envelope_mode = "learned-geometry-consensus"
+    else:
+        raw_corners = contour_corners
+        envelope_mode = contour_diagnostics.get("mode", "none")
+
+    envelope_diagnostics = {
+        "mode": envelope_mode,
+        "contour": contour_diagnostics,
+        "learned_geometry": learned_diagnostics,
+        "contour_quad_area": contour_area,
+        "learned_quad_area": learned_area,
+    }
+    if raw_corners is None:
+        return evidence, mask, contour, None, 0.0, envelope_diagnostics
+
+    corners = _pad_quad(
+        raw_corners,
+        image_shape=image_bgr.shape,
+        padding_fraction=values["page_padding_fraction"],
+    )
     if corners is None:
         return evidence, mask, contour, None, 0.0, envelope_diagnostics
 
