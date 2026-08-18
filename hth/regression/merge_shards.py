@@ -287,6 +287,8 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
             "possible_parameter_sets": possible,
             "live_possible_parameter_sets": live_possible,
             "zombie_possible_parameter_sets": zombie_possible,
+            "baseline_parameters": dict(detector_configuration.get("profiles", {}).get("baseline", {})),
+            "fixed_parameter_policy": "baseline",
             "zombie_parameters": list(search_space_contract["configured_zombie_parameters"]),
             "zombie_parameter_evidence": {str(name): dict(spec.get("last_measured", {})) for name, spec in (detector_configuration.get("zombie_parameters", {}) if isinstance(detector_configuration.get("zombie_parameters"), dict) else {}).items() if isinstance(spec, dict) and isinstance(spec.get("last_measured"), dict)},
             "canonical_search_space": search_space_contract,

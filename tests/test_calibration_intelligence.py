@@ -169,6 +169,43 @@ class CalibrationIntelligenceTests(unittest.TestCase):
         self.assertEqual(domains["exhaustive"]["parameter_set_count"], 2)
         self.assertEqual(domains["non_dormant"]["parameter_set_count"], 2)
 
+    def test_contracted_domains_pin_excluded_parameters_to_baseline(self):
+        ranked = [
+            {
+                "parameter_set_id": str(index),
+                "parameters": {"criticalish": criticalish, "lowish": lowish},
+                "summary": {"mean_iou": score, "failure_count": 0},
+                "pages": [{"global_ordinal": 1, "status": "ok", "iou": score}],
+            }
+            for index, (criticalish, lowish, score) in enumerate([
+                (0, 0, 0.70),
+                (1, 0, 0.90),
+                (0, 1, 0.71),
+                (1, 1, 0.91),
+            ])
+        ]
+        baseline = {"criticalish": 0, "lowish": 0}
+        report = build_calibration_intelligence(
+            ranked,
+            detector="example",
+            strategy="exhaustive",
+            possible_parameter_sets=4,
+            regression_context={
+                "baseline_parameters": baseline,
+                "live_possible_parameter_sets": 4,
+                "zombie_possible_parameter_sets": 4,
+            },
+        )
+        domains = report["domain_space"]
+        self.assertEqual(domains["non_dormant"]["fixed_parameter_policy"], "baseline")
+        self.assertEqual(domains["low_plus"]["fixed_parameter_policy"], "baseline")
+        self.assertEqual(domains["non_dormant"]["parameter_set_count"], domains["low_plus"]["parameter_set_count"])
+        for domain in domains.values():
+            if not isinstance(domain, dict):
+                continue
+            for name, value in domain.get("fixed_parameters", {}).items():
+                self.assertEqual(value, baseline[name])
+
     def test_domain_space_reports_equal_exhaustive_rows_without_zombies(self):
         ranked = [{
             "parameter_set_id": "one",

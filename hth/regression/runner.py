@@ -195,11 +195,22 @@ def _resolve_effect_strategy(requested: str, metadata: dict[str, Any] | None) ->
     return "exhaustive", None, f"No available parameter sets for {requested}; fell back to exhaustive."
 
 
-def _filter_parameter_sets(parameter_sets: list[dict[str, Any]], domain: dict[str, Any] | None) -> list[dict[str, Any]]:
+def _filter_parameter_sets(
+    parameter_sets: list[dict[str, Any]],
+    domain: dict[str, Any] | None,
+    baseline_parameters: dict[str, Any],
+) -> list[dict[str, Any]]:
     if not domain:
         return parameter_sets
     included = set(str(name) for name in domain.get("included_parameters", []))
-    fixed = domain.get("fixed_parameters", {}) if isinstance(domain.get("fixed_parameters"), dict) else {}
+    # Contracted searches are canonical baseline-relative experiments. Every
+    # excluded dimension is fixed to the detector baseline, never to a historic
+    # winner. This keeps full parameter dictionaries/IDs invariant across builds.
+    fixed = {
+        str(name): value
+        for name, value in baseline_parameters.items()
+        if str(name) not in included
+    }
     filtered: list[dict[str, Any]] = []
     seen: set[str] = set()
     for parameters in parameter_sets:
@@ -989,7 +1000,7 @@ def run(args:argparse.Namespace)->Path:
         requested_strategy = args.strategy
         effective_strategy, effect_domain, strategy_fallback_reason = _resolve_effect_strategy(requested_strategy, calibration_metadata)
         if effect_domain is not None:
-            all_parameter_sets = _filter_parameter_sets(all_parameter_sets, effect_domain)
+            all_parameter_sets = _filter_parameter_sets(all_parameter_sets, effect_domain, baseline_parameters)
         search_space_contract = canonical_search_space(config, effective_strategy)
         search_space_contract["effective_parameter_sets"] = len(all_parameter_sets)
         search_space_contract["strategy"] = effective_strategy
@@ -1248,6 +1259,8 @@ def run(args:argparse.Namespace)->Path:
             "failed_page_evaluations": progress_snapshot.failures,
             "average_eval_rate": progress_snapshot.eval_rate,
             "execution_environment": environment,
+            "baseline_parameters": dict(baseline_parameters),
+            "fixed_parameter_policy": "baseline",
             "zombie_parameters": sorted(str(name) for name in (config.get("zombie_parameters", {}) if isinstance(config.get("zombie_parameters"), dict) else {})),
             "zombie_parameter_evidence": {str(name): dict(spec.get("last_measured", {})) for name, spec in (config.get("zombie_parameters", {}) if isinstance(config.get("zombie_parameters"), dict) else {}).items() if isinstance(spec, dict) and isinstance(spec.get("last_measured"), dict)},
             "live_possible_parameter_sets": live_possible_parameter_set_count,

@@ -53,6 +53,27 @@ class OrliGeometryRefinementTests(unittest.TestCase):
         self.assertGreater(diagnostics["baseline_length_floor"], 1.0)
         self.assertLess(float(np.asarray(corners)[:, 0].max()), 600.0)
 
+    def test_arbitration_keeps_taller_learned_geometry_even_when_contour_area_is_larger(self):
+        contour = np.asarray([[50, 200], [1050, 200], [1050, 600], [50, 600]], dtype=np.float32)
+        learned = np.asarray([[250, 80], [850, 80], [850, 720], [250, 720]], dtype=np.float32)
+        chosen, source, diagnostics = orli._arbitrate_envelopes(
+            contour, learned, image_shape=(800, 1100, 3)
+        )
+        self.assertEqual(source, "learned")
+        self.assertEqual(diagnostics["reason"], "material-vertical-extent")
+        self.assertTrue(np.array_equal(chosen, learned))
+        self.assertLess(diagnostics["learned_area"], diagnostics["contour_area"])
+
+    def test_arbitration_rejects_axis_stretch_that_loses_too_much_orthogonal_span(self):
+        contour = np.asarray([[50, 200], [1050, 200], [1050, 600], [50, 600]], dtype=np.float32)
+        learned = np.asarray([[480, 40], [620, 40], [620, 760], [480, 760]], dtype=np.float32)
+        chosen, source, diagnostics = orli._arbitrate_envelopes(
+            contour, learned, image_shape=(800, 1100, 3)
+        )
+        self.assertEqual(source, "contour")
+        self.assertEqual(diagnostics["reason"], "contour-retains-document-extent")
+        self.assertTrue(np.array_equal(chosen, contour))
+
     def test_proposal_prefers_larger_learned_geometry_over_connected_component(self):
         image = np.zeros((800, 1200, 3), dtype=np.uint8)
         evidence = orli._freeze_evidence({

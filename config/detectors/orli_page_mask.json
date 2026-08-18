@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "orli_page_mask",
-  "description": "Orli historical-document page-mask calibration. Deterministic postprocessing now compares the morphology-derived contour envelope with a global learned-geometry consensus envelope built directly from Orli regions/lines/baselines, preventing dense disconnected baseline evidence from collapsing onto one text block or column. Default exhaustive search concentrates on the four live dimensions; audited zombie morphology controls remain pinned by default and are available through exhaustive-with-zombies for deliberate revalidation.",
+  "description": "Orli historical-document page-mask calibration. Deterministic postprocessing compares the morphology-derived contour envelope with a global learned-geometry consensus envelope built directly from Orli regions/lines/baselines and preserves materially larger learned horizontal/vertical document extent even when a fat truncated contour has greater total area. Default exhaustive search concentrates on the four live dimensions; audited zombie morphology controls remain pinned to detector baseline values and are available through exhaustive-with-zombies for deliberate revalidation.",
   "profiles": {
     "baseline": {
       "include_lines": 1,

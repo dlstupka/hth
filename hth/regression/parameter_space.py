@@ -27,9 +27,16 @@ def _parameter_specs(config: dict[str, Any], *, include_zombies: bool = False) -
         if include_zombies:
             specs[str(name)] = {**spec, "values": values}
         else:
-            if "pinned_value" not in spec:
-                raise ValueError(f"Zombie parameter {name!r} must declare pinned_value")
-            specs[str(name)] = {**spec, "values": [spec["pinned_value"]]}
+            baseline = config.get("profiles", {}).get("baseline")
+            if not isinstance(baseline, dict) or str(name) not in baseline:
+                raise ValueError(f"Zombie parameter {name!r} must exist in profiles.baseline")
+            baseline_value = baseline[str(name)]
+            if "pinned_value" in spec and spec["pinned_value"] != baseline_value:
+                raise ValueError(
+                    f"Zombie parameter {name!r} pinned_value must match profiles.baseline "
+                    f"({spec['pinned_value']!r} != {baseline_value!r})"
+                )
+            specs[str(name)] = {**spec, "values": [baseline_value]}
     return specs
 
 

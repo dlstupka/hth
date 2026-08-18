@@ -3,7 +3,8 @@ import unittest
 from pathlib import Path
 
 from hth.parameter_liveness import audit_detector_directory
-from hth.regression.parameter_space import exhaustive_parameter_sets, canonical_search_space
+from hth.regression.parameter_space import exhaustive_parameter_sets, canonical_search_space, parameter_set_id
+from hth.regression.runner import _filter_parameter_sets
 from hth.regression.strategies.cartesian import generate
 
 
@@ -36,6 +37,32 @@ class ZombieParameterSpaceTests(unittest.TestCase):
         self.assertEqual([(item["detector"], item["zombie_parameters"]) for item in zombie], [
             ("orli_page_mask", ["close_kernel_fraction", "fill_holes"])
         ])
+
+    def test_contracted_search_pins_excluded_dimensions_to_baseline(self):
+        baseline = dict(self.config["profiles"]["baseline"])
+        all_sets = exhaustive_parameter_sets(self.config)
+        domain = {
+            "included_parameters": ["include_lines", "dilation_fraction"],
+            # Retained intelligence from an older run may contain winner-relative
+            # fixed values. Execution must ignore them and use the baseline.
+            "fixed_parameters": {"page_padding_fraction": 0.12, "minimum_page_area_fraction": 0.08},
+        }
+        filtered = _filter_parameter_sets(all_sets, domain, baseline)
+        self.assertTrue(filtered)
+        for row in filtered:
+            self.assertEqual(row["page_padding_fraction"], baseline["page_padding_fraction"])
+            self.assertEqual(row["minimum_page_area_fraction"], baseline["minimum_page_area_fraction"])
+            self.assertEqual(row["close_kernel_fraction"], baseline["close_kernel_fraction"])
+            self.assertEqual(row["fill_holes"], baseline["fill_holes"])
+
+    def test_contracted_parameter_ids_are_invariant_to_historic_fixed_values(self):
+        baseline = dict(self.config["profiles"]["baseline"])
+        all_sets = exhaustive_parameter_sets(self.config)
+        domain_a = {"included_parameters": ["include_lines"], "fixed_parameters": {"dilation_fraction": 0.0}}
+        domain_b = {"included_parameters": ["include_lines"], "fixed_parameters": {"dilation_fraction": 0.06}}
+        ids_a = [parameter_set_id(row) for row in _filter_parameter_sets(all_sets, domain_a, baseline)]
+        ids_b = [parameter_set_id(row) for row in _filter_parameter_sets(all_sets, domain_b, baseline)]
+        self.assertEqual(ids_a, ids_b)
 
     def test_workflows_expose_zombie_strategy(self):
         for workflow in ("regress-detector.yml", "execution-optimizer.yml"):

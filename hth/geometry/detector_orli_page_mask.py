@@ -549,6 +549,97 @@ def _learned_geometry_envelope(evidence, *, image_shape):
     }
 
 
+
+
+def _quad_axis_bounds(corners):
+    if corners is None:
+        return None
+    pts = np.asarray(corners, dtype=np.float32).reshape(-1, 2)
+    if len(pts) != 4 or not np.isfinite(pts).all():
+        return None
+    return {
+        "left": float(pts[:, 0].min()),
+        "top": float(pts[:, 1].min()),
+        "right": float(pts[:, 0].max()),
+        "bottom": float(pts[:, 1].max()),
+        "width": float(pts[:, 0].max() - pts[:, 0].min()),
+        "height": float(pts[:, 1].max() - pts[:, 1].min()),
+    }
+
+
+def _arbitrate_envelopes(contour_corners, learned_corners, *, image_shape):
+    """Choose between morphology and global learned geometry without area bias.
+
+    A wide-but-truncated contour can have more area than the Orli geometry that
+    actually spans the document.  Prefer the learned envelope when it contributes
+    a materially larger document-axis span while retaining a substantial fraction
+    of the contour's orthogonal span.  Otherwise retain the historic area fallback.
+
+    This is intentionally parameter-free: it changes envelope arbitration only,
+    not the calibration search space or persisted neural evidence contract.
+    """
+    h, w = image_shape[:2]
+    contour_bounds = _quad_axis_bounds(contour_corners)
+    learned_bounds = _quad_axis_bounds(learned_corners)
+    contour_area = abs(float(cv2.contourArea(contour_corners))) if contour_corners is not None else 0.0
+    learned_area = abs(float(cv2.contourArea(learned_corners))) if learned_corners is not None else 0.0
+
+    diagnostics = {
+        "contour_bounds": contour_bounds,
+        "learned_bounds": learned_bounds,
+        "contour_area": contour_area,
+        "learned_area": learned_area,
+        "decision": "none",
+        "reason": "no-envelope",
+    }
+    if learned_corners is None:
+        diagnostics.update(decision="contour", reason="learned-unavailable")
+        return contour_corners, "contour", diagnostics
+    if contour_corners is None:
+        diagnostics.update(decision="learned", reason="contour-unavailable")
+        return learned_corners, "learned", diagnostics
+
+    min_dim = float(max(1, min(h, w)))
+    material_pixels = max(4.0, min_dim * 0.02)
+    c_width = max(1e-6, float(contour_bounds["width"]))
+    c_height = max(1e-6, float(contour_bounds["height"]))
+    l_width = max(1e-6, float(learned_bounds["width"]))
+    l_height = max(1e-6, float(learned_bounds["height"]))
+    width_ratio = l_width / c_width
+    height_ratio = l_height / c_height
+    diagnostics.update({
+        "material_span_pixels": material_pixels,
+        "learned_to_contour_width_ratio": width_ratio,
+        "learned_to_contour_height_ratio": height_ratio,
+        "learned_extensions": {
+            "left": max(0.0, contour_bounds["left"] - learned_bounds["left"]),
+            "top": max(0.0, contour_bounds["top"] - learned_bounds["top"]),
+            "right": max(0.0, learned_bounds["right"] - contour_bounds["right"]),
+            "bottom": max(0.0, learned_bounds["bottom"] - contour_bounds["bottom"]),
+        },
+    })
+
+    # A >=8% span gain plus an absolute 2%-of-page gain is enough to identify
+    # the collapse seen in verbose Orli runs. Require at least 60% retention of
+    # the orthogonal contour span so a single remote outlier cannot win merely by
+    # stretching one axis.
+    width_gain = l_width - c_width
+    height_gain = l_height - c_height
+    learned_has_horizontal_extent = width_ratio >= 1.08 and width_gain >= material_pixels and height_ratio >= 0.60
+    learned_has_vertical_extent = height_ratio >= 1.08 and height_gain >= material_pixels and width_ratio >= 0.60
+    if learned_has_horizontal_extent or learned_has_vertical_extent:
+        axis = "both" if learned_has_horizontal_extent and learned_has_vertical_extent else "horizontal" if learned_has_horizontal_extent else "vertical"
+        diagnostics.update(decision="learned", reason=f"material-{axis}-extent")
+        return learned_corners, "learned", diagnostics
+
+    if learned_area > contour_area:
+        diagnostics.update(decision="learned", reason="larger-area-fallback")
+        return learned_corners, "learned", diagnostics
+
+    diagnostics.update(decision="contour", reason="contour-retains-document-extent")
+    return contour_corners, "contour", diagnostics
+
+
 def _pad_quad(corners, *, image_shape, padding_fraction):
     if corners is None:
         return None
@@ -587,20 +678,21 @@ def _proposal(image_bgr, values):
     )
     learned_area = abs(float(cv2.contourArea(learned_corners))) if learned_corners is not None else 0.0
 
-    # Prefer the envelope that captures the larger learned document extent.
-    # This specifically prevents a connected-component accident from collapsing
-    # hundreds of valid Orli baselines onto a single dense text block/column.
-    if learned_corners is not None and learned_area > contour_area:
-        raw_corners = learned_corners
+    raw_corners, arbitration_source, arbitration_diagnostics = _arbitrate_envelopes(
+        contour_corners,
+        learned_corners,
+        image_shape=image_bgr.shape,
+    )
+    if arbitration_source == "learned":
         envelope_mode = "learned-geometry-consensus"
     else:
-        raw_corners = contour_corners
         envelope_mode = contour_diagnostics.get("mode", "none")
 
     envelope_diagnostics = {
         "mode": envelope_mode,
         "contour": contour_diagnostics,
         "learned_geometry": learned_diagnostics,
+        "arbitration": arbitration_diagnostics,
         "contour_quad_area": contour_area,
         "learned_quad_area": learned_area,
     }

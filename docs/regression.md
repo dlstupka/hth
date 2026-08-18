@@ -415,9 +415,9 @@ Each optimizer shape also records **executor startup overhead** from entry into 
 
 HTH distinguishes ordinary exhaustive calibration from deliberate revalidation of parameters that prior complete calibration has shown to be effectively deceased for the current Golden Set and declared grid:
 
-- `exhaustive` — evaluates the complete current live Cartesian calibration space. Parameters explicitly classified as `zombie` are held at their audited pinned value and therefore do not consume ordinary exhaustive search budget.
+- `exhaustive` — evaluates the complete current live Cartesian calibration space. Parameters explicitly isolated as `zombie` are held at their detector **baseline value** and therefore do not consume ordinary exhaustive search budget.
 - `exhaustive-with-zombies` — evaluates the same live Cartesian space while restoring every retained value of any configured `zombie_parameters`. This mode exists for deliberate regression/revalidation when an engineer wants to challenge the prior liveness conclusion.
-- `non-dormant`, `low+`, `moderate+`, `important+`, and `critical` — use persisted calibration intelligence to restrict the current live space by measured effect-size classification, with the established fallback toward broader domains when a requested domain is empty.
+- `non-dormant`, `low+`, `moderate+`, `important+`, and `critical` — use persisted calibration intelligence to restrict the current live space by measured effect-size classification, with the established fallback toward broader domains when a requested domain is empty. **Every parameter excluded by a contracted strategy is pinned to its detector baseline value.** Contracted parameter dictionaries therefore remain canonical and their Parameter Set IDs do not drift when a different historic winner is published. Under the current classification thresholds `non-dormant` and `low+` select the same Low-or-higher domain; both names are intentionally retained for compatibility and possible future policy differentiation.
 - `binary-refine` — retains the sequential local-refinement strategy and is not a sharded exhaustive search.
 
 Parameter influence has one canonical HTH classification, based on one-way η² over Avg IoU for the characterized Golden Set/grid:

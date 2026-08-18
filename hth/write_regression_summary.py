@@ -1673,7 +1673,12 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
             factor = zombie_exhaustive_count / count_value if count_value else None
             factor_text = f"{factor:.1f}×" if factor is not None else "unavailable"
             lines.append(f"| {label} | {count_value} | {_percent(percent)} | {_duration(seconds)} | {factor_text} |")
-        lines.extend(["", r"\* Uses the same serial measured-page-rate assumptions as the Calibration Landscape serial-runtime estimate."])
+        lines.extend([
+            "",
+            r"\* Uses the same serial measured-page-rate assumptions as the Calibration Landscape serial-runtime estimate.",
+            "",
+            "*Contracted-search note: every excluded parameter is pinned to its detector baseline value, so reduced-grid parameter identities are stable across builds. Under the current HTH classification thresholds, `Non-dormant` and `Low+` intentionally resolve to the same parameter domain; both labels are retained for compatibility and possible future policy differentiation.*",
+        ])
     reasons = confidence.get("reasons", []) if isinstance(confidence.get("reasons"), list) else []
     if reasons:
         lines.extend(["", f"Calibration evidence basis: {', '.join(str(reason) for reason in reasons)}."])

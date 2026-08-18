@@ -154,9 +154,10 @@ def _detector_evidence(detector: str) -> dict[str, Any]:
 
 def _domain_space(
     parameters_report: list[dict[str, Any]],
-    winner_parameters: dict[str, Any],
+    baseline_parameters: dict[str, Any],
     live_parameter_sets: int | None,
     zombie_inclusive_parameter_sets: int | None,
+    configured_zombies: set[str] | None = None,
 ) -> dict[str, Any]:
     """Build executable cumulative effect-size parameter domains.
 
@@ -166,17 +167,25 @@ def _domain_space(
     """
     exhaustive_count = int(live_parameter_sets or 0)
     zombie_count = int(zombie_inclusive_parameter_sets or exhaustive_count)
-    included = [str(item.get("parameter")) for item in parameters_report]
+    configured_zombies = set(configured_zombies or ())
+    all_names = [str(item.get("parameter")) for item in parameters_report]
+    live_names = [name for name in all_names if name not in configured_zombies]
     domains: dict[str, Any] = {
         "exhaustive_with_zombies": {
             "parameter_set_count": zombie_count,
-            "included_parameters": included,
+            "included_parameters": all_names,
             "fixed_parameters": {},
+            "fixed_parameter_policy": "baseline",
         },
         "exhaustive": {
             "parameter_set_count": exhaustive_count,
-            "included_parameters": included,
-            "fixed_parameters": {},
+            "included_parameters": live_names,
+            "fixed_parameters": {
+                name: baseline_parameters[name]
+                for name in configured_zombies
+                if name in baseline_parameters
+            },
+            "fixed_parameter_policy": "baseline",
         },
     }
     specifications = (
@@ -197,8 +206,9 @@ def _domain_space(
             "parameter_set_count": count,
             "included_parameters": names,
             "fixed_parameters": {
-                name: value for name, value in winner_parameters.items() if name not in names
+                name: value for name, value in baseline_parameters.items() if name not in names
             },
+            "fixed_parameter_policy": "baseline",
         }
     return domains
 
@@ -558,6 +568,14 @@ def build_calibration_intelligence(
     dormant = [item["parameter"] for item in parameters_report if item["classification"] == "Dormant"]
     zombies = [item["parameter"] for item in parameters_report if item["classification"] == "Zombie"]
     winner_parameters = ranked[0].get("parameters", {}) if isinstance(ranked[0].get("parameters"), dict) else {}
+    baseline_parameters = {}
+    if isinstance(regression_context, dict) and isinstance(regression_context.get("baseline_parameters"), dict):
+        baseline_parameters = dict(regression_context["baseline_parameters"])
+    if not baseline_parameters:
+        # Older retained intelligence may predate explicit baseline metadata.
+        # Keep report generation compatible, but new runs always carry the detector
+        # baseline so contracted-domain identities are canonical and invariant.
+        baseline_parameters = dict(winner_parameters)
     live_possible_parameter_sets = possible_parameter_sets
     zombie_possible_parameter_sets = possible_parameter_sets
     if isinstance(regression_context, dict):
@@ -566,9 +584,10 @@ def build_calibration_intelligence(
     domain_space = (
         _domain_space(
             current_parameters_report,
-            winner_parameters,
+            baseline_parameters,
             live_possible_parameter_sets,
             zombie_possible_parameter_sets,
+            configured_zombies,
         )
         if measurement_state["informative"] else {}
     )
