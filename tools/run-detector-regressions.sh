@@ -65,7 +65,7 @@ import sys
 print(f"{max(0.0, float(sys.argv[2]) - float(sys.argv[1])):.3f}")
 PYLIFECYCLETIME
     )"
-    echo "Detector lifecycle PREPARE timing detector=${detector_key} elapsed=${lifecycle_prepare_elapsed}s"
+    echo "Detector lifecycle prepare timing detector=${detector_key} elapsed=${lifecycle_prepare_elapsed}s"
   fi
 done
 if [[ -s "$lifecycle_env" ]]; then

@@ -61,7 +61,7 @@ from .adapters.ransac import (
 )
 from .io import create_run_directory, environment_info, utc_now, write_json
 from .metrics import bbox_iou, edge_errors
-from .parameter_space import canonical_parameters, parameter_set_id, exhaustive_parameter_sets
+from .parameter_space import canonical_parameters, parameter_set_id, exhaustive_parameter_sets, canonical_search_space
 from .parameter_provenance import attach_identity, build_provenance
 from .reports import ranking_key, write_rankings, write_raw_results
 from .strategies.cartesian import generate as cartesian_generate
@@ -978,8 +978,9 @@ def run(args:argparse.Namespace)->Path:
                 historic_best_key = canonical_parameters(historic_best_parameters)
 
         include_zombies = args.strategy == "exhaustive-with-zombies"
-        live_possible_parameter_set_count = len(cartesian_generate(config, include_zombies=False))
-        zombie_possible_parameter_set_count = len(cartesian_generate(config, include_zombies=True))
+        declared_search_space = canonical_search_space(config, args.strategy)
+        live_possible_parameter_set_count = int(declared_search_space["live_exhaustive_parameter_sets"])
+        zombie_possible_parameter_set_count = int(declared_search_space["exhaustive_with_zombies_parameter_sets"])
         all_parameter_sets=cartesian_generate(config, include_zombies=include_zombies)
         possible_parameter_set_count=len(all_parameter_sets)
         calibration_metadata = None
@@ -989,6 +990,9 @@ def run(args:argparse.Namespace)->Path:
         effective_strategy, effect_domain, strategy_fallback_reason = _resolve_effect_strategy(requested_strategy, calibration_metadata)
         if effect_domain is not None:
             all_parameter_sets = _filter_parameter_sets(all_parameter_sets, effect_domain)
+        search_space_contract = canonical_search_space(config, effective_strategy)
+        search_space_contract["effective_parameter_sets"] = len(all_parameter_sets)
+        search_space_contract["strategy"] = effective_strategy
         requested_search_keys = {canonical_parameters(parameters) for parameters in all_parameter_sets}
         historic_best_in_requested_search = bool(historic_best_key and historic_best_key in requested_search_keys)
         write_json(run_dir/"parameters.json",{"schema_version":"0.4","detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"detector_config":str(args.detector_config),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"image_root":str(args.image_root),"max_dimension":args.max_dimension,"limit":args.limit,"threads":args.threads,"precomputed_evidence":str(args.precomputed_evidence) if args.precomputed_evidence is not None else None,"debug_level":debug_level,"debug_artifacts":debug_policy,"detector_pipeline":detector_pipeline_context,"shard":{"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved"},"configuration":config})
@@ -1054,6 +1058,7 @@ def run(args:argparse.Namespace)->Path:
 
         baseline_result["reference_roles"] = ["baseline"]
         baseline_result["requested_search_member"] = False
+        baseline_result["search_space_member"] = baseline_key in requested_search_keys
 
         active_lock=threading.Lock()
         active_evaluations=0
@@ -1103,6 +1108,7 @@ def run(args:argparse.Namespace)->Path:
             historic_best_result = evaluate(dict(historic_best_parameters), observe=False)
             historic_best_result["reference_roles"] = ["historic_best"]
             historic_best_result["requested_search_member"] = historic_best_in_requested_search
+            historic_best_result["search_space_member"] = historic_best_in_requested_search
             historic_best_result["historic_reference"] = historic_best_reference
             progress.observe(historic_best_result, "historic-best")
 
@@ -1123,6 +1129,7 @@ def run(args:argparse.Namespace)->Path:
             for result in candidate_results:
                 result["reference_roles"] = []
                 result["requested_search_member"] = True
+                result["search_space_member"] = True
             results=[baseline_result]
             if historic_best_result is not None:
                 results.append(historic_best_result)
@@ -1132,6 +1139,7 @@ def run(args:argparse.Namespace)->Path:
             for result in results:
                 result["reference_roles"] = []
                 result["requested_search_member"] = True
+                result["search_space_member"] = canonical_parameters(result["parameters"]) in requested_search_keys
             if not any(canonical_parameters(r["parameters"]) == baseline_key for r in results):
                 results.insert(0,baseline_result)
             else:
@@ -1139,6 +1147,7 @@ def run(args:argparse.Namespace)->Path:
                     if canonical_parameters(result["parameters"]) == baseline_key:
                         result["reference_roles"] = ["baseline"]
                         result["requested_search_member"] = False
+                        result["search_space_member"] = baseline_key in requested_search_keys
             if historic_best_result is not None:
                 duplicate = next(
                     (result for result in results if canonical_parameters(result["parameters"]) == historic_best_key),
@@ -1149,6 +1158,7 @@ def run(args:argparse.Namespace)->Path:
                 else:
                     duplicate["reference_roles"] = sorted(set(duplicate.get("reference_roles", [])) | {"historic_best"})
                     duplicate["historic_reference"] = historic_best_reference
+                    duplicate["search_space_member"] = historic_best_in_requested_search
         progress_snapshot=progress.finish()
         performance_samples=performance.finish()
         for r in results:
@@ -1189,7 +1199,7 @@ def run(args:argparse.Namespace)->Path:
         winner_pages = build_winner_page_report(ranked[0], baseline)
         locally_evaluated_parameter_sets = max(0, len(results) - 1) + (0 if baseline_reused else 1)
         locally_evaluated_page_evaluations = locally_evaluated_parameter_sets * len(pages)
-        summary={"schema_version":"0.8","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"threads":args.threads,"shard":{"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved","full_candidate_count":full_exhaustive_candidate_count},"detector_pipeline":detector_pipeline_context,"parameter_space":{"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated","shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ranked)*len(pages),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated"},"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"detector_config_sha256":detector_config_sha256,"max_dimension":args.max_dimension,"winner":ranked[0],"baseline":baseline,"historic_best":historic_best_result,"top_parameter_sets":ranked[:5],"search_top_parameter_sets":search_ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,"performance":{"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl","precomputed_evidence":name in PRECOMPUTED_EVIDENCE_PREPARERS,"evidence_source":evidence_source,"evidence_precompute_seconds":round(evidence_precompute_seconds,6) if evidence_precompute_seconds is not None else None},"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":baseline_surpassed(ranked[0], baseline),"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds,"winner_history":progress_snapshot.winner_history,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
+        summary={"schema_version":"0.8","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"threads":args.threads,"shard":{"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved","full_candidate_count":full_exhaustive_candidate_count},"detector_pipeline":detector_pipeline_context,"parameter_space":{"possible_parameter_sets":possible_parameter_set_count,"live_possible_parameter_sets":live_possible_parameter_set_count,"zombie_possible_parameter_sets":zombie_possible_parameter_set_count,"canonical_search_space":search_space_contract,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated","shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ranked)*len(pages),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated"},"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"detector_config_sha256":detector_config_sha256,"max_dimension":args.max_dimension,"winner":ranked[0],"baseline":baseline,"historic_best":historic_best_result,"top_parameter_sets":ranked[:5],"search_top_parameter_sets":search_ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,"performance":{"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl","precomputed_evidence":name in PRECOMPUTED_EVIDENCE_PREPARERS,"evidence_source":evidence_source,"evidence_precompute_seconds":round(evidence_precompute_seconds,6) if evidence_precompute_seconds is not None else None},"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":baseline_surpassed(ranked[0], baseline),"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds,"winner_history":progress_snapshot.winner_history,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
         write_json(run_dir/"reports"/"summary.json",summary)
         write_json(run_dir/"reports"/"winner-pages.json",winner_pages)
         try:
@@ -1241,6 +1251,7 @@ def run(args:argparse.Namespace)->Path:
             "zombie_parameters": sorted(str(name) for name in (config.get("zombie_parameters", {}) if isinstance(config.get("zombie_parameters"), dict) else {})),
             "live_possible_parameter_sets": live_possible_parameter_set_count,
             "zombie_possible_parameter_sets": zombie_possible_parameter_set_count,
+            "canonical_search_space": search_space_contract,
         }
         calibration_intelligence = build_calibration_intelligence(
             ranked,

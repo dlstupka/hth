@@ -1145,6 +1145,25 @@ def build_summary(
             "",
             "**Search strategy legend:** `exhaustive` covers the current live declared Cartesian space and keeps configured zombie parameters pinned; `exhaustive-with-zombies` deliberately restores retained zombie value domains for revalidation. Effect-size strategies operate on the current live space.",
             "",
+        ])
+        canonical_space = calibration_payload.get("canonical_search_space", {}) if isinstance(calibration_payload.get("canonical_search_space"), dict) else {}
+        if canonical_space:
+            lines.extend([
+                "### Canonical Search-Space Accounting",
+                "",
+                "These counts are the authoritative search-space contract for this calibration. Mandatory baseline/historic-best reference evaluations do not expand the search universe or parameter-influence analysis.",
+                "",
+                "| Search-space measure | Parameter sets |",
+                "|---|---:|",
+                f"| Exhaustive-with-zombies universe | {canonical_space.get('exhaustive_with_zombies_parameter_sets', 'unknown')} |",
+                f"| Live exhaustive universe | {canonical_space.get('live_exhaustive_parameter_sets', 'unknown')} |",
+                f"| Resolved strategy universe | {canonical_space.get('effective_parameter_sets', 'unknown')} |",
+                f"| Evaluated search-space members | {canonical_space.get('evaluated_search_space_parameter_sets', 'unknown')} |",
+                "",
+                f"Configured zombies: `{', '.join(str(v) for v in canonical_space.get('configured_zombie_parameters', [])) if canonical_space.get('configured_zombie_parameters') else 'none'}`.",
+                "",
+            ])
+        lines.extend([
             "### Detector-Selection Intelligence",
             "",
             f"- Recommended parameter set: `{_parameter_id(winner)}`",

@@ -302,6 +302,15 @@ def build_calibration_intelligence(
             "reason": "no evaluated parameter sets",
         }
 
+    # Canonical calibration analysis is bounded by the resolved search universe.
+    # Mandatory baseline/historic-best references may be evaluated for comparison,
+    # but an out-of-space reference must never create parameter values, influence,
+    # set counts, or reduction domains that were not part of the configured search.
+    if any("search_space_member" in result for result in ranked):
+        search_ranked = [result for result in ranked if bool(result.get("search_space_member"))]
+        if search_ranked:
+            ranked = search_ranked
+
     page_evaluations = [
         page
         for result in ranked
@@ -597,6 +606,15 @@ def build_calibration_intelligence(
         "schema_version": "1.1",
         "calibration_identity": calibration_context,
         "regression_metadata": regression_context,
+        "canonical_search_space": {
+            "live_exhaustive_parameter_sets": int(live_possible_parameter_sets or 0),
+            "exhaustive_with_zombies_parameter_sets": int(zombie_possible_parameter_sets or live_possible_parameter_sets or 0),
+            "effective_parameter_sets": int(possible_parameter_sets or 0),
+            "evaluated_search_space_parameter_sets": count,
+            "configured_zombie_parameters": sorted(configured_zombies),
+            "reference_evaluations_excluded_from_analysis": True,
+            "denominator": "exhaustive-with-zombies",
+        },
         "detector_evidence": _detector_evidence(detector),
         "parameter_intelligence": parameter_intelligence,
         "domain_space_intelligence": domain_space_intelligence,

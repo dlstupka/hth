@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from hth.parameter_liveness import audit_detector_directory
-from hth.regression.parameter_space import exhaustive_parameter_sets
+from hth.regression.parameter_space import exhaustive_parameter_sets, canonical_search_space
 from hth.regression.strategies.cartesian import generate
 
 
@@ -41,6 +41,16 @@ class ZombieParameterSpaceTests(unittest.TestCase):
         for workflow in ("regress-detector.yml", "execution-optimizer.yml"):
             text = Path(".github/workflows", workflow).read_text(encoding="utf-8")
             self.assertIn("- exhaustive-with-zombies", text)
+
+
+    def test_canonical_search_space_counts_are_strategy_independent_metadata(self):
+        normal = canonical_search_space(self.config, "exhaustive")
+        zombie = canonical_search_space(self.config, "exhaustive-with-zombies")
+        self.assertEqual(normal["live_exhaustive_parameter_sets"], 1000)
+        self.assertEqual(normal["exhaustive_with_zombies_parameter_sets"], 10000)
+        self.assertEqual(normal["effective_parameter_sets"], 1000)
+        self.assertEqual(zombie["effective_parameter_sets"], 10000)
+        self.assertEqual(normal["configured_zombie_parameters"], ["close_kernel_fraction", "fill_holes"])
 
 
 if __name__ == "__main__":

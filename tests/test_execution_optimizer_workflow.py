@@ -113,7 +113,7 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         store = (ROOT / "hth" / "optimizer_store.py").read_text(encoding="utf-8")
         self.assertIn("optimizer-overhead.json", driver)
         self.assertIn("Executor startup overhead:", driver)
-        self.assertIn("Detector lifecycle PREPARE timing detector=", driver)
+        self.assertIn("Detector lifecycle prepare timing detector=", driver)
         self.assertIn("Orli Page-Mask preflight timing:", driver)
         self.assertIn("--startup-overhead-seconds", workflow)
         self.assertIn("shape_wall=$((shape_finished - shape_started))", workflow)

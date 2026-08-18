@@ -191,5 +191,47 @@ class CalibrationIntelligenceTests(unittest.TestCase):
         self.assertEqual(domains["exhaustive"]["parameter_set_count"], 1)
 
 
+    def test_out_of_space_reference_cannot_inflate_live_domain(self):
+        ranked = [
+            {
+                "parameter_set_id": "live1",
+                "search_space_member": True,
+                "parameters": {"live": 1, "zombie": 1},
+                "summary": {"mean_iou": 0.90, "failure_count": 0},
+                "pages": [{"global_ordinal": 1, "status": "ok", "iou": 0.90}],
+            },
+            {
+                "parameter_set_id": "live0",
+                "search_space_member": True,
+                "parameters": {"live": 0, "zombie": 1},
+                "summary": {"mean_iou": 0.80, "failure_count": 0},
+                "pages": [{"global_ordinal": 1, "status": "ok", "iou": 0.80}],
+            },
+            {
+                "parameter_set_id": "historic",
+                "search_space_member": False,
+                "reference_roles": ["historic_best"],
+                "parameters": {"live": 1, "zombie": 0},
+                "summary": {"mean_iou": 0.95, "failure_count": 0},
+                "pages": [{"global_ordinal": 1, "status": "ok", "iou": 0.95}],
+            },
+        ]
+        report = build_calibration_intelligence(
+            ranked, detector="example", strategy="exhaustive", possible_parameter_sets=2,
+            regression_context={
+                "zombie_parameters": ["zombie"],
+                "live_possible_parameter_sets": 2,
+                "zombie_possible_parameter_sets": 4,
+            },
+        )
+        self.assertEqual(report["search"]["parameter_sets"], 2)
+        self.assertEqual(report["landscape"]["best_mean_iou"], 0.90)
+        self.assertNotIn("zombie", [item["parameter"] for item in report["parameter_influence"]])
+        self.assertEqual(report["domain_space"]["exhaustive_with_zombies"]["parameter_set_count"], 4)
+        self.assertEqual(report["domain_space"]["exhaustive"]["parameter_set_count"], 2)
+        self.assertLessEqual(report["domain_space"]["non_dormant"]["parameter_set_count"], 2)
+        self.assertEqual(report["canonical_search_space"]["evaluated_search_space_parameter_sets"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()

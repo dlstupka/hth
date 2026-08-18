@@ -51,3 +51,30 @@ def value_index(values: list[Any], value: Any) -> int:
         return values.index(value)
     except ValueError:
         return min(range(len(values)), key=lambda i: abs(float(values[i])-float(value)))
+
+
+def canonical_search_space(config: dict[str, Any], strategy: str) -> dict[str, Any]:
+    """Return the canonical parameter-space contract used by execution and reporting.
+
+    Counts are derived only from declared detector metadata.  Mandatory reference
+    evaluations (baseline/historic-best) never alter these universe sizes.
+    """
+    live_count = len(exhaustive_parameter_sets(config, include_zombies=False))
+    zombie_count = len(exhaustive_parameter_sets(config, include_zombies=True))
+    configured_zombies = sorted(
+        str(name) for name in (config.get("zombie_parameters", {}) if isinstance(config.get("zombie_parameters"), dict) else {})
+    )
+    effective_count = (
+        zombie_count if strategy == "exhaustive-with-zombies"
+        else live_count if strategy in {"exhaustive", "cartesian"}
+        else None
+    )
+    return {
+        "schema_version": "1",
+        "strategy": strategy,
+        "live_exhaustive_parameter_sets": live_count,
+        "exhaustive_with_zombies_parameter_sets": zombie_count,
+        "effective_parameter_sets": effective_count,
+        "configured_zombie_parameters": configured_zombies,
+        "denominator": "exhaustive-with-zombies",
+    }

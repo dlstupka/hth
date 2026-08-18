@@ -13,7 +13,7 @@ from hth.domain.result_metrics import baseline_surpassed
 
 from .calibration_intelligence import build_calibration_intelligence
 from .io import create_run_directory, write_json
-from .parameter_space import canonical_parameters
+from .parameter_space import canonical_parameters, canonical_search_space
 from .parameter_provenance import attach_identity, build_provenance
 from .reports import normalize_result_record, ranking_key, write_rankings, write_raw_results
 from .runner import build_winner_page_report, file_sha256, load_pages, write_debug_artifacts
@@ -43,6 +43,7 @@ def _results_from_raw(path: Path) -> list[dict[str, Any]]:
                 "profile": row.get("profile") or None,
                 "search_rank": int(row["search_rank"]) if row.get("search_rank") not in (None, "") else None,
                 "requested_search_member": str(row.get("requested_search_member") or "0") in {"1", "true", "True"},
+                "search_space_member": str(row.get("search_space_member") or row.get("requested_search_member") or "0") in {"1", "true", "True"},
                 "reference_roles": json.loads(row.get("reference_roles_json") or "[]"),
                 "historic_reference": json.loads(row.get("historic_reference_json") or "{}"),
                 "parameters": json.loads(row["parameters_json"]),
@@ -188,19 +189,30 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         (result for result in ranked if "historic_best" in (result.get("reference_roles") or [])),
         None,
     )
+    first_summary = summaries[0]
+    first_info = infos[0]
+    strategy = str(first_info.get("strategy") or first_summary.get("strategy") or "exhaustive")
+    requested_strategy = str(first_info.get("requested_strategy") or first_summary.get("requested_strategy") or strategy)
+    search_space_contract = canonical_search_space(detector_configuration, strategy)
+    live_possible = int(search_space_contract["live_exhaustive_parameter_sets"])
+    zombie_possible = int(search_space_contract["exhaustive_with_zombies_parameter_sets"])
+    if strategy == "exhaustive-with-zombies":
+        possible = zombie_possible
+    elif strategy in {"exhaustive", "cartesian"}:
+        possible = live_possible
+    else:
+        possible = int(first_info.get("possible_parameter_sets") or first_summary.get("parameter_space", {}).get("possible_parameter_sets") or live_possible)
+    search_space_contract["effective_parameter_sets"] = possible
     parameter_provenance = build_provenance(
         detector,
         detector_configuration,
         ranked,
-        strategy="exhaustive",
-        complete_cartesian=(len(ranked) >= int(infos[0].get("possible_parameter_sets") or 0)),
+        strategy=strategy,
+        complete_cartesian=(sum(1 for result in ranked if result.get("search_space_member")) >= possible),
     )
     write_json(run_dir / "parameter-provenance.json", parameter_provenance)
     baseline = next((result for result in ranked if result.get("profile") == "baseline"), None)
-    first_summary = summaries[0]
-    first_info = infos[0]
     pages = len(first_summary.get("page_ordinals", []))
-    possible = int(first_info.get("possible_parameter_sets") or first_summary.get("parameter_space", {}).get("possible_parameter_sets") or len(ranked))
     winner_pages = build_winner_page_report(ranked[0], baseline)
     serial_runtime_seconds = sum(
         max(0.0, float((result.get("summary") or {}).get("wall_ms") or (result.get("summary") or {}).get("elapsed_ms_total") or 0.0)) / 1000.0
@@ -210,9 +222,9 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
     shard_context = {"count": expected, "assignment": "interleaved", "source_run_ids": list(dict.fromkeys(info.get("run_id") for info in infos))}
     summary = {
         "schema_version": "0.8", "run_id": run_id, "detector": detector,
-        "strategy": "exhaustive", "requested_strategy": "exhaustive",
+        "strategy": strategy, "requested_strategy": requested_strategy,
         "threads": max(int(info.get("threads") or 1) for info in infos), "shard": shard_context,
-        "parameter_space": {"possible_parameter_sets": possible, "planned_parameter_sets": len(ranked), "actual_parameter_sets": len(ranked), "golden_set_pages": pages, "planned_page_evaluations": len(ranked) * pages, "actual_page_evaluations": len(ranked) * pages},
+        "parameter_space": {"possible_parameter_sets": possible, "live_possible_parameter_sets": live_possible, "zombie_possible_parameter_sets": zombie_possible, "canonical_search_space": search_space_contract, "planned_parameter_sets": len(ranked), "actual_parameter_sets": len(ranked), "golden_set_pages": pages, "planned_page_evaluations": len(ranked) * pages, "actual_page_evaluations": len(ranked) * pages},
         "page_ordinals": first_summary.get("page_ordinals", []), "parameter_set_count": len(ranked),
         "page_evaluation_count": len(ranked) * pages,
         "successful_page_evaluation_count": sum(r["summary"]["success_count"] for r in ranked),
@@ -265,14 +277,18 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
     calibration = build_calibration_intelligence(
         ranked,
         detector=detector,
-        strategy="exhaustive",
+        strategy=strategy,
         possible_parameter_sets=possible,
         calibration_context=calibration_context,
         regression_context={
-            "requested_strategy": "exhaustive",
-            "resolved_strategy": "exhaustive",
+            "requested_strategy": requested_strategy,
+            "resolved_strategy": strategy,
             "configured_threads": summary["threads"],
             "possible_parameter_sets": possible,
+            "live_possible_parameter_sets": live_possible,
+            "zombie_possible_parameter_sets": zombie_possible,
+            "zombie_parameters": list(search_space_contract["configured_zombie_parameters"]),
+            "canonical_search_space": search_space_contract,
             "planned_parameter_sets": len(ranked),
             "evaluated_parameter_sets": len(ranked),
             "golden_set_pages": pages,
@@ -307,7 +323,7 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         "shard": shard_context,
     })
     write_json(run_dir / "RUN-INFO.json", info)
-    write_json(run_dir / "manifest.json", {"schema_version": "0.1", "run_id": run_id, "detector": detector, "strategy": "exhaustive", "status": "complete", "started_at_utc": start.isoformat(), "finished_at_utc": finish.isoformat(), "shard": shard_context, "outputs": ["RUN-INFO.json", "parameters.json", "parameter-provenance.json", "raw/results.csv", "reports/summary.json", "reports/winner-pages.json", "reports/calibration-intelligence.json", "reports/rankings.csv", "reports/top20.csv"], "debug_outputs": debug_outputs})
+    write_json(run_dir / "manifest.json", {"schema_version": "0.1", "run_id": run_id, "detector": detector, "strategy": strategy, "status": "complete", "started_at_utc": start.isoformat(), "finished_at_utc": finish.isoformat(), "shard": shard_context, "outputs": ["RUN-INFO.json", "parameters.json", "parameter-provenance.json", "raw/results.csv", "reports/summary.json", "reports/winner-pages.json", "reports/calibration-intelligence.json", "reports/rankings.csv", "reports/top20.csv"], "debug_outputs": debug_outputs})
     write_rankings(run_dir.parent / f"{detector}-regression-results.csv", ranked)
     return run_dir
 

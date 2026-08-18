@@ -414,7 +414,7 @@ def prepare_config(config_path,*,results_root,env_file=None,policy_override=None
     if hook is None:
         raise ValueError(f"Unknown detector prepare hook {hook_name!r} for {detector}")
     policy=policy_override or str(lifecycle.get("model_policy") or "reuse")
-    print(f"Detector lifecycle PREPARE detector={detector} hook={hook_name} policy={policy}")
+    print(f"Detector lifecycle prepare detector={detector} hook={hook_name} policy={policy}")
     return hook(results_root=Path(results_root),policy=policy,env_file=env_file)
 
 def finalize_config(config_path,*,results_root):
@@ -426,7 +426,7 @@ def finalize_config(config_path,*,results_root):
     hook=_FINALIZE_HOOKS.get(hook_name)
     if hook is None:
         raise ValueError(f"Unknown detector finalize hook {hook_name!r} for {detector}")
-    print(f"Detector lifecycle FINALIZE detector={detector} hook={hook_name}")
+    print(f"Detector lifecycle finalize detector={detector} hook={hook_name}")
     return hook(results_root=Path(results_root))
 
 # Compatibility API retained for callers/tests that used the first learned-detector overlay.
