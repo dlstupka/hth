@@ -42,6 +42,58 @@ def _row(identifier: str, runner: str, pipelines: int, threads: int, wall: float
 
 class OptimizerStoreTests(unittest.TestCase):
 
+
+    def test_critical_optimizer_subset_is_retained_as_execution_evidence(self) -> None:
+        row = _row("critical-p2", "e7k", 2, 192, 10.0, optimizer_run_id="200")
+        row["strategy"] = "critical"
+        row["possible_parameter_sets"] = 10000
+        row["actual_parameter_sets"] = 11
+        row["parameter_sets_per_second"] = 1.1
+        index = build_optimizer_index({"observations": [row]}, "adaptive_radial_edge", "200")
+        self.assertEqual(index["observation_count"], 1)
+        self.assertEqual(index["runners"][0]["shapes"][0]["pipelines"], 2)
+        self.assertEqual(index["runners"][0]["shapes"][0]["shards"], 2)
+
+    def test_incomplete_exhaustive_optimizer_observation_is_still_rejected(self) -> None:
+        row = _row("partial-exhaustive", "e7k", 2, 192, 10.0, optimizer_run_id="201")
+        row["actual_parameter_sets"] = row["possible_parameter_sets"] - 1
+        index = build_optimizer_index({"observations": [row]}, "adaptive_radial_edge", "201")
+        self.assertEqual(index["observation_count"], 0)
+        self.assertEqual(index["runners"], [])
+
+    def test_run_local_profile_excludes_incompatible_historical_workload(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            results = Path(td)
+            exhaustive = _row("old-exhaustive", "e7k", 2, 192, 20.0, optimizer_run_id="100")
+            exhaustive["compatibility_key"] = "exhaustive-workload"
+            exhaustive["workload_key"] = "exhaustive"
+            critical = _row("new-critical", "e7k", 3, 128, 10.0, optimizer_run_id="200")
+            critical["strategy"] = "critical"
+            critical["possible_parameter_sets"] = 10000
+            critical["actual_parameter_sets"] = 11
+            critical["parameter_sets_per_second"] = 1.1
+            critical["compatibility_key"] = "critical-workload"
+            critical["workload_key"] = "critical"
+            update_parallelism_index(results, [exhaustive, critical])
+            metadata = results / "run-metadata.json"
+            metadata.write_text(json.dumps({
+                "optimizer_run_id": "200",
+                "pipeline_enumeration": "adaptive",
+            }), encoding="utf-8")
+            paths = update_optimizer_artifacts(
+                results,
+                "adaptive_radial_edge",
+                optimizer_run_id="200",
+                run_metadata_path=metadata,
+            )
+            markdown = paths["markdown"].read_text(encoding="utf-8")
+            svg = paths["heatmap"].read_text(encoding="utf-8")
+            self.assertIn("| 3 | 3 | 128 |", markdown)
+            self.assertNotIn("| 2 | 2 | 192 |", markdown)
+            self.assertIn(">128t<", svg)
+            self.assertNotIn(">192t<", svg)
+
+
     def test_canonical_preferred_shape_breaks_equal_displayed_throughput_ties_by_resources(self) -> None:
         shapes = [
             {"execution_shape": "6p/6s/64t", "pipelines": 6, "threads_per_pipeline": 64, "allocated_threads": 384, "fastest_wall_clock_seconds": 9.0, "parameter_sets_per_second": 27.004, "optimizer_shape_sequence": 2},

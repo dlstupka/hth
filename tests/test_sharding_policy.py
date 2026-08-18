@@ -19,6 +19,14 @@ class ShardingPolicyTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 parse_args(['--detector-config','d.json','--golden-set','g.json','--image-root','i','--output','o','--strategy','binary-refine','--shard-count','2'])
         self.assertIn('binary-refine cannot be sharded because its search path is sequential', stderr.getvalue())
+
+    def test_optimizer_preserves_policy_and_concrete_shard_realization(self):
+        workflow=(ROOT/'.github/workflows/execution-optimizer.yml').read_text()
+        capture=(ROOT/'hth/parallelism_store.py').read_text()
+        self.assertIn('"sharding": "${{ inputs.sharding }}"', workflow)
+        self.assertIn('"shards": shards', capture)
+
+
     def test_dispatch_and_resume_propagation(self):
         r=(ROOT/'hth/regression_dispatch.py').read_text(); o=(ROOT/'hth/optimizer_dispatch.py').read_text(); w=(ROOT/'.github/workflows/execution-optimizer.yml').read_text(); q=(ROOT/'hth/optimizer_resume.py').read_text(); self.assertIn('"sharding": args.sharding',r); self.assertIn('"sharding": args.sharding',o); self.assertIn('--sharding "${{ inputs.sharding }}"',w); self.assertIn('"sharding": sharding',q)
 if __name__=='__main__': unittest.main()

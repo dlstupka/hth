@@ -131,9 +131,28 @@ def _comparable(rows: Iterable[dict[str, Any]], detector_id: str, optimizer_run_
             continue
         if optimizer_run_ids is not None and str(row.get("optimizer_run_id") or "") not in optimizer_run_ids:
             continue
-        if row.get("mode") != "full" or row.get("strategy") != "exhaustive":
+        if row.get("mode") != "full":
             continue
-        if _as_int(row.get("actual_parameter_sets")) != _as_int(row.get("possible_parameter_sets")):
+        strategy = str(row.get("strategy") or "")
+        deterministic_strategies = {
+            "exhaustive",
+            "non-dormant",
+            "low+",
+            "moderate+",
+            "important+",
+            "critical",
+        }
+        if strategy not in deterministic_strategies:
+            continue
+        actual_sets = _as_int(row.get("actual_parameter_sets"))
+        possible_sets = _as_int(row.get("possible_parameter_sets"))
+        if actual_sets is None or actual_sets <= 0:
+            continue
+        # Exhaustive execution is comparable only when the complete declared
+        # Cartesian space was evaluated. Effect-size strategies intentionally
+        # benchmark a deterministic selected subset, so actual < possible is
+        # expected and is not an incomplete optimizer observation.
+        if strategy == "exhaustive" and actual_sets != possible_sets:
             continue
         if (_as_float(row.get("wall_clock_seconds")) or 0) <= 0:
             continue
@@ -234,6 +253,38 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, o
         "runners": runners,
     }
 
+
+
+
+def _filter_optimizer_index_to_compatibility(
+    index: dict[str, Any],
+    compatibility_keys: set[str],
+) -> dict[str, Any]:
+    """Keep only workload/runner groups compatible with the current run."""
+    if not compatibility_keys:
+        return index
+    filtered = dict(index)
+    runners = [
+        runner for runner in index.get("runners", [])
+        if isinstance(runner, dict)
+        and str(runner.get("compatibility_key") or "") in compatibility_keys
+    ]
+    filtered["runners"] = runners
+    filtered["runner_count"] = len(runners)
+    filtered["observation_count"] = sum(
+        int(shape.get("observation_count") or 1)
+        for runner in runners
+        for shape in runner.get("shapes", [])
+        if isinstance(shape, dict)
+    )
+    all_shapes = [
+        shape
+        for runner in runners
+        for shape in runner.get("shapes", [])
+        if isinstance(shape, dict)
+    ]
+    filtered["best_across_runners"] = select_preferred_shape(all_shapes)
+    return filtered
 
 
 PREFERRED_SHAPE_RANGE_THRESHOLD_PCT = 2.0
@@ -799,6 +850,21 @@ def update_optimizer_artifacts(
     historical = build_optimizer_index(parallelism, detector_id)
     current = build_optimizer_index(parallelism, detector_id, optimizer_run_id) if optimizer_run_id is not None else historical
 
+    # A run-local profile must compare like-for-like benchmark workloads.
+    # Critical and exhaustive measurements are both valid execution evidence,
+    # but their sets/s values are not directly comparable.
+    compatible_historical = historical
+    if optimizer_run_id is not None:
+        current_compatibility_keys = {
+            str(runner.get("compatibility_key"))
+            for runner in current.get("runners", [])
+            if isinstance(runner, dict) and runner.get("compatibility_key")
+        }
+        compatible_historical = _filter_optimizer_index_to_compatibility(
+            historical,
+            current_compatibility_keys,
+        )
+
     run_metadata: dict[str, Any] = {}
     if run_metadata_path is not None and run_metadata_path.is_file():
         run_metadata = _read_json(run_metadata_path)
@@ -878,8 +944,8 @@ def update_optimizer_artifacts(
     output_dir.mkdir(parents=True, exist_ok=True)
     markdown_path = output_dir / "summary.md"
     svg_path = output_dir / "heatmap.svg"
-    markdown_path.write_text(render_markdown(current, run_metadata, preferred_index=historical), encoding="utf-8")
-    svg_path.write_text(render_heatmap_svg(historical), encoding="utf-8")
+    markdown_path.write_text(render_markdown(current, run_metadata, preferred_index=compatible_historical), encoding="utf-8")
+    svg_path.write_text(render_heatmap_svg(compatible_historical), encoding="utf-8")
     return {"index": index_path, "markdown": markdown_path, "heatmap": svg_path}
 
 
