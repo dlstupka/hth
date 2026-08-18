@@ -156,6 +156,7 @@ on:
         type: choice
         options:
           - exhaustive
+          - exhaustive-with-zombies
           - non-dormant
           - low+
           - moderate+

@@ -85,7 +85,7 @@ def _eligible_run_dirs(target: Path) -> list[Path]:
             continue
         payload = json.loads(summary.read_text(encoding="utf-8"))
         strategy = payload.get("strategy") or payload.get("requested_strategy") or ""
-        if strategy not in {"exhaustive", "cartesian"}:
+        if strategy not in {"exhaustive", "exhaustive-with-zombies", "cartesian"}:
             print(f"Skipping non-exhaustive historical run: {run_dir} ({strategy})")
             continue
         dirs.append(run_dir)

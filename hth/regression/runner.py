@@ -271,7 +271,7 @@ def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
     p.add_argument("--golden-set",type=Path,required=True)
     p.add_argument("--image-root",type=Path,required=True)
     p.add_argument("--output",type=Path,required=True,help="Regression root; a detector/run-* directory is created below it.")
-    p.add_argument("--strategy",choices=("exhaustive","binary-refine","non-dormant","low+","moderate+","important+","critical"),default="exhaustive")
+    p.add_argument("--strategy",choices=("exhaustive","exhaustive-with-zombies","binary-refine","non-dormant","low+","moderate+","important+","critical"),default="exhaustive")
     p.add_argument("--calibration-intelligence",type=Path,default=None,help="Prior calibration-intelligence.json used for effect-size-domain strategies.")
     p.add_argument("--historic-best",type=Path,default=None,help="Exact historic best-known parameter reference injected into every regression.")
     p.add_argument("--precomputed-evidence",type=Path,default=None,help="Parent-precomputed immutable learned Golden Set evidence shared by all shards.")
@@ -861,6 +861,7 @@ def print_parameter_scope(*, strategy: str, possible_sets: int, planned_sets: in
     label_width = max(len(label) for label, _ in rows)
     for label, value in rows:
         print(f"{label:<{label_width}} : {value}")
+    print("Search strategy legend   : exhaustive=live declared space; exhaustive-with-zombies=live space plus retained zombie domains")
     print(" ")
 
 
@@ -976,7 +977,8 @@ def run(args:argparse.Namespace)->Path:
                 historic_best_parameters = dict(candidate)
                 historic_best_key = canonical_parameters(historic_best_parameters)
 
-        all_parameter_sets=cartesian_generate(config)
+        include_zombies = args.strategy == "exhaustive-with-zombies"
+        all_parameter_sets=cartesian_generate(config, include_zombies=include_zombies)
         possible_parameter_set_count=len(all_parameter_sets)
         calibration_metadata = None
         if args.calibration_intelligence and args.calibration_intelligence.is_file():
@@ -1011,9 +1013,9 @@ def run(args:argparse.Namespace)->Path:
         )
         planned_parameter_set_count=(
             1 + historic_best_planned + len(exhaustive_candidates)
-            if effective_strategy=="exhaustive" or effective_strategy in EFFECT_STRATEGY_KEYS else None
+            if effective_strategy in {"exhaustive", "exhaustive-with-zombies"} or effective_strategy in EFFECT_STRATEGY_KEYS else None
         )
-        estimated_total=len(exhaustive_candidates) if effective_strategy=="exhaustive" or effective_strategy in EFFECT_STRATEGY_KEYS else max(0,possible_parameter_set_count-1)
+        estimated_total=len(exhaustive_candidates) if effective_strategy in {"exhaustive", "exhaustive-with-zombies"} or effective_strategy in EFFECT_STRATEGY_KEYS else max(0,possible_parameter_set_count-1)
 
         print_environment_banner(environment=environment,detector=name,golden_set=args.golden_set,golden_set_sha256=golden_set_sha256,source_commit=source_commit)
         print_parameter_scope(
@@ -1102,7 +1104,7 @@ def run(args:argparse.Namespace)->Path:
             historic_best_result["historic_reference"] = historic_best_reference
             progress.observe(historic_best_result, "historic-best")
 
-        if effective_strategy=="exhaustive" or effective_strategy in EFFECT_STRATEGY_KEYS:
+        if effective_strategy in {"exhaustive", "exhaustive-with-zombies"} or effective_strategy in EFFECT_STRATEGY_KEYS:
             if args.threads == 1:
                 candidate_results=[evaluate(p) for p in exhaustive_candidates]
             else:
@@ -1166,7 +1168,7 @@ def run(args:argparse.Namespace)->Path:
             None,
         )
         complete_cartesian = (
-            effective_strategy == "exhaustive"
+            effective_strategy in {"exhaustive", "exhaustive-with-zombies"}
             and args.limit is None
             and args.shard_count == 1
             and len(ranked) >= possible_parameter_set_count
@@ -1234,6 +1236,7 @@ def run(args:argparse.Namespace)->Path:
             "failed_page_evaluations": progress_snapshot.failures,
             "average_eval_rate": progress_snapshot.eval_rate,
             "execution_environment": environment,
+            "zombie_parameters": sorted(str(name) for name in (config.get("zombie_parameters", {}) if isinstance(config.get("zombie_parameters"), dict) else {})),
         }
         calibration_intelligence = build_calibration_intelligence(
             ranked,

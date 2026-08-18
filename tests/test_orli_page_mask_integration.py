@@ -14,7 +14,8 @@ class OrliPageMaskIntegrationTests(unittest.TestCase):
         self.assertIn("orli_page_mask", detector_names())
         config = json.loads((ROOT / "config/detectors/orli_page_mask.json").read_text(encoding="utf-8"))
         self.assertEqual(config["detector"], "orli_page_mask")
-        self.assertEqual(len(generate(config)), 10000)
+        self.assertEqual(len(generate(config)), 1000)
+        self.assertEqual(len(generate(config, include_zombies=True)), 10000)
         self.assertEqual(config["lifecycle"]["prepare"], "orli_page_mask")
 
     def test_regression_and_optimizer_expose_orli(self):

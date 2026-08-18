@@ -261,6 +261,7 @@ This directory contains the design, operating, and project-reference documentati
 - [Golden Set](golden-set.md) — approved references and evaluation inputs.
 - [Calibration selection](calibration-selection.md) — selection and promotion of calibrated parameters.
 - [Detector regression](regression.md) — regression execution, telemetry, reports, and debug artifacts.
+- [Detector parameter liveness audit](parameter-liveness-audit.md) — conservative zombie/deceased-parameter policy, current audit findings, and revalidation contract.
 - [Orli Page-Mask detector](detector-orli-page-mask.md) — learned historical-document page-mask detector and calibration contract.
 - [Orli learned-evidence persistence](orli-evidence-persistence.md) — deterministic inference reuse, persistent evidence index, identity, and invalidation.
 

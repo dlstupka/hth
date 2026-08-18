@@ -410,3 +410,16 @@ The execution-optimizer report includes shape-prediction coverage for each detec
 A measured or predicted preferred execution shape is an atomic `pipelines × threads/pipeline` contract. For a single detector, replaying an exact shape therefore creates one regression shard per requested active pipeline before fan-out; the normal single-detector shortcut and runtime-based standalone shard planner are not allowed to collapse a preferred `Np/Mt` shape to `1p/Mt`. The executor fails loudly if shard expansion cannot sustain the requested exact pipeline count.
 
 Each optimizer shape also records **executor startup overhead** from entry into `run-detector-regressions.sh` through detector lifecycle preparation, sharding/planning, shared learned-evidence resolution or preparation, and initial queue setup immediately before worker fan-out. This value is retained in optimizer intelligence and shown in the shape table. It is intentionally **not subtracted** from shape wall time or shape-level parameter sets/second: the report keeps the incurred end-to-end cost visible. Per-shard parameter-set throughput is timed from each worker's START through completion, after fan-out, so pre-fan-out startup overhead does not contaminate shard-level throughput analysis.
+
+### Search-strategy legend and zombie parameters
+
+HTH distinguishes ordinary exhaustive calibration from deliberate revalidation of parameters that prior complete calibration has shown to be effectively deceased for the current Golden Set and declared grid:
+
+- `exhaustive` — evaluates the complete current live Cartesian calibration space. Parameters explicitly classified as `zombie` are held at their audited pinned value and therefore do not consume ordinary exhaustive search budget.
+- `exhaustive-with-zombies` — evaluates the same live Cartesian space while restoring every retained value of any configured `zombie_parameters`. This mode exists for deliberate regression/revalidation when an engineer wants to challenge the prior liveness conclusion.
+- `non-dormant`, `low+`, `moderate+`, `important+`, and `critical` — use persisted calibration intelligence to restrict the current live space by measured effect-size classification, with the established fallback toward broader domains when a requested domain is empty.
+- `binary-refine` — retains the sequential local-refinement strategy and is not a sharded exhaustive search.
+
+`Dormant` and `zombie` are intentionally different claims. Dormant means a parameter had no material measured effect in one calibration sample and may become active with another Golden Set or grid. Zombie is a stronger, explicit configuration decision made only after completed calibration evidence is judged sufficient to remove that dimension from the default search. Zombie metadata therefore retains the prior value domain, an audited pinned value, scope, and reason. The detector implementation still accepts the parameter; `exhaustive-with-zombies` can reanimate it at any time.
+
+The configuration-level liveness audit is intentionally conservative. It never promotes a parameter to zombie merely because it is singleton, baseline-only, or historically described as dormant. Run `python tools/audit-parameter-liveness.py` to validate all detector liveness metadata; use `--json` for machine-readable output.

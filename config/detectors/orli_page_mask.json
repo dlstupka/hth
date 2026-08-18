@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "orli_page_mask",
-  "description": "Initial exhaustive calibration for Orli's 2026 historical-document base model. The learned model remains fixed while HTH calibrates conversion of Orli ordered baseline evidence into an oriented page quadrilateral.",
+  "description": "Orli historical-document page-mask calibration. Default exhaustive search now concentrates on the four live dimensions from the completed 10,000-set characterization; two empirically deceased/zombie morphology controls are pinned by default and remain available only through exhaustive-with-zombies for deliberate revalidation.",
   "profiles": {
     "baseline": {
       "include_lines": 1,
@@ -35,16 +35,6 @@
         0.06
       ]
     },
-    "close_kernel_fraction": {
-      "type": "float",
-      "values": [
-        0.0,
-        0.003,
-        0.006,
-        0.012,
-        0.024
-      ]
-    },
     "page_padding_fraction": {
       "type": "float",
       "values": [
@@ -69,13 +59,6 @@
         0.2,
         0.25
       ]
-    },
-    "fill_holes": {
-      "type": "int",
-      "values": [
-        0,
-        1
-      ]
     }
   },
   "binary_refine": {
@@ -86,12 +69,40 @@
     "debug_artifacts": "winner",
     "full_space_policy": "declared-cartesian",
     "full_space_max_parameter_sets": 50176,
-    "historic_best_reference": "mandatory-exact"
+    "historic_best_reference": "mandatory-exact",
+    "previous_declared_parameter_sets": 10000
   },
   "optimizer_shape_compatibility": "detector-implementation",
   "lifecycle": {
     "prepare": "orli_page_mask",
     "finalize": "orli_page_mask",
     "policy": "reuse"
+  },
+  "zombie_parameters": {
+    "close_kernel_fraction": {
+      "type": "float",
+      "values": [
+        0.0,
+        0.003,
+        0.006,
+        0.012,
+        0.024
+      ],
+      "pinned_value": 0.006,
+      "classification": "zombie",
+      "audit_scope": "HTH-0001 / completed 10000-set exhaustive calibration / 2026-08-18",
+      "reason": "Complete 10,000-set HTH-0001 exhaustive calibration on 2026-08-18 measured only 0.0001 Avg-IoU range (eta^2 0.0000); isolated from default search while retained for explicit revalidation."
+    },
+    "fill_holes": {
+      "type": "int",
+      "values": [
+        0,
+        1
+      ],
+      "pinned_value": 1,
+      "classification": "zombie",
+      "audit_scope": "HTH-0001 / completed 10000-set exhaustive calibration / 2026-08-18",
+      "reason": "Complete 10,000-set HTH-0001 exhaustive calibration on 2026-08-18 measured 0.0000 Avg-IoU range (eta^2 0.0000); isolated from default search while retained for explicit revalidation."
+    }
   }
 }

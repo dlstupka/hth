@@ -419,6 +419,15 @@ def build_calibration_intelligence(
             ],
         })
     parameters_report.sort(key=lambda item: (-float(item["eta_squared"]), -float(item["mean_iou_range"]), str(item["parameter"])))
+    configured_zombies = set()
+    if isinstance(regression_context, dict):
+        raw_zombies = regression_context.get("zombie_parameters")
+        if isinstance(raw_zombies, list):
+            configured_zombies = {str(name) for name in raw_zombies}
+    # Default searches keep audited zombies pinned and report them separately;
+    # only exhaustive-with-zombies reintroduces them into influence analysis.
+    if strategy != "exhaustive-with-zombies" and configured_zombies:
+        parameters_report = [item for item in parameters_report if str(item.get("parameter")) not in configured_zombies]
     if not measurement_state["informative"]:
         # A field of identical failure/zero-overlap scores is not evidence that
         # parameters are dormant. Withhold influence and reduction claims until
@@ -479,7 +488,7 @@ def build_calibration_intelligence(
         })
 
     exhaustive_complete = bool(
-        strategy in {"exhaustive", "cartesian"}
+        strategy in {"exhaustive", "exhaustive-with-zombies", "cartesian"}
         and possible_parameter_sets is not None
         and count >= int(possible_parameter_sets)
     )
@@ -518,6 +527,7 @@ def build_calibration_intelligence(
         },
         "parameters": parameters_report,
         "dormant_parameters": dormant,
+        "configured_zombie_parameters": sorted(configured_zombies),
         "active_parameters": [item["parameter"] for item in parameters_report if item["classification"] != "Dormant"],
         "interactions": interactions[:10],
         "interaction_method": {

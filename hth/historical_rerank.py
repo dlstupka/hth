@@ -63,7 +63,7 @@ def rerank_run(run_dir: Path, results_root: Path, *, top: int = 20) -> dict[str,
     if str(manifest.get("status") or "").lower() != "complete":
         raise ValueError(f"Historical run is not complete: {run_dir}")
     strategy = str(summary.get("strategy") or summary.get("requested_strategy") or manifest.get("strategy") or "")
-    if strategy not in {"exhaustive", "cartesian"}:
+    if strategy not in {"exhaustive", "exhaustive-with-zombies", "cartesian"}:
         raise ValueError(f"Historical reranking is restricted to exhaustive runs; got {strategy!r}")
 
     ranked = sorted(_results_from_raw(raw_path), key=ranking_key)

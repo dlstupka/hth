@@ -94,7 +94,7 @@ def authoritative_record(records: Iterable[dict[str, Any]]) -> dict[str, Any] | 
     authoritative = [
         row for row in candidates
         if calibration_status(row) == "authoritative"
-        and calibration_search_type(row) in {"exhaustive", "cartesian"}
+        and calibration_search_type(row) in {"exhaustive", "exhaustive-with-zombies", "cartesian"}
     ]
     if authoritative:
         return max(authoritative, key=_quality)

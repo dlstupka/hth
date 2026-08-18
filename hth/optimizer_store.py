@@ -136,6 +136,7 @@ def _comparable(rows: Iterable[dict[str, Any]], detector_id: str, optimizer_run_
         strategy = str(row.get("strategy") or "")
         deterministic_strategies = {
             "exhaustive",
+            "exhaustive-with-zombies",
             "non-dormant",
             "low+",
             "moderate+",
@@ -152,7 +153,7 @@ def _comparable(rows: Iterable[dict[str, Any]], detector_id: str, optimizer_run_
         # Cartesian space was evaluated. Effect-size strategies intentionally
         # benchmark a deterministic selected subset, so actual < possible is
         # expected and is not an incomplete optimizer observation.
-        if strategy == "exhaustive" and actual_sets != possible_sets:
+        if strategy in {"exhaustive", "exhaustive-with-zombies"} and actual_sets != possible_sets:
             continue
         if (_as_float(row.get("wall_clock_seconds")) or 0) <= 0:
             continue

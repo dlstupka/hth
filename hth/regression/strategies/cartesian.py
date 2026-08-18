@@ -4,7 +4,7 @@ from typing import Any
 from ..parameter_space import canonical_parameters, exhaustive_parameter_sets
 
 
-def generate(config: dict[str, Any], limit: int | None = None) -> list[dict[str, Any]]:
+def generate(config: dict[str, Any], limit: int | None = None, *, include_zombies: bool = False) -> list[dict[str, Any]]:
     """Return the normal Cartesian space with configured named profiles first.
 
     Named profiles are ordinary parameter sets, not a separate execution path. Putting
@@ -20,7 +20,7 @@ def generate(config: dict[str, Any], limit: int | None = None) -> list[dict[str,
             ordered.append(dict(parameters))
             seen.add(canonical)
 
-    for parameters in exhaustive_parameter_sets(config):
+    for parameters in exhaustive_parameter_sets(config, include_zombies=include_zombies):
         canonical = canonical_parameters(parameters)
         if canonical not in seen:
             ordered.append(parameters)
