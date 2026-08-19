@@ -347,3 +347,5 @@ Their calibration JSON files define the complete discrete search grids used by e
 
 - **dhSegment Page Mask (`dhsegment_page_mask`)** provides an independent TensorFlow/ResNet-50 learned page-segmentation family using the upstream dhSegment v0.2 page-extraction model.
 - Parameter provenance includes an additive `Parameter Set Equivalence Family ID` immediately before `Parameter Set ID` in report tables. It groups exact configurations only across durably enrolled equivalence dimensions; exact Parameter Set IDs and historical provenance are never rewritten.
+
+- [Doc-UFCN Page-Mask Detector](detector-doc-ufcn-page-mask.md)

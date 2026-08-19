@@ -45,6 +45,18 @@ _DETECTOR_EVIDENCE: dict[str, dict[str, Any]] = {
         "role": "Generator",
         "evidence": [("Foreground fragments", "Primary", "Collects substantial foreground regions from the document mask."), ("Convex hull", "Geometry", "Wraps fragmented foreground evidence in the smallest convex envelope."), ("Solidity", "Validation", "Rejects hulls whose enclosed area is poorly supported by foreground evidence."), ("Quadrilateral fit", "Geometry", "Returns a polygonal or minimum-area rectangular page envelope.")],
     },
+    "doc_ufcn_page_mask": {
+        "friendly_name": "Doc-UFCN Page-Mask Detector",
+        "short_name": "Doc-UFCN Page Mask",
+        "role": "Generator",
+        "evidence": [
+            ("Doc-UFCN page segmentation", "Primary", "Uses Teklia's generic historical page model to predict learned physical-page polygons."),
+            ("Confidence and component filtering", "Generator", "Calibrates deterministic rejection of weak or tiny learned page components without retraining the model."),
+            ("Minimum-area page quadrilateral", "Geometry", "Fits an oriented quadrilateral around the strongest surviving learned page polygon."),
+            ("Page-envelope padding", "Geometry", "Calibrates conservative expansion of the learned page quadrilateral before source-image clipping."),
+            ("Model identity", "Provenance", "Records the Doc-UFCN package version plus model and parameter-file SHA-256 identities."),
+        ],
+    },
     "dhsegment_page_mask": {"friendly_name":"dhSegment Page-Mask Detector","short_name":"dhSegment Page Mask","role":"Generator","evidence":[("dhSegment page segmentation","Primary","Uses the released dhSegment page-extraction CNN to predict per-pixel page membership."),("Probability threshold","Generator","Converts the network probability surface into a page mask using either Otsu or a calibrated fixed threshold."),("Mask cleanup","Robustness","Calibrates morphology, hole filling, and small boundary offsets before geometry fitting."),("Minimum-area rectangle","Geometry","Fits an oriented page quadrilateral to the dominant learned page region."),("Model identity","Provenance","Records the upstream release source and downloaded archive SHA-256.") ]},
     "kraken_page_mask": {
         "friendly_name": "Kraken Page Mask",

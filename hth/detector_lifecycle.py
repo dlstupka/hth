@@ -29,6 +29,14 @@ ORLI_MODEL_ID="orli-base-2026"
 ORLI_MODEL_URL="https://zenodo.org/records/20558179/files/orli_base.safetensors?download=1"
 ORLI_MODEL_DOI="10.5281/zenodo.20558179"
 
+DOC_UFCN_REPOSITORY="https://github.com/johnlockejrr/doc-ufcn"
+DOC_UFCN_LICENSE="BSD-3-Clause"
+DOC_UFCN_PACKAGE_VERSION="0.2.0rc4"
+DOC_UFCN_MODEL_ID="doc-ufcn-generic-page"
+DOC_UFCN_MODEL_URL="https://huggingface.co/Teklia/doc-ufcn-generic-page/resolve/main/model.pth?download=true"
+DOC_UFCN_PARAMETERS_URL="https://huggingface.co/Teklia/doc-ufcn-generic-page/resolve/main/parameters.yml?download=true"
+DOC_UFCN_MODEL_REPOSITORY="https://huggingface.co/Teklia/doc-ufcn-generic-page"
+
 def _sha256(path):
     h=hashlib.sha256()
     with Path(path).open("rb") as f:
@@ -326,6 +334,71 @@ def _finalize_kraken_page_mask_hook(*,results_root):
     return payload
 
 
+
+def _prepare_doc_ufcn_page_mask_hook(*,results_root,policy,env_file):
+    if policy not in {"reuse","refresh"}:
+        raise ValueError(f"Unsupported lifecycle policy: {policy}")
+    if importlib.util.find_spec("doc_ufcn") is None:
+        raise RuntimeError("doc_ufcn_page_mask requires Doc-UFCN; the managed runtime must install the detector-specific runtime before PREPARE")
+    installed_version=DOC_UFCN_PACKAGE_VERSION
+
+    root=Path(results_root)/"models"/DOC_UFCN_MODEL_ID
+    model=root/"model.pth"
+    parameters=root/"parameters.yml"
+    provenance=root/"model-provenance.json"
+    complete=model.is_file() and parameters.is_file() and provenance.is_file()
+    if policy=="refresh" or not complete:
+        root.mkdir(parents=True,exist_ok=True)
+        _download(DOC_UFCN_MODEL_URL,model)
+        _download(DOC_UFCN_PARAMETERS_URL,parameters)
+        payload={
+            "schema_version":"1.0",
+            "model_id":DOC_UFCN_MODEL_ID,
+            "model_family":"Doc-UFCN",
+            "variant":"Teklia generic historical page detection model",
+            "doc_ufcn_version":installed_version,
+            "upstream_repository":DOC_UFCN_REPOSITORY,
+            "model_repository":DOC_UFCN_MODEL_REPOSITORY,
+            "license":DOC_UFCN_LICENSE,
+            "model_url":DOC_UFCN_MODEL_URL,
+            "parameters_url":DOC_UFCN_PARAMETERS_URL,
+            "model_filename":model.name,
+            "model_sha256":_sha256(model),
+            "parameters_sha256":_sha256(parameters),
+            "model_release_version":"0.0.2",
+            "classes":["background","page"],
+            "input_size":768,
+            "mean":[190,182,165],
+            "std":[48,48,45],
+            "upstream_min_cc":50,
+            "prepared_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),
+            "inference_backend":"doc-ufcn-pytorch",
+            "serving_contract":"RGB image -> class page polygons",
+            "device":"cpu",
+        }
+        provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+    payload=json.loads(provenance.read_text(encoding="utf-8"))
+    if payload.get("model_sha256") != _sha256(model):
+        raise RuntimeError("Doc-UFCN generic page model SHA mismatch")
+    if payload.get("parameters_sha256") != _sha256(parameters):
+        raise RuntimeError("Doc-UFCN generic page parameters SHA mismatch")
+    env={
+        "HTH_DOC_UFCN_PAGE_MODEL":model.resolve().as_posix(),
+        "HTH_DOC_UFCN_PAGE_PROVENANCE":provenance.resolve().as_posix(),
+        "CUDA_VISIBLE_DEVICES":"-1",
+    }
+    _write_env(env_file,env); os.environ.update(env)
+    print(f"Doc-UFCN Page-Mask ready: model={DOC_UFCN_MODEL_ID} doc-ufcn={installed_version} model_sha256={str(payload.get('model_sha256') or '')[:12]}")
+    return payload
+
+def _finalize_doc_ufcn_page_mask_hook(*,results_root):
+    provenance=Path(results_root)/"models"/DOC_UFCN_MODEL_ID/"model-provenance.json"
+    if not provenance.is_file():
+        raise RuntimeError("Doc-UFCN Page-Mask model provenance missing")
+    payload=json.loads(provenance.read_text(encoding="utf-8"))
+    print(f"Detector lifecycle finalize: doc_ufcn_page_mask model_sha256={str(payload.get('model_sha256') or '')[:12]}")
+    return payload
+
 def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
     if policy not in {"reuse","refresh"}:
         raise ValueError(f"Unsupported lifecycle policy: {policy}")
@@ -383,12 +456,14 @@ def _finalize_learned_page_mask_hook(*,results_root):
 
 _PREPARE_HOOKS={
     "dhsegment_page_mask":_prepare_dhsegment_page_mask_hook,
+    "doc_ufcn_page_mask":_prepare_doc_ufcn_page_mask_hook,
     "kraken_page_mask":_prepare_kraken_page_mask_hook,
     "orli_page_mask":_prepare_orli_page_mask_hook,
     "learned_page_mask":_prepare_learned_page_mask_hook,
 }
 _FINALIZE_HOOKS={
     "dhsegment_page_mask":_finalize_dhsegment_page_mask_hook,
+    "doc_ufcn_page_mask":_finalize_doc_ufcn_page_mask_hook,
     "kraken_page_mask":_finalize_kraken_page_mask_hook,
     "orli_page_mask":_finalize_orli_page_mask_hook,
     "learned_page_mask":_finalize_learned_page_mask_hook,

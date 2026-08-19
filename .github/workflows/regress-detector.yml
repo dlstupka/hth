@@ -55,6 +55,7 @@ on:
           - dhsegment_page_mask
           - distance_transform
           - distance_transform_rect
+          - doc_ufcn_page_mask
           - edge_contour
           - grabcut
           - grabcut_contour
@@ -600,11 +601,23 @@ jobs:
         shell: bash
         env:
           HTH_NEED_DHSEGMENT: ${{ matrix.detector == 'dhsegment_page_mask' || matrix.detector == 'all' }}
+          HTH_NEED_DOC_UFCN: ${{ matrix.detector == 'doc_ufcn_page_mask' || matrix.detector == 'all' }}
           HTH_NEED_KRAKEN: ${{ matrix.detector == 'kraken_page_mask' || matrix.detector == 'all' }}
           HTH_NEED_ORLI: ${{ matrix.detector == 'orli_page_mask' || matrix.detector == 'all' }}
         run: |
           set -euo pipefail
           bash hth-pipeline/tools/ensure-managed-runtime.sh
+      - name: Verify Doc-UFCN historical page-segmentation runtime
+        if: ${{ matrix.detector == 'doc_ufcn_page_mask' || matrix.detector == 'all' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import torch
+          from doc_ufcn.main import DocUFCN
+          print("Doc-UFCN runtime verified — HTH-pinned source: 0.2.0rc4")
+          print(f"PyTorch: {torch.__version__}")
+          PY
       - name: Verify dhSegment TensorFlow runtime
         if: ${{ matrix.detector == 'dhsegment_page_mask' || matrix.detector == 'all' }}
         shell: bash

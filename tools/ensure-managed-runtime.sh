@@ -5,6 +5,7 @@ set -euo pipefail
 : "${HTH_BOOTSTRAP_PYTHON:?HTH_BOOTSTRAP_PYTHON is required}"
 
 need_dhsegment="${HTH_NEED_DHSEGMENT:-false}"
+need_doc_ufcn="${HTH_NEED_DOC_UFCN:-false}"
 need_kraken="${HTH_NEED_KRAKEN:-false}"
 need_orli="${HTH_NEED_ORLI:-false}"
 
@@ -71,6 +72,18 @@ except Exception as exc:
 
 print(f"dhSegment TensorFlow runtime verified: {tf.__version__}")
 PY
+}
+
+verify_doc_ufcn() {
+  python - <<'PYDOCUFCN'
+try:
+    import torch
+    from doc_ufcn.main import DocUFCN
+except Exception as exc:
+    print(f"Doc-UFCN runtime import failed: {type(exc).__name__}: {exc}")
+    raise SystemExit(1)
+print(f"Doc-UFCN runtime verified: HTH-pinned 0.2.0rc4 source; PyTorch {torch.__version__}")
+PYDOCUFCN
 }
 
 verify_kraken() {
@@ -140,6 +153,9 @@ verify_complete_runtime() {
   if [[ "$need_dhsegment" == "true" ]]; then
     verify_dhsegment || return 1
   fi
+  if [[ "$need_doc_ufcn" == "true" ]]; then
+    verify_doc_ufcn || return 1
+  fi
   if [[ "$need_kraken" == "true" ]]; then
     verify_kraken || return 1
   fi
@@ -165,6 +181,26 @@ install_base_runtime() {
 install_dhsegment_layer() {
   echo "Installing missing dhSegment TensorFlow layer only."
   python -m pip install "tensorflow-cpu>=2.18,<2.21"
+}
+
+install_doc_ufcn_layer() {
+  if [[ "${RUNNER_OS:-}" == "Linux" ]]; then
+    echo "Installing CPU-only PyTorch layer for Doc-UFCN."
+    python -m pip install "torch==2.10.0" --index-url https://download.pytorch.org/whl/cpu
+  else
+    python -m pip install "torch==2.10.0"
+  fi
+  echo "Installing HTH-pinned Doc-UFCN 0.2.0rc4 source package without legacy distribution metadata/dependency downgrades."
+  doc_ufcn_stage="$(mktemp -d)"
+  python -m pip install --target "$doc_ufcn_stage" --no-deps --ignore-requires-python "doc-ufcn==0.2.0rc4"
+  doc_ufcn_site="$(python - <<'PYDOCUFCNSITE'
+import site
+print(site.getsitepackages()[0])
+PYDOCUFCNSITE
+)"
+  rm -rf "$doc_ufcn_site/doc_ufcn"
+  cp -a "$doc_ufcn_stage/doc_ufcn" "$doc_ufcn_site/doc_ufcn"
+  rm -rf "$doc_ufcn_stage"
 }
 
 install_kraken_layer() {
@@ -240,6 +276,9 @@ if ! verify_pip || ! verify_base; then
   if [[ "$need_dhsegment" == "true" ]]; then
     install_dhsegment_layer
   fi
+  if [[ "$need_doc_ufcn" == "true" ]]; then
+    install_doc_ufcn_layer
+  fi
   if [[ "$need_orli" == "true" ]]; then
     install_orli_layer
   elif [[ "$need_kraken" == "true" ]]; then
@@ -255,11 +294,16 @@ fi
 # The base layer is already valid. Determine which optional layers, if any, are
 # missing before touching the environment.
 missing_dhsegment=false
+missing_doc_ufcn=false
 missing_kraken=false
 missing_orli=false
 
 if [[ "$need_dhsegment" == "true" ]] && ! verify_dhsegment; then
   missing_dhsegment=true
+fi
+
+if [[ "$need_doc_ufcn" == "true" ]] && ! verify_doc_ufcn; then
+  missing_doc_ufcn=true
 fi
 
 if [[ "$need_kraken" == "true" ]] && ! verify_kraken; then
@@ -274,7 +318,7 @@ if [[ "$need_orli" == "true" ]] && ! verify_orli; then
   missing_orli=true
 fi
 
-if [[ "$missing_dhsegment" == "false" && "$missing_kraken" == "false" && "$missing_orli" == "false" ]]; then
+if [[ "$missing_dhsegment" == "false" && "$missing_doc_ufcn" == "false" && "$missing_kraken" == "false" && "$missing_orli" == "false" ]]; then
   python -m pip check
   echo "Managed runtime verified — using previous install; no install required."
   exit 0
@@ -285,6 +329,9 @@ begin_incremental_update
 
 if [[ "$missing_dhsegment" == "true" ]]; then
   install_dhsegment_layer
+fi
+if [[ "$missing_doc_ufcn" == "true" ]]; then
+  install_doc_ufcn_layer
 fi
 if [[ "$missing_orli" == "true" ]]; then
   install_orli_layer

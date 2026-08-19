@@ -9,12 +9,13 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from hth.geometry import detector_dhsegment_page_mask, detector_kraken_page_mask, detector_orli_page_mask
+from hth.geometry import detector_dhsegment_page_mask, detector_doc_ufcn_page_mask, detector_kraken_page_mask, detector_orli_page_mask
 from hth.regression.runner import load_pages
 
 
 EXPORTERS = {
     "kraken_page_mask": detector_kraken_page_mask.export_precomputed_golden_set_evidence,
+    "doc_ufcn_page_mask": detector_doc_ufcn_page_mask.export_precomputed_golden_set_evidence,
     "orli_page_mask": detector_orli_page_mask.export_precomputed_golden_set_evidence,
     "dhsegment_page_mask": detector_dhsegment_page_mask.export_precomputed_golden_set_evidence,
 }

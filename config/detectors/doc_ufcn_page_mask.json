@@ -1,0 +1,54 @@
+{
+  "schema_version": "0.1",
+  "detector": "doc_ufcn_page_mask",
+  "description": "Doc-UFCN generic historical page-segmentation calibration. HTH keeps Teklia's released Doc-UFCN page model fixed, precomputes its parameter-invariant page polygons once per Golden Set process, and calibrates only confidence/area filtering plus final page-envelope padding.",
+  "profiles": {
+    "baseline": {
+      "minimum_confidence": 0.5,
+      "minimum_component_area_fraction": 0.0005,
+      "minimum_page_area_fraction": 0.12,
+      "page_padding_fraction": 0.05
+    }
+  },
+  "parameters": {
+    "minimum_confidence": {
+      "type": "float",
+      "values": [0.0, 0.25, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    },
+    "minimum_component_area_fraction": {
+      "type": "float",
+      "values": [0.0, 0.0001, 0.0005, 0.001, 0.002]
+    },
+    "minimum_page_area_fraction": {
+      "type": "float",
+      "values": [0.08, 0.12, 0.16, 0.2, 0.25]
+    },
+    "page_padding_fraction": {
+      "type": "float",
+      "values": [0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.1, 0.12]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "winner",
+    "full_space_policy": "declared-cartesian",
+    "full_space_max_parameter_sets": 50176,
+    "historic_best_reference": "mandatory-exact"
+  },
+  "optimizer_shape_compatibility": "detector-implementation",
+  "lifecycle": {
+    "prepare": "doc_ufcn_page_mask",
+    "finalize": "doc_ufcn_page_mask",
+    "policy": "reuse"
+  },
+  "model": {
+    "family": "Doc-UFCN",
+    "variant": "Teklia/doc-ufcn-generic-page",
+    "source": "Teklia/doc-ufcn-generic-page",
+    "runtime": "Doc-UFCN / PyTorch CPU",
+    "input_size": 768
+  }
+}
