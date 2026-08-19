@@ -135,7 +135,7 @@ class OrliGeometryRefinementTests(unittest.TestCase):
         completed, diagnostics = orli._directional_page_completion(
             corners, image_shape=(1000, 1100, 3)
         )
-        self.assertEqual(diagnostics["reason"], "directional-edge-anchor-completion")
+        self.assertIn(diagnostics["reason"], {"directional-edge-anchor-completion", "corner-anchored-two-axis-completion"})
         bounds = orli._quad_axis_bounds(completed)
         self.assertLess(bounds["top"], 80.0)
         self.assertGreater(bounds["bottom"], 900.0)
@@ -147,10 +147,25 @@ class OrliGeometryRefinementTests(unittest.TestCase):
             corners, image_shape=(1000, 1200, 3)
         )
         bounds = orli._quad_axis_bounds(completed)
-        self.assertEqual(diagnostics["reason"], "directional-edge-anchor-completion")
+        self.assertIn(diagnostics["reason"], {"directional-edge-anchor-completion", "corner-anchored-two-axis-completion"})
         self.assertLess(bounds["left"], 180.0)
         self.assertGreater(bounds["bottom"], 900.0)
         self.assertGreaterEqual(len(diagnostics["changed_axes"]), 2)
+
+    def test_directional_completion_recovers_physical_top_right_corner_when_rotated_basis_is_ambiguous(self):
+        # Regression shape modeled on Golden Set page 10: a compact upper-right
+        # Orli fragment with trustworthy top/right image anchors and both
+        # opposite page dimensions absent.
+        corners = np.asarray([[492, 31], [1178, 31], [1178, 282], [492, 282]], dtype=np.float32)
+        completed, diagnostics = orli._directional_page_completion(
+            corners, image_shape=(1000, 1200, 3)
+        )
+        bounds = orli._quad_axis_bounds(completed)
+        self.assertEqual(diagnostics["reason"], "corner-anchored-two-axis-completion")
+        self.assertEqual(diagnostics["corner_anchor"], "top-right")
+        self.assertLess(bounds["left"], 80.0)
+        self.assertGreater(bounds["bottom"], 930.0)
+        self.assertEqual(set(diagnostics["changed_axes"]), {"left", "bottom"})
 
     def test_directional_completion_rejects_unanchored_local_text_block(self):
         corners = np.asarray([[380, 250], [700, 250], [700, 520], [380, 520]], dtype=np.float32)

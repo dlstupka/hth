@@ -24,3 +24,7 @@ See [Orli learned-evidence persistence](orli-evidence-persistence.md) for the pe
 ## Parameter liveness
 
 The completed 10,000-set HTH-0001 characterization classified `close_kernel_fraction` and `fill_holes` as empirical zombies for the current Golden Set/grid. Normal `exhaustive` calibration pins them at the detector baseline values `0.006` and `1`, respectively, and searches the four live dimensions. The same baseline-pin rule applies to every parameter excluded by a contracted effect-size search, keeping complete Parameter Set IDs invariant across builds. The explicit `exhaustive-with-zombies` strategy restores their retained historical domains and reconstructs the original 10,000-set space for deliberate revalidation. See [Detector Parameter Liveness Audit](parameter-liveness-audit.md).
+
+### Corner-anchored two-axis completion
+
+Directional completion also recognizes the stricter case where a localized Orli proposal is physically anchored to two adjacent source-image sides while both opposite page dimensions are materially absent. In that case the trusted corner margins are mirrored to reconstruct both missing sides together. This physical-corner fallback is intentionally narrower than generic envelope growth: unanchored localized text blocks remain ineligible, and broad page proposals are left unchanged. Verbose envelope diagnostics identify `corner-anchored-two-axis-completion`, the trusted corner, physical margins, synthesized sides, and completed bounds.

@@ -927,6 +927,65 @@ def _directional_page_completion(corners, *, image_shape):
         diagnostics["reason"] = "insufficient-edge-anchors"
         return corners, diagnostics
 
+    # A strongly localized corner fragment can defeat the rotated-basis rule:
+    # projection onto the proposal basis may make one physical image-edge anchor
+    # look broad enough that only one axis is completed.  Recognize the stricter
+    # physical case directly: two adjacent image-side anchors, with both opposite
+    # dimensions materially absent.  This is not a generic localized-block
+    # promotion; the observed fragment must actually touch a source-image corner.
+    bounds = _quad_axis_bounds(corners)
+    physical = {
+        "left_margin": max(0.0, float(bounds["left"])),
+        "top_margin": max(0.0, float(bounds["top"])),
+        "right_margin": max(0.0, float((w - 1) - bounds["right"])),
+        "bottom_margin": max(0.0, float((h - 1) - bounds["bottom"])),
+    }
+    x_anchor = anchor_fraction * max(1.0, float(w - 1))
+    y_anchor = anchor_fraction * max(1.0, float(h - 1))
+    x_missing = missing_fraction * max(1.0, float(w - 1))
+    y_missing = missing_fraction * max(1.0, float(h - 1))
+    corner_cases = (
+        ("top-left", "left_margin", "top_margin", "right_margin", "bottom_margin"),
+        ("top-right", "right_margin", "top_margin", "left_margin", "bottom_margin"),
+        ("bottom-right", "right_margin", "bottom_margin", "left_margin", "top_margin"),
+        ("bottom-left", "left_margin", "bottom_margin", "right_margin", "top_margin"),
+    )
+    for corner_name, x_near, y_near, x_far, y_far in corner_cases:
+        if (
+            physical[x_near] <= x_anchor
+            and physical[y_near] <= y_anchor
+            and physical[x_far] >= x_missing
+            and physical[y_far] >= y_missing
+        ):
+            left = physical["left_margin"] if x_near == "left_margin" else physical[x_near]
+            right = physical["right_margin"] if x_near == "right_margin" else physical[x_near]
+            top = physical["top_margin"] if y_near == "top_margin" else physical[y_near]
+            bottom = physical["bottom_margin"] if y_near == "bottom_margin" else physical[y_near]
+            # Preserve the trusted corner margins and mirror them to the two
+            # missing sides.  The final canonicalization clips to the image.
+            if "left" in corner_name:
+                x0, x1 = left, (w - 1) - left
+            else:
+                x0, x1 = right, (w - 1) - right
+            if "top" in corner_name:
+                y0, y1 = top, (h - 1) - top
+            else:
+                y0, y1 = bottom, (h - 1) - bottom
+            corner_completed = _canonical_quad(
+                np.asarray([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], dtype=np.float32),
+                width=w, height=h,
+            )
+            if corner_completed is not None:
+                diagnostics.update({
+                    "reason": "corner-anchored-two-axis-completion",
+                    "corner_anchor": corner_name,
+                    "physical_margins": physical,
+                    "changed_axes": [x_far.replace("_margin", ""), y_far.replace("_margin", "")],
+                    "completed_bounds": _quad_axis_bounds(corner_completed),
+                    "completed_area": abs(float(cv2.contourArea(corner_completed))),
+                })
+                return corner_completed, diagnostics
+
     completed = {name: dict(axis) for name, axis in axes.items()}
     changed = []
     for name, axis in axes.items():
