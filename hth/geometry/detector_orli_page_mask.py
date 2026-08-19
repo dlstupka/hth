@@ -550,6 +550,162 @@ def _learned_geometry_envelope(evidence, *, image_shape):
 
 
 
+def _learned_document_frame(evidence, *, image_shape):
+    """Infer a page-oriented frame from broad Orli baseline layout support.
+
+    Baselines describe text, not the physical paper edge.  When they span a
+    substantial document axis, use their dominant orientation plus the source
+    image margins on that axis to estimate the missing orthogonal page extent.
+    This is deliberately parameter-free and conservative: narrow/localized
+    evidence is rejected rather than extrapolated.
+    """
+    h, w = image_shape[:2]
+    min_dim = float(max(1, min(h, w)))
+    baselines = []
+    lengths = []
+    directions = []
+
+    for baseline in evidence.get("baselines", ()):
+        pts = np.asarray(baseline, dtype=np.float32).reshape(-1, 2)
+        if len(pts) < 2 or not np.isfinite(pts).all():
+            continue
+        segs = np.diff(pts, axis=0)
+        length = float(np.linalg.norm(segs, axis=1).sum())
+        if length <= 0.0:
+            continue
+        chord = pts[-1] - pts[0]
+        chord_norm = float(np.linalg.norm(chord))
+        if chord_norm <= 1e-6:
+            continue
+        baselines.append((pts, length))
+        lengths.append(length)
+        directions.append(chord / chord_norm)
+
+    if len(baselines) < 4:
+        return None, {
+            "available": False,
+            "reason": "insufficient-baselines",
+            "baseline_count": len(baselines),
+        }
+
+    median_length = float(np.median(lengths)) if lengths else 0.0
+    length_floor = max(2.0, min_dim * 0.0025, median_length * 0.05)
+    substantial = [(pts, length, direction) for (pts, length), direction in zip(baselines, directions) if length >= length_floor]
+    if len(substantial) < 4:
+        return None, {
+            "available": False,
+            "reason": "insufficient-substantial-baselines",
+            "baseline_count": len(baselines),
+            "substantial_baselines": len(substantial),
+            "baseline_length_floor": length_floor,
+        }
+
+    # Baseline orientation is axial: theta and theta+pi are equivalent.  Average
+    # doubled angles so opposite endpoint order cannot cancel the estimate.
+    angles = np.asarray([np.arctan2(direction[1], direction[0]) for _, _, direction in substantial], dtype=np.float64)
+    mean_cos = float(np.mean(np.cos(2.0 * angles)))
+    mean_sin = float(np.mean(np.sin(2.0 * angles)))
+    theta = 0.5 * float(np.arctan2(mean_sin, mean_cos))
+    u = np.asarray([np.cos(theta), np.sin(theta)], dtype=np.float64)
+    v = np.asarray([-u[1], u[0]], dtype=np.float64)
+
+    points = np.concatenate([pts for pts, _, _ in substantial], axis=0).astype(np.float64)
+    u_proj = points @ u
+    v_proj = points @ v
+    row_centers = np.asarray([float(np.median(pts.astype(np.float64) @ v)) for pts, _, _ in substantial], dtype=np.float64)
+
+    image_corners = np.asarray([[0.0, 0.0], [w - 1.0, 0.0], [w - 1.0, h - 1.0], [0.0, h - 1.0]], dtype=np.float64)
+    image_u = image_corners @ u
+    image_v = image_corners @ v
+    image_u_min, image_u_max = float(image_u.min()), float(image_u.max())
+    image_v_min, image_v_max = float(image_v.min()), float(image_v.max())
+    image_u_span = max(1e-6, image_u_max - image_u_min)
+    image_v_span = max(1e-6, image_v_max - image_v_min)
+
+    # Quantiles keep one bad Orli endpoint from defining the frame while still
+    # retaining nearly all learned support.
+    text_u_min, text_u_max = [float(x) for x in np.quantile(u_proj, [0.01, 0.99])]
+    text_v_min, text_v_max = [float(x) for x in np.quantile(v_proj, [0.01, 0.99])]
+    text_u_span = max(1e-6, text_u_max - text_u_min)
+    text_v_span = max(1e-6, text_v_max - text_v_min)
+    main_axis_coverage = text_u_span / image_u_span
+
+    # Estimate typical row spacing only for diagnostics and a minimum sensible
+    # margin.  Collapse near-duplicate row centers emitted by dense Orli output.
+    sorted_rows = np.sort(row_centers)
+    coarse_gap = max(1.0, min_dim * 0.002)
+    collapsed = []
+    for value in sorted_rows:
+        if not collapsed or value - collapsed[-1] >= coarse_gap:
+            collapsed.append(float(value))
+        else:
+            collapsed[-1] = (collapsed[-1] + float(value)) * 0.5
+    row_diffs = np.diff(np.asarray(collapsed, dtype=np.float64)) if len(collapsed) >= 2 else np.asarray([], dtype=np.float64)
+    row_diffs = row_diffs[row_diffs > coarse_gap]
+    row_spacing = float(np.median(row_diffs)) if row_diffs.size else 0.0
+
+    # Extrapolation is justified only when the learned text support is broad
+    # along the document axis.  Local text blocks remain ordinary learned
+    # envelopes and cannot manufacture a page-sized frame.
+    if main_axis_coverage < 0.55:
+        return None, {
+            "available": False,
+            "reason": "insufficient-main-axis-coverage",
+            "baseline_count": len(baselines),
+            "substantial_baselines": len(substantial),
+            "dominant_angle_degrees": float(np.degrees(theta)),
+            "main_axis_coverage": main_axis_coverage,
+            "row_spacing": row_spacing,
+        }
+
+    left_margin = max(0.0, text_u_min - image_u_min)
+    right_margin = max(0.0, image_u_max - text_u_max)
+    side_margin = float(np.median([left_margin, right_margin]))
+    minimum_margin = max(min_dim * 0.02, row_spacing * 1.5 if row_spacing > 0.0 else 0.0)
+    maximum_margin = min_dim * 0.18
+    inferred_margin = float(np.clip(side_margin, minimum_margin, maximum_margin))
+
+    # Keep the observed main-axis text extent; infer only the orthogonal paper
+    # extent from the broad text-frame side margins. Existing page padding still
+    # provides the calibrated final expansion after arbitration.
+    frame_u_min, frame_u_max = text_u_min, text_u_max
+    frame_v_min = image_v_min + inferred_margin
+    frame_v_max = image_v_max - inferred_margin
+    frame_v_min = min(frame_v_min, text_v_min)
+    frame_v_max = max(frame_v_max, text_v_max)
+    if frame_v_max - frame_v_min < text_v_span:
+        frame_v_min, frame_v_max = text_v_min, text_v_max
+
+    uv = np.asarray([
+        [frame_u_min, frame_v_min],
+        [frame_u_max, frame_v_min],
+        [frame_u_max, frame_v_max],
+        [frame_u_min, frame_v_max],
+    ], dtype=np.float64)
+    # [u v] is an orthonormal basis, so x/y = u*u_coord + v*v_coord.
+    xy = uv[:, :1] * u[None, :] + uv[:, 1:] * v[None, :]
+    corners = _canonical_quad(xy.astype(np.float32), width=w, height=h)
+    area = abs(float(cv2.contourArea(corners))) if corners is not None else 0.0
+    return corners, {
+        "available": corners is not None,
+        "reason": "broad-baseline-document-frame" if corners is not None else "invalid-frame",
+        "baseline_count": len(baselines),
+        "substantial_baselines": len(substantial),
+        "baseline_length_floor": length_floor,
+        "baseline_median_length": median_length,
+        "dominant_angle_degrees": float(np.degrees(theta)),
+        "main_axis_coverage": main_axis_coverage,
+        "text_main_span": text_u_span,
+        "text_cross_span": text_v_span,
+        "image_main_span": image_u_span,
+        "image_cross_span": image_v_span,
+        "row_spacing": row_spacing,
+        "side_margins": {"leading": left_margin, "trailing": right_margin},
+        "inferred_cross_margin": inferred_margin,
+        "area": area,
+    }
+
+
 
 def _quad_axis_bounds(corners):
     if corners is None:
@@ -567,7 +723,7 @@ def _quad_axis_bounds(corners):
     }
 
 
-def _arbitrate_envelopes(contour_corners, learned_corners, *, image_shape):
+def _arbitrate_envelopes(contour_corners, learned_corners, *, image_shape, frame_corners=None):
     """Choose between morphology and global learned geometry without area bias.
 
     A wide-but-truncated contour can have more area than the Orli geometry that
@@ -583,12 +739,16 @@ def _arbitrate_envelopes(contour_corners, learned_corners, *, image_shape):
     learned_bounds = _quad_axis_bounds(learned_corners)
     contour_area = abs(float(cv2.contourArea(contour_corners))) if contour_corners is not None else 0.0
     learned_area = abs(float(cv2.contourArea(learned_corners))) if learned_corners is not None else 0.0
+    frame_bounds = _quad_axis_bounds(frame_corners)
+    frame_area = abs(float(cv2.contourArea(frame_corners))) if frame_corners is not None else 0.0
 
     diagnostics = {
         "contour_bounds": contour_bounds,
         "learned_bounds": learned_bounds,
         "contour_area": contour_area,
         "learned_area": learned_area,
+        "frame_bounds": frame_bounds,
+        "frame_area": frame_area,
         "decision": "none",
         "reason": "no-envelope",
     }
@@ -596,10 +756,34 @@ def _arbitrate_envelopes(contour_corners, learned_corners, *, image_shape):
         diagnostics.update(decision="contour", reason="learned-unavailable")
         return contour_corners, "contour", diagnostics
     if contour_corners is None:
+        if frame_corners is not None:
+            diagnostics.update(decision="frame", reason="contour-unavailable-document-frame")
+            return frame_corners, "frame", diagnostics
         diagnostics.update(decision="learned", reason="contour-unavailable")
         return learned_corners, "learned", diagnostics
 
     min_dim = float(max(1, min(h, w)))
+
+    # A learned document frame represents inferred paper extent rather than only
+    # observed text support. Prefer it when it materially restores the cross-axis
+    # span while retaining substantial contour extent on the document axis.
+    if frame_corners is not None and frame_bounds is not None:
+        c_width0 = max(1e-6, float(contour_bounds["width"]))
+        c_height0 = max(1e-6, float(contour_bounds["height"]))
+        f_width = max(1e-6, float(frame_bounds["width"]))
+        f_height = max(1e-6, float(frame_bounds["height"]))
+        width_ratio0 = f_width / c_width0
+        height_ratio0 = f_height / c_height0
+        diagnostics.update({
+            "frame_to_contour_width_ratio": width_ratio0,
+            "frame_to_contour_height_ratio": height_ratio0,
+        })
+        frame_horizontal = width_ratio0 >= 1.08 and (f_width - c_width0) >= max(4.0, min_dim * 0.02) and height_ratio0 >= 0.60
+        frame_vertical = height_ratio0 >= 1.08 and (f_height - c_height0) >= max(4.0, min_dim * 0.02) and width_ratio0 >= 0.60
+        if frame_horizontal or frame_vertical:
+            axis = "both" if frame_horizontal and frame_vertical else "horizontal" if frame_horizontal else "vertical"
+            diagnostics.update(decision="frame", reason=f"extrapolated-{axis}-document-extent")
+            return frame_corners, "frame", diagnostics
     material_pixels = max(4.0, min_dim * 0.02)
     c_width = max(1e-6, float(contour_bounds["width"]))
     c_height = max(1e-6, float(contour_bounds["height"]))
@@ -677,13 +861,21 @@ def _proposal(image_bgr, values):
         image_shape=image_bgr.shape,
     )
     learned_area = abs(float(cv2.contourArea(learned_corners))) if learned_corners is not None else 0.0
+    frame_corners, frame_diagnostics = _learned_document_frame(
+        evidence,
+        image_shape=image_bgr.shape,
+    )
+    frame_area = abs(float(cv2.contourArea(frame_corners))) if frame_corners is not None else 0.0
 
     raw_corners, arbitration_source, arbitration_diagnostics = _arbitrate_envelopes(
         contour_corners,
         learned_corners,
         image_shape=image_bgr.shape,
+        frame_corners=frame_corners,
     )
-    if arbitration_source == "learned":
+    if arbitration_source == "frame":
+        envelope_mode = "learned-document-frame"
+    elif arbitration_source == "learned":
         envelope_mode = "learned-geometry-consensus"
     else:
         envelope_mode = contour_diagnostics.get("mode", "none")
@@ -692,9 +884,11 @@ def _proposal(image_bgr, values):
         "mode": envelope_mode,
         "contour": contour_diagnostics,
         "learned_geometry": learned_diagnostics,
+        "learned_document_frame": frame_diagnostics,
         "arbitration": arbitration_diagnostics,
         "contour_quad_area": contour_area,
         "learned_quad_area": learned_area,
+        "learned_document_frame_area": frame_area,
     }
     if raw_corners is None:
         return evidence, mask, contour, None, 0.0, envelope_diagnostics

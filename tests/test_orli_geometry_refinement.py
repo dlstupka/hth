@@ -74,6 +74,62 @@ class OrliGeometryRefinementTests(unittest.TestCase):
         self.assertEqual(diagnostics["reason"], "contour-retains-document-extent")
         self.assertTrue(np.array_equal(chosen, contour))
 
+
+    def test_learned_document_frame_extrapolates_cross_axis_from_broad_baselines(self):
+        evidence = {
+            "regions": (),
+            "lines": (),
+            "baselines": (
+                ((110, 180), (990, 185)),
+                ((115, 260), (985, 265)),
+                ((120, 340), (980, 345)),
+                ((125, 420), (975, 425)),
+                ((130, 500), (970, 505)),
+            ),
+            "text_direction": "horizontal-lr",
+        }
+        corners, diagnostics = orli._learned_document_frame(
+            evidence,
+            image_shape=(1000, 1100, 3),
+        )
+        self.assertIsNotNone(corners)
+        self.assertTrue(diagnostics["available"])
+        self.assertGreater(diagnostics["main_axis_coverage"], 0.55)
+        ys = np.asarray(corners)[:, 1]
+        self.assertLess(float(ys.min()), 140.0)
+        self.assertGreater(float(ys.max()), 850.0)
+        self.assertGreater(diagnostics["inferred_cross_margin"], 20.0)
+
+    def test_learned_document_frame_rejects_localized_text_block(self):
+        evidence = {
+            "regions": (),
+            "lines": (),
+            "baselines": (
+                ((400, 200), (620, 200)),
+                ((405, 300), (625, 300)),
+                ((410, 400), (630, 400)),
+                ((415, 500), (635, 500)),
+            ),
+            "text_direction": "horizontal-lr",
+        }
+        corners, diagnostics = orli._learned_document_frame(
+            evidence,
+            image_shape=(1000, 1100, 3),
+        )
+        self.assertIsNone(corners)
+        self.assertEqual(diagnostics["reason"], "insufficient-main-axis-coverage")
+
+    def test_arbitration_prefers_extrapolated_document_frame_over_short_contour(self):
+        contour = np.asarray([[70, 180], [1030, 180], [1030, 560], [70, 560]], dtype=np.float32)
+        learned = np.asarray([[120, 190], [980, 190], [980, 520], [120, 520]], dtype=np.float32)
+        frame = np.asarray([[120, 80], [980, 80], [980, 920], [120, 920]], dtype=np.float32)
+        chosen, source, diagnostics = orli._arbitrate_envelopes(
+            contour, learned, image_shape=(1000, 1100, 3), frame_corners=frame
+        )
+        self.assertEqual(source, "frame")
+        self.assertEqual(diagnostics["reason"], "extrapolated-vertical-document-extent")
+        self.assertTrue(np.array_equal(chosen, frame))
+
     def test_proposal_prefers_larger_learned_geometry_over_connected_component(self):
         image = np.zeros((800, 1200, 3), dtype=np.uint8)
         evidence = orli._freeze_evidence({
