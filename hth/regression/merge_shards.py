@@ -185,6 +185,15 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         attach_identity(result, detector, detector_configuration, strategy=strategy)
         result["rank"] = rank
         result["run_id"] = run_id
+    identity_by_parameter_set = {
+        str(result.get("parameter_set_id")): result.get("parameter_set_equivalence_family_id")
+        for result in ranked
+        if result.get("parameter_set_id") and result.get("parameter_set_equivalence_family_id")
+    }
+    for event in winner_history:
+        family_id = identity_by_parameter_set.get(str(event.get("parameter_set_id")))
+        if family_id:
+            event["parameter_set_equivalence_family_id"] = family_id
     search_ranked = [
         result for result in ranked
         if result.get("requested_search_member")

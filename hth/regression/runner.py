@@ -1176,6 +1176,15 @@ def run(args:argparse.Namespace)->Path:
             attach_identity(r, name, config, strategy=effective_strategy)
             r["profile"]=profiles.get(canonical_parameters(r["parameters"]))
             r["run_id"]=run_id
+        identity_by_parameter_set = {
+            str(r.get("parameter_set_id")): r.get("parameter_set_equivalence_family_id")
+            for r in results
+            if r.get("parameter_set_id") and r.get("parameter_set_equivalence_family_id")
+        }
+        for event in progress_snapshot.winner_history:
+            family_id = identity_by_parameter_set.get(str(event.get("parameter_set_id")))
+            if family_id:
+                event["parameter_set_equivalence_family_id"] = family_id
         ranked=sorted(results,key=ranking_key)
         for rank,r in enumerate(ranked,1):
             r["rank"]=rank
