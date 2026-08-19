@@ -130,6 +130,45 @@ class OrliGeometryRefinementTests(unittest.TestCase):
         self.assertEqual(diagnostics["reason"], "extrapolated-vertical-document-extent")
         self.assertTrue(np.array_equal(chosen, frame))
 
+    def test_directional_completion_extends_missing_bottom_from_top_and_side_anchors(self):
+        corners = np.asarray([[90, 60], [1040, 60], [1040, 470], [90, 470]], dtype=np.float32)
+        completed, diagnostics = orli._directional_page_completion(
+            corners, image_shape=(1000, 1100, 3)
+        )
+        self.assertEqual(diagnostics["reason"], "directional-edge-anchor-completion")
+        bounds = orli._quad_axis_bounds(completed)
+        self.assertLess(bounds["top"], 80.0)
+        self.assertGreater(bounds["bottom"], 900.0)
+        self.assertGreaterEqual(diagnostics["anchor_count"], 2)
+
+    def test_directional_completion_recovers_opposite_sides_from_top_right_fragment(self):
+        corners = np.asarray([[600, 60], [1070, 60], [1070, 250], [600, 250]], dtype=np.float32)
+        completed, diagnostics = orli._directional_page_completion(
+            corners, image_shape=(1000, 1200, 3)
+        )
+        bounds = orli._quad_axis_bounds(completed)
+        self.assertEqual(diagnostics["reason"], "directional-edge-anchor-completion")
+        self.assertLess(bounds["left"], 180.0)
+        self.assertGreater(bounds["bottom"], 900.0)
+        self.assertGreaterEqual(len(diagnostics["changed_axes"]), 2)
+
+    def test_directional_completion_rejects_unanchored_local_text_block(self):
+        corners = np.asarray([[380, 250], [700, 250], [700, 520], [380, 520]], dtype=np.float32)
+        completed, diagnostics = orli._directional_page_completion(
+            corners, image_shape=(1000, 1100, 3)
+        )
+        self.assertTrue(np.array_equal(completed, corners))
+        self.assertEqual(diagnostics["reason"], "insufficient-edge-anchors")
+        self.assertEqual(diagnostics["changed_axes"], [])
+
+    def test_directional_completion_leaves_broad_page_proposal_unchanged(self):
+        corners = np.asarray([[80, 70], [1020, 70], [1020, 930], [80, 930]], dtype=np.float32)
+        completed, diagnostics = orli._directional_page_completion(
+            corners, image_shape=(1000, 1100, 3)
+        )
+        self.assertTrue(np.array_equal(completed, corners))
+        self.assertEqual(diagnostics["reason"], "anchored-envelope-not-materially-truncated")
+
     def test_proposal_prefers_larger_learned_geometry_over_connected_component(self):
         image = np.zeros((800, 1200, 3), dtype=np.uint8)
         evidence = orli._freeze_evidence({

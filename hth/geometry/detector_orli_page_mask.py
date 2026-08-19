@@ -824,6 +824,151 @@ def _arbitrate_envelopes(contour_corners, learned_corners, *, image_shape, frame
     return contour_corners, "contour", diagnostics
 
 
+
+def _directional_page_completion(corners, *, image_shape):
+    """Complete missing page sides from strong image-edge anchors.
+
+    Orli sometimes describes only an upper/side portion of a historical page:
+    the observed envelope can have an accurate top/right (or top/left) edge but
+    terminate hundreds of pixels before the opposite paper boundaries.  When a
+    proposal is anchored near at least two source-image sides, complete only the
+    materially truncated axes by mirroring the trusted opposite margin in the
+    proposal's own orthogonal basis.
+
+    The rule is deliberately parameter-free and conservative.  It does not grow
+    broad proposals, and a localized text block with fewer than two edge anchors
+    is never promoted to a page-sized quadrilateral.
+    """
+    if corners is None:
+        return None, {
+            "available": False,
+            "reason": "no-envelope",
+            "changed_axes": [],
+        }
+
+    h, w = image_shape[:2]
+    pts = np.asarray(corners, dtype=np.float64).reshape(-1, 2)
+    if len(pts) != 4 or not np.isfinite(pts).all():
+        return corners, {
+            "available": False,
+            "reason": "invalid-envelope",
+            "changed_axes": [],
+        }
+
+    rect = cv2.minAreaRect(pts.astype(np.float32))
+    box = np.asarray(cv2.boxPoints(rect), dtype=np.float64)
+    edges = np.roll(box, -1, axis=0) - box
+    lengths = np.linalg.norm(edges, axis=1)
+    if not np.isfinite(lengths).all() or float(lengths.max()) <= 1e-6:
+        return corners, {
+            "available": False,
+            "reason": "degenerate-envelope",
+            "changed_axes": [],
+        }
+
+    # Use one rectangle edge as u and its perpendicular as v.  The subsequent
+    # image projections make the logic orientation-independent.
+    edge_index = int(np.argmax(lengths))
+    u = edges[edge_index] / max(float(lengths[edge_index]), 1e-6)
+    v = np.asarray([-u[1], u[0]], dtype=np.float64)
+
+    image_corners = np.asarray(
+        [[0.0, 0.0], [w - 1.0, 0.0], [w - 1.0, h - 1.0], [0.0, h - 1.0]],
+        dtype=np.float64,
+    )
+    image_u = image_corners @ u
+    image_v = image_corners @ v
+    cand_u = pts @ u
+    cand_v = pts @ v
+
+    axes = {
+        "u": {
+            "image_min": float(image_u.min()),
+            "image_max": float(image_u.max()),
+            "cand_min": float(cand_u.min()),
+            "cand_max": float(cand_u.max()),
+        },
+        "v": {
+            "image_min": float(image_v.min()),
+            "image_max": float(image_v.max()),
+            "cand_min": float(cand_v.min()),
+            "cand_max": float(cand_v.max()),
+        },
+    }
+
+    anchor_fraction = 0.14
+    truncated_span_fraction = 0.72
+    missing_fraction = 0.25
+    for axis in axes.values():
+        axis["image_span"] = max(1e-6, axis["image_max"] - axis["image_min"])
+        axis["span"] = max(1e-6, axis["cand_max"] - axis["cand_min"])
+        axis["span_fraction"] = axis["span"] / axis["image_span"]
+        axis["low_margin"] = max(0.0, axis["cand_min"] - axis["image_min"])
+        axis["high_margin"] = max(0.0, axis["image_max"] - axis["cand_max"])
+        axis["low_anchor"] = axis["low_margin"] <= anchor_fraction * axis["image_span"]
+        axis["high_anchor"] = axis["high_margin"] <= anchor_fraction * axis["image_span"]
+
+    anchor_count = sum(
+        int(axis[side])
+        for axis in axes.values()
+        for side in ("low_anchor", "high_anchor")
+    )
+    diagnostics = {
+        "available": True,
+        "reason": "no-directional-completion",
+        "anchor_count": anchor_count,
+        "anchor_fraction": anchor_fraction,
+        "truncated_span_fraction": truncated_span_fraction,
+        "missing_fraction": missing_fraction,
+        "axes": axes,
+        "changed_axes": [],
+    }
+    if anchor_count < 2:
+        diagnostics["reason"] = "insufficient-edge-anchors"
+        return corners, diagnostics
+
+    completed = {name: dict(axis) for name, axis in axes.items()}
+    changed = []
+    for name, axis in axes.items():
+        if axis["span_fraction"] >= truncated_span_fraction:
+            continue
+        large_missing = missing_fraction * axis["image_span"]
+        # If one side is trusted and the opposite side is materially absent,
+        # mirror the trusted margin across the image projection.  This converts
+        # an upper/right text fragment into a full page proposal without making
+        # any claim about unanchored localized blocks.
+        if axis["low_anchor"] and axis["high_margin"] >= large_missing:
+            completed[name]["cand_max"] = axis["image_max"] - axis["low_margin"]
+            changed.append(f"{name}-high")
+        elif axis["high_anchor"] and axis["low_margin"] >= large_missing:
+            completed[name]["cand_min"] = axis["image_min"] + axis["high_margin"]
+            changed.append(f"{name}-low")
+
+    if not changed:
+        diagnostics["reason"] = "anchored-envelope-not-materially-truncated"
+        return corners, diagnostics
+
+    uv = np.asarray([
+        [completed["u"]["cand_min"], completed["v"]["cand_min"]],
+        [completed["u"]["cand_max"], completed["v"]["cand_min"]],
+        [completed["u"]["cand_max"], completed["v"]["cand_max"]],
+        [completed["u"]["cand_min"], completed["v"]["cand_max"]],
+    ], dtype=np.float64)
+    xy = uv[:, :1] * u[None, :] + uv[:, 1:] * v[None, :]
+    completed_corners = _canonical_quad(xy.astype(np.float32), width=w, height=h)
+    if completed_corners is None:
+        diagnostics["reason"] = "invalid-directional-completion"
+        return corners, diagnostics
+
+    diagnostics.update({
+        "reason": "directional-edge-anchor-completion",
+        "changed_axes": changed,
+        "completed_bounds": _quad_axis_bounds(completed_corners),
+        "completed_area": abs(float(cv2.contourArea(completed_corners))),
+    })
+    return completed_corners, diagnostics
+
+
 def _pad_quad(corners, *, image_shape, padding_fraction):
     if corners is None:
         return None
@@ -880,12 +1025,21 @@ def _proposal(image_bgr, values):
     else:
         envelope_mode = contour_diagnostics.get("mode", "none")
 
+    completed_corners, completion_diagnostics = _directional_page_completion(
+        raw_corners,
+        image_shape=image_bgr.shape,
+    )
+    if completion_diagnostics.get("changed_axes"):
+        raw_corners = completed_corners
+        envelope_mode = f"{envelope_mode}+directional-completion"
+
     envelope_diagnostics = {
         "mode": envelope_mode,
         "contour": contour_diagnostics,
         "learned_geometry": learned_diagnostics,
         "learned_document_frame": frame_diagnostics,
         "arbitration": arbitration_diagnostics,
+        "directional_completion": completion_diagnostics,
         "contour_quad_area": contour_area,
         "learned_quad_area": learned_area,
         "learned_document_frame_area": frame_area,
