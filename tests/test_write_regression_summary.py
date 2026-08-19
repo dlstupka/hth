@@ -599,6 +599,18 @@ class RegressionSummaryTests(unittest.TestCase):
 
 
 
+
+class MarkdownTableStructureTests(unittest.TestCase):
+    def test_best_known_table_header_and_separator_have_matching_columns(self):
+        header = "| Rank | Detector | Detector ID | Role | Golden Set ID | Date | Build* | Est. Serial Runtime** | Family ID | Parameter Set ID | Parameter Sets | Search Type | Successful Parameter Sets | Best Avg IoU | Min IoU | StdDev | Avg IoU Success | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence | Approval Level |"
+        separator = "|---:|---|---|---|---|---|---|---:|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|"
+        self.assertEqual(len(header.split("|")[1:-1]), len(separator.split("|")[1:-1]))
+
+    def test_detector_queue_table_header_and_separator_have_matching_columns(self):
+        header = "| Queue | Detector | Pipeline | Estimated Runtime | Scheduling Basis |"
+        separator = "|---:|---|---|---:|---|"
+        self.assertEqual(len(header.split("|")[1:-1]), len(separator.split("|")[1:-1]))
+
 if __name__ == "__main__":
     unittest.main()
 
