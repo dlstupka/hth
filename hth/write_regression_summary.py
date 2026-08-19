@@ -420,6 +420,11 @@ def _parameter_id(result: dict[str, Any] | None) -> str:
         return "unknown"
     return _short(result.get("parameter_set_id"), 12)
 
+def _parameter_family_id(result: dict[str, Any] | None) -> str:
+    if not result:
+        return "unknown"
+    return _short(result.get("parameter_set_equivalence_family_id"), 12)
+
 
 def _search_observation(result: dict[str, Any] | None) -> dict[str, Any]:
     if not result:
@@ -681,6 +686,7 @@ def _parameter_set_details(
         "", "### Parameter Set Details", "",
         "This is the exact winning parameter configuration. The short Parameter Set ID is a legacy convenience alias; the full SHA-256 identity is authoritative.", "",
         "| Identity field | Value |", "|---|---|",
+        f"| Parameter Set Equivalence Family ID | `{_parameter_family_id(winner)}` |",
         f"| Parameter Set ID (legacy alias) | `{legacy_id}` |",
         f"| Absolute parameter SHA-256 | `{full_sha or 'unavailable (legacy record)'}` |",
         f"| Identity schema | `{identity.get('identity_schema_version', winner.get('parameter_identity_schema_version', 'unknown'))}` |",
@@ -851,13 +857,13 @@ def build_summary(
         "",
         "### Result",
         "",
-        "| Result | Golden Set ID | Detector Config ID* | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Avg IoU Success | Failures | Evaluation Time |",
-        "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|",
-        f"| Winner | `{golden_set_id}` | `{detector_config_id}` | `{_parameter_id(winner)}` | `{_parameter_short_name(winner)}` | {_number(winner_stats.get('mean_iou'))} | {_number(winner_stats.get('minimum_iou'))} | {_number(winner_stats.get('stddev_iou'))} | {_number(winner_stats.get('mean_iou_success', winner_stats.get('mean_iou')))} | {winner_stats.get('failure_count', 'unknown')} | {_duration(_evaluation_seconds(winner))} |",
+        "| Result | Golden Set ID | Detector Config ID* | Family ID** | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Avg IoU Success | Failures | Evaluation Time |",
+        "|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|",
+        f"| Winner | `{golden_set_id}` | `{detector_config_id}` | `{_parameter_family_id(winner)}` | `{_parameter_id(winner)}` | `{_parameter_short_name(winner)}` | {_number(winner_stats.get('mean_iou'))} | {_number(winner_stats.get('minimum_iou'))} | {_number(winner_stats.get('stddev_iou'))} | {_number(winner_stats.get('mean_iou_success', winner_stats.get('mean_iou')))} | {winner_stats.get('failure_count', 'unknown')} | {_duration(_evaluation_seconds(winner))} |",
     ])
     if baseline and _parameter_id(baseline) != _parameter_id(winner):
         lines.append(
-            f"| Baseline | `{golden_set_id}` | `{detector_config_id}` | `{_parameter_id(baseline)}` | `{_parameter_short_name(baseline)}` | "
+            f"| Baseline | `{golden_set_id}` | `{detector_config_id}` | `{_parameter_family_id(baseline)}` | `{_parameter_id(baseline)}` | `{_parameter_short_name(baseline)}` | "
             f"{_number(baseline_stats.get('mean_iou'))} | "
             f"{_number(baseline_stats.get('minimum_iou'))} | "
             f"{_number(baseline_stats.get('stddev_iou'))} | "
@@ -873,6 +879,8 @@ def build_summary(
         f"the run's pipeline/source revision (`{implementation_id}`). Exact regression-result reproducibility "
         f"requires the tuple **detector implementation + parameter set + Golden Set**; matching a parameter "
         f"SHA alone does not imply identical results across detector-code revisions.",
+        "",
+        r"\*\* **Family ID** is the Parameter Set Equivalence Family ID. It is additive provenance: exact Parameter Set IDs remain unchanged. Enrolled equivalence dimensions are replaced only in the hashing payload by `__HTH_EQUIVALENCE_FAMILY_ID__`; that sentinel is never executable detector input. Different exact sets may share a Family ID only through those durably enrolled dimensions.",
     ])
 
     lines.extend(_parameter_set_details(
@@ -953,8 +961,8 @@ def build_summary(
             "",
             "### Top Parameter Sets",
             "",
-            "| Rank | Last Build | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Avg IoU Success | Failures | Discovery Time | Search Space % |",
-            "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| Rank | Last Build | Family ID | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Δ Avg IoU | Avg IoU Success | Failures | Discovery Time | Search Space % |",
+            "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
         ])
 
         def append_parameter_row(rank_label: str, result: dict[str, Any], *, reference: bool) -> None:
@@ -972,7 +980,7 @@ def build_summary(
                 parameter_build_index=parameter_build_index,
             )
             lines.append(
-                f"| {rank_label} | {last_build} | `{_parameter_id(result)}` | `{parameter_set_name}` | "
+                f"| {rank_label} | {last_build} | `{_parameter_family_id(result)}` | `{_parameter_id(result)}` | `{parameter_set_name}` | "
                 f"{_number(mean_iou)} | {_number(stats.get('minimum_iou'))} | "
                 f"{_number(stats.get('stddev_iou'))} | {delta_mean_iou:+.4f} | "
                 f"{_number(stats.get('mean_iou_success', stats.get('mean_iou')))} | {failure_count} | "
@@ -1021,12 +1029,12 @@ def build_summary(
             "",
             "### Golden Set Winner Summary",
             "",
-            "| Golden Set Page | Parameter Set ID | Baseline | Winner | Δ IoU | Status |",
-            "|---:|---|---:|---:|---:|---|",
+            "| Golden Set Page | Family ID | Parameter Set ID | Baseline | Winner | Δ IoU | Status |",
+            "|---:|---|---|---:|---:|---:|---|",
         ])
         for page in winner_pages:
             lines.append(
-                f"| {page.get('golden_set_page', 'unknown')} | `{_short(page.get('parameter_set'), 12)}` | "
+                f"| {page.get('golden_set_page', 'unknown')} | `{_parameter_family_id(winner)}` | `{_short(page.get('parameter_set'), 12)}` | "
                 f"{_number(page.get('baseline_iou'))} | {_number(page.get('winner_iou'))} | "
                 f"{float(page.get('delta_iou', 0.0) or 0.0):+.4f} | "
                 f"{page.get('status', 'unknown')} |"
@@ -1037,19 +1045,19 @@ def build_summary(
             "",
             "#### Winner History",
             "",
-            "| Discovery Order | Parameter Set ID | Search Time | % Search |",
-            "|---:|---|---:|---:|",
+            "| Discovery Order | Family ID | Parameter Set ID | Search Time | % Search |",
+            "|---:|---|---|---:|---:|",
         ])
         for event in winner_history[-5:]:
             marker = f"{event.get('change_number', 'unknown')}"
             if event is winner_history[-1]:
                 marker += " (final)"
             lines.append(
-                f"| {marker} | `{_short(event.get('parameter_set_id'), 12)}` | "
+                f"| {marker} | `{_short(event.get('parameter_set_equivalence_family_id'), 12)}` | `{_short(event.get('parameter_set_id'), 12)}` | "
                 f"{_duration(event.get('elapsed_seconds'))} | {_search_space_percent(event)} |"
             )
         if not winner_history:
-            lines.append("| — | no history | no history | no history |")
+            lines.append("| — | no history | no history | no history | no history |")
         lines.extend([
             "",
             f"Total winner changes: **{progress.get('winner_changes', 0)}**.",
@@ -1089,14 +1097,14 @@ def build_summary(
                 "",
                 "#### Affected Pages",
                 "",
-                "| Golden Set Page | Parameter Set ID | Winner IoU | Problem |",
-                "|---:|---|---:|---|",
+                "| Golden Set Page | Family ID | Parameter Set ID | Winner IoU | Problem |",
+                "|---:|---|---|---:|---|",
             ])
             for page in problem_pages:
                 reasons = "; ".join(str(reason) for reason in page.get("problem_reasons", [])) or str(page.get("status", "unknown"))
                 lines.append(
                     f"| {page.get('golden_set_page', 'unknown')} | "
-                    f"`{_short(page.get('parameter_set'), 12)}` | "
+                    f"`{_parameter_family_id(winner)}` | `{_short(page.get('parameter_set'), 12)}` | "
                     f"{_number(page.get('winner_iou'))} | {reasons} |"
                 )
         else:
@@ -1298,6 +1306,7 @@ def _calibration_record_from_payload(
         "created_at_utc": str(date_value or ""),
         "search_type": _calibration_search_type({**entry, "calibration_status": status}, payload),
         "status": status,
+        "parameter_set_equivalence_family_id": _parameter_family_id(winner),
         "parameter_set_id": _short(parameter_id, 12),
         "role": _detector_characterization(detector).get("role", "Unknown"),
         "coverage": "complete" if search.get("exhaustive_complete") else "partial",
@@ -1468,7 +1477,7 @@ def _render_best_known_calibrations(
         "This table is the authoritative detector ranking for this Golden Set. The Rank #1 detector is the current engineering recommendation based on the best approved calibration available for this Golden Set.", "",
         "This table prefers compatible full calibrations when available and falls back to the latest smoke evidence for detectors without a full calibration on this Golden Set.", "",
         "**Parameter-space note:** `Parameter Sets` is the declared discrete calibration grid for that run. `exhaustive` means every valid set in that declared grid was evaluated; it does not imply every value in an underlying continuous mathematical domain was tested. Invalid combinations should be rejected before evaluation, while behaviorally redundant/no-op combinations should be canonicalized so they do not inflate search or basin statistics.", "",
-        "| Rank | Detector | Detector ID | Role | Golden Set ID | Date | Build* | Est. Serial Runtime** | Parameter Set ID | Parameter Sets | Search Type | Successful Parameter Sets | Best Avg IoU | Min IoU | StdDev | Avg IoU Success | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence | Approval Level |",
+        "| Rank | Detector | Detector ID | Role | Golden Set ID | Date | Build* | Est. Serial Runtime** | Family ID | Parameter Set ID | Parameter Sets | Search Type | Successful Parameter Sets | Best Avg IoU | Min IoU | StdDev | Avg IoU Success | Failures | Δ Baseline Avg IoU | Near-best Coverage (Basin) | Equivalent Best Configurations | Calibration Evidence | Approval Level |",
         "|---:|---|---|---|---|---|---|---:|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
     ]
     for rank, row in enumerate(records, start=1):
@@ -1489,6 +1498,7 @@ def _render_best_known_calibrations(
             str(row.get("date", "unknown")),
             build_text,
             _duration(row.get("run_time_seconds")),
+            f"`{row.get('parameter_set_equivalence_family_id', 'unknown')}`",
             f"`{row.get('parameter_set_id', 'unknown')}`",
             str(row.get("parameter_sets", "unknown")),
             str(search_type),
@@ -2207,6 +2217,7 @@ def _combined_result_row(run_dir: Path) -> dict[str, Any]:
         "detector_short_name": _detector_short_name(str(manifest.get("detector", run_dir.parent.name))),
         "status": str(manifest.get("status", "unknown")),
         "parameter_short_name": _parameter_short_name(winner),
+        "parameter_set_equivalence_family_id": _parameter_family_id(winner),
         "parameter_set_id": _parameter_id(winner),
         "mean_iou": winner_stats.get("mean_iou"),
         "mean_iou_success": winner_stats.get("mean_iou_success", winner_stats.get("mean_iou")),
@@ -2322,13 +2333,13 @@ def build_combined_summary(
         "",
         "## Ranked Detector Smoke Test Results",
         "",
-        "| Rank | Detector | Detector ID | Role | Golden Set ID | Status | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Avg IoU Success | Failures | Parameter Sets | Eval Rate | Doc Time | Run Elapsed |",
-        "|---:|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Rank | Detector | Detector ID | Role | Golden Set ID | Status | Family ID | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Avg IoU Success | Failures | Parameter Sets | Eval Rate | Doc Time | Run Elapsed |",
+        "|---:|---|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ])
     for rank, row in enumerate(combined_rows, start=1):
         lines.append(
             f"| {rank} | {row['detector_name']} | `{row['detector']}` | {_detector_characterization(str(row['detector'])).get('role', 'Unknown')} | `{_display_golden_set_id(row.get('golden_set_id', 'unknown'))}` | {row['status']} | "
-            f"`{row['parameter_set_id']}` | `{row['parameter_short_name']}` | {_number(row['mean_iou'])} | "
+            f"`{row.get('parameter_set_equivalence_family_id', 'unknown')}` | `{row['parameter_set_id']}` | `{row['parameter_short_name']}` | {_number(row['mean_iou'])} | "
             f"{_number(row['minimum_iou'])} | {_number(row['stddev_iou'])} | "
             f"{_number(row.get('mean_iou_success', row['mean_iou']))} | {row['failures']} | {row['parameter_sets']} | "
             f"{_format_page_rate(row['page_rate'])} | {_duration(row['document_seconds'])} | "
@@ -2420,7 +2431,7 @@ def build_combined_summary(
         "Detector pipelines pull continuously from one shared queue. Once a detector finishes, that pipeline immediately loads the next queued detector until the queue is empty.",
         "",
         "| Queue | Detector | Pipeline | Estimated Runtime | Scheduling Basis |",
-        "|---:|---|---:|---:|---|",
+        "|---:|---|---|---:|---:|---|",
     ])
     for queue_index, row in enumerate(queue_rows, start=1):
         position = row.get("queue_position")
@@ -2455,7 +2466,7 @@ def build_combined_summary(
             estimate_floor_seconds=float(claim_optimization["estimate_floor_seconds"]),
         )
         lines.extend(["","| Pipeline | Initial LPT claim batch | Estimated Work | Threads |",
-                      "|---:|---|---:|---:|"])
+                      "|---:|---|---|---:|---:|"])
         for batch in initial_batches:
             names="<br>".join(
                 f"{_detector_friendly_name(str(row['detector']))} (`{row['detector']}`)"

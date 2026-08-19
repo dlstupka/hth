@@ -5,7 +5,7 @@ from pathlib import Path
 class TopParameterReferenceReportingTests(unittest.TestCase):
     def test_manifest_has_reference_rows_and_last_build_column(self):
         text = Path("hth/write_regression_summary.py").read_text(encoding="utf-8")
-        self.assertIn("| Rank | Last Build | Parameter Set ID", text)
+        self.assertIn("| Rank | Last Build | Family ID | Parameter Set ID", text)
         self.assertIn('("Baseline*", baseline)', text)
         self.assertIn('("Best**", historic_best)', text)
         self.assertIn("detector's default parameter-set configuration", text)

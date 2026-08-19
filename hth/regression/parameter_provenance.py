@@ -17,7 +17,11 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
-from .parameter_space import canonical_parameters, parameter_set_id
+from .parameter_space import (
+    canonical_parameters, parameter_set_id, _parameter_specs,
+    parameter_set_equivalence_family_id, parameter_set_equivalence_family_sha256,
+    parameter_set_equivalence_family_size, equivalence_parameter_names,
+)
 
 PROVENANCE_SCHEMA_VERSION = "1.0"
 IDENTITY_SCHEMA_VERSION = "1"
@@ -51,8 +55,10 @@ def parameter_identity_sha256(detector: str, parameters: dict[str, Any], *, sche
     return hashlib.sha256(_canonical_bytes(identity_payload(detector, parameters, schema_version=schema_version))).hexdigest()
 
 
-def grid_definition(config: dict[str, Any]) -> dict[str, Any]:
-    parameters = config.get("parameters", {})
+def grid_definition(config: dict[str, Any], *, include_zombies: bool = False) -> dict[str, Any]:
+    # Use the same resolved parameter specification as execution.  This prevents
+    # baseline-pinned equivalence/zombie dimensions from becoming false non-grid members.
+    parameters = _parameter_specs(config, include_zombies=include_zombies)
     names = list(parameters)
     values = [list(parameters[name].get("values", [])) for name in names]
     definition = {
@@ -77,8 +83,8 @@ def _canonical_value(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
-def grid_ordinal(config: dict[str, Any], parameters: dict[str, Any]) -> int | None:
-    grid = grid_definition(config)
+def grid_ordinal(config: dict[str, Any], parameters: dict[str, Any], *, include_zombies: bool = False) -> int | None:
+    grid = grid_definition(config, include_zombies=include_zombies)
     names = grid["parameter_order"]
     if set(parameters) != set(names):
         return None
@@ -112,17 +118,21 @@ def parameters_from_ordinal(provenance: dict[str, Any], ordinal: int) -> dict[st
     return {name: list(values[name])[indexes[name]] for name in names}
 
 
-def attach_identity(result: dict[str, Any], detector: str, config: dict[str, Any]) -> dict[str, Any]:
+def attach_identity(result: dict[str, Any], detector: str, config: dict[str, Any], *, strategy: str = "exhaustive") -> dict[str, Any]:
     parameters = dict(result.get("parameters") or {})
     schema = parameter_schema_version(config)
     result["legacy_parameter_set_id"] = str(result.get("parameter_set_id") or parameter_set_id(parameters))
     result["parameter_set_id"] = result["legacy_parameter_set_id"]
     result["parameter_identity_sha256"] = parameter_identity_sha256(detector, parameters, schema_version=schema)
+    result["parameter_set_equivalence_family_id"] = parameter_set_equivalence_family_id(parameters, config)
+    result["parameter_set_equivalence_family_sha256"] = parameter_set_equivalence_family_sha256(parameters, config)
+    result["parameter_set_equivalence_family_size"] = parameter_set_equivalence_family_size(config)
     result["parameter_identity_schema_version"] = IDENTITY_SCHEMA_VERSION
     result["parameter_schema_version"] = schema
-    ordinal = grid_ordinal(config, parameters)
+    include_zombies = strategy == "exhaustive-with-zombies"
+    ordinal = grid_ordinal(config, parameters, include_zombies=include_zombies)
     result["parameter_grid_ordinal"] = ordinal
-    result["parameter_grid_sha256"] = grid_definition(config)["sha256"] if ordinal is not None else None
+    result["parameter_grid_sha256"] = grid_definition(config, include_zombies=include_zombies)["sha256"] if ordinal is not None else None
     return result
 
 
@@ -135,7 +145,7 @@ def build_provenance(
     complete_cartesian: bool,
 ) -> dict[str, Any]:
     schema = parameter_schema_version(config)
-    grid = grid_definition(config)
+    grid = grid_definition(config, include_zombies=(strategy == "exhaustive-with-zombies"))
     profiles = {
         str(name): dict(parameters)
         for name, parameters in (config.get("profiles", {}) or {}).items()
@@ -145,7 +155,7 @@ def build_provenance(
     evaluated = 0
     grid_evaluated = 0
     for result in results:
-        attach_identity(result, detector, config)
+        attach_identity(result, detector, config, strategy=strategy)
         evaluated += 1
         if result.get("parameter_grid_ordinal") is not None:
             grid_evaluated += 1
@@ -166,6 +176,10 @@ def build_provenance(
             "authoritative_key": "parameter_identity_sha256",
             "legacy_alias": "parameter_set_id",
             "legacy_alias_algorithm": "sha256(canonical-parameters)[:12]",
+            "equivalence_family_algorithm": "sha256(canonical-parameters-with-enrolled-dimensions-normalized)[:12]",
+            "equivalence_family_sentinel": "__HTH_EQUIVALENCE_FAMILY_ID__",
+            "equivalence_parameters": equivalence_parameter_names(config),
+            "equivalence_family_size": parameter_set_equivalence_family_size(config),
         },
         "grid": grid,
         "coverage": {

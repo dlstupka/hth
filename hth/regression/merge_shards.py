@@ -36,6 +36,9 @@ def _results_from_raw(path: Path) -> list[dict[str, Any]]:
             identity_sha = row.get("parameter_identity_sha256") or parameter_id
             result = grouped.setdefault(identity_sha, {
                 "parameter_set_id": parameter_id,
+                "parameter_set_equivalence_family_id": row.get("parameter_set_equivalence_family_id") or None,
+                "parameter_set_equivalence_family_sha256": row.get("parameter_set_equivalence_family_sha256") or None,
+                "parameter_set_equivalence_family_size": int(row["parameter_set_equivalence_family_size"]) if row.get("parameter_set_equivalence_family_size") not in (None, "") else None,
                 "parameter_identity_sha256": row.get("parameter_identity_sha256") or None,
                 "parameter_schema_version": row.get("parameter_schema_version") or None,
                 "parameter_grid_sha256": row.get("parameter_grid_sha256") or None,
@@ -173,9 +176,13 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
 
     ranked = sorted(by_id.values(), key=ranking_key)
     detector_configuration = _read(detector_config)
+    first_summary = summaries[0]
+    first_info = infos[0]
+    strategy = str(first_info.get("strategy") or first_summary.get("strategy") or "exhaustive")
+    requested_strategy = str(first_info.get("requested_strategy") or first_summary.get("requested_strategy") or strategy)
     run_id, run_dir = create_run_directory(output, detector, None)
     for rank, result in enumerate(ranked, 1):
-        attach_identity(result, detector, detector_configuration)
+        attach_identity(result, detector, detector_configuration, strategy=strategy)
         result["rank"] = rank
         result["run_id"] = run_id
     search_ranked = [
@@ -189,10 +196,6 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         (result for result in ranked if "historic_best" in (result.get("reference_roles") or [])),
         None,
     )
-    first_summary = summaries[0]
-    first_info = infos[0]
-    strategy = str(first_info.get("strategy") or first_summary.get("strategy") or "exhaustive")
-    requested_strategy = str(first_info.get("requested_strategy") or first_summary.get("requested_strategy") or strategy)
     search_space_contract = canonical_search_space(detector_configuration, strategy)
     live_possible = int(search_space_contract["live_exhaustive_parameter_sets"])
     zombie_possible = int(search_space_contract["exhaustive_with_zombies_parameter_sets"])

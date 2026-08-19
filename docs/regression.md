@@ -441,3 +441,15 @@ The calibration report's **Parameter Set Domain Space Reduction** table always s
 
 Search-space and parameter-set reporting is canonicalized from detector configuration plus the resolved strategy. The report records the zombie-inclusive universe, live exhaustive universe, resolved strategy universe, and evaluated search-space member count as one authoritative accounting contract. Mandatory baseline and historic-best evaluations are reference observations: if their exact parameter set lies outside the resolved search universe, they remain visible for comparison but cannot add parameter values, inflate effect-size domains, alter exhaustive counts, or participate in parameter-influence statistics. This prevents a historic reference from making a reduced search appear larger than the exhaustive space that actually ran.
 
+
+### Parameter Set Equivalence Family ID
+
+HTH preserves the exact `Parameter Set ID` as the identity of the complete executable parameter dictionary.  A `Parameter Set Equivalence Family ID` is additive provenance and never replaces or rewrites that exact identity.
+
+A detector may durably enroll parameter dimensions in `equivalence_parameters` after compatible characterization establishes them as Zombie.  For family hashing only, the value of each enrolled dimension is replaced with the reserved literal `__HTH_EQUIVALENCE_FAMILY_ID__`; every other parameter retains its exact executable value.  The resulting canonical dictionary is hashed with the same canonical JSON/SHA-256 convention and the first 12 hexadecimal characters are displayed as the Family ID.  The sentinel is identity metadata only and MUST NOT be accepted as executable detector input.
+
+Enrollment is durable rather than dynamically recomputed from the latest classification.  If later evidence reclassifies an enrolled parameter, existing and future family hashing for that parameter schema continues to normalize that dimension.  Exact Parameter Set IDs remain unchanged and continue to distinguish every real configuration.
+
+The family cardinality is the Cartesian product of the retained domains of the enrolled dimensions (subject to any explicit combination constraints).  Thus domains of X, Y, and Z retained values represent X × Y × Z exact Parameter Set IDs per equivalence family.  With no enrolled dimensions the family cardinality is one and the Family ID is simply the canonical family hash of the unchanged parameter dictionary.
+
+Every report table that displays `Parameter Set ID` also displays `Parameter Set Equivalence Family ID` immediately before it, abbreviated as `Family ID` where table width requires.  Historical records are not rewritten merely to backfill the additive identifier; reports may therefore show `unknown` for legacy evidence that lacks sufficient configuration/provenance to calculate it safely.

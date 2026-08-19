@@ -61,7 +61,7 @@ from .adapters.ransac import (
 )
 from .io import create_run_directory, environment_info, utc_now, write_json
 from .metrics import bbox_iou, edge_errors
-from .parameter_space import canonical_parameters, parameter_set_id, exhaustive_parameter_sets, canonical_search_space
+from .parameter_space import canonical_parameters, parameter_set_id, exhaustive_parameter_sets, canonical_search_space, parameter_set_equivalence_family_id
 from .parameter_provenance import attach_identity, build_provenance
 from .reports import ranking_key, write_rankings, write_raw_results
 from .strategies.cartesian import generate as cartesian_generate
@@ -1059,7 +1059,7 @@ def run(args:argparse.Namespace)->Path:
         )
         if canonical_parameters(baseline_result.get("parameters", {})) != baseline_key:
             raise ValueError("Shared baseline cache does not match this detector baseline")
-        attach_identity(baseline_result, name, config)
+        attach_identity(baseline_result, name, config, strategy=effective_strategy)
         progress.observe_baseline(baseline_result)
         if args.shared_baseline is not None:
             print(
@@ -1173,7 +1173,7 @@ def run(args:argparse.Namespace)->Path:
         progress_snapshot=progress.finish()
         performance_samples=performance.finish()
         for r in results:
-            attach_identity(r, name, config)
+            attach_identity(r, name, config, strategy=effective_strategy)
             r["profile"]=profiles.get(canonical_parameters(r["parameters"]))
             r["run_id"]=run_id
         ranked=sorted(results,key=ranking_key)

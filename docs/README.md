@@ -346,3 +346,4 @@ Their calibration JSON files define the complete discrete search grids used by e
 - **Fusion Gen2 (`amsre_bfq_spbv_pbg`)** replaces only Fusion Gen1's calibrated MSRE child with calibrated AMSRE while preserving BFQ, SPBV, Page Background, and the Gen1 fusion decision surface.
 
 - **dhSegment Page Mask (`dhsegment_page_mask`)** provides an independent TensorFlow/ResNet-50 learned page-segmentation family using the upstream dhSegment v0.2 page-extraction model.
+- Parameter provenance includes an additive `Parameter Set Equivalence Family ID` immediately before `Parameter Set ID` in report tables. It groups exact configurations only across durably enrolled equivalence dimensions; exact Parameter Set IDs and historical provenance are never rewritten.

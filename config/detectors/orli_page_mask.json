@@ -122,5 +122,9 @@
         "source": "retained HTH-0001 10,000-set exhaustive-with-zombies calibration (2026-08-18)"
       }
     }
-  }
+  },
+  "equivalence_parameters": [
+    "close_kernel_fraction",
+    "fill_holes"
+  ]
 }

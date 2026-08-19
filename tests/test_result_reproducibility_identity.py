@@ -57,10 +57,10 @@ class ResultReproducibilityIdentityTests(unittest.TestCase):
 
             text = build_summary(run, "https://example.invalid/run")
             self.assertIn(
-                "| Result | Golden Set ID | Detector Config ID* | Parameter Set ID |",
+                "| Result | Golden Set ID | Detector Config ID* | Family ID** | Parameter Set ID |",
                 text,
             )
-            self.assertIn("| Winner | `HTH-0001` | `1234567890ab` | `winner` |", text)
+            self.assertIn("| Winner | `HTH-0001` | `1234567890ab` | `unknown` | `winner` |", text)
             self.assertIn("`fedcba987654`", text)
             self.assertIn("**detector implementation + parameter set + Golden Set**", text)
 

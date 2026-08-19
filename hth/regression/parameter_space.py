@@ -16,6 +16,57 @@ def parameter_set_id(parameters: dict[str, Any]) -> str:
     return parameter_set_sha256(parameters)[:12]
 
 
+EQUIVALENCE_FAMILY_SENTINEL = "__HTH_EQUIVALENCE_FAMILY_ID__"
+
+
+def equivalence_parameter_names(config: dict[str, Any]) -> list[str]:
+    """Return the durable parameter dimensions enrolled in equivalence families.
+
+    ``equivalence_parameters`` is deliberately independent of current liveness
+    classification: once a dimension is enrolled it remains normalized for this
+    detector parameter schema even if later evidence reclassifies it.  Legacy
+    configurations fall back to configured zombies so existing detectors require
+    no migration merely to obtain a family identity.
+    """
+    explicit = config.get("equivalence_parameters")
+    if isinstance(explicit, list):
+        return sorted({str(name) for name in explicit})
+    zombies = config.get("zombie_parameters", {})
+    return sorted(str(name) for name in zombies) if isinstance(zombies, dict) else []
+
+
+def parameter_set_equivalence_family_payload(parameters: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(parameters)
+    for name in equivalence_parameter_names(config):
+        if name in payload:
+            payload[name] = EQUIVALENCE_FAMILY_SENTINEL
+    return payload
+
+
+def parameter_set_equivalence_family_sha256(parameters: dict[str, Any], config: dict[str, Any]) -> str:
+    payload = parameter_set_equivalence_family_payload(parameters, config)
+    return hashlib.sha256(canonical_parameters(payload).encode("utf-8")).hexdigest()
+
+
+def parameter_set_equivalence_family_id(parameters: dict[str, Any], config: dict[str, Any]) -> str:
+    return parameter_set_equivalence_family_sha256(parameters, config)[:12]
+
+
+def parameter_set_equivalence_family_size(config: dict[str, Any]) -> int:
+    """Cartesian multiplicity represented by one family for enrolled dimensions."""
+    specs = {}
+    for name in equivalence_parameter_names(config):
+        if isinstance(config.get("zombie_parameters"), dict) and name in config["zombie_parameters"]:
+            specs[name] = config["zombie_parameters"][name]
+        elif name in config.get("parameters", {}):
+            specs[name] = config["parameters"][name]
+    size = 1
+    for spec in specs.values():
+        values = list(spec.get("values", [])) if isinstance(spec, dict) else []
+        size *= max(1, len(values))
+    return size
+
+
 def _parameter_specs(config: dict[str, Any], *, include_zombies: bool = False) -> dict[str, dict[str, Any]]:
     specs = {str(name): dict(spec) for name, spec in config.get("parameters", {}).items()}
     zombies = config.get("zombie_parameters", {}) if isinstance(config.get("zombie_parameters"), dict) else {}
