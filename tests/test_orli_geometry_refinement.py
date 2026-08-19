@@ -1,5 +1,7 @@
 import unittest
 
+import cv2
+
 import numpy as np
 
 from hth.geometry import detector_orli_page_mask as orli
@@ -161,6 +163,26 @@ class OrliGeometryRefinementTests(unittest.TestCase):
             corners, image_shape=(1000, 1200, 3)
         )
         bounds = orli._quad_axis_bounds(completed)
+        self.assertEqual(diagnostics["reason"], "corner-anchored-two-axis-completion")
+        self.assertEqual(diagnostics["corner_anchor"], "top-right")
+        self.assertLess(bounds["left"], 80.0)
+        self.assertGreater(bounds["bottom"], 930.0)
+        self.assertEqual(set(diagnostics["changed_axes"]), {"left", "bottom"})
+
+    def test_directional_completion_physical_corner_bypasses_rotated_anchor_count(self):
+        # A rotated upper-right fragment can expose only one anchor in the
+        # proposal basis even though its physical bounds clearly touch the top
+        # and right source-image sides.  Physical-corner completion must be
+        # evaluated before the rotated-basis anchor-count rejection.
+        rect = ((850.0, 180.0), (650.0, 220.0), -20.0)
+        corners = orli._canonical_quad(
+            cv2.boxPoints(rect), width=1200, height=1000
+        )
+        completed, diagnostics = orli._directional_page_completion(
+            corners, image_shape=(1000, 1200, 3)
+        )
+        bounds = orli._quad_axis_bounds(completed)
+        self.assertEqual(diagnostics["anchor_count"], 1)
         self.assertEqual(diagnostics["reason"], "corner-anchored-two-axis-completion")
         self.assertEqual(diagnostics["corner_anchor"], "top-right")
         self.assertLess(bounds["left"], 80.0)

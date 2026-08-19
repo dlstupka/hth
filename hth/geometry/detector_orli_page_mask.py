@@ -923,9 +923,6 @@ def _directional_page_completion(corners, *, image_shape):
         "axes": axes,
         "changed_axes": [],
     }
-    if anchor_count < 2:
-        diagnostics["reason"] = "insufficient-edge-anchors"
-        return corners, diagnostics
 
     # A strongly localized corner fragment can defeat the rotated-basis rule:
     # projection onto the proposal basis may make one physical image-edge anchor
@@ -985,6 +982,18 @@ def _directional_page_completion(corners, *, image_shape):
                     "completed_area": abs(float(cv2.contourArea(corner_completed))),
                 })
                 return corner_completed, diagnostics
+
+    # The physical-corner fallback is intentionally independent of the rotated
+    # proposal-basis anchor count.  A localized, rotated upper-right (or other
+    # corner) fragment can project to only one trusted basis-side even though its
+    # axis-aligned bounds clearly touch two adjacent source-image sides.  The
+    # previous early return made that fallback unreachable for exactly this
+    # HTH-0001 page-10 failure mode.  If no physical corner qualified, preserve
+    # the stricter historic rule before attempting ordinary one-axis completion.
+    if anchor_count < 2:
+        diagnostics["reason"] = "insufficient-edge-anchors"
+        diagnostics["physical_margins"] = physical
+        return corners, diagnostics
 
     completed = {name: dict(axis) for name, axis in axes.items()}
     changed = []
