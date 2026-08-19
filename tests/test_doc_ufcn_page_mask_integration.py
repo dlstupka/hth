@@ -69,6 +69,28 @@ class DocUFCNPageMaskIntegrationTests(unittest.TestCase):
                 loaded = detector._EVIDENCE_CACHE[key]
             self.assertEqual(loaded[0]["confidence"], 0.8)
 
+    def test_boundary_supported_padding_restores_baseline_when_outer_page_edge_is_stronger(self):
+        import cv2
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        cv2.rectangle(image, (28, 28), (72, 72), (255, 255, 255), 2)
+        raw = np.asarray([[30, 30], [70, 30], [70, 70], [30, 70]], dtype=np.float32)
+        corners, diagnostics = detector._boundary_supported_padding(
+            image, raw, requested_fraction=0.01
+        )
+        self.assertEqual(diagnostics["decision"], "baseline-padding-boundary-supported")
+        self.assertLess(float(corners[:, 0].min()), 29.0)
+        self.assertGreater(float(corners[:, 0].max()), 71.0)
+
+    def test_boundary_supported_padding_preserves_requested_without_outer_edge_evidence(self):
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        raw = np.asarray([[30, 30], [70, 30], [70, 70], [30, 70]], dtype=np.float32)
+        corners, diagnostics = detector._boundary_supported_padding(
+            image, raw, requested_fraction=0.01
+        )
+        self.assertEqual(diagnostics["decision"], "requested-padding")
+        expected = detector._pad_corners(raw, width=100, height=100, fraction=0.01)
+        self.assertTrue(np.allclose(corners, expected))
+
 
 if __name__ == "__main__":
     unittest.main()

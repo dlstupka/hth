@@ -28,3 +28,9 @@ Qualifying class-`page` polygons are ranked by area and confidence. HTH selects 
 ## Debug evidence
 
 Winner/verbose artifacts include `doc-ufcn-page-polygons.png`, showing upstream page polygons in yellow and HTH's selected quadrilateral in red. Candidate diagnostics retain model identity, SHA-256, confidence, selected-area fraction, input size, and inference backend.
+
+## Boundary-supported padding refinement
+
+The first HTH-0001 exhaustive run showed a useful but asymmetric response: the calibrated winner improved four pages while page 5 regressed relative to the detector baseline. The learned page polygon itself remained strong, so HTH now treats unusually small calibrated padding as a proposal rather than an unconditional contraction. When requested padding is below the detector baseline, a parameter-free source-image check compares gradient support along the requested quadrilateral with the baseline-padded quadrilateral. Baseline padding is restored only when the larger envelope has materially stronger independent image-boundary support; otherwise the calibrated padding is preserved.
+
+This refinement does not alter Doc-UFCN inference, persisted learned evidence, or the calibration parameter set. Verbose candidate diagnostics record both boundary-support measurements and the padding-arbitration decision.

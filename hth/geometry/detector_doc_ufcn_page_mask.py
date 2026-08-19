@@ -215,6 +215,67 @@ def _pad_corners(corners: np.ndarray, *, width: int, height: int, fraction: floa
     return padded.astype(np.float32)
 
 
+def _quad_boundary_support(image_bgr: np.ndarray, corners: np.ndarray) -> dict:
+    """Measure source-image edge support along a proposed page quadrilateral.
+
+    This is deliberately parameter-free and is used only to decide whether a
+    smaller calibrated padding should yield to the detector baseline padding.
+    """
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+    magnitude = cv2.magnitude(gx, gy)
+    pts = np.rint(np.asarray(corners, dtype=np.float32)).astype(np.int32)
+    edge_scores = []
+    for index in range(4):
+        mask = np.zeros(gray.shape, dtype=np.uint8)
+        a = tuple(int(v) for v in pts[index])
+        b = tuple(int(v) for v in pts[(index + 1) % 4])
+        cv2.line(mask, a, b, 255, 3, cv2.LINE_AA)
+        values = magnitude[mask > 0]
+        edge_scores.append(float(np.mean(values)) if values.size else 0.0)
+    robust = float(np.median(edge_scores)) if edge_scores else 0.0
+    background = float(np.median(magnitude))
+    return {
+        "edge_scores": [round(value, 4) for value in edge_scores],
+        "robust_score": robust,
+        "background_score": background,
+        "contrast_ratio": robust / max(1.0, background),
+    }
+
+
+def _boundary_supported_padding(image_bgr: np.ndarray, corners: np.ndarray, *, requested_fraction: float):
+    """Prefer baseline padding only when the source image independently supports it."""
+    height, width = image_bgr.shape[:2]
+    requested = _pad_corners(corners, width=width, height=height, fraction=requested_fraction)
+    baseline_fraction = float(BASELINE_PARAMETERS["page_padding_fraction"])
+    diagnostics = {
+        "requested_padding_fraction": float(requested_fraction),
+        "baseline_padding_fraction": baseline_fraction,
+        "decision": "requested-padding",
+    }
+    if requested_fraction >= baseline_fraction:
+        return requested, diagnostics
+
+    baseline = _pad_corners(corners, width=width, height=height, fraction=baseline_fraction)
+    requested_support = _quad_boundary_support(image_bgr, requested)
+    baseline_support = _quad_boundary_support(image_bgr, baseline)
+    diagnostics.update({
+        "requested_boundary_support": requested_support,
+        "baseline_boundary_support": baseline_support,
+    })
+    # The larger envelope must have independent, materially stronger boundary
+    # evidence. This preserves the calibrated value unless the image itself
+    # argues that the neural polygon terminates inside the physical page.
+    if (
+        baseline_support["contrast_ratio"] >= 1.25
+        and baseline_support["robust_score"] >= requested_support["robust_score"] * 1.12
+    ):
+        diagnostics["decision"] = "baseline-padding-boundary-supported"
+        return baseline, diagnostics
+    return requested, diagnostics
+
+
 def _select_polygon(image_bgr: np.ndarray, values):
     height, width = image_bgr.shape[:2]
     image_area = float(max(1, height * width))
@@ -259,8 +320,11 @@ def detect(*, image_bgr, mask, parameters=None):
     if area_fraction < values["minimum_page_area_fraction"]:
         return Candidate(METHOD, None, None, 0, 0, {**diagnostics, "reason": "doc_ufcn_page_polygon_too_small"}, status="no_candidate")
 
-    corners = cv2.boxPoints(cv2.minAreaRect(polygon)).astype(np.float32)
-    corners = _pad_corners(corners, width=width, height=height, fraction=values["page_padding_fraction"])
+    raw_corners = cv2.boxPoints(cv2.minAreaRect(polygon)).astype(np.float32)
+    corners, padding_diagnostics = _boundary_supported_padding(
+        image_bgr, raw_corners, requested_fraction=values["page_padding_fraction"]
+    )
+    diagnostics["padding_arbitration"] = padding_diagnostics
     x, y, bw, bh = cv2.boundingRect(corners)
     score = min(1.0, 0.75 * confidence + 0.25 * min(1.0, area_fraction / 0.5))
     diagnostics["evidence"] = "doc_ufcn_generic_page_polygon"
