@@ -276,7 +276,7 @@ def _boundary_supported_padding(image_bgr: np.ndarray, corners: np.ndarray, *, r
     return requested, diagnostics
 
 
-def _select_polygon(image_bgr: np.ndarray, values):
+def _qualifying_polygons(image_bgr: np.ndarray, values):
     height, width = image_bgr.shape[:2]
     image_area = float(max(1, height * width))
     minimum_component_area = values["minimum_component_area_fraction"] * image_area
@@ -287,8 +287,101 @@ def _select_polygon(image_bgr: np.ndarray, values):
         area = abs(float(cv2.contourArea(polygon))) if len(polygon) >= 3 else 0.0
         if confidence < values["minimum_confidence"] or area < minimum_component_area:
             continue
-        candidates.append((area, confidence, polygon))
-    return max(candidates, key=lambda item: (item[0], item[1])) if candidates else None
+        x, y, bw, bh = cv2.boundingRect(polygon)
+        candidates.append({
+            "area": area,
+            "confidence": confidence,
+            "polygon": polygon,
+            "bounds": (float(x), float(y), float(x + bw), float(y + bh)),
+        })
+    candidates.sort(key=lambda item: (-item["area"], -item["confidence"]))
+    return candidates
+
+
+def _select_polygon(image_bgr: np.ndarray, values):
+    """Retain the historic single-component selector for compatibility/tests."""
+    candidates = _qualifying_polygons(image_bgr, values)
+    if not candidates:
+        return None
+    item = candidates[0]
+    return item["area"], item["confidence"], item["polygon"]
+
+
+def _select_page_envelope(image_bgr: np.ndarray, values):
+    """Select a Doc-UFCN page envelope, joining credible facing-page leaves.
+
+    Doc-UFCN can emit separate class-page polygons for the two leaves of an
+    open historical volume.  Treating only the largest leaf as the physical
+    document truncates roughly half the spread.  A second component is joined
+    only when it is substantial, vertically coextensive, similarly tall, and
+    materially expands the horizontal document span.  The rule is intentionally
+    parameter-free and leaves ordinary single-page predictions untouched.
+    """
+    height, width = image_bgr.shape[:2]
+    candidates = _qualifying_polygons(image_bgr, values)
+    diagnostics = {
+        "qualifying_component_count": len(candidates),
+        "decision": "no-component" if not candidates else "single-component",
+        "joined_component_count": 0,
+    }
+    if not candidates:
+        return None, diagnostics
+
+    primary = candidates[0]
+    joined = [primary]
+    px0, py0, px1, py1 = primary["bounds"]
+    primary_width = max(1.0, px1 - px0)
+    primary_height = max(1.0, py1 - py0)
+    primary_center_x = (px0 + px1) * 0.5
+
+    accepted = []
+    for other in candidates[1:]:
+        ox0, oy0, ox1, oy1 = other["bounds"]
+        other_height = max(1.0, oy1 - oy0)
+        overlap = max(0.0, min(py1, oy1) - max(py0, oy0))
+        vertical_overlap = overlap / max(1.0, min(primary_height, other_height))
+        height_ratio = min(primary_height, other_height) / max(primary_height, other_height)
+        other_center_x = (ox0 + ox1) * 0.5
+        center_separation = abs(other_center_x - primary_center_x)
+        substantial = other["area"] >= primary["area"] * 0.12
+        horizontally_distinct = center_separation >= max(width * 0.12, primary_width * 0.30)
+        combined_x0, combined_x1 = min(px0, ox0), max(px1, ox1)
+        span_gain = (combined_x1 - combined_x0) / primary_width
+        if (
+            substantial
+            and vertical_overlap >= 0.55
+            and height_ratio >= 0.55
+            and horizontally_distinct
+            and span_gain >= 1.30
+        ):
+            joined.append(other)
+            accepted.append({
+                "area_fraction_of_primary": other["area"] / max(1.0, primary["area"]),
+                "vertical_overlap": vertical_overlap,
+                "height_ratio": height_ratio,
+                "horizontal_center_separation_fraction": center_separation / max(1.0, float(width)),
+                "span_gain": span_gain,
+            })
+
+    if len(joined) == 1:
+        diagnostics.update({
+            "selected_confidence": primary["confidence"],
+            "selected_component_area": primary["area"],
+        })
+        return (primary["area"], primary["confidence"], primary["polygon"]), diagnostics
+
+    points = np.concatenate([item["polygon"] for item in joined], axis=0).astype(np.float32)
+    hull = cv2.convexHull(points.reshape(-1, 1, 2)).reshape(-1, 2)
+    hull_area = abs(float(cv2.contourArea(hull)))
+    confidence = float(min(item["confidence"] for item in joined))
+    diagnostics.update({
+        "decision": "multi-component-spread-envelope",
+        "joined_component_count": len(joined),
+        "joined_components": accepted,
+        "selected_confidence": confidence,
+        "selected_component_area": hull_area,
+    })
+    return (hull_area, confidence, hull), diagnostics
 
 
 def detect(*, image_bgr, mask, parameters=None):
@@ -297,7 +390,7 @@ def detect(*, image_bgr, mask, parameters=None):
     height, width = image_bgr.shape[:2]
     image_area = float(max(1, height * width))
     provenance = _provenance()
-    selected = _select_polygon(image_bgr, values)
+    selected, envelope_diagnostics = _select_page_envelope(image_bgr, values)
     diagnostics = {
         "parameters": values,
         "model_id": provenance.get("model_id", "doc-ufcn-generic-page"),
@@ -310,6 +403,7 @@ def detect(*, image_bgr, mask, parameters=None):
         "input_size": provenance.get("input_size", 768),
         "inference_backend": "doc-ufcn-pytorch",
         "raw_polygon_count": len(_infer_evidence(image_bgr)),
+        "page_envelope": envelope_diagnostics,
     }
     if selected is None:
         return Candidate(METHOD, None, None, 0, 0, {**diagnostics, "reason": "no_doc_ufcn_page_polygon"}, status="no_candidate")

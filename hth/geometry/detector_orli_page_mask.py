@@ -605,6 +605,7 @@ def _learned_document_frame(evidence, *, image_shape):
     angles = np.asarray([np.arctan2(direction[1], direction[0]) for _, _, direction in substantial], dtype=np.float64)
     mean_cos = float(np.mean(np.cos(2.0 * angles)))
     mean_sin = float(np.mean(np.sin(2.0 * angles)))
+    orientation_coherence = float(np.hypot(mean_cos, mean_sin))
     theta = 0.5 * float(np.arctan2(mean_sin, mean_cos))
     u = np.asarray([np.cos(theta), np.sin(theta)], dtype=np.float64)
     v = np.asarray([-u[1], u[0]], dtype=np.float64)
@@ -647,13 +648,20 @@ def _learned_document_frame(evidence, *, image_shape):
     # Extrapolation is justified only when the learned text support is broad
     # along the document axis.  Local text blocks remain ordinary learned
     # envelopes and cannot manufacture a page-sized frame.
-    if main_axis_coverage < 0.55:
+    broad_frame = main_axis_coverage >= 0.55
+    coherent_borderline_frame = (
+        main_axis_coverage >= 0.48
+        and len(substantial) >= 8
+        and orientation_coherence >= 0.92
+    )
+    if not (broad_frame or coherent_borderline_frame):
         return None, {
             "available": False,
             "reason": "insufficient-main-axis-coverage",
             "baseline_count": len(baselines),
             "substantial_baselines": len(substantial),
             "dominant_angle_degrees": float(np.degrees(theta)),
+            "orientation_coherence": orientation_coherence,
             "main_axis_coverage": main_axis_coverage,
             "row_spacing": row_spacing,
         }
@@ -688,12 +696,19 @@ def _learned_document_frame(evidence, *, image_shape):
     area = abs(float(cv2.contourArea(corners))) if corners is not None else 0.0
     return corners, {
         "available": corners is not None,
-        "reason": "broad-baseline-document-frame" if corners is not None else "invalid-frame",
+        "reason": (
+            "broad-baseline-document-frame"
+            if broad_frame and corners is not None
+            else "coherent-borderline-baseline-document-frame"
+            if corners is not None
+            else "invalid-frame"
+        ),
         "baseline_count": len(baselines),
         "substantial_baselines": len(substantial),
         "baseline_length_floor": length_floor,
         "baseline_median_length": median_length,
         "dominant_angle_degrees": float(np.degrees(theta)),
+        "orientation_coherence": orientation_coherence,
         "main_axis_coverage": main_axis_coverage,
         "text_main_span": text_u_span,
         "text_cross_span": text_v_span,
@@ -723,7 +738,9 @@ def _quad_axis_bounds(corners):
     }
 
 
-def _arbitrate_envelopes(contour_corners, learned_corners, *, image_shape, frame_corners=None):
+def _arbitrate_envelopes(
+    contour_corners, learned_corners, *, image_shape, frame_corners=None, frame_diagnostics=None
+):
     """Choose between morphology and global learned geometry without area bias.
 
     A wide-but-truncated contour can have more area than the Orli geometry that
@@ -778,8 +795,17 @@ def _arbitrate_envelopes(contour_corners, learned_corners, *, image_shape, frame
             "frame_to_contour_width_ratio": width_ratio0,
             "frame_to_contour_height_ratio": height_ratio0,
         })
-        frame_horizontal = width_ratio0 >= 1.08 and (f_width - c_width0) >= max(4.0, min_dim * 0.02) and height_ratio0 >= 0.60
-        frame_vertical = height_ratio0 >= 1.08 and (f_height - c_height0) >= max(4.0, min_dim * 0.02) and width_ratio0 >= 0.60
+        frame_reason = str((frame_diagnostics or {}).get("reason") or "")
+        borderline = frame_reason == "coherent-borderline-baseline-document-frame"
+        ratio_floor = 1.04 if borderline else 1.08
+        pixel_floor = max(4.0, min_dim * (0.015 if borderline else 0.02))
+        diagnostics.update({
+            "frame_reason": frame_reason or None,
+            "frame_extent_ratio_floor": ratio_floor,
+            "frame_extent_pixel_floor": pixel_floor,
+        })
+        frame_horizontal = width_ratio0 >= ratio_floor and (f_width - c_width0) >= pixel_floor and height_ratio0 >= 0.60
+        frame_vertical = height_ratio0 >= ratio_floor and (f_height - c_height0) >= pixel_floor and width_ratio0 >= 0.60
         if frame_horizontal or frame_vertical:
             axis = "both" if frame_horizontal and frame_vertical else "horizontal" if frame_horizontal else "vertical"
             diagnostics.update(decision="frame", reason=f"extrapolated-{axis}-document-extent")
@@ -1311,6 +1337,7 @@ def _proposal(image_bgr, values):
         learned_corners,
         image_shape=image_bgr.shape,
         frame_corners=frame_corners,
+        frame_diagnostics=frame_diagnostics,
     )
     if arbitration_source == "frame":
         envelope_mode = "learned-document-frame"

@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "orli_page_mask",
-  "description": "Orli historical-document page-mask calibration. Deterministic postprocessing compares morphology and global learned geometry, derives a parameter-free document frame from broad Orli baseline orientation/coverage, and directionally completes materially missing page sides when the selected envelope is anchored by multiple trusted image edges. Post-recovery exhaustive search concentrates on the four live dimensions with expanded low-area and high-padding boundary coverage; audited zombie morphology controls remain pinned to detector baseline values and are available through exhaustive-with-zombies for deliberate revalidation.",
+  "description": "Orli historical-document page-mask calibration. Deterministic postprocessing compares morphology and global learned geometry, derives parameter-free document frames from broad or dense/coherent borderline baseline support, and completes materially missing page sides from trusted geometric or source-image evidence. Post-recovery exhaustive search uses the four live dimensions; audited zombie morphology controls remain pinned to detector baseline values and are available through exhaustive-with-zombies for deliberate revalidation.",
   "profiles": {
     "baseline": {
       "include_lines": 1,

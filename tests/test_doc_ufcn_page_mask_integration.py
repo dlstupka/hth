@@ -53,6 +53,47 @@ class DocUFCNPageMaskIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(candidate.corners)
         self.assertGreater(candidate.score, 0.5)
 
+
+    def test_multi_component_spread_envelope_joins_facing_page_leaves(self):
+        image = np.zeros((1000, 1400, 3), dtype=np.uint8)
+        evidence = (
+            {"confidence": 0.95, "polygon": [[80, 80], [80, 930], [650, 930], [650, 80]], "area": 484500.0},
+            {"confidence": 0.93, "polygon": [[720, 90], [720, 925], [1320, 925], [1320, 90]], "area": 501000.0},
+        )
+        values = detector._parameters({
+            "minimum_confidence": 0.5,
+            "minimum_component_area_fraction": 0.0005,
+            "minimum_page_area_fraction": 0.12,
+            "page_padding_fraction": 0.0,
+        })
+        with patch.object(detector, "_infer_evidence", return_value=evidence):
+            selected, diagnostics = detector._select_page_envelope(image, values)
+        self.assertIsNotNone(selected)
+        self.assertEqual(diagnostics["decision"], "multi-component-spread-envelope")
+        self.assertEqual(diagnostics["joined_component_count"], 2)
+        polygon = selected[2]
+        xs = np.asarray(polygon)[:, 0]
+        self.assertLess(float(xs.min()), 100.0)
+        self.assertGreater(float(xs.max()), 1300.0)
+
+    def test_multi_component_spread_envelope_rejects_unrelated_local_component(self):
+        image = np.zeros((1000, 1400, 3), dtype=np.uint8)
+        evidence = (
+            {"confidence": 0.95, "polygon": [[80, 80], [80, 930], [900, 930], [900, 80]], "area": 697000.0},
+            {"confidence": 0.99, "polygon": [[1100, 50], [1100, 160], [1300, 160], [1300, 50]], "area": 22000.0},
+        )
+        values = detector._parameters({
+            "minimum_confidence": 0.5,
+            "minimum_component_area_fraction": 0.0005,
+            "minimum_page_area_fraction": 0.12,
+            "page_padding_fraction": 0.0,
+        })
+        with patch.object(detector, "_infer_evidence", return_value=evidence):
+            selected, diagnostics = detector._select_page_envelope(image, values)
+        self.assertIsNotNone(selected)
+        self.assertEqual(diagnostics["decision"], "single-component")
+        self.assertEqual(diagnostics["joined_component_count"], 0)
+
     def test_shared_evidence_round_trip(self):
         image = np.zeros((32, 48, 3), dtype=np.uint8)
         key = detector._image_key(image)

@@ -132,6 +132,39 @@ class OrliGeometryRefinementTests(unittest.TestCase):
         self.assertEqual(diagnostics["reason"], "extrapolated-vertical-document-extent")
         self.assertTrue(np.array_equal(chosen, frame))
 
+
+    def test_learned_document_frame_accepts_dense_coherent_borderline_coverage(self):
+        evidence = {
+            "regions": (),
+            "lines": (),
+            "baselines": tuple(
+                ((250 + (row % 2), 120 + row * 55), (800 + (row % 3), 122 + row * 55))
+                for row in range(12)
+            ),
+            "text_direction": "horizontal-lr",
+        }
+        corners, diagnostics = orli._learned_document_frame(
+            evidence, image_shape=(1000, 1100, 3)
+        )
+        self.assertIsNotNone(corners)
+        self.assertTrue(diagnostics["available"])
+        self.assertGreaterEqual(diagnostics["main_axis_coverage"], 0.48)
+        self.assertLess(diagnostics["main_axis_coverage"], 0.55)
+        self.assertGreaterEqual(diagnostics["orientation_coherence"], 0.92)
+        self.assertEqual(diagnostics["reason"], "coherent-borderline-baseline-document-frame")
+
+    def test_arbitration_uses_tighter_gain_for_coherent_borderline_frame(self):
+        contour = np.asarray([[100, 100], [1000, 100], [1000, 850], [100, 850]], dtype=np.float32)
+        learned = np.asarray([[120, 120], [980, 120], [980, 820], [120, 820]], dtype=np.float32)
+        frame = np.asarray([[100, 55], [1000, 55], [1000, 900], [100, 900]], dtype=np.float32)
+        chosen, source, diagnostics = orli._arbitrate_envelopes(
+            contour, learned, image_shape=(1000, 1100, 3), frame_corners=frame,
+            frame_diagnostics={"reason": "coherent-borderline-baseline-document-frame"},
+        )
+        self.assertEqual(source, "frame")
+        self.assertEqual(diagnostics["frame_extent_ratio_floor"], 1.04)
+        self.assertTrue(np.array_equal(chosen, frame))
+
     def test_directional_completion_extends_missing_bottom_from_top_and_side_anchors(self):
         corners = np.asarray([[90, 60], [1040, 60], [1040, 470], [90, 470]], dtype=np.float32)
         completed, diagnostics = orli._directional_page_completion(
