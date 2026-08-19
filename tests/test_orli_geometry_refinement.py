@@ -206,6 +206,29 @@ class OrliGeometryRefinementTests(unittest.TestCase):
         self.assertTrue(np.array_equal(completed, corners))
         self.assertEqual(diagnostics["reason"], "anchored-envelope-not-materially-truncated")
 
+    def test_image_supported_boundary_recovery_extends_localized_fragment_to_proved_page_edges(self):
+        image = np.full((1000, 1200, 3), 24, dtype=np.uint8)
+        cv2.rectangle(image, (90, 40), (1150, 960), (220, 220, 220), thickness=-1)
+        # Local upper-right Orli fragment: top/right are near the physical page,
+        # while left and bottom are badly truncated.
+        seed = np.asarray([[500, 55], [1135, 55], [1135, 285], [500, 285]], dtype=np.float32)
+        recovered, diagnostics = orli._image_supported_boundary_recovery(image, seed)
+        bounds = orli._quad_axis_bounds(recovered)
+        self.assertEqual(diagnostics["reason"], "image-supported-boundary-recovery")
+        self.assertEqual(set(diagnostics["recovered_sides"]), {"left", "bottom"})
+        self.assertLess(abs(bounds["left"] - 90.0), 20.0)
+        self.assertLess(abs(bounds["bottom"] - 960.0), 20.0)
+        self.assertLess(bounds["top"], 80.0)
+        self.assertGreater(bounds["right"], 1100.0)
+
+    def test_image_supported_boundary_recovery_rejects_local_fragment_without_page_edges(self):
+        image = np.full((1000, 1200, 3), 128, dtype=np.uint8)
+        seed = np.asarray([[500, 55], [1135, 55], [1135, 285], [500, 285]], dtype=np.float32)
+        recovered, diagnostics = orli._image_supported_boundary_recovery(image, seed)
+        self.assertTrue(np.array_equal(recovered, seed))
+        self.assertEqual(diagnostics["reason"], "insufficient-image-boundary-evidence")
+        self.assertEqual(diagnostics["recovered_sides"], [])
+
     def test_proposal_prefers_larger_learned_geometry_over_connected_component(self):
         image = np.zeros((800, 1200, 3), dtype=np.uint8)
         evidence = orli._freeze_evidence({

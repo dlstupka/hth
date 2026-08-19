@@ -1037,6 +1037,232 @@ def _directional_page_completion(corners, *, image_shape):
     return completed_corners, diagnostics
 
 
+
+
+def _axis_edge_profile(image_bgr):
+    """Return cached image-gradient profiles for conservative page-edge recovery.
+
+    The learned Orli fragment can identify document orientation/location without
+    observing the whole physical sheet.  This image-derived evidence is used only
+    as a late fallback to *prove* missing physical boundaries; it never replaces
+    the learned detector as the source of the proposal.
+    """
+    key = _image_key(image_bgr)
+    cache_key = f"boundary-profile:{key}"
+    with _RUNTIME_DIAGNOSTICS_LOCK:
+        cached = _RUNTIME_DIAGNOSTICS.get(cache_key)
+        if isinstance(cached, dict) and "x_profile" in cached and "y_profile" in cached:
+            return cached
+
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    gx = np.abs(cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3))
+    gy = np.abs(cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3))
+
+    # A physical paper/background transition persists across a substantial part
+    # of the orthogonal image dimension.  Use the 75th percentile rather than a
+    # simple mean so dense text strokes cannot dominate a boundary profile.
+    x_profile = np.percentile(gx, 75.0, axis=0).astype(np.float32)
+    y_profile = np.percentile(gy, 75.0, axis=1).astype(np.float32)
+    smooth = max(3, int(round(min(gray.shape) * 0.006)))
+    if smooth % 2 == 0:
+        smooth += 1
+    kernel = np.ones(smooth, dtype=np.float32) / float(smooth)
+    x_profile = np.convolve(x_profile, kernel, mode="same").astype(np.float32)
+    y_profile = np.convolve(y_profile, kernel, mode="same").astype(np.float32)
+
+    payload = {
+        "x_profile": x_profile,
+        "y_profile": y_profile,
+        "smooth_window": smooth,
+    }
+    with _RUNTIME_DIAGNOSTICS_LOCK:
+        _RUNTIME_DIAGNOSTICS[cache_key] = payload
+        _RUNTIME_DIAGNOSTICS.move_to_end(cache_key)
+        # Boundary profiles are image-static and tiny compared with model
+        # evidence.  Keep a modest independent allowance without disturbing the
+        # existing runtime-warning diagnostics.
+        while sum(1 for k in _RUNTIME_DIAGNOSTICS if str(k).startswith("boundary-profile:")) > 16:
+            for old_key in list(_RUNTIME_DIAGNOSTICS):
+                if str(old_key).startswith("boundary-profile:") and old_key != cache_key:
+                    _RUNTIME_DIAGNOSTICS.pop(old_key, None)
+                    break
+    return payload
+
+
+def _robust_profile_peak(profile, lo, hi, *, side, dimension):
+    """Return a strong outer-image edge peak, or None when evidence is weak."""
+    n = int(len(profile))
+    lo = max(0, min(n - 1, int(round(lo))))
+    hi = max(lo + 1, min(n, int(round(hi))))
+    values = np.asarray(profile[lo:hi], dtype=np.float64)
+    if values.size < 4 or not np.isfinite(values).all():
+        return None
+
+    median = float(np.median(profile))
+    mad = float(np.median(np.abs(np.asarray(profile, dtype=np.float64) - median)))
+    robust_scale = max(1e-6, 1.4826 * mad)
+    positions = np.arange(lo, hi, dtype=np.float64)
+    z = (values - median) / robust_scale
+
+    # Favor physically plausible outer-sheet boundaries without forcing the
+    # outermost image edge.  This keeps the fallback useful when the capture has
+    # a modest black/background border around the actual paper.
+    if side in {"left", "top"}:
+        outer = 1.0 - positions / max(1.0, float(dimension - 1))
+    else:
+        outer = positions / max(1.0, float(dimension - 1))
+    score = z + 0.75 * outer
+    index = int(np.argmax(score))
+    peak_z = float(z[index])
+    peak = int(round(positions[index]))
+    if peak_z < 3.0:
+        return None
+    return {
+        "position": peak,
+        "z": peak_z,
+        "profile": float(values[index]),
+        "median": median,
+        "robust_scale": robust_scale,
+    }
+
+
+def _image_supported_boundary_recovery(image_bgr, corners):
+    """Recover missing physical page sides using raw-image boundary evidence.
+
+    This is a late, parameter-free fallback for the remaining Orli failure mode:
+    a coherent learned fragment identifies the document but covers only a small
+    portion of the physical page.  The routine does *not* extrapolate blindly.
+    It keeps well-supported seed sides and extends only missing sides for which a
+    strong image-gradient boundary is independently observed.
+    """
+    if corners is None:
+        return corners, {"available": False, "reason": "no-envelope", "recovered_sides": []}
+
+    h, w = image_bgr.shape[:2]
+    bounds = _quad_axis_bounds(corners)
+    if bounds is None:
+        return corners, {"available": False, "reason": "invalid-envelope", "recovered_sides": []}
+
+    # The fallback is intentionally limited to near-axis-aligned historical
+    # captures.  Rotated geometry remains governed by the learned/frame logic.
+    rect = cv2.minAreaRect(np.asarray(corners, dtype=np.float32).reshape(-1, 2))
+    angle = float(rect[2])
+    rw, rh = rect[1]
+    if rw < rh:
+        angle += 90.0
+    axis_angle = min(abs(angle), abs(abs(angle) - 90.0), abs(abs(angle) - 180.0))
+
+    area = abs(float(cv2.contourArea(np.asarray(corners, dtype=np.float32))))
+    area_fraction = area / max(1.0, float(h * w))
+    span_x = bounds["width"] / max(1.0, float(w - 1))
+    span_y = bounds["height"] / max(1.0, float(h - 1))
+    diagnostics = {
+        "available": True,
+        "reason": "image-boundary-recovery-not-needed",
+        "axis_angle_degrees": axis_angle,
+        "seed_area_fraction": area_fraction,
+        "seed_span_fraction": {"x": span_x, "y": span_y},
+        "seed_bounds": bounds,
+        "recovered_sides": [],
+    }
+    if axis_angle > 12.0:
+        diagnostics["reason"] = "seed-too-rotated-for-image-boundary-recovery"
+        return corners, diagnostics
+    if area_fraction >= 0.40 or (span_x >= 0.72 and span_y >= 0.72):
+        diagnostics["reason"] = "seed-already-broad"
+        return corners, diagnostics
+
+    margins = {
+        "left": max(0.0, bounds["left"]),
+        "top": max(0.0, bounds["top"]),
+        "right": max(0.0, (w - 1) - bounds["right"]),
+        "bottom": max(0.0, (h - 1) - bounds["bottom"]),
+    }
+    diagnostics["seed_margins"] = margins
+    near_fraction = 0.20
+    missing_fraction = 0.25
+    near = {
+        "left": margins["left"] <= near_fraction * max(1.0, w - 1),
+        "right": margins["right"] <= near_fraction * max(1.0, w - 1),
+        "top": margins["top"] <= near_fraction * max(1.0, h - 1),
+        "bottom": margins["bottom"] <= near_fraction * max(1.0, h - 1),
+    }
+    if not any(near.values()):
+        diagnostics["reason"] = "no-trusted-seed-side"
+        return corners, diagnostics
+
+    missing = {
+        "left": margins["left"] >= missing_fraction * max(1.0, w - 1),
+        "right": margins["right"] >= missing_fraction * max(1.0, w - 1),
+        "top": margins["top"] >= missing_fraction * max(1.0, h - 1),
+        "bottom": margins["bottom"] >= missing_fraction * max(1.0, h - 1),
+    }
+    if not any(missing.values()):
+        diagnostics["reason"] = "no-materially-missing-side"
+        return corners, diagnostics
+
+    profiles = _axis_edge_profile(image_bgr)
+    gap_x = max(8, int(round(w * 0.03)))
+    gap_y = max(8, int(round(h * 0.03)))
+    searches = {}
+    if missing["left"]:
+        searches["left"] = _robust_profile_peak(
+            profiles["x_profile"], 0, max(1, bounds["left"] - gap_x), side="left", dimension=w
+        )
+    if missing["right"]:
+        searches["right"] = _robust_profile_peak(
+            profiles["x_profile"], min(w - 1, bounds["right"] + gap_x), w, side="right", dimension=w
+        )
+    if missing["top"]:
+        searches["top"] = _robust_profile_peak(
+            profiles["y_profile"], 0, max(1, bounds["top"] - gap_y), side="top", dimension=h
+        )
+    if missing["bottom"]:
+        searches["bottom"] = _robust_profile_peak(
+            profiles["y_profile"], min(h - 1, bounds["bottom"] + gap_y), h, side="bottom", dimension=h
+        )
+    diagnostics["boundary_search"] = searches
+
+    recovered = {side: result for side, result in searches.items() if result is not None}
+    # One proved missing side is useful for a one-axis truncation.  For a tiny
+    # two-axis fragment, require both absent sides to be independently proved so
+    # a strong text rule cannot inflate an arbitrary local block into a page.
+    missing_count = sum(int(value) for value in missing.values())
+    required = 2 if missing_count >= 2 else 1
+    if len(recovered) < required:
+        diagnostics["reason"] = "insufficient-image-boundary-evidence"
+        return corners, diagnostics
+
+    x0, y0, x1, y1 = bounds["left"], bounds["top"], bounds["right"], bounds["bottom"]
+    if "left" in recovered:
+        x0 = float(recovered["left"]["position"])
+    if "right" in recovered:
+        x1 = float(recovered["right"]["position"])
+    if "top" in recovered:
+        y0 = float(recovered["top"]["position"])
+    if "bottom" in recovered:
+        y1 = float(recovered["bottom"]["position"])
+
+    recovered_corners = _canonical_quad(
+        np.asarray([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], dtype=np.float32),
+        width=w,
+        height=h,
+    )
+    if recovered_corners is None:
+        diagnostics["reason"] = "invalid-image-boundary-recovery"
+        return corners, diagnostics
+
+    diagnostics.update({
+        "reason": "image-supported-boundary-recovery",
+        "recovered_sides": sorted(recovered),
+        "completed_bounds": _quad_axis_bounds(recovered_corners),
+        "completed_area": abs(float(cv2.contourArea(recovered_corners))),
+        "profile_smooth_window": int(profiles["smooth_window"]),
+    })
+    return recovered_corners, diagnostics
+
+
 def _pad_quad(corners, *, image_shape, padding_fraction):
     if corners is None:
         return None
@@ -1101,6 +1327,21 @@ def _proposal(image_bgr, values):
         raw_corners = completed_corners
         envelope_mode = f"{envelope_mode}+directional-completion"
 
+    if completion_diagnostics.get("changed_axes"):
+        boundary_corners = raw_corners
+        boundary_diagnostics = {
+            "available": False,
+            "reason": "directional-completion-already-succeeded",
+            "recovered_sides": [],
+        }
+    else:
+        boundary_corners, boundary_diagnostics = _image_supported_boundary_recovery(
+            image_bgr, raw_corners
+        )
+        if boundary_diagnostics.get("recovered_sides"):
+            raw_corners = boundary_corners
+            envelope_mode = f"{envelope_mode}+image-boundary-recovery"
+
     envelope_diagnostics = {
         "mode": envelope_mode,
         "contour": contour_diagnostics,
@@ -1108,6 +1349,7 @@ def _proposal(image_bgr, values):
         "learned_document_frame": frame_diagnostics,
         "arbitration": arbitration_diagnostics,
         "directional_completion": completion_diagnostics,
+        "image_boundary_recovery": boundary_diagnostics,
         "contour_quad_area": contour_area,
         "learned_quad_area": learned_area,
         "learned_document_frame_area": frame_area,
