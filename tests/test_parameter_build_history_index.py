@@ -33,11 +33,17 @@ class ParameterBuildHistoryIndexTests(unittest.TestCase):
         (record / "parameter-provenance.json").write_text(
             json.dumps(provenance), encoding="utf-8"
         )
+        (record / "reports").mkdir()
+        (record / "reports" / "summary.json").write_text(
+            json.dumps({"winner": {"parameter_set_id": report._short(report.parameter_identity_sha256(detector, parameters, schema_version="1"), 12), "parameters": parameters}}),
+            encoding="utf-8",
+        )
         return {
             "detector_id": detector,
             "calibration_status": status,
             "created_at_utc": f"2026-08-{int(build) % 28 + 1:02d}T00:00:00Z",
             "parameter_provenance_path": f"records/run-{build}/parameter-provenance.json",
+            "record_path": f"records/run-{build}",
             "build": {
                 "github_run_number": str(build),
                 "run_url": f"https://example.invalid/{build}",
@@ -118,6 +124,26 @@ class ParameterBuildHistoryIndexTests(unittest.TestCase):
                 parameter_build_index=history,
             )
             self.assertEqual([row[0] for row in builds], ["450", "300"])
+
+    def test_equivalent_build_history_preserves_distinct_exact_ids(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            detector = "demo"
+            old = {"threshold": 0.1, "radius": 2}
+            new = {"threshold": 0.3, "radius": 2}
+            entry, _ = self._write_record(root, detector, 523, "authoritative", old)
+            index_path = root / "calibration-index.json"
+            index_path.write_text(json.dumps({"entries": [entry]}), encoding="utf-8")
+            history = report._build_parameter_build_index(index_path)
+            family_config = {"equivalence_parameters": ["threshold"]}
+            family_id = report.parameter_set_equivalence_family_id(new, family_config)
+            builds = report._known_builds_for_family(
+                detector=detector, family_id=family_id, equivalence_parameters=["threshold"],
+                current_parameter_set_id="currentexact", info={}, run_url="", parameter_build_index=history,
+            )
+            self.assertEqual([row[0] for row in builds], ["523"])
+            self.assertEqual(builds[0][3], family_id)
+            self.assertNotEqual(builds[0][4], "currentexact")
 
 
 if __name__ == "__main__":

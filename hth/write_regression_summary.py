@@ -15,6 +15,7 @@ from hth.regression.calibration_intelligence import detector_characterization
 from hth.domain.result_metrics import baseline_surpassed, calibration_metric_view, result_metric_view
 from hth.runtime_store import coherent_execution_profile, select_runtime_observation
 from hth.regression.parameter_provenance import parameter_identity_sha256, resolve_parameter_set
+from hth.regression.parameter_space import parameter_set_equivalence_family_id
 
 
 
@@ -502,6 +503,22 @@ def _build_parameter_build_index(
                     parameter_identity_sha256(detector, parameters, schema_version=schema)
                 )
 
+        winner_parameters: dict[str, Any] = {}
+        winner_parameter_set_id = str((entry.get("selection") or {}).get("recommended_parameter_set_id") or "")
+        record_rel = entry.get("record_path")
+        if record_rel:
+            summary_path = calibration_index.parent / str(record_rel) / "summary.json"
+            if not summary_path.is_file():
+                summary_path = calibration_index.parent / str(record_rel) / "reports" / "summary.json"
+            if summary_path.is_file():
+                try:
+                    historical_summary = _read_json(summary_path)
+                    historical_winner = historical_summary.get("winner") if isinstance(historical_summary.get("winner"), dict) else {}
+                    winner_parameters = dict(historical_winner.get("parameters") or {})
+                    winner_parameter_set_id = str(historical_winner.get("parameter_set_id") or winner_parameter_set_id)
+                except (OSError, ValueError, json.JSONDecodeError):
+                    pass
+
         build = entry.get("build") if isinstance(entry.get("build"), dict) else {}
         by_detector.setdefault(detector, []).append({
             "build_number": str(build.get("github_run_number") or "unknown"),
@@ -513,6 +530,8 @@ def _build_parameter_build_index(
             "grid_values": grid_values,
             "explicit_shas": explicit_shas,
             "profile_shas": frozenset(profile_shas),
+            "winner_parameters": winner_parameters,
+            "winner_parameter_set_id": winner_parameter_set_id,
         })
 
     return by_detector
@@ -661,6 +680,50 @@ def _last_build_for_parameter(
     return f"[{label}]({url})" if url else label
 
 
+def _known_builds_for_family(
+    *,
+    detector: str,
+    family_id: str,
+    equivalence_parameters: list[str],
+    current_parameter_set_id: str,
+    info: dict[str, Any],
+    run_url: str,
+    parameter_build_index: dict[str, list[dict[str, Any]]],
+) -> list[tuple[str, str, str, str, str, str]]:
+    """Return authoritative winner builds belonging to one equivalence family."""
+    builds: list[tuple[str, str, str, str, str, str]] = []
+    current_number = info.get("github_run_number")
+    current_url = info.get("github_run_url") or info.get("run_url") or run_url
+    if current_number or current_url:
+        builds.append((str(current_number or "current"), str(current_url or ""), str(info.get("started_at_utc") or "")[:10], family_id, current_parameter_set_id, "current run"))
+
+    family_config = {"equivalence_parameters": list(equivalence_parameters)}
+    for record in parameter_build_index.get(detector, []):
+        parameters = record.get("winner_parameters") if isinstance(record.get("winner_parameters"), dict) else {}
+        if not parameters:
+            continue
+        historical_family = parameter_set_equivalence_family_id(parameters, family_config)
+        if historical_family != family_id:
+            continue
+        row = (
+            str(record.get("build_number") or "unknown"),
+            str(record.get("build_url") or ""),
+            str(record.get("date") or ""),
+            historical_family,
+            str(record.get("winner_parameter_set_id") or "unknown")[:12],
+            str(record.get("evidence") or "known"),
+        )
+        if row not in builds:
+            builds.append(row)
+
+    current_rows = [row for row in builds if row[5] == "current run"]
+    current_numbers = {row[0] for row in current_rows if row[0] not in {"", "current", "unknown"}}
+    current_urls = {row[1] for row in current_rows if row[1]}
+    prior_rows = [row for row in builds if row[5] != "current run" and row[0] not in current_numbers and row[1] not in current_urls]
+    prior_rows.sort(key=lambda row: _build_sort_key((row[0], row[1], row[2], row[5])), reverse=True)
+    return current_rows + prior_rows
+
+
 def _parameter_set_details(
     run_dir: Path,
     winner: dict[str, Any],
@@ -704,22 +767,25 @@ def _parameter_set_details(
     else:
         lines.append("| _unavailable_ | Legacy record does not contain reconstructable parameter provenance. |")
 
-    builds = _known_builds_for_parameter(
+    equivalence_parameters = identity.get("equivalence_parameters") if isinstance(identity.get("equivalence_parameters"), list) else []
+    family_id = _parameter_family_id(winner)
+    builds = _known_builds_for_family(
         detector=detector,
-        full_sha=full_sha,
-        parameters=parameters,
+        family_id=family_id,
+        equivalence_parameters=[str(name) for name in equivalence_parameters],
+        current_parameter_set_id=legacy_id,
         info=info,
         run_url=run_url,
         parameter_build_index=parameter_build_index,
     )
-    lines.extend(["", "#### Known Builds Using This Exact Parameter Set", "", "Builds known at the time this report was generated; matching is by the authoritative full parameter identity.", "", "| Build | Date | Evidence |", "|---|---|---|"])
+    lines.extend(["", "#### Known Builds Using Equivalent Parameter Sets", "", "Builds known at the time this report was generated; matching is by Parameter Set Equivalence Family ID. Exact Parameter Set IDs are shown to preserve the distinct executable configurations represented within the family.", "", "| Build | Date | Family ID | Parameter Set ID | Evidence |", "|---|---|---|---|---|"])
     if builds:
-        for number, url, date, evidence in builds:
+        for number, url, date, build_family_id, build_parameter_set_id, evidence in builds:
             label = f"#{number}" if number != "current" else "current run"
             build_text = f"[{label}]({url})" if url else label
-            lines.append(f"| {build_text} | {date or 'unknown'} | {evidence} |")
+            lines.append(f"| {build_text} | {date or 'unknown'} | `{build_family_id}` | `{build_parameter_set_id}` | {evidence} |")
     else:
-        lines.append("| current/unknown | unknown | No build provenance was available. |")
+        lines.append("| current/unknown | unknown | `unknown` | `unknown` | No build provenance was available. |")
     return lines
 
 

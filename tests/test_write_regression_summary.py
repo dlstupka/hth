@@ -210,7 +210,7 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("#### Exact Parameter Settings", text)
             self.assertIn("| `iterations` | `5` |", text)
             self.assertIn("| `margin` | `0.05` |", text)
-            self.assertIn("#### Known Builds Using This Exact Parameter Set", text)
+            self.assertIn("#### Known Builds Using Equivalent Parameter Sets", text)
             self.assertLess(text.index("### Result"), text.index("### Parameter Set Details"))
             self.assertLess(text.index("### Parameter Set Details"), text.index("### Detector Evidence"))
             self.assertIn("### Preferred Execution Shape", text)
