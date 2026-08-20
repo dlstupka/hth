@@ -307,6 +307,70 @@ def _select_polygon(image_bgr: np.ndarray, values):
     return item["area"], item["confidence"], item["polygon"]
 
 
+def _outer_background_boundary(gray: np.ndarray, *, side: str, y0: int, y1: int, start: int, stop: int):
+    """Find a sustained paper-to-outer-background transition on one horizontal side.
+
+    Damaged historical leaves can have a faint/torn physical edge that is not a
+    strong median Sobel peak.  The scanner background outside the paper is often
+    much more stable, though, so use robust column luminance to locate the last
+    sustained foreground-to-background transition.  This is intentionally only
+    a secondary proof used after the single-leaf spread gates have fired.
+    """
+    if y1 <= y0 + 8 or stop <= start + 8:
+        return None, {"accepted": False, "reason": "insufficient-region"}
+    band = gray[y0:y1, :].astype(np.float32)
+    # Median suppresses handwriting/cracks while preserving the broad paper vs
+    # scanner-background separation.
+    column_level = np.median(band, axis=0)
+    column_level = cv2.GaussianBlur(column_level.reshape(1, -1), (1, 0), sigmaX=3.0).reshape(-1)
+    width = gray.shape[1]
+    edge_band = max(8, int(round(width * 0.025)))
+    if side == "right":
+        bg_sample = column_level[max(0, width - edge_band):width]
+    else:
+        bg_sample = column_level[:min(width, edge_band)]
+    if bg_sample.size == 0:
+        return None, {"accepted": False, "reason": "no-background-sample"}
+    bg = float(np.median(bg_sample))
+    bg_mad = float(np.median(np.abs(bg_sample - bg)))
+    # Require the paper side of the transition to differ materially from the
+    # stable outer background.  Absolute floor handles nearly-black scanners.
+    delta = max(10.0, 4.0 * max(1.0, bg_mad))
+    sustain = max(6, int(round(width * 0.006)))
+    lo, hi = max(1, start), min(width - 1, stop)
+    candidates = []
+    for x in range(lo + sustain, hi - sustain):
+        if side == "right":
+            inside = float(np.median(column_level[x - sustain:x]))
+            outside = float(np.median(column_level[x:x + sustain]))
+        else:
+            outside = float(np.median(column_level[x - sustain:x]))
+            inside = float(np.median(column_level[x:x + sustain]))
+        contrast = abs(inside - outside)
+        outside_bg_distance = abs(outside - bg)
+        inside_bg_distance = abs(inside - bg)
+        if outside_bg_distance <= max(6.0, 3.0 * max(1.0, bg_mad)) and inside_bg_distance >= delta and contrast >= delta:
+            candidates.append((x, contrast, inside, outside))
+    if not candidates:
+        return None, {
+            "accepted": False, "reason": "no-sustained-background-transition",
+            "background": round(bg, 3), "background_mad": round(bg_mad, 3),
+            "required_delta": round(delta, 3),
+        }
+    # The qualifying transition nearest the physical image edge is the paper
+    # boundary; interior folds/rules do not have sustained scanner background
+    # on their outer side.
+    chosen = max(candidates, key=lambda row: row[0]) if side == "right" else min(candidates, key=lambda row: row[0])
+    x, contrast, inside, outside = chosen
+    return float(x), {
+        "accepted": True, "reason": "sustained-outer-background-transition",
+        "boundary_x": float(x), "contrast": round(float(contrast), 3),
+        "inside_level": round(float(inside), 3), "outside_level": round(float(outside), 3),
+        "background": round(bg, 3), "background_mad": round(bg_mad, 3),
+        "candidate_count": len(candidates),
+    }
+
+
 def _single_leaf_spread_completion(image_bgr: np.ndarray, primary: dict):
     """Complete one learned page leaf only when the image proves the missing spread edge.
 
@@ -410,6 +474,26 @@ def _single_leaf_spread_completion(image_bgr: np.ndarray, primary: dict):
         selection = "strongest-boundary-fallback"
     boundary_x = float(start + local_index)
     score = float(segment[local_index])
+
+    # A torn/faded physical edge may be weaker than an interior fold in the
+    # Sobel profile.  Independently look for a sustained transition into the
+    # scanner background and prefer that farther physical boundary when proven.
+    background_boundary_x, background_diagnostics = _outer_background_boundary(
+        gray, side=side, y0=y0, y1=y1, start=start, stop=stop
+    )
+    diagnostics["outer_background_boundary"] = background_diagnostics
+    if background_boundary_x is not None:
+        minimum_override = max(6.0, 0.005 * width)
+        farther = (
+            background_boundary_x >= boundary_x + minimum_override
+            if side == "right" else background_boundary_x <= boundary_x - minimum_override
+        )
+        if farther:
+            boundary_x = float(background_boundary_x)
+            # Background-transition proof is independent of the Sobel threshold;
+            # preserve the observed Sobel score only for diagnostics.
+            selection = "outer-background-transition"
+
     outer_enough = boundary_x >= outer_limit if side == "right" else boundary_x <= outer_limit
     combined_x0 = min(px0, boundary_x)
     combined_x1 = max(px1, boundary_x)
@@ -426,7 +510,8 @@ def _single_leaf_spread_completion(image_bgr: np.ndarray, primary: dict):
         "outer_boundary": bool(outer_enough),
         "span_gain": round(float(span_gain), 4),
     })
-    if score < threshold or not outer_enough or span_gain < 1.30:
+    boundary_proven = score >= threshold or selection == "outer-background-transition"
+    if not boundary_proven or not outer_enough or span_gain < 1.30:
         diagnostics["decision"] = "image-boundary-not-proven"
         return None, diagnostics
 

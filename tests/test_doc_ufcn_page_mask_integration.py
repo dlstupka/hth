@@ -203,6 +203,30 @@ class DocUFCNPageMaskIntegrationTests(unittest.TestCase):
         self.assertGreater(completion["robust_boundary_candidates"], 1)
         self.assertGreater(completion["boundary_x"], 1200.0)
 
+    def test_single_leaf_spread_completion_uses_farther_outer_background_proof(self):
+        import cv2
+        image = np.zeros((1000, 1400, 3), dtype=np.uint8)
+        # Strong interior fold makes Sobel prefer an early boundary; the secondary
+        # sustained-background proof independently locates the farther sheet edge.
+        cv2.line(image, (990, 70), (990, 940), (255, 255, 255), 5)
+        evidence = (
+            {"confidence": 0.96, "polygon": [[90, 70], [90, 940], [760, 940], [760, 70]], "area": 582900.0},
+        )
+        values = detector._parameters({
+            "minimum_confidence": 0.5,
+            "minimum_component_area_fraction": 0.0005,
+            "minimum_page_area_fraction": 0.12,
+            "page_padding_fraction": 0.0,
+        })
+        proof = (1232.0, {"accepted": True, "reason": "sustained-outer-background-transition", "boundary_x": 1232.0})
+        with patch.object(detector, "_infer_evidence", return_value=evidence), patch.object(detector, "_outer_background_boundary", return_value=proof):
+            selected, diagnostics = detector._select_page_envelope(image, values)
+        self.assertIsNotNone(selected)
+        completion = diagnostics["single_leaf_spread_completion"]
+        self.assertEqual(completion["boundary_selection"], "outer-background-transition")
+        self.assertTrue(completion["outer_background_boundary"]["accepted"])
+        self.assertGreater(completion["boundary_x"], 1200.0)
+
 
 if __name__ == "__main__":
     unittest.main()
