@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.write_regression_summary import _best_known_calibrations, _estimate_scope_makespan, _render_best_known_calibrations, _render_detector_calibration, build_combined_summary, build_summary
+from hth.write_regression_summary import _best_known_calibrations, _calibration_record_from_payload, _combined_result_row, _estimate_scope_makespan, _render_best_known_calibrations, _render_detector_calibration, build_combined_summary, build_summary
+from hth.regression.parameter_space import parameter_set_equivalence_family_id
 
 
 class RegressionSummaryTests(unittest.TestCase):
@@ -524,6 +525,31 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("<summary><strong>GrabCut Segmentation (`grabcut`)</strong></summary>", text)
             self.assertIn("<summary><strong>Contour Envelope (`contour`)</strong></summary>", text)
             self.assertEqual(text.count("[Open workflow run]"), 1)
+
+
+    def test_smoke_table_uses_best_requested_search_member_not_historic_reference(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run = root / "docu" / "run"
+            (run / "reports").mkdir(parents=True)
+            (run / "manifest.json").write_text(json.dumps({"detector":"doc_ufcn_page_mask","status":"complete"}), encoding="utf-8")
+            (run / "parameters.json").write_text(json.dumps({}), encoding="utf-8")
+            (run / "RUN-INFO.json").write_text(json.dumps({"elapsed_seconds":1}), encoding="utf-8")
+            search = {"parameter_set_id":"smoke123","parameter_set_equivalence_family_id":"smokefam","parameters":{"page_padding_fraction":0.0},"summary":{"mean_iou":0.90,"minimum_iou":0.80,"stddev_iou":0.02,"failure_count":0,"mean_iou_success":0.90}}
+            historic = {"parameter_set_id":"full999","parameter_set_equivalence_family_id":"fullfam","parameters":{"page_padding_fraction":0.01},"summary":{"mean_iou":0.9747,"minimum_iou":0.9545,"stddev_iou":0.0119,"failure_count":0,"mean_iou_success":0.9747}}
+            (run / "reports" / "summary.json").write_text(json.dumps({"winner":historic,"search_top_parameter_sets":[search],"baseline":{"summary":{"mean_iou":0.7}},"page_ordinals":[1,2,3,4,5],"parameter_set_count":11}), encoding="utf-8")
+            row = _combined_result_row(run)
+            self.assertEqual(row["parameter_set_id"], "smoke123")
+            self.assertEqual(row["parameter_set_equivalence_family_id"], "smokefam")
+            self.assertEqual(row["mean_iou"], 0.90)
+            self.assertEqual(row["parameter_sets"], 11)
+
+    def test_best_known_reconstructs_missing_family_id_from_winner_parameters(self):
+        winner = {"parameter_set_id":"legacy","parameters":{"threshold":0.5},"summary":{"mean_iou":0.9,"minimum_iou":0.8,"stddev_iou":0.01,"failure_count":0}}
+        payload = {"search":{"parameter_sets":10,"exhaustive_complete":True},"detector_selection_intelligence":{"recommended_parameter_set_id":"legacy"}}
+        record = _calibration_record_from_payload("gradient_vote", payload, summary={"winner":winner})
+        self.assertNotEqual(record["parameter_set_equivalence_family_id"], "unknown")
+        self.assertEqual(record["parameter_set_equivalence_family_id"], parameter_set_equivalence_family_id({"threshold":0.5}, {}))
 
     def test_best_known_calibrations_reads_runtime_from_persisted_run_info(self):
         with tempfile.TemporaryDirectory() as temporary:

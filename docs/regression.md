@@ -458,7 +458,7 @@ Every report table that displays `Parameter Set ID` also displays `Parameter Set
 
 The generated detector report intentionally keeps two independent views of persisted evidence:
 
-- **Ranked Detector Smoke Test Results** uses the latest persisted `provisional` smoke observation for each detector. A full/exhaustive calibration never back-fills this table.
-- **Best Known Detector Calibrations** selects the strongest compatible authoritative/full calibration when one exists and falls back to smoke only when no authoritative calibration exists.
+- **Ranked Detector Smoke Test Results** uses the latest persisted `provisional` smoke observation for each detector and reports the best requested smoke-search member, excluding mandatory baseline/historic-best reference evaluations from the observation ranking. Parameter count, identity, quality, timing, and rate therefore come from one coherent smoke run; a full/exhaustive calibration never back-fills this table.
+- **Best Known Detector Calibrations** selects the strongest compatible authoritative/full calibration when one exists and falls back to smoke only when no authoritative calibration exists. Missing historical Family IDs are reconstructed from preserved exact winner parameters using the current durable equivalence-family contract when enough provenance exists; otherwise they remain `unknown`.
 
 A repository pipeline commit is not, by itself, a detector-implementation compatibility boundary. Unrelated pipeline changes therefore cannot make a newer smoke observation usurp an existing authoritative calibration. Exact regression reproducibility remains pinned by the run's detector implementation/source revision, parameter identity, and Golden Set provenance.

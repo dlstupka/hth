@@ -1319,6 +1319,26 @@ def _calibration_search_type(entry: dict[str, Any], payload: dict[str, Any]) -> 
     return str(strategy or "unknown").replace("_", "-")
 
 
+def _reconstruct_family_id(detector: str, winner: dict[str, Any] | None) -> str:
+    """Derive a missing family ID from preserved exact parameters when possible."""
+    existing = _parameter_family_id(winner)
+    if existing != "unknown":
+        return existing
+    if not isinstance(winner, dict):
+        return "unknown"
+    parameters = winner.get("parameters") if isinstance(winner.get("parameters"), dict) else None
+    if not parameters:
+        return "unknown"
+    config_path = Path(__file__).parents[1] / "config" / "detectors" / f"{detector}.json"
+    config: dict[str, Any] = {}
+    if config_path.is_file():
+        try:
+            config = _read_json(config_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            config = {}
+    return parameter_set_equivalence_family_id(parameters, config)
+
+
 def _calibration_record_from_payload(
     detector: str,
     payload: dict[str, Any],
@@ -1372,7 +1392,7 @@ def _calibration_record_from_payload(
         "created_at_utc": str(date_value or ""),
         "search_type": _calibration_search_type({**entry, "calibration_status": status}, payload),
         "status": status,
-        "parameter_set_equivalence_family_id": _parameter_family_id(winner),
+        "parameter_set_equivalence_family_id": _reconstruct_family_id(detector, winner),
         "parameter_set_id": _short(parameter_id, 12),
         "role": _detector_characterization(detector).get("role", "Unknown"),
         "coverage": "complete" if search.get("exhaustive_complete") else "partial",
@@ -2278,7 +2298,16 @@ def _combined_result_row(run_dir: Path) -> dict[str, Any]:
     info = _read_json(run_dir / "RUN-INFO.json")
     parameters = _read_json(run_dir / "parameters.json")
     summary = normalize_summary_metrics(_read_json(run_dir / "reports" / "summary.json"))
-    winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else None
+
+    # The smoke table is an observation of the requested smoke search, not of
+    # mandatory baseline/historic-best references evaluated alongside it.  The
+    # overall summary winner may legitimately be one of those references, so
+    # prefer the best numeric search member when the runner recorded one.
+    search_top = summary.get("search_top_parameter_sets")
+    if isinstance(search_top, list) and search_top and isinstance(search_top[0], dict):
+        winner = search_top[0]
+    else:
+        winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else None
     baseline = summary.get("baseline") if isinstance(summary.get("baseline"), dict) else None
     winner_stats = result_metric_view(winner.get("summary", {}) if winner else {})
     baseline_stats = result_metric_view(baseline.get("summary", {}) if baseline else {})
