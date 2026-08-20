@@ -527,7 +527,7 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertEqual(text.count("[Open workflow run]"), 1)
 
 
-    def test_smoke_table_uses_best_requested_search_member_not_historic_reference(self):
+    def test_smoke_table_honors_historic_best_when_it_wins_smoke_run(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             run = root / "docu" / "run"
@@ -536,12 +536,30 @@ class RegressionSummaryTests(unittest.TestCase):
             (run / "parameters.json").write_text(json.dumps({}), encoding="utf-8")
             (run / "RUN-INFO.json").write_text(json.dumps({"elapsed_seconds":1}), encoding="utf-8")
             search = {"parameter_set_id":"smoke123","parameter_set_equivalence_family_id":"smokefam","parameters":{"page_padding_fraction":0.0},"summary":{"mean_iou":0.90,"minimum_iou":0.80,"stddev_iou":0.02,"failure_count":0,"mean_iou_success":0.90}}
-            historic = {"parameter_set_id":"full999","parameter_set_equivalence_family_id":"fullfam","parameters":{"page_padding_fraction":0.01},"summary":{"mean_iou":0.9747,"minimum_iou":0.9545,"stddev_iou":0.0119,"failure_count":0,"mean_iou_success":0.9747}}
-            (run / "reports" / "summary.json").write_text(json.dumps({"winner":historic,"search_top_parameter_sets":[search],"baseline":{"summary":{"mean_iou":0.7}},"page_ordinals":[1,2,3,4,5],"parameter_set_count":11}), encoding="utf-8")
+            historic = {"parameter_set_id":"full999","parameter_set_equivalence_family_id":"fullfam","parameters":{"page_padding_fraction":0.01},"reference_roles":["historic_best"],"summary":{"mean_iou":0.9747,"minimum_iou":0.9545,"stddev_iou":0.0119,"failure_count":0,"mean_iou_success":0.9747}}
+            (run / "reports" / "summary.json").write_text(json.dumps({"winner":historic,"historic_best":historic,"search_top_parameter_sets":[search],"baseline":{"summary":{"mean_iou":0.7}},"page_ordinals":[1,2,3,4,5],"parameter_set_count":11}), encoding="utf-8")
             row = _combined_result_row(run)
-            self.assertEqual(row["parameter_set_id"], "smoke123")
-            self.assertEqual(row["parameter_set_equivalence_family_id"], "smokefam")
-            self.assertEqual(row["mean_iou"], 0.90)
+            self.assertEqual(row["parameter_set_id"], "full999")
+            self.assertEqual(row["parameter_set_equivalence_family_id"], "fullfam")
+            self.assertEqual(row["mean_iou"], 0.9747)
+            self.assertEqual(row["parameter_sets"], 11)
+
+    def test_smoke_table_honors_baseline_when_it_wins_smoke_run(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run = root / "detector" / "run"
+            (run / "reports").mkdir(parents=True)
+            (run / "manifest.json").write_text(json.dumps({"detector":"gradient_vote","status":"complete"}), encoding="utf-8")
+            (run / "parameters.json").write_text(json.dumps({}), encoding="utf-8")
+            (run / "RUN-INFO.json").write_text(json.dumps({"elapsed_seconds":1}), encoding="utf-8")
+            baseline = {"parameter_set_id":"baseline1","parameter_set_equivalence_family_id":"basefam","parameter_short_name":"baseline","reference_roles":["baseline"],"summary":{"mean_iou":0.93,"minimum_iou":0.85,"stddev_iou":0.02,"failure_count":0,"mean_iou_success":0.93}}
+            search = {"parameter_set_id":"smoke1","parameter_set_equivalence_family_id":"smokefam","summary":{"mean_iou":0.91,"minimum_iou":0.80,"stddev_iou":0.03,"failure_count":0,"mean_iou_success":0.91}}
+            historic = {"parameter_set_id":"best1","parameter_set_equivalence_family_id":"bestfam","reference_roles":["historic_best"],"summary":{"mean_iou":0.92,"minimum_iou":0.82,"stddev_iou":0.025,"failure_count":0,"mean_iou_success":0.92}}
+            (run / "reports" / "summary.json").write_text(json.dumps({"winner":baseline,"baseline":baseline,"historic_best":historic,"search_top_parameter_sets":[search],"page_ordinals":[1,2,3,4,5],"parameter_set_count":11}), encoding="utf-8")
+            row = _combined_result_row(run)
+            self.assertEqual(row["parameter_set_id"], "baseline1")
+            self.assertEqual(row["parameter_set_equivalence_family_id"], "basefam")
+            self.assertEqual(row["mean_iou"], 0.93)
             self.assertEqual(row["parameter_sets"], 11)
 
     def test_best_known_reconstructs_missing_family_id_from_winner_parameters(self):

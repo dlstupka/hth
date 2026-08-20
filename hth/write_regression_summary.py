@@ -2299,15 +2299,14 @@ def _combined_result_row(run_dir: Path) -> dict[str, Any]:
     parameters = _read_json(run_dir / "parameters.json")
     summary = normalize_summary_metrics(_read_json(run_dir / "reports" / "summary.json"))
 
-    # The smoke table is an observation of the requested smoke search, not of
-    # mandatory baseline/historic-best references evaluated alongside it.  The
-    # overall summary winner may legitimately be one of those references, so
-    # prefer the best numeric search member when the runner recorded one.
-    search_top = summary.get("search_top_parameter_sets")
-    if isinstance(search_top, list) and search_top and isinstance(search_top[0], dict):
-        winner = search_top[0]
-    else:
-        winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else None
+    # A smoke run intentionally evaluates the requested smoke search together
+    # with mandatory Baseline and Historic Best references.  The smoke ranking
+    # must honor every result actually evaluated by that run, so use the merged
+    # run winner rather than restricting the row to requested search members.
+    # This makes a newly introduced detector rank immediately against the best
+    # compatible calibration already known for every existing detector while
+    # still allowing a smoke-search member to win when it genuinely improves it.
+    winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else None
     baseline = summary.get("baseline") if isinstance(summary.get("baseline"), dict) else None
     winner_stats = result_metric_view(winner.get("summary", {}) if winner else {})
     baseline_stats = result_metric_view(baseline.get("summary", {}) if baseline else {})
