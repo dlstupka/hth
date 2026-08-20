@@ -253,7 +253,12 @@ PYPLAN
     else
       planned_shards="$auto_planned_shards"
     fi
-    if [[ "$REGRESSION_MODE" != "full" || -n "${effective_limit:-}" ]]; then
+    if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" != "1" ]] \
+      && { [[ "$REGRESSION_MODE" != "full" ]] || [[ -n "${effective_limit:-}" ]]; }; then
+      # Limited/non-full runs normally stay as one task, but an explicitly exact
+      # pipelines x threads shape is an atomic execution contract. A LIMIT only
+      # bounds the candidate budget inside the runner; it must not collapse an
+      # exact N-pipeline full run back to one shard.
       planned_shards=1
     fi
   else
