@@ -299,6 +299,26 @@ class OrliGeometryRefinementTests(unittest.TestCase):
         self.assertGreater(float(ys.max()), 620.0)
         self.assertIn(diagnostics["mode"], {"learned-geometry-consensus", "multi-region-envelope"})
 
+    def test_image_supported_overexpansion_trim_recovers_stronger_inward_page_edges(self):
+        image = np.zeros((1000, 1200, 3), dtype=np.uint8)
+        cv2.line(image, (90, 80), (90, 920), (255, 255, 255), 4)
+        cv2.line(image, (1110, 80), (1110, 920), (255, 255, 255), 4)
+        padded = np.asarray([[0, 100], [1199, 100], [1199, 900], [0, 900]], dtype=np.float32)
+        trimmed, diagnostics = orli._image_supported_overexpansion_trim(image, padded)
+        bounds = orli._quad_axis_bounds(trimmed)
+        self.assertEqual(diagnostics["reason"], "image-supported-overexpansion-trim")
+        self.assertEqual(set(diagnostics["trimmed_sides"]), {"left", "right"})
+        self.assertLess(abs(bounds["left"] - 90.0), 15.0)
+        self.assertLess(abs(bounds["right"] - 1110.0), 15.0)
+
+    def test_image_supported_overexpansion_trim_preserves_unproved_outer_sides(self):
+        image = np.full((1000, 1200, 3), 128, dtype=np.uint8)
+        padded = np.asarray([[0, 100], [1199, 100], [1199, 900], [0, 900]], dtype=np.float32)
+        trimmed, diagnostics = orli._image_supported_overexpansion_trim(image, padded)
+        self.assertTrue(np.array_equal(trimmed, padded))
+        self.assertEqual(diagnostics["reason"], "no-supported-overexpansion")
+        self.assertEqual(diagnostics["trimmed_sides"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

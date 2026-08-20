@@ -1289,6 +1289,99 @@ def _image_supported_boundary_recovery(image_bgr, corners):
     return recovered_corners, diagnostics
 
 
+def _image_supported_overexpansion_trim(image_bgr, corners):
+    """Trim padded page sides only when a stronger inward physical edge is proved.
+
+    The late Orli recovery stages can correctly restore a missing document but
+    the calibrated padding may then push one or more sides past the physical
+    sheet.  This parameter-free guard searches only a narrow inward band from
+    sides already close to the source-image border and trims a side when a
+    substantially stronger robust gradient peak is present.  It never expands
+    geometry and therefore cannot resurrect the historic truncated-page failure.
+    """
+    if corners is None:
+        return corners, {"available": False, "reason": "no-envelope", "trimmed_sides": []}
+
+    h, w = image_bgr.shape[:2]
+    bounds = _quad_axis_bounds(corners)
+    if bounds is None:
+        return corners, {"available": False, "reason": "invalid-envelope", "trimmed_sides": []}
+
+    profiles = _axis_edge_profile(image_bgr)
+    xprof = np.asarray(profiles["x_profile"], dtype=np.float64)
+    yprof = np.asarray(profiles["y_profile"], dtype=np.float64)
+    diagnostics = {
+        "available": True,
+        "reason": "no-supported-overexpansion",
+        "input_bounds": bounds,
+        "trimmed_sides": [],
+        "searches": {},
+    }
+
+    def candidate(profile, current, *, side, dimension):
+        border_margin = current if side in {"left", "top"} else (dimension - 1) - current
+        # Only question sides already within the outer 10% of the capture.
+        if border_margin > 0.10 * max(1.0, dimension - 1):
+            return None
+        inward = max(12, int(round(0.10 * dimension)))
+        gap = max(5, int(round(0.008 * dimension)))
+        if side in {"left", "top"}:
+            lo = int(round(current + gap))
+            hi = min(dimension, int(round(current + inward)))
+        else:
+            lo = max(0, int(round(current - inward)))
+            hi = int(round(current - gap))
+        if hi <= lo + 3:
+            return None
+        peak = _robust_profile_peak(profile, lo, hi, side=side, dimension=dimension)
+        if peak is None:
+            return None
+        cur_i = max(0, min(dimension - 1, int(round(current))))
+        current_score = float(profile[cur_i])
+        shift = abs(float(peak["position"]) - float(current))
+        minimum_shift = max(4.0, 0.012 * dimension)
+        stronger = float(peak["profile"]) >= max(current_score * 1.30, current_score + float(peak["robust_scale"]) * 1.5)
+        if shift < minimum_shift or not stronger:
+            return None
+        return {**peak, "current_profile": current_score, "shift": shift}
+
+    searches = {
+        "left": candidate(xprof, bounds["left"], side="left", dimension=w),
+        "right": candidate(xprof, bounds["right"], side="right", dimension=w),
+        "top": candidate(yprof, bounds["top"], side="top", dimension=h),
+        "bottom": candidate(yprof, bounds["bottom"], side="bottom", dimension=h),
+    }
+    diagnostics["searches"] = searches
+
+    x0, y0, x1, y1 = bounds["left"], bounds["top"], bounds["right"], bounds["bottom"]
+    if searches["left"] is not None:
+        x0 = float(searches["left"]["position"]); diagnostics["trimmed_sides"].append("left")
+    if searches["right"] is not None:
+        x1 = float(searches["right"]["position"]); diagnostics["trimmed_sides"].append("right")
+    if searches["top"] is not None:
+        y0 = float(searches["top"]["position"]); diagnostics["trimmed_sides"].append("top")
+    if searches["bottom"] is not None:
+        y1 = float(searches["bottom"]["position"]); diagnostics["trimmed_sides"].append("bottom")
+    if not diagnostics["trimmed_sides"]:
+        return corners, diagnostics
+    if x1 <= x0 + 8 or y1 <= y0 + 8:
+        diagnostics["reason"] = "invalid-trimmed-envelope"
+        diagnostics["trimmed_sides"] = []
+        return corners, diagnostics
+
+    trimmed = _canonical_quad(
+        np.asarray([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], dtype=np.float32),
+        width=w, height=h,
+    )
+    if trimmed is None:
+        diagnostics["reason"] = "invalid-trimmed-envelope"
+        diagnostics["trimmed_sides"] = []
+        return corners, diagnostics
+    diagnostics["reason"] = "image-supported-overexpansion-trim"
+    diagnostics["output_bounds"] = _quad_axis_bounds(trimmed)
+    return trimmed, diagnostics
+
+
 def _pad_quad(corners, *, image_shape, padding_fraction):
     if corners is None:
         return None
@@ -1391,6 +1484,9 @@ def _proposal(image_bgr, values):
     )
     if corners is None:
         return evidence, mask, contour, None, 0.0, envelope_diagnostics
+
+    corners, trim_diagnostics = _image_supported_overexpansion_trim(image_bgr, corners)
+    envelope_diagnostics["overexpansion_trim"] = trim_diagnostics
 
     polygon_area = abs(float(cv2.contourArea(corners.astype(np.float32))))
     page_area_fraction = polygon_area / image_area if image_area else 0.0

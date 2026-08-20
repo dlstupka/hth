@@ -384,10 +384,32 @@ def _single_leaf_spread_completion(image_bgr: np.ndarray, primary: dict):
     if segment.size == 0:
         diagnostics["decision"] = "no-boundary-search-region"
         return None, diagnostics
-    local_index = int(np.argmax(segment))
+    threshold = max(background + 3.0 * max(1.0, mad), background * 1.8, 6.0)
+
+    # Prefer the farthest independently strong outer-sheet boundary rather than
+    # the single strongest vertical edge.  Damaged spreads often contain a
+    # strong interior fold/rule before the faint physical paper edge; choosing
+    # argmax() alone stops the recovered envelope too early.  Restrict the
+    # choice to robust peaks so ordinary text strokes cannot pull the envelope
+    # outward.
+    strong = np.flatnonzero(segment >= threshold)
+    if strong.size:
+        # Collapse adjacent above-threshold samples into runs and retain the
+        # strongest sample from each run.
+        runs = np.split(strong, np.where(np.diff(strong) > 1)[0] + 1)
+        peaks = []
+        for run in runs:
+            if not len(run):
+                continue
+            best = int(run[np.argmax(segment[run])])
+            peaks.append(best)
+        local_index = (max(peaks) if side == "right" else min(peaks)) if peaks else int(np.argmax(segment))
+        selection = "outermost-robust-boundary"
+    else:
+        local_index = int(np.argmax(segment))
+        selection = "strongest-boundary-fallback"
     boundary_x = float(start + local_index)
     score = float(segment[local_index])
-    threshold = max(background + 3.0 * max(1.0, mad), background * 1.8, 6.0)
     outer_enough = boundary_x >= outer_limit if side == "right" else boundary_x <= outer_limit
     combined_x0 = min(px0, boundary_x)
     combined_x1 = max(px1, boundary_x)
@@ -399,6 +421,8 @@ def _single_leaf_spread_completion(image_bgr: np.ndarray, primary: dict):
         "boundary_mad": round(mad, 4),
         "boundary_threshold": round(threshold, 4),
         "boundary_contrast_ratio": round(score / max(1.0, background), 4),
+        "boundary_selection": selection,
+        "robust_boundary_candidates": int(len(peaks)) if strong.size else 0,
         "outer_boundary": bool(outer_enough),
         "span_gain": round(float(span_gain), 4),
     })

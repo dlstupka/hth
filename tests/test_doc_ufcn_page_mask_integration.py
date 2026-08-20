@@ -178,6 +178,31 @@ class DocUFCNPageMaskIntegrationTests(unittest.TestCase):
         expected = detector._pad_corners(raw, width=100, height=100, fraction=0.01)
         self.assertTrue(np.allclose(corners, expected))
 
+    def test_single_leaf_spread_completion_prefers_outermost_robust_page_edge(self):
+        import cv2
+        image = np.zeros((1000, 1400, 3), dtype=np.uint8)
+        # A strong interior rule precedes the actual outer paper edge.  Both are
+        # robust, but damaged-spread completion must prefer the farther physical
+        # boundary instead of stopping at the strongest interior edge.
+        cv2.line(image, (990, 70), (990, 940), (255, 255, 255), 5)
+        cv2.line(image, (1230, 70), (1230, 940), (220, 220, 220), 3)
+        evidence = (
+            {"confidence": 0.96, "polygon": [[90, 70], [90, 940], [760, 940], [760, 70]], "area": 582900.0},
+        )
+        values = detector._parameters({
+            "minimum_confidence": 0.5,
+            "minimum_component_area_fraction": 0.0005,
+            "minimum_page_area_fraction": 0.12,
+            "page_padding_fraction": 0.0,
+        })
+        with patch.object(detector, "_infer_evidence", return_value=evidence):
+            selected, diagnostics = detector._select_page_envelope(image, values)
+        self.assertIsNotNone(selected)
+        completion = diagnostics["single_leaf_spread_completion"]
+        self.assertEqual(completion["boundary_selection"], "outermost-robust-boundary")
+        self.assertGreater(completion["robust_boundary_candidates"], 1)
+        self.assertGreater(completion["boundary_x"], 1200.0)
+
 
 if __name__ == "__main__":
     unittest.main()
