@@ -29,4 +29,19 @@ class MaskRCNNPageMaskIntegrationTests(unittest.TestCase):
         self.assertGreater(candidate.score,0.5)
         self.assertEqual(candidate.diagnostics["selection"],"largest-instance")
 
+    def test_debug_images_uses_cached_evidence_without_runtime(self):
+        image=np.zeros((100,120,3),dtype=np.uint8)
+        key=detector._image_key(image)
+        record={"confidence":0.9,"class_id":0,"area":7200.0,"bounds":[10,10,110,90],"polygon":[[10,10],[110,10],[110,90],[10,90]]}
+        with detector._EVIDENCE_CACHE_LOCK:
+            detector._EVIDENCE_CACHE[key]=(record,)
+        images=detector.debug_images(
+            image_bgr=image,
+            mask=None,
+            parameters={"minimum_page_area_fraction":0.1,"page_padding_fraction":0.0},
+            candidate_corners=[[10,10],[110,10],[110,90],[10,90]],
+        )
+        self.assertEqual(set(images), {"mask-rcnn-page-instances.png"})
+        self.assertEqual(images["mask-rcnn-page-instances.png"].shape, image.shape)
+
 if __name__ == "__main__": unittest.main()

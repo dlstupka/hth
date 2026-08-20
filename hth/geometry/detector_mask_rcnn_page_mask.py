@@ -213,3 +213,49 @@ def detect(*, image_bgr, mask, parameters=None):
     area_fraction=abs(float(cv2.contourArea(corners)))/image_area
     diagnostics.update({"selection":mode,"selected_instance_count":len(selected),"selected_class_ids":[int(r["class_id"]) for r in selected],"selected_area_fraction":area_fraction,"selected_confidence":confidence})
     return Candidate(method=METHOD,bbox=[x0,y0,x1,y1],corners=corners.astype(float).tolist(),confidence=confidence,score=area_fraction,diagnostics=diagnostics)
+
+def debug_images(*, image_bgr, mask, parameters=None, candidate_corners=None, verbose=False):
+    del mask, verbose
+    values = _parameters(parameters)
+    overlay = image_bgr.copy()
+    height, width = image_bgr.shape[:2]
+    image_area = float(max(1, width * height))
+
+    for record in _infer_evidence(image_bgr):
+        polygon = np.rint(np.asarray(record.get("polygon") or [], dtype=np.float32)).astype(np.int32)
+        if len(polygon) < 3:
+            continue
+        confidence = float(record.get("confidence", 0.0))
+        area_fraction = float(record.get("area", 0.0)) / image_area
+        qualifies = (
+            confidence >= values["minimum_confidence"]
+            and area_fraction >= values["minimum_instance_area_fraction"]
+        )
+        cv2.polylines(
+            overlay,
+            [polygon.reshape(-1, 1, 2)],
+            True,
+            (0, 255, 0) if qualifies else (0, 255, 255),
+            2 if qualifies else 1,
+        )
+
+    if candidate_corners is not None:
+        corners = np.rint(np.asarray(candidate_corners, dtype=np.float32)).astype(np.int32)
+        if len(corners) >= 3:
+            cv2.polylines(overlay, [corners.reshape(-1, 1, 2)], True, (0, 0, 255), 3)
+
+    return {"mask-rcnn-page-instances.png": overlay}
+
+
+__all__ = [
+    "BASELINE_PARAMETERS",
+    "METHOD",
+    "MODEL_ENV",
+    "CONFIG_ENV",
+    "PROVENANCE_ENV",
+    "debug_images",
+    "detect",
+    "precompute_golden_set_evidence",
+    "export_precomputed_golden_set_evidence",
+    "load_precomputed_golden_set_evidence",
+]
