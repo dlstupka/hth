@@ -1,0 +1,86 @@
+{
+  "schema_version": "0.1",
+  "profiles": {
+    "baseline": {
+      "probability_threshold": 0.5,
+      "minimum_page_area_fraction": 0.08,
+      "close_kernel_fraction": 0.006,
+      "page_padding_fraction": 0.02
+    }
+  },
+  "parameters": {
+    "probability_threshold": {
+      "type": "float",
+      "values": [
+        0.0,
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        0.9
+      ]
+    },
+    "minimum_page_area_fraction": {
+      "type": "float",
+      "values": [
+        0.02,
+        0.05,
+        0.08,
+        0.12,
+        0.2
+      ]
+    },
+    "close_kernel_fraction": {
+      "type": "float",
+      "values": [
+        0.0,
+        0.003,
+        0.006,
+        0.012,
+        0.02
+      ]
+    },
+    "page_padding_fraction": {
+      "type": "float",
+      "values": [
+        0.0,
+        0.01,
+        0.02,
+        0.04,
+        0.06,
+        0.08,
+        0.12,
+        0.16
+      ]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "winner",
+    "full_space_policy": "declared-cartesian",
+    "full_space_max_parameter_sets": 50176,
+    "historic_best_reference": "mandatory-exact"
+  },
+  "optimizer_shape_compatibility": "detector-implementation",
+  "detector": "eynollah_page_mask",
+  "description": "Eynollah historical page-extraction segmentation detector. The released SBB page-extraction SavedModel is fixed and inferred once per Golden Set page; calibration controls only deterministic probability threshold, page-area rejection, morphology, and envelope padding.",
+  "lifecycle": {
+    "prepare": "eynollah_page_mask",
+    "model_policy": "reuse",
+    "finalize": "eynollah_page_mask"
+  },
+  "model": {
+    "family": "Eynollah",
+    "variant": "page-extraction/2021-04-25",
+    "source": "SBB/eynollah-page-extraction",
+    "runtime": "TensorFlow SavedModel CPU",
+    "training_domain": "historical printed documents"
+  }
+}

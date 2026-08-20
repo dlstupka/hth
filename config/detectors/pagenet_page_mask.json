@@ -1,0 +1,138 @@
+{
+  "schema_version": "0.1",
+  "detector": "pagenet_page_mask",
+  "description": "Explicit PageNet Ohio historical page-boundary detector using the same released Caffe checkpoint and proven OpenCV-DNN execution path as learned_page_mask; retained as a distinct detector identity for comparative research.",
+  "profiles": {
+    "baseline": {
+      "mask_threshold": 0.5,
+      "minimum_mask_area_fraction": 0.15,
+      "close_kernel_fraction": 0.006,
+      "polygon_epsilon_fraction": 0.012,
+      "bbox_padding_fraction": 0.0
+    }
+  },
+  "parameters": {
+    "mask_threshold": {
+      "type": "float",
+      "values": [
+        0.204,
+        0.206,
+        0.208,
+        0.21,
+        0.212,
+        0.214,
+        0.216,
+        0.218,
+        0.22,
+        0.222,
+        0.224,
+        0.226,
+        0.228,
+        0.23,
+        0.232,
+        0.234,
+        0.236,
+        0.238,
+        0.24,
+        0.242,
+        0.244,
+        0.246,
+        0.248,
+        0.25,
+        0.5
+      ]
+    },
+    "minimum_mask_area_fraction": {
+      "type": "float",
+      "values": [
+        0.04,
+        0.15
+      ]
+    },
+    "close_kernel_fraction": {
+      "type": "float",
+      "values": [
+        0.0,
+        0.006
+      ]
+    },
+    "polygon_epsilon_fraction": {
+      "type": "float",
+      "values": [
+        0.012,
+        0.014,
+        0.0145,
+        0.015,
+        0.0155,
+        0.016,
+        0.0165,
+        0.017,
+        0.0175,
+        0.018,
+        0.0185,
+        0.019,
+        0.0195,
+        0.02,
+        0.0205,
+        0.021,
+        0.0215,
+        0.022,
+        0.0225,
+        0.023
+      ]
+    },
+    "bbox_padding_fraction": {
+      "type": "float",
+      "values": [
+        0.0,
+        0.02,
+        0.021,
+        0.022,
+        0.023,
+        0.024,
+        0.025,
+        0.026,
+        0.027,
+        0.028,
+        0.029,
+        0.03,
+        0.031,
+        0.032,
+        0.033,
+        0.034,
+        0.035,
+        0.036,
+        0.037,
+        0.038,
+        0.039,
+        0.04,
+        0.041,
+        0.042,
+        0.043
+      ]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "failures",
+    "full_space_policy": "declared-cartesian",
+    "full_space_max_parameter_sets": 50176,
+    "historic_best_reference": "mandatory-exact"
+  },
+  "lifecycle": {
+    "prepare": "pagenet_page_mask",
+    "model_policy": "reuse",
+    "finalize": "pagenet_page_mask"
+  },
+  "model": {
+    "family": "PageNet",
+    "variant": "ohio",
+    "training_domain": "Ohio Death Records",
+    "source": "ctensmeyer/pagenet",
+    "license": "BSD-3-Clause"
+  },
+  "optimizer_shape_compatibility": "detector-implementation"
+}

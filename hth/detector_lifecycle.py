@@ -45,6 +45,21 @@ MASK_RCNN_MODEL_URL="https://huggingface.co/layoutparser/detectron2/resolve/main
 MASK_RCNN_CONFIG_URL="https://huggingface.co/layoutparser/detectron2/resolve/main/HJDataset/mask_rcnn_R_50_FPN_3x/config.yml?download=true"
 MASK_RCNN_MODEL_REPOSITORY="https://huggingface.co/layoutparser/detectron2/tree/main/HJDataset/mask_rcnn_R_50_FPN_3x"
 
+EYNOLLAH_REPOSITORY="https://github.com/qurator-spk/eynollah"
+EYNOLLAH_LICENSE="Apache-2.0"
+EYNOLLAH_MODEL_ID="eynollah-page-extraction-2021-04-25"
+EYNOLLAH_HF_REPOSITORY="https://huggingface.co/SBB/eynollah-page-extraction"
+EYNOLLAH_HF_REFS=("main","fd3ea7df60462d97796520916326929e7e42c2fb")
+EYNOLLAH_HF_LEGACY_REF="d2b86773d6a43eac8e18101ed1e5109565ea057e"
+EYNOLLAH_SAVED_MODEL_SHA256="6a9639d6f77afec409d0fdb18f41ab3978ff1686eae10a0ce262ebfbd9f689a0"
+
+DOCEXTRACTOR_REPOSITORY="https://github.com/monniert/docExtractor"
+DOCEXTRACTOR_LICENSE="MIT"
+DOCEXTRACTOR_MODEL_ID="docextractor-default-icfhr2020"
+DOCEXTRACTOR_SOURCE_URL="https://codeload.github.com/monniert/docExtractor/zip/refs/heads/master"
+DOCEXTRACTOR_MODEL_URL="https://imagine.enpc.fr/~monniert/docExtractor/resrc/models.zip"
+DOCEXTRACTOR_GDRIVE_ID="13kHXW2vq30dJ10rGubDJBtrspZ_UyrkT"
+
 def _sha256(path):
     h=hashlib.sha256()
     with Path(path).open("rb") as f:
@@ -555,6 +570,116 @@ def _finalize_orli_page_mask_hook(*,results_root):
     return payload
 
 
+
+def _prepare_pagenet_page_mask_hook(*,results_root,policy,env_file):
+    payload=prepare_detector_legacy("learned_page_mask",results_root=results_root,policy=policy,github_env=env_file)
+    print("PageNet Page-Mask ready: explicit detector identity reusing pagenet-ohio assets")
+    return payload
+
+def _finalize_pagenet_page_mask_hook(*,results_root):
+    return finalize_detector_legacy("learned_page_mask",results_root=results_root)
+
+def _eynollah_sources(relative):
+    sources=[
+        ModelSource(
+            site="Hugging Face / SBB",
+            url=f"https://huggingface.co/SBB/eynollah-page-extraction/resolve/{ref}/{relative}?download=true",
+            reference=ref,
+        )
+        for ref in EYNOLLAH_HF_REFS
+    ]
+    sources.append(
+        ModelSource(
+            site="Hugging Face / SBB legacy layout",
+            url=(
+                "https://huggingface.co/SBB/eynollah-page-extraction/resolve/"
+                f"{EYNOLLAH_HF_LEGACY_REF}/saved_model/2021-04-25/{relative}?download=true"
+            ),
+            reference=EYNOLLAH_HF_LEGACY_REF,
+        )
+    )
+    return tuple(sources)
+
+def _prepare_eynollah_page_mask_hook(*,results_root,policy,env_file):
+    if policy not in {"reuse","refresh"}: raise ValueError(f"Unsupported lifecycle policy: {policy}")
+    if importlib.util.find_spec("tensorflow") is None: raise RuntimeError("eynollah_page_mask requires the managed TensorFlow runtime")
+    root=Path(results_root)/"models"/EYNOLLAH_MODEL_ID; model_dir=root/"saved_model"; provenance=root/"model-provenance.json"
+    files=("saved_model.pb","keras_metadata.pb","variables/variables.index","variables/variables.data-00000-of-00001")
+    complete=provenance.is_file() and all((model_dir/f).is_file() for f in files)
+    used={}
+    if policy=="refresh" or not complete:
+        if model_dir.exists(): shutil.rmtree(model_dir)
+        for rel in files:
+            target=model_dir/rel
+            used[rel]=_download_from_sources(_eynollah_sources(rel),target,artifact=rel,variant="eynollah_page_mask")
+        saved_model_sha256=_sha256(model_dir/"saved_model.pb")
+        if saved_model_sha256 != EYNOLLAH_SAVED_MODEL_SHA256:
+            raise RuntimeError(
+                f"Eynollah saved_model.pb SHA mismatch: expected {EYNOLLAH_SAVED_MODEL_SHA256}, found {saved_model_sha256}"
+            )
+        payload={"schema_version":"1.0","model_id":EYNOLLAH_MODEL_ID,"model_family":"Eynollah","variant":"page-extraction/2021-04-25","upstream_repository":EYNOLLAH_REPOSITORY,"model_repository":EYNOLLAH_HF_REPOSITORY,"license":EYNOLLAH_LICENSE,"expected_saved_model_sha256":EYNOLLAH_SAVED_MODEL_SHA256,"prepared_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),"files":{rel:{"sha256":_sha256(model_dir/rel),"source":used[rel]} for rel in files},"inference_backend":"tensorflow-savedmodel-cpu"}
+        provenance.parent.mkdir(parents=True,exist_ok=True); provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+    payload=json.loads(provenance.read_text(encoding="utf-8"))
+    for rel,meta in payload.get("files",{}).items():
+        if _sha256(model_dir/rel)!=meta.get("sha256"): raise RuntimeError(f"Eynollah model SHA mismatch: {rel}")
+    if _sha256(model_dir/"saved_model.pb") != EYNOLLAH_SAVED_MODEL_SHA256:
+        raise RuntimeError("Eynollah released saved_model.pb does not match the published model-card SHA-256")
+    env={"HTH_EYNOLLAH_PAGE_MODEL_DIR":model_dir.resolve().as_posix(),"HTH_EYNOLLAH_PAGE_PROVENANCE":provenance.resolve().as_posix(),"CUDA_VISIBLE_DEVICES":"-1"}; _write_env(env_file,env); os.environ.update(env)
+    print(f"Eynollah Page-Mask ready: model={EYNOLLAH_MODEL_ID} saved_model_sha256={payload['files']['saved_model.pb']['sha256'][:12]}")
+    return payload
+
+def _finalize_eynollah_page_mask_hook(*,results_root):
+    p=Path(results_root)/"models"/EYNOLLAH_MODEL_ID/"model-provenance.json"
+    if not p.is_file(): raise RuntimeError("Eynollah Page-Mask model provenance missing")
+    return json.loads(p.read_text(encoding="utf-8"))
+
+def _prepare_docextractor_page_mask_hook(*,results_root,policy,env_file):
+    if policy not in {"reuse","refresh"}: raise ValueError(f"Unsupported lifecycle policy: {policy}")
+    try: import torch  # noqa: F401
+    except Exception as exc: raise RuntimeError("docextractor_page_mask requires the managed PyTorch runtime") from exc
+    root=Path(results_root)/"models"/DOCEXTRACTOR_MODEL_ID; source_archive=root/"source.zip"; source_root=root/"source"; model_archive=root/"models.zip"; provenance=root/"model-provenance.json"
+    model_path=next(iter(root.glob("models/default/model.pkl")),None)
+    complete=provenance.is_file() and source_root.is_dir() and model_path is not None and model_path.is_file()
+    if policy=="refresh" or not complete:
+        root.mkdir(parents=True,exist_ok=True)
+        _download(DOCEXTRACTOR_SOURCE_URL,source_archive)
+        if source_root.exists(): shutil.rmtree(source_root)
+        _safe_extract_zip(source_archive,source_root)
+        try:
+            _download(DOCEXTRACTOR_MODEL_URL,model_archive)
+            model_source={"site":"ENPC / docExtractor","url":DOCEXTRACTOR_MODEL_URL}
+        except Exception as first:
+            print(f"Model download failed: variant=docextractor_page_mask artifact=models.zip site=ENPC / docExtractor error={type(first).__name__}: {first}")
+            try:
+                import gdown
+                print(f"Model download: variant=docextractor_page_mask artifact=models.zip attempt=2/2 site=Google Drive / docExtractor reference={DOCEXTRACTOR_GDRIVE_ID}")
+                result=gdown.download(id=DOCEXTRACTOR_GDRIVE_ID,output=str(model_archive),quiet=False)
+                if not result or not model_archive.is_file(): raise RuntimeError("gdown did not produce models.zip")
+                model_source={"site":"Google Drive / docExtractor","reference":DOCEXTRACTOR_GDRIVE_ID}
+            except Exception as second:
+                raise RuntimeError(f"All docExtractor model download sources failed: ENPC: {first}; Google Drive: {second}") from second
+        for child in list(root.glob("models")):
+            if child.is_dir(): shutil.rmtree(child)
+        _safe_extract_zip(model_archive,root)
+        candidates=sorted(root.rglob("model.pkl"))
+        if not candidates: raise RuntimeError("docExtractor models.zip contains no model.pkl")
+        model_path=candidates[0]
+        extracted_dirs=sorted(p for p in source_root.iterdir() if p.is_dir())
+        if not extracted_dirs: raise RuntimeError("docExtractor source archive is empty")
+        repo_dir=extracted_dirs[0]
+        payload={"schema_version":"1.0","model_id":DOCEXTRACTOR_MODEL_ID,"model_family":"docExtractor ResUNet","upstream_repository":DOCEXTRACTOR_REPOSITORY,"license":DOCEXTRACTOR_LICENSE,"source_archive_sha256":_sha256(source_archive),"model_archive_sha256":_sha256(model_archive),"model_sha256":_sha256(model_path),"model_relative_path":model_path.relative_to(root).as_posix(),"source_relative_path":repo_dir.relative_to(root).as_posix(),"model_source":model_source,"prepared_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),"inference_backend":"pytorch-cpu"}
+        provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+    payload=json.loads(provenance.read_text(encoding="utf-8")); model_path=root/payload["model_relative_path"]; repo_dir=root/payload["source_relative_path"]
+    if _sha256(model_path)!=payload.get("model_sha256"): raise RuntimeError("docExtractor model SHA mismatch")
+    env={"HTH_DOCEXTRACTOR_PAGE_MODEL":model_path.resolve().as_posix(),"HTH_DOCEXTRACTOR_PAGE_SOURCE":repo_dir.resolve().as_posix(),"HTH_DOCEXTRACTOR_PAGE_PROVENANCE":provenance.resolve().as_posix(),"CUDA_VISIBLE_DEVICES":"-1"}; _write_env(env_file,env); os.environ.update(env)
+    print(f"docExtractor Page-Mask ready: model={DOCEXTRACTOR_MODEL_ID} model_sha256={payload['model_sha256'][:12]}")
+    return payload
+
+def _finalize_docextractor_page_mask_hook(*,results_root):
+    p=Path(results_root)/"models"/DOCEXTRACTOR_MODEL_ID/"model-provenance.json"
+    if not p.is_file(): raise RuntimeError("docExtractor Page-Mask model provenance missing")
+    return json.loads(p.read_text(encoding="utf-8"))
+
 def _prepare_learned_page_mask_hook(*,results_root,policy,env_file):
     return prepare_detector_legacy(
         "learned_page_mask",
@@ -573,6 +698,9 @@ _PREPARE_HOOKS={
     "kraken_page_mask":_prepare_kraken_page_mask_hook,
     "orli_page_mask":_prepare_orli_page_mask_hook,
     "learned_page_mask":_prepare_learned_page_mask_hook,
+    "pagenet_page_mask":_prepare_pagenet_page_mask_hook,
+    "eynollah_page_mask":_prepare_eynollah_page_mask_hook,
+    "docextractor_page_mask":_prepare_docextractor_page_mask_hook,
 }
 _FINALIZE_HOOKS={
     "dhsegment_page_mask":_finalize_dhsegment_page_mask_hook,
@@ -581,6 +709,9 @@ _FINALIZE_HOOKS={
     "kraken_page_mask":_finalize_kraken_page_mask_hook,
     "orli_page_mask":_finalize_orli_page_mask_hook,
     "learned_page_mask":_finalize_learned_page_mask_hook,
+    "pagenet_page_mask":_finalize_pagenet_page_mask_hook,
+    "eynollah_page_mask":_finalize_eynollah_page_mask_hook,
+    "docextractor_page_mask":_finalize_docextractor_page_mask_hook,
 }
 
 def _load_config(path):

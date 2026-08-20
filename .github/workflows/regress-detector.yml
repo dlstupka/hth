@@ -56,7 +56,9 @@ on:
           - distance_transform
           - distance_transform_rect
           - doc_ufcn_page_mask
+          - docextractor_page_mask
           - edge_contour
+          - eynollah_page_mask
           - grabcut
           - grabcut_contour
           - gradient_vote
@@ -70,6 +72,7 @@ on:
           - multi_scale_radial_edge
           - orli_page_mask
           - page_background
+          - pagenet_page_mask
           - polar_boundary_vote
           - projective_gradient_vote
           - radial_edge
@@ -612,6 +615,8 @@ jobs:
         shell: bash
         env:
           HTH_NEED_DHSEGMENT: ${{ matrix.detector == 'dhsegment_page_mask' || matrix.detector == 'all' }}
+          HTH_NEED_EYNOLLAH: ${{ matrix.detector == 'eynollah_page_mask' || matrix.detector == 'all' }}
+          HTH_NEED_DOCEXTRACTOR: ${{ matrix.detector == 'docextractor_page_mask' || matrix.detector == 'all' }}
           HTH_NEED_DOC_UFCN: ${{ matrix.detector == 'doc_ufcn_page_mask' || matrix.detector == 'all' }}
           HTH_NEED_MASK_RCNN: ${{ matrix.detector == 'mask_rcnn_page_mask' || matrix.detector == 'all' }}
           HTH_NEED_KRAKEN: ${{ matrix.detector == 'kraken_page_mask' || matrix.detector == 'all' }}

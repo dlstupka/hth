@@ -9,6 +9,8 @@ need_doc_ufcn="${HTH_NEED_DOC_UFCN:-false}"
 need_mask_rcnn="${HTH_NEED_MASK_RCNN:-false}"
 need_kraken="${HTH_NEED_KRAKEN:-false}"
 need_orli="${HTH_NEED_ORLI:-false}"
+need_eynollah="${HTH_NEED_EYNOLLAH:-false}"
+need_docextractor="${HTH_NEED_DOCEXTRACTOR:-false}"
 
 verify_pip() {
   python -m pip --version >/dev/null 2>&1
@@ -117,6 +119,21 @@ print(
 PYMASKRCNN
 }
 
+verify_eynollah() {
+  verify_dhsegment
+}
+
+verify_docextractor() {
+  python - <<'PYDOCEXTRACTOR'
+try:
+    import torch, gdown
+except Exception as exc:
+    print(f"docExtractor runtime import failed: {type(exc).__name__}: {exc}")
+    raise SystemExit(1)
+print(f"docExtractor runtime verified: PyTorch {torch.__version__}; gdown available")
+PYDOCEXTRACTOR
+}
+
 verify_kraken() {
   python - <<'PY'
 from importlib import metadata
@@ -197,6 +214,12 @@ verify_complete_runtime() {
     verify_kraken || return 1
     verify_orli || return 1
   fi
+  if [[ "$need_eynollah" == "true" ]]; then
+    verify_eynollah || return 1
+  fi
+  if [[ "$need_docextractor" == "true" ]]; then
+    verify_docextractor || return 1
+  fi
   python -m pip check
 }
 
@@ -249,6 +272,20 @@ install_mask_rcnn_layer() {
   FORCE_CUDA=0 CUDA_VISIBLE_DEVICES='' python -m pip install --no-build-isolation --no-deps \
     "git+https://github.com/facebookresearch/detectron2.git@57bdb21249d5418c130d54e2ebdc94dda7a4c01a"
   python -m pip install "black==24.10.0" "cloudpickle>=2" "fvcore>=0.1.5.post20221221" "iopath==0.1.9" "matplotlib>=3.8" "omegaconf>=2.1,<2.4" "hydra-core>=1.1" "pycocotools>=2.0.7" "tensorboard>=2.18" "termcolor>=2" "tabulate" "tqdm>=4.66" "yacs>=0.1.8"
+}
+
+install_eynollah_layer() {
+  install_dhsegment_layer
+}
+
+install_docextractor_layer() {
+  if [[ "${RUNNER_OS:-}" == "Linux" ]]; then
+    echo "Installing CPU-only PyTorch layer for docExtractor."
+    python -m pip install "torch==2.10.0" "torchvision==0.25.0" --index-url https://download.pytorch.org/whl/cpu
+  else
+    python -m pip install "torch==2.10.0" "torchvision==0.25.0"
+  fi
+  python -m pip install "gdown>=5,<6"
 }
 
 install_kraken_layer() {
@@ -335,6 +372,12 @@ if ! verify_pip || ! verify_base; then
   elif [[ "$need_kraken" == "true" ]]; then
     install_kraken_layer
   fi
+  if [[ "$need_eynollah" == "true" ]]; then
+    install_eynollah_layer
+  fi
+  if [[ "$need_docextractor" == "true" ]]; then
+    install_docextractor_layer
+  fi
 
   verify_complete_runtime
   commit_runtime_update
@@ -349,6 +392,8 @@ missing_doc_ufcn=false
 missing_mask_rcnn=false
 missing_kraken=false
 missing_orli=false
+missing_eynollah=false
+missing_docextractor=false
 
 if [[ "$need_dhsegment" == "true" ]] && ! verify_dhsegment; then
   missing_dhsegment=true
@@ -373,8 +418,14 @@ fi
 if [[ "$need_orli" == "true" ]] && ! verify_orli; then
   missing_orli=true
 fi
+if [[ "$need_eynollah" == "true" ]] && ! verify_eynollah; then
+  missing_eynollah=true
+fi
+if [[ "$need_docextractor" == "true" ]] && ! verify_docextractor; then
+  missing_docextractor=true
+fi
 
-if [[ "$missing_dhsegment" == "false" && "$missing_doc_ufcn" == "false" && "$missing_mask_rcnn" == "false" && "$missing_kraken" == "false" && "$missing_orli" == "false" ]]; then
+if [[ "$missing_dhsegment" == "false" && "$missing_doc_ufcn" == "false" && "$missing_mask_rcnn" == "false" && "$missing_kraken" == "false" && "$missing_orli" == "false" && "$missing_eynollah" == "false" && "$missing_docextractor" == "false" ]]; then
   python -m pip check
   echo "Managed runtime verified — using previous install; no install required."
   exit 0
@@ -396,6 +447,12 @@ if [[ "$missing_orli" == "true" ]]; then
   install_orli_layer
 elif [[ "$missing_kraken" == "true" ]]; then
   install_kraken_layer
+fi
+if [[ "$missing_eynollah" == "true" ]]; then
+  install_eynollah_layer
+fi
+if [[ "$missing_docextractor" == "true" ]]; then
+  install_docextractor_layer
 fi
 
 verify_complete_runtime
