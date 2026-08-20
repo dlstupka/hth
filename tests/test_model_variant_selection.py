@@ -21,6 +21,15 @@ class ModelVariantSelectionTests(unittest.TestCase):
         self.assertEqual(older.key, "rcnn_hjdataset_older")
         self.assertNotEqual(current.model_id, older.model_id)
         self.assertNotEqual(current.model_url, older.model_url)
+        self.assertIn("3f5bd482f4ffb44a66922303a65214b57a4eaf45", older.model_url)
+        self.assertNotIn("dropbox", older.model_url.lower())
+        self.assertIn("3f5bd482f4ffb44a66922303a65214b57a4eaf45", older.config_url or "")
+        self.assertEqual(len(current.model_sources), 3)
+        self.assertEqual(len(older.model_sources), 3)
+        self.assertEqual({source.site for source in older.model_sources}, {
+            "Hugging Face / LayoutParser", "Dropbox / LayoutParser original catalog"
+        })
+        self.assertTrue(any("dropboxusercontent.com" in source.url for source in older.model_sources))
 
     def test_variant_cannot_be_applied_to_another_detector(self):
         with self.assertRaisesRegex(ValueError, "belongs to detector"):

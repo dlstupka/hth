@@ -462,3 +462,8 @@ The generated detector report intentionally keeps two independent views of persi
 - **Best Known Detector Calibrations** selects the strongest compatible authoritative/full calibration when one exists and falls back to smoke only when no authoritative calibration exists. Missing historical Family IDs are reconstructed from preserved exact winner parameters using the current durable equivalence-family contract when enough provenance exists; otherwise they remain `unknown`.
 
 A repository pipeline commit is not, by itself, a detector-implementation compatibility boundary. Unrelated pipeline changes therefore cannot make a newer smoke observation usurp an existing authoritative calibration. Exact regression reproducibility remains pinned by the run's detector implementation/source revision, parameter identity, and Golden Set provenance.
+
+
+### Learned-model download fallbacks
+
+Registered learned-model variants may declare an ordered set of artifact sources rather than a single download URL. PREPARE tries the primary source first and then up to three registered fallbacks, preserving the same local artifact/provenance contract. Each attempt logs the model variant, artifact type, source site/reference, and whether the attempt succeeded or failed; failures include the exception before the next source is tried. The provenance record stores the source actually used together with the complete registered source list so a later rebuild can explain both where the bytes came from and which fallbacks were available.

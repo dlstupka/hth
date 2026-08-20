@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 from datetime import datetime, timezone
 from pathlib import Path
-from hth.model_variants import resolve_model_variant
+from hth.model_variants import ModelSource, resolve_model_variant
 
 PAGENET_REPOSITORY="https://github.com/ctensmeyer/pagenet"
 PAGENET_LICENSE="BSD-3-Clause"
@@ -60,6 +60,32 @@ def _download(url,target):
         tmp.replace(target)
     finally:
         tmp.unlink(missing_ok=True)
+
+
+def _download_from_sources(sources, target, *, artifact, variant):
+    sources=tuple(sources or ())
+    if not sources:
+        raise RuntimeError(f"{variant} has no registered {artifact} download sources")
+    failures=[]
+    for attempt,source in enumerate(sources,1):
+        if isinstance(source,ModelSource):
+            site,url,reference=source.site,source.url,source.reference
+        else:
+            site,url,reference="unspecified",str(source),None
+        ref=f" reference={reference}" if reference else ""
+        print(f"Model download: variant={variant} artifact={artifact} attempt={attempt}/{len(sources)} site={site}{ref}")
+        try:
+            _download(url,target)
+        except Exception as exc:
+            detail=f"{type(exc).__name__}: {exc}"
+            failures.append(f"{site}: {detail}")
+            print(f"Model download failed: variant={variant} artifact={artifact} site={site} error={detail}")
+            continue
+        print(f"Model download succeeded: variant={variant} artifact={artifact} site={site}")
+        return {"site":site,"url":url,"reference":reference,"attempt":attempt}
+    raise RuntimeError(
+        f"All {artifact} download sources failed for {variant}: " + "; ".join(failures)
+    )
 
 def _strip_named_layer(text,name):
     pattern=re.compile(r'layer\s*\{\s*name:\s*"'+re.escape(name)+r'".*?^\}',re.MULTILINE|re.DOTALL)
@@ -364,15 +390,22 @@ def _prepare_mask_rcnn_page_mask_hook(*,results_root,policy,env_file):
     complete=model.is_file() and config.is_file() and provenance.is_file()
     if policy=="refresh" or not complete:
         root.mkdir(parents=True,exist_ok=True)
-        _download(variant.model_url,model)
-        if not variant.config_url:
-            raise RuntimeError(f"Mask R-CNN model variant {variant.key} has no config URL")
-        _download(variant.config_url,config)
+        model_source=_download_from_sources(
+            variant.model_sources,model,artifact="model",variant=variant.key
+        )
+        config_source=_download_from_sources(
+            variant.config_sources,config,artifact="config",variant=variant.key
+        )
         payload={
-            "schema_version":"1.1","model_id":variant.model_id,"model_family":"Mask R-CNN",
+            "schema_version":"1.2","model_id":variant.model_id,"model_family":"Mask R-CNN",
             "model_variant":variant.key,"variant":variant.description,
             "upstream_repository":MASK_RCNN_REPOSITORY,"model_repository":variant.model_repository,
-            "license":MASK_RCNN_LICENSE,"model_url":variant.model_url,"config_url":variant.config_url,
+            "license":MASK_RCNN_LICENSE,
+            "model_url":model_source["url"],"config_url":config_source["url"],
+            "model_source_site":model_source["site"],"config_source_site":config_source["site"],
+            "model_source_reference":model_source.get("reference"),"config_source_reference":config_source.get("reference"),
+            "registered_model_sources":[{"site":x.site,"url":x.url,"reference":x.reference} for x in variant.model_sources],
+            "registered_config_sources":[{"site":x.site,"url":x.url,"reference":x.reference} for x in variant.config_sources],
             "model_filename":model.name,"config_filename":config.name,"model_sha256":_sha256(model),"config_sha256":_sha256(config),
             "prepared_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),
             "inference_backend":"detectron2-default-predictor","serving_contract":"BGR image -> Mask R-CNN instances",
