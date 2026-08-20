@@ -35,6 +35,33 @@ class ReportGeneratorTests(unittest.TestCase):
             runs = calibration_run_dirs(root)
             self.assertEqual([path.name for path in runs], ["a-full", "b-full"])
 
+    def test_calibration_manifest_uses_newest_detector_revision_before_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "records" / "old-full").mkdir(parents=True)
+            (root / "records" / "new-smoke").mkdir(parents=True)
+            index = {
+                "entries": [
+                    {
+                        "detector_id": "doc_ufcn_page_mask",
+                        "calibration_status": "authoritative",
+                        "record_path": "records/old-full",
+                        "created_at_utc": "2026-08-19T23:00:00Z",
+                        "build": {"pipeline_commit": "old-implementation"},
+                    },
+                    {
+                        "detector_id": "doc_ufcn_page_mask",
+                        "calibration_status": "provisional",
+                        "record_path": "records/new-smoke",
+                        "created_at_utc": "2026-08-20T03:00:00Z",
+                        "build": {"pipeline_commit": "new-implementation"},
+                    },
+                ]
+            }
+            (root / "calibration-index.json").write_text(json.dumps(index), encoding="utf-8")
+            runs = calibration_run_dirs(root)
+            self.assertEqual([path.name for path in runs], ["new-smoke"])
+
 
     def test_calibration_manifest_reads_flattened_persisted_records(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

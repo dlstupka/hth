@@ -1388,6 +1388,12 @@ def _calibration_record_from_payload(
         "equivalent_winner_share": landscape.get("equivalent_winner_share", selection.get("equivalent_best_coverage")),
         "calibration_evidence": evidence or "unknown",
         "build_name": build.get("workflow") or "unknown",
+        "implementation_revision": str(
+            build.get("pipeline_commit")
+            or identity.get("pipeline_commit")
+            or identity.get("source_commit")
+            or ""
+        ),
         "build_number": build.get("github_run_number") or "unknown",
         "build_url": build.get("run_url") or "",
         "run_time_seconds": build.get("run_time_seconds", summary.get("estimated_serial_runtime_seconds", summary.get("elapsed_seconds"))),
@@ -1422,6 +1428,7 @@ def _best_known_calibrations(
                         "github_run_number": info.get("github_run_number"),
                         "run_url": info.get("github_run_url") or info.get("run_url"),
                         "run_time_seconds": info.get("estimated_serial_runtime_seconds", info.get("elapsed_seconds")),
+                        "pipeline_commit": info.get("pipeline_commit") or info.get("source_commit"),
                     },
                 },
             ))
@@ -1472,7 +1479,20 @@ def _best_known_calibrations(
 
     selected: list[dict[str, Any]] = []
     for records in records_by_detector.values():
-        record = authoritative_record(records)
+        # Calibration quality is meaningful only within one detector
+        # implementation revision.  A newer smoke/partial run may be the first
+        # evidence for changed detector code; an older exhaustive calibration
+        # must not continue to represent that new implementation merely because
+        # it has stronger provenance.  Choose the newest represented revision
+        # first, then apply the normal authoritative/full selector inside it.
+        newest = max(records, key=lambda row: (str(row.get("created_at_utc") or ""), str(row.get("build_number") or "")))
+        newest_revision = str(newest.get("implementation_revision") or "")
+        compatible_records = (
+            [row for row in records if str(row.get("implementation_revision") or "") == newest_revision]
+            if newest_revision
+            else records
+        )
+        record = authoritative_record(compatible_records)
         if record is not None:
             selected.append(record)
 

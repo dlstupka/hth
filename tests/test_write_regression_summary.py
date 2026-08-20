@@ -555,6 +555,45 @@ class RegressionSummaryTests(unittest.TestCase):
             records = _best_known_calibrations(index_path, current_runs=[])
             self.assertEqual(records[0]["run_time_seconds"], 3723)
 
+    def test_best_known_does_not_let_older_full_cross_detector_revision(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            entries = []
+            for name, created, status, revision, mean in (
+                ("old-full", "2026-08-19T23:00:00Z", "authoritative", "old-revision", 0.9371),
+                ("new-smoke", "2026-08-20T03:00:00Z", "provisional", "new-revision", 0.9747),
+            ):
+                record_dir = root / "records" / name
+                record_dir.mkdir(parents=True)
+                (record_dir / "RUN-INFO.json").write_text(json.dumps({"elapsed_seconds": 4}), encoding="utf-8")
+                (record_dir / "summary.json").write_text(json.dumps({
+                    "winner": {"parameter_set_id": name, "summary": {"mean_iou": mean, "minimum_iou": 0.9, "stddev_iou": 0.01, "failure_count": 0}},
+                    "baseline": {"summary": {"mean_iou": 0.8}},
+                }), encoding="utf-8")
+                intelligence = {
+                    "available": True,
+                    "detector": "doc_ufcn_page_mask",
+                    "search": {"strategy": "exhaustive", "parameter_sets": 11 if status == "provisional" else 2000, "exhaustive_complete": status == "authoritative"},
+                    "detector_selection_intelligence": {"recommended_parameter_set_id": name, "best_avg_iou": mean},
+                    "calibration_identity": {},
+                }
+                (record_dir / "calibration-intelligence.json").write_text(json.dumps(intelligence), encoding="utf-8")
+                entries.append({
+                    "detector_id": "doc_ufcn_page_mask",
+                    "golden_set_sha256": "abc123",
+                    "golden_set_id": "HTH-0001",
+                    "calibration_status": status,
+                    "created_at_utc": created,
+                    "record_path": f"records/{name}",
+                    "intelligence_path": f"records/{name}/calibration-intelligence.json",
+                    "build": {"github_run_number": "585", "pipeline_commit": revision},
+                })
+            index_path = root / "calibration-index.json"
+            index_path.write_text(json.dumps({"entries": entries}), encoding="utf-8")
+            records = _best_known_calibrations(index_path, current_runs=[])
+            self.assertEqual(records[0]["parameter_set_id"], "new-smoke")
+            self.assertAlmostEqual(records[0]["mean_iou"], 0.9747)
+
 
     def test_best_known_calibration_build_link_and_persistent_record_footnote(self):
         lines = _render_best_known_calibrations(

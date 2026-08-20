@@ -31,13 +31,20 @@ def _golden_sha(path: Path | None) -> str | None:
 
 
 def calibration_run_dirs(results_root: Path, golden_set: Path | None = None) -> list[Path]:
-    """Resolve one best persisted calibration record per detector."""
+    """Resolve one best persisted calibration record per detector.
+
+    Detector implementation revision is the first compatibility boundary.  A
+    newer smoke/partial record may be the first observation after detector code
+    changes, so an older authoritative full calibration must not stand in for
+    that newer implementation.  Within the newest represented revision, prefer
+    authoritative evidence as before.
+    """
     index_path = results_root / "calibration-index.json"
     if not index_path.is_file():
         raise FileNotFoundError(f"Missing {index_path}")
     index = _read_json(index_path)
     expected_sha = _golden_sha(golden_set)
-    candidates: dict[str, dict[str, Any]] = {}
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for entry in index.get("entries", []):
         if not isinstance(entry, dict):
             continue
@@ -50,20 +57,29 @@ def calibration_run_dirs(results_root: Path, golden_set: Path | None = None) -> 
         record_dir = results_root / record_path
         if not record_dir.is_dir():
             continue
-        rank = (
-            _STATUS_PRIORITY.get(str(entry.get("calibration_status") or ""), 0),
-            str(entry.get("created_at_utc") or entry.get("published_at_utc") or ""),
+        grouped.setdefault(detector, []).append(entry)
+    candidates: dict[str, dict[str, Any]] = {}
+    for detector, records in grouped.items():
+        newest = max(
+            records,
+            key=lambda item: str(item.get("created_at_utc") or item.get("published_at_utc") or ""),
         )
-        current = candidates.get(detector)
-        if current is None:
-            candidates[detector] = entry
-            continue
-        current_rank = (
-            _STATUS_PRIORITY.get(str(current.get("calibration_status") or ""), 0),
-            str(current.get("created_at_utc") or current.get("published_at_utc") or ""),
+        build = newest.get("build") if isinstance(newest.get("build"), dict) else {}
+        newest_revision = str(build.get("pipeline_commit") or "")
+        revision_records = records
+        if newest_revision:
+            revision_records = [
+                item for item in records
+                if isinstance(item.get("build"), dict)
+                and str(item["build"].get("pipeline_commit") or "") == newest_revision
+            ]
+        candidates[detector] = max(
+            revision_records,
+            key=lambda item: (
+                _STATUS_PRIORITY.get(str(item.get("calibration_status") or ""), 0),
+                str(item.get("created_at_utc") or item.get("published_at_utc") or ""),
+            ),
         )
-        if rank > current_rank:
-            candidates[detector] = entry
     if not candidates:
         suffix = f" matching {golden_set}" if expected_sha else ""
         raise ValueError(f"No persisted calibration records found{suffix}")
