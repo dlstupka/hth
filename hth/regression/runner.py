@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 import cv2
 from hth.geometry.common import document_mask, resize_for_analysis, scale_bbox, valid_bbox
-from hth.geometry import detector_kraken_page_mask, detector_orli_page_mask, detector_doc_ufcn_page_mask, detector_adaptive_multi_scale_radial_edge, detector_amsre_bfq_spbv_pbg, detector_adaptive_radial_edge, detector_border_energy, detector_border_fusion_quad, detector_components, detector_convex_hull, detector_consensus_quad, detector_contour_components, detector_contour_grabcut, detector_cross_edge_contour, detector_distance_transform, detector_distance_transform_rect, detector_dhsegment_page_mask, detector_polar_boundary_vote, detector_page_background, detector_signed_polar_boundary_vote, detector_segment_supported_polar_vote, detector_star_convex, detector_grabcut, detector_grabcut_contour, detector_gradient_vote, detector_multi_scale_radial_edge, detector_msre_bfq_spbv_pbg, detector_projective_gradient_vote, detector_radial_edge, detector_contour_projection, detector_contour_quad, detector_ransac, detector_radon_boundary, detector_text_flow, detector_whitespace_frame, detector_joint_rectangle_vote, detector_learned_page_mask
+from hth.geometry import detector_kraken_page_mask, detector_orli_page_mask, detector_doc_ufcn_page_mask, detector_mask_rcnn_page_mask, detector_adaptive_multi_scale_radial_edge, detector_amsre_bfq_spbv_pbg, detector_adaptive_radial_edge, detector_border_energy, detector_border_fusion_quad, detector_components, detector_convex_hull, detector_consensus_quad, detector_contour_components, detector_contour_grabcut, detector_cross_edge_contour, detector_distance_transform, detector_distance_transform_rect, detector_dhsegment_page_mask, detector_polar_boundary_vote, detector_page_background, detector_signed_polar_boundary_vote, detector_segment_supported_polar_vote, detector_star_convex, detector_grabcut, detector_grabcut_contour, detector_gradient_vote, detector_multi_scale_radial_edge, detector_msre_bfq_spbv_pbg, detector_projective_gradient_vote, detector_radial_edge, detector_contour_projection, detector_contour_quad, detector_ransac, detector_radon_boundary, detector_text_flow, detector_whitespace_frame, detector_joint_rectangle_vote, detector_learned_page_mask
 from .adapters.convex_hull import detect as convex_hull_detect
 from .adapters.distance_transform import detect as distance_transform_detect
 from .adapters.distance_transform_rect import detect as distance_transform_rect_detect
@@ -91,6 +91,7 @@ PRE_REGRESSION_REPORTERS={
 PRECOMPUTED_EVIDENCE_PREPARERS={
     "kraken_page_mask":detector_kraken_page_mask.precompute_golden_set_evidence,
     "doc_ufcn_page_mask":detector_doc_ufcn_page_mask.precompute_golden_set_evidence,
+    "mask_rcnn_page_mask":detector_mask_rcnn_page_mask.precompute_golden_set_evidence,
     "orli_page_mask":detector_orli_page_mask.precompute_golden_set_evidence,
     "dhsegment_page_mask":detector_dhsegment_page_mask.precompute_golden_set_evidence,
 }
@@ -98,6 +99,7 @@ PRECOMPUTED_EVIDENCE_PREPARERS={
 PRECOMPUTED_EVIDENCE_LOADERS={
     "kraken_page_mask":detector_kraken_page_mask.load_precomputed_golden_set_evidence,
     "doc_ufcn_page_mask":detector_doc_ufcn_page_mask.load_precomputed_golden_set_evidence,
+    "mask_rcnn_page_mask":detector_mask_rcnn_page_mask.load_precomputed_golden_set_evidence,
     "orli_page_mask":detector_orli_page_mask.load_precomputed_golden_set_evidence,
     "dhsegment_page_mask":detector_dhsegment_page_mask.load_precomputed_golden_set_evidence,
 }
@@ -665,7 +667,7 @@ def _write_debug_page(
             cv2.imwrite(str(page_dir / numbered_consensus_images[filename]), debug_image)
         overlay_name = "07-overlay.jpg"
         diagnostics_name = "08-diagnostics.json"
-    elif candidate.get("method") in {"radial_edge", "adaptive_multi_scale_radial_edge", "amsre_bfq_spbv_pbg", "msre_bfq_spbv_pbg", "adaptive_radial_edge", "multi_scale_radial_edge", "projective_gradient_vote", "border_fusion_quad", "border_energy", "convex_hull", "distance_transform", "distance_transform_rect", "dhsegment_page_mask", "doc_ufcn_page_mask", "polar_boundary_vote", "page_background", "signed_polar_boundary_vote", "segment_supported_polar_vote", "star_convex", "radon_boundary", "text_flow", "whitespace_frame", "joint_rectangle_vote", "learned_page_mask"} or (
+    elif candidate.get("method") in {"radial_edge", "adaptive_multi_scale_radial_edge", "amsre_bfq_spbv_pbg", "msre_bfq_spbv_pbg", "adaptive_radial_edge", "multi_scale_radial_edge", "projective_gradient_vote", "border_fusion_quad", "border_energy", "convex_hull", "distance_transform", "distance_transform_rect", "dhsegment_page_mask", "doc_ufcn_page_mask", "mask_rcnn_page_mask", "polar_boundary_vote", "page_background", "signed_polar_boundary_vote", "segment_supported_polar_vote", "star_convex", "radon_boundary", "text_flow", "whitespace_frame", "joint_rectangle_vote", "learned_page_mask"} or (
         debug_level == "verbose" and candidate.get("method") in {"gradient_vote", "grabcut"}
     ):
         diagnostics = candidate.get("diagnostics") if isinstance(candidate.get("diagnostics"), dict) else {}
@@ -688,6 +690,7 @@ def _write_debug_page(
             "distance_transform_rect": detector_distance_transform_rect,
             "dhsegment_page_mask": detector_dhsegment_page_mask,
             "doc_ufcn_page_mask": detector_doc_ufcn_page_mask,
+            "mask_rcnn_page_mask": detector_mask_rcnn_page_mask,
             "polar_boundary_vote": detector_polar_boundary_vote,
             "page_background": detector_page_background,
             "signed_polar_boundary_vote": detector_signed_polar_boundary_vote,

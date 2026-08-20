@@ -88,6 +88,11 @@ if [[ " ${detector_configs[*]} " == *"doc_ufcn_page_mask.json"* ]]; then
   echo "==================================="
   PYTHONFAULTHANDLER=1 python -m hth.doc_ufcn_page_mask_preflight
 fi
+if [[ " ${detector_configs[*]} " == *"mask_rcnn_page_mask.json"* ]]; then
+  echo "Mask R-CNN Page-Mask worker preflight"
+  echo "====================================="
+  PYTHONFAULTHANDLER=1 python -m hth.mask_rcnn_page_mask_preflight
+fi
 if [[ " ${detector_configs[*]} " == *"orli_page_mask.json"* ]]; then
   echo "Running Orli Page-Mask worker preflight after lifecycle environment load."
   orli_preflight_started="$(date +%s.%N)"
@@ -818,13 +823,13 @@ mkdir -p "$shared_evidence_root"
 declare -A learned_task_counts=()
 for task_detector in "${task_detectors[@]}"; do
   case "$task_detector" in
-    kraken_page_mask|orli_page_mask|dhsegment_page_mask|doc_ufcn_page_mask)
+    kraken_page_mask|orli_page_mask|dhsegment_page_mask|doc_ufcn_page_mask|mask_rcnn_page_mask)
       learned_task_counts["$task_detector"]=$(( ${learned_task_counts["$task_detector"]:-0} + 1 ))
       ;;
   esac
 done
 
-for learned_detector in kraken_page_mask orli_page_mask dhsegment_page_mask doc_ufcn_page_mask; do
+for learned_detector in kraken_page_mask orli_page_mask dhsegment_page_mask doc_ufcn_page_mask mask_rcnn_page_mask; do
   learned_count="${learned_task_counts[$learned_detector]:-0}"
   prepare_shared_evidence=0
   if (( learned_count > 1 )); then

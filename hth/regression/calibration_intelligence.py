@@ -45,6 +45,18 @@ _DETECTOR_EVIDENCE: dict[str, dict[str, Any]] = {
         "role": "Generator",
         "evidence": [("Foreground fragments", "Primary", "Collects substantial foreground regions from the document mask."), ("Convex hull", "Geometry", "Wraps fragmented foreground evidence in the smallest convex envelope."), ("Solidity", "Validation", "Rejects hulls whose enclosed area is poorly supported by foreground evidence."), ("Quadrilateral fit", "Geometry", "Returns a polygonal or minimum-area rectangular page envelope.")],
     },
+    "mask_rcnn_page_mask": {
+        "friendly_name": "Mask R-CNN Page-Mask Detector",
+        "short_name": "Mask R-CNN Page Mask",
+        "role": "Generator",
+        "evidence": [
+            ("HJDataset Mask R-CNN", "Primary", "Uses a Mask R-CNN R50-FPN trained on historical-document layouts, including an explicit Page Frame class."),
+            ("Instance masks", "Generator", "Preserves parameter-invariant learned masks, scores, classes, and geometry for deterministic calibration."),
+            ("Page-frame / layout envelope", "Geometry", "Prefers the dominant learned page-frame instance and conservatively envelopes substantial learned layout instances when necessary."),
+            ("Page-envelope padding", "Geometry", "Calibrates final expansion of the learned minimum-area quadrilateral."),
+            ("Model identity", "Provenance", "Records model/config SHA-256 identities and the Detectron2 serving contract."),
+        ],
+    },
     "doc_ufcn_page_mask": {
         "friendly_name": "Doc-UFCN Page-Mask Detector",
         "short_name": "Doc-UFCN Page Mask",

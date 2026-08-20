@@ -37,6 +37,13 @@ DOC_UFCN_MODEL_URL="https://huggingface.co/Teklia/doc-ufcn-generic-page/resolve/
 DOC_UFCN_PARAMETERS_URL="https://huggingface.co/Teklia/doc-ufcn-generic-page/resolve/main/parameters.yml?download=true"
 DOC_UFCN_MODEL_REPOSITORY="https://huggingface.co/Teklia/doc-ufcn-generic-page"
 
+MASK_RCNN_REPOSITORY="https://github.com/Layout-Parser/layout-parser"
+MASK_RCNN_LICENSE="Apache-2.0"
+MASK_RCNN_MODEL_ID="hjdataset-mask-rcnn-r50-fpn-3x"
+MASK_RCNN_MODEL_URL="https://huggingface.co/layoutparser/detectron2/resolve/main/HJDataset/mask_rcnn_R_50_FPN_3x/model_final.pth?download=true"
+MASK_RCNN_CONFIG_URL="https://huggingface.co/layoutparser/detectron2/resolve/main/HJDataset/mask_rcnn_R_50_FPN_3x/config.yml?download=true"
+MASK_RCNN_MODEL_REPOSITORY="https://huggingface.co/layoutparser/detectron2/tree/main/HJDataset/mask_rcnn_R_50_FPN_3x"
+
 def _sha256(path):
     h=hashlib.sha256()
     with Path(path).open("rb") as f:
@@ -335,6 +342,51 @@ def _finalize_kraken_page_mask_hook(*,results_root):
 
 
 
+def _prepare_mask_rcnn_page_mask_hook(*,results_root,policy,env_file):
+    if policy not in {"reuse","refresh"}:
+        raise ValueError(f"Unsupported lifecycle policy: {policy}")
+    if importlib.util.find_spec("detectron2") is None:
+        raise RuntimeError("mask_rcnn_page_mask requires Detectron2; the managed runtime must install the detector-specific runtime before PREPARE")
+    root=Path(results_root)/"models"/MASK_RCNN_MODEL_ID
+    model=root/"model_final.pth"
+    config=root/"config.yml"
+    provenance=root/"model-provenance.json"
+    complete=model.is_file() and config.is_file() and provenance.is_file()
+    if policy=="refresh" or not complete:
+        root.mkdir(parents=True,exist_ok=True)
+        _download(MASK_RCNN_MODEL_URL,model)
+        _download(MASK_RCNN_CONFIG_URL,config)
+        payload={
+            "schema_version":"1.0","model_id":MASK_RCNN_MODEL_ID,"model_family":"Mask R-CNN",
+            "variant":"HJDataset mask_rcnn_R_50_FPN_3x historical-document layout model",
+            "upstream_repository":MASK_RCNN_REPOSITORY,"model_repository":MASK_RCNN_MODEL_REPOSITORY,
+            "license":MASK_RCNN_LICENSE,"model_url":MASK_RCNN_MODEL_URL,"config_url":MASK_RCNN_CONFIG_URL,
+            "model_filename":model.name,"config_filename":config.name,"model_sha256":_sha256(model),"config_sha256":_sha256(config),
+            "prepared_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),
+            "inference_backend":"detectron2-default-predictor","serving_contract":"BGR image -> Mask R-CNN instances",
+            "training_domain":"HJDataset historical Japanese documents","device":"cpu",
+        }
+        provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+    payload=json.loads(provenance.read_text(encoding="utf-8"))
+    if payload.get("model_sha256") != _sha256(model): raise RuntimeError("Mask R-CNN HJDataset model SHA mismatch")
+    if payload.get("config_sha256") != _sha256(config): raise RuntimeError("Mask R-CNN HJDataset config SHA mismatch")
+    env={
+        "HTH_MASK_RCNN_PAGE_MODEL":model.resolve().as_posix(),
+        "HTH_MASK_RCNN_PAGE_CONFIG":config.resolve().as_posix(),
+        "HTH_MASK_RCNN_PAGE_PROVENANCE":provenance.resolve().as_posix(),
+        "CUDA_VISIBLE_DEVICES":"-1",
+    }
+    _write_env(env_file,env); os.environ.update(env)
+    print(f"Mask R-CNN Page-Mask ready: model={MASK_RCNN_MODEL_ID} model_sha256={str(payload.get('model_sha256') or '')[:12]}")
+    return payload
+
+def _finalize_mask_rcnn_page_mask_hook(*,results_root):
+    provenance=Path(results_root)/"models"/MASK_RCNN_MODEL_ID/"model-provenance.json"
+    if not provenance.is_file(): raise RuntimeError("Mask R-CNN Page-Mask model provenance missing")
+    payload=json.loads(provenance.read_text(encoding="utf-8"))
+    print(f"Detector lifecycle finalize: mask_rcnn_page_mask model_sha256={str(payload.get('model_sha256') or '')[:12]}")
+    return payload
+
 def _prepare_doc_ufcn_page_mask_hook(*,results_root,policy,env_file):
     if policy not in {"reuse","refresh"}:
         raise ValueError(f"Unsupported lifecycle policy: {policy}")
@@ -457,6 +509,7 @@ def _finalize_learned_page_mask_hook(*,results_root):
 _PREPARE_HOOKS={
     "dhsegment_page_mask":_prepare_dhsegment_page_mask_hook,
     "doc_ufcn_page_mask":_prepare_doc_ufcn_page_mask_hook,
+    "mask_rcnn_page_mask":_prepare_mask_rcnn_page_mask_hook,
     "kraken_page_mask":_prepare_kraken_page_mask_hook,
     "orli_page_mask":_prepare_orli_page_mask_hook,
     "learned_page_mask":_prepare_learned_page_mask_hook,
@@ -464,6 +517,7 @@ _PREPARE_HOOKS={
 _FINALIZE_HOOKS={
     "dhsegment_page_mask":_finalize_dhsegment_page_mask_hook,
     "doc_ufcn_page_mask":_finalize_doc_ufcn_page_mask_hook,
+    "mask_rcnn_page_mask":_finalize_mask_rcnn_page_mask_hook,
     "kraken_page_mask":_finalize_kraken_page_mask_hook,
     "orli_page_mask":_finalize_orli_page_mask_hook,
     "learned_page_mask":_finalize_learned_page_mask_hook,

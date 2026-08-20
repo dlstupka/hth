@@ -65,6 +65,7 @@ on:
           - kraken_page_mask
           - learned_page_mask
           - lsd
+          - mask_rcnn_page_mask
           - msre_bfq_spbv_pbg
           - multi_scale_radial_edge
           - orli_page_mask
@@ -602,11 +603,22 @@ jobs:
         env:
           HTH_NEED_DHSEGMENT: ${{ matrix.detector == 'dhsegment_page_mask' || matrix.detector == 'all' }}
           HTH_NEED_DOC_UFCN: ${{ matrix.detector == 'doc_ufcn_page_mask' || matrix.detector == 'all' }}
+          HTH_NEED_MASK_RCNN: ${{ matrix.detector == 'mask_rcnn_page_mask' || matrix.detector == 'all' }}
           HTH_NEED_KRAKEN: ${{ matrix.detector == 'kraken_page_mask' || matrix.detector == 'all' }}
           HTH_NEED_ORLI: ${{ matrix.detector == 'orli_page_mask' || matrix.detector == 'all' }}
         run: |
           set -euo pipefail
           bash hth-pipeline/tools/ensure-managed-runtime.sh
+      - name: Verify Mask R-CNN historical-document runtime
+        if: ${{ matrix.detector == 'mask_rcnn_page_mask' || matrix.detector == 'all' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import torch, torchvision, detectron2
+          from detectron2.engine import DefaultPredictor
+          print(f"Mask R-CNN runtime verified — Detectron2; PyTorch {torch.__version__}; Torchvision {torchvision.__version__}")
+          PY
       - name: Verify Doc-UFCN historical page-segmentation runtime
         if: ${{ matrix.detector == 'doc_ufcn_page_mask' || matrix.detector == 'all' }}
         shell: bash

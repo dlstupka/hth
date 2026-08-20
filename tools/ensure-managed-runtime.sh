@@ -6,6 +6,7 @@ set -euo pipefail
 
 need_dhsegment="${HTH_NEED_DHSEGMENT:-false}"
 need_doc_ufcn="${HTH_NEED_DOC_UFCN:-false}"
+need_mask_rcnn="${HTH_NEED_MASK_RCNN:-false}"
 need_kraken="${HTH_NEED_KRAKEN:-false}"
 need_orli="${HTH_NEED_ORLI:-false}"
 
@@ -86,6 +87,20 @@ print(f"Doc-UFCN runtime verified: HTH-pinned 0.2.0rc4 source; PyTorch {torch.__
 PYDOCUFCN
 }
 
+verify_mask_rcnn() {
+  python - <<'PYMASKRCNN'
+try:
+    import torch
+    import torchvision
+    import detectron2
+    from detectron2.engine import DefaultPredictor
+except Exception as exc:
+    print(f"Mask R-CNN runtime import failed: {type(exc).__name__}: {exc}")
+    raise SystemExit(1)
+print(f"Mask R-CNN runtime verified: Detectron2; PyTorch {torch.__version__}; Torchvision {torchvision.__version__}")
+PYMASKRCNN
+}
+
 verify_kraken() {
   python - <<'PY'
 from importlib import metadata
@@ -156,6 +171,9 @@ verify_complete_runtime() {
   if [[ "$need_doc_ufcn" == "true" ]]; then
     verify_doc_ufcn || return 1
   fi
+  if [[ "$need_mask_rcnn" == "true" ]]; then
+    verify_mask_rcnn || return 1
+  fi
   if [[ "$need_kraken" == "true" ]]; then
     verify_kraken || return 1
   fi
@@ -201,6 +219,20 @@ PYDOCUFCNSITE
   rm -rf "$doc_ufcn_site/doc_ufcn"
   cp -a "$doc_ufcn_stage/doc_ufcn" "$doc_ufcn_site/doc_ufcn"
   rm -rf "$doc_ufcn_stage"
+}
+
+install_mask_rcnn_layer() {
+  if [[ "${RUNNER_OS:-}" == "Linux" ]]; then
+    echo "Installing CPU-only PyTorch/Torchvision layer for Mask R-CNN."
+    python -m pip install "torch==2.10.0" "torchvision==0.25.0" --index-url https://download.pytorch.org/whl/cpu
+  else
+    python -m pip install "torch==2.10.0" "torchvision==0.25.0"
+  fi
+  echo "Installing pinned Detectron2 source for HJDataset Mask R-CNN."
+  FORCE_CUDA=0 CUDA_VISIBLE_DEVICES='' python -m pip install ninja
+  FORCE_CUDA=0 CUDA_VISIBLE_DEVICES='' python -m pip install --no-build-isolation --no-deps \
+    "git+https://github.com/facebookresearch/detectron2.git@57bdb21249d5418c130d54e2ebdc94dda7a4c01a"
+  python -m pip install "cloudpickle>=2" "fvcore>=0.1.5.post20221221" "iopath>=0.1.9" "matplotlib>=3.8" "omegaconf>=2.1,<2.4" "hydra-core>=1.1" "pycocotools>=2.0.7" "tensorboard>=2.18" "termcolor>=2" "tabulate" "tqdm>=4.66" "yacs>=0.1.8"
 }
 
 install_kraken_layer() {
@@ -279,6 +311,9 @@ if ! verify_pip || ! verify_base; then
   if [[ "$need_doc_ufcn" == "true" ]]; then
     install_doc_ufcn_layer
   fi
+  if [[ "$need_mask_rcnn" == "true" ]]; then
+    install_mask_rcnn_layer
+  fi
   if [[ "$need_orli" == "true" ]]; then
     install_orli_layer
   elif [[ "$need_kraken" == "true" ]]; then
@@ -295,6 +330,7 @@ fi
 # missing before touching the environment.
 missing_dhsegment=false
 missing_doc_ufcn=false
+missing_mask_rcnn=false
 missing_kraken=false
 missing_orli=false
 
@@ -304,6 +340,10 @@ fi
 
 if [[ "$need_doc_ufcn" == "true" ]] && ! verify_doc_ufcn; then
   missing_doc_ufcn=true
+fi
+
+if [[ "$need_mask_rcnn" == "true" ]] && ! verify_mask_rcnn; then
+  missing_mask_rcnn=true
 fi
 
 if [[ "$need_kraken" == "true" ]] && ! verify_kraken; then
@@ -318,7 +358,7 @@ if [[ "$need_orli" == "true" ]] && ! verify_orli; then
   missing_orli=true
 fi
 
-if [[ "$missing_dhsegment" == "false" && "$missing_doc_ufcn" == "false" && "$missing_kraken" == "false" && "$missing_orli" == "false" ]]; then
+if [[ "$missing_dhsegment" == "false" && "$missing_doc_ufcn" == "false" && "$missing_mask_rcnn" == "false" && "$missing_kraken" == "false" && "$missing_orli" == "false" ]]; then
   python -m pip check
   echo "Managed runtime verified — using previous install; no install required."
   exit 0
@@ -332,6 +372,9 @@ if [[ "$missing_dhsegment" == "true" ]]; then
 fi
 if [[ "$missing_doc_ufcn" == "true" ]]; then
   install_doc_ufcn_layer
+fi
+if [[ "$missing_mask_rcnn" == "true" ]]; then
+  install_mask_rcnn_layer
 fi
 if [[ "$missing_orli" == "true" ]]; then
   install_orli_layer
