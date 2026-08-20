@@ -112,6 +112,19 @@ def logical_golden_set(pages:list[dict[str,Any]])->list[dict[str,Any]]:
     return [dict(page) for page in pages]
 
 
+def smoke_limited_search_budget(limit: int | None, *, historic_best_distinct: bool) -> int | None:
+    """Return requested-search slots left after mandatory reference evaluations.
+
+    A capped regression reserves one unique evaluation for Baseline and, when
+    available and distinct, one for Historic Best.  The remainder is available
+    to the requested search.  An uncapped regression remains unlimited.
+    """
+    if limit is None:
+        return None
+    reference_slots = 1 + int(historic_best_distinct)
+    return max(0, limit - reference_slots)
+
+
 def repository_root(path: Path) -> Path:
     candidate = path.resolve()
     if candidate.is_file():
@@ -867,7 +880,7 @@ def print_parameter_scope(*, strategy: str, possible_sets: int, planned_sets: in
             "Planned Page Evaluations",
             planned_sets * golden_pages if planned_sets is not None else "adaptive / unknown",
         ),
-        ("Parameter-set Limit", f"{limit} total (including baseline)" if limit is not None else "unlimited"),
+        ("Parameter-set Limit", f"{limit} total (including Baseline and Historic Best when distinct)" if limit is not None else "unlimited"),
         ("Threads", threads),
         ("Shard", f"{shard_index + 1} of {shard_count}"),
         ("Shard Assignment", "interleaved" if shard_count > 1 else "unsharded"),
@@ -1017,9 +1030,21 @@ def run(args:argparse.Namespace)->Path:
             if canonical_parameters(parameters) != baseline_key
             and (historic_best_key is None or canonical_parameters(parameters) != historic_best_key)
         ]
+        historic_best_distinct = bool(
+            historic_best_parameters is not None
+            and historic_best_key != baseline_key
+        )
         if args.limit is not None:
-            # The execution limit is the total number of parameter sets, including baseline.
-            exhaustive_candidates=exhaustive_candidates[:max(0, args.limit - 1)]
+            # The execution limit is a total unique-evaluation budget. Baseline always
+            # consumes one slot and a distinct Historic Best consumes one more; the
+            # remaining slots are filled by requested search members. A detector with
+            # no prior Historic Best therefore gets one additional search member, and
+            # a duplicate Baseline/Best/search identity is still evaluated only once.
+            search_budget = smoke_limited_search_budget(
+                args.limit,
+                historic_best_distinct=historic_best_distinct,
+            )
+            exhaustive_candidates=exhaustive_candidates[:search_budget]
         full_exhaustive_candidate_count=len(exhaustive_candidates)
         if args.shard_count > 1:
             exhaustive_candidates=[
@@ -1028,8 +1053,7 @@ def run(args:argparse.Namespace)->Path:
             ]
         historic_best_planned = int(
             args.shard_index == 0
-            and historic_best_parameters is not None
-            and historic_best_key != baseline_key
+            and historic_best_distinct
         )
         planned_parameter_set_count=(
             1 + historic_best_planned + len(exhaustive_candidates)

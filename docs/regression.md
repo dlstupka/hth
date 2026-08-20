@@ -74,12 +74,12 @@ Pipeline count, assigned pipeline number, and stagger interval are recorded in `
 
 Manual runs default to the `exhaustive` strategy. Limit handling is explicit:
 
-- Smoke mode with a blank limit evaluates 10 parameter sets (`smoke default`).
+- Smoke mode with a blank limit has a nominal budget of 10 unique parameter-set evaluations (`smoke default`). Baseline always consumes one slot and a distinct reconstructable Historic Best consumes one more; the remaining budget is filled by requested smoke-search members. New detectors with no Historic Best simply receive the extra search slot, and duplicate identities are evaluated only once rather than backfilled merely to hit the quota.
 - Any numeric limit is treated as a user-specified exhaustive cap.
 - Full mode with a blank limit is unlimited; with `exhaustive`, it evaluates the complete configured Cartesian space.
 - Full mode with `binary-refine` remains optimizer-directed rather than exhaustive.
 
-The invocation table reports the effective limit as `10 (smoke default)`, `<n> (user specified)`, or `unlimited`, so a capped run cannot be mistaken for a complete regression.
+The invocation table reports the effective limit as `10 (smoke default)`, `<n> (user specified)`, or `unlimited`, so a capped run cannot be mistaken for a complete regression. The cap is the total unique-evaluation budget, including mandatory Baseline and distinct Historic Best references.
 
 Timeout policy is mode- and runner-specific:
 

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from hth.regression.performance import PerformanceSampler
-from hth.regression.runner import MAX_THREAD_COUNT, MIN_THREAD_COUNT, parse_args, print_parameter_scope
+from hth.regression.runner import MAX_THREAD_COUNT, MIN_THREAD_COUNT, parse_args, print_parameter_scope, smoke_limited_search_budget
 
 
 class FakeClock:
@@ -51,8 +51,15 @@ class RegressionParallelismTests(unittest.TestCase):
         self.assertIn("Possible Parameter Sets  : 212576", scope_rows)
         self.assertIn("Planned Parameter Sets   : 10", scope_rows)
         self.assertIn("Planned Page Evaluations : 50", scope_rows)
-        self.assertIn("Parameter-set Limit      : 10 total (including baseline)", lines)
+        self.assertIn("Parameter-set Limit      : 10 total (including Baseline and Historic Best when distinct)", lines)
         self.assertIn("Threads                  : 32", scope_rows)
+
+    def test_smoke_budget_reserves_baseline_and_distinct_historic_best(self) -> None:
+        self.assertEqual(smoke_limited_search_budget(10, historic_best_distinct=True), 8)
+
+    def test_new_detector_uses_unclaimed_historic_best_slot_for_search(self) -> None:
+        self.assertEqual(smoke_limited_search_budget(10, historic_best_distinct=False), 9)
+        self.assertIsNone(smoke_limited_search_budget(None, historic_best_distinct=False))
 
     def test_performance_sampler_writes_thread_and_throughput_sample(self) -> None:
         wall = FakeClock()
