@@ -453,3 +453,12 @@ Enrollment is durable rather than dynamically recomputed from the latest classif
 The family cardinality is the Cartesian product of the retained domains of the enrolled dimensions (subject to any explicit combination constraints).  Thus domains of X, Y, and Z retained values represent X × Y × Z exact Parameter Set IDs per equivalence family.  With no enrolled dimensions the family cardinality is one and the Family ID is simply the canonical family hash of the unchanged parameter dictionary.
 
 Every report table that displays `Parameter Set ID` also displays `Parameter Set Equivalence Family ID` immediately before it, abbreviated as `Family ID` where table width requires.  Historical records are not rewritten merely to backfill the additive identifier; reports may therefore show `unknown` for legacy evidence that lacks sufficient configuration/provenance to calculate it safely.
+
+### Report-only smoke and best-known provenance
+
+The generated detector report intentionally keeps two independent views of persisted evidence:
+
+- **Ranked Detector Smoke Test Results** uses the latest persisted `provisional` smoke observation for each detector. A full/exhaustive calibration never back-fills this table.
+- **Best Known Detector Calibrations** selects the strongest compatible authoritative/full calibration when one exists and falls back to smoke only when no authoritative calibration exists.
+
+A repository pipeline commit is not, by itself, a detector-implementation compatibility boundary. Unrelated pipeline changes therefore cannot make a newer smoke observation usurp an existing authoritative calibration. Exact regression reproducibility remains pinned by the run's detector implementation/source revision, parameter identity, and Golden Set provenance.

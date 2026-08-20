@@ -1479,20 +1479,11 @@ def _best_known_calibrations(
 
     selected: list[dict[str, Any]] = []
     for records in records_by_detector.values():
-        # Calibration quality is meaningful only within one detector
-        # implementation revision.  A newer smoke/partial run may be the first
-        # evidence for changed detector code; an older exhaustive calibration
-        # must not continue to represent that new implementation merely because
-        # it has stronger provenance.  Choose the newest represented revision
-        # first, then apply the normal authoritative/full selector inside it.
-        newest = max(records, key=lambda row: (str(row.get("created_at_utc") or ""), str(row.get("build_number") or "")))
-        newest_revision = str(newest.get("implementation_revision") or "")
-        compatible_records = (
-            [row for row in records if str(row.get("implementation_revision") or "") == newest_revision]
-            if newest_revision
-            else records
-        )
-        record = authoritative_record(compatible_records)
+        # Smoke and full-calibration provenance are intentionally independent.
+        # Best Known must keep the strongest authoritative/full calibration; a
+        # later smoke observation is never allowed to usurp it merely because
+        # the repository pipeline revision changed.
+        record = authoritative_record(records)
         if record is not None:
             selected.append(record)
 

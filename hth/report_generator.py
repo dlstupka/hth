@@ -13,8 +13,8 @@ from typing import Any
 
 from hth.optimizer_store import build_optimizer_index, render_all_markdown, render_heatmap_svg, render_markdown, select_preferred_shape
 from hth.write_regression_summary import build_combined_summary
+from hth.domain.calibration import authoritative_record
 
-_STATUS_PRIORITY = {"authoritative": 3, "partial": 2, "provisional": 1}
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -30,21 +30,13 @@ def _golden_sha(path: Path | None) -> str | None:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def calibration_run_dirs(results_root: Path, golden_set: Path | None = None) -> list[Path]:
-    """Resolve one best persisted calibration record per detector.
-
-    Detector implementation revision is the first compatibility boundary.  A
-    newer smoke/partial record may be the first observation after detector code
-    changes, so an older authoritative full calibration must not stand in for
-    that newer implementation.  Within the newest represented revision, prefer
-    authoritative evidence as before.
-    """
+def _matching_index_entries(results_root: Path, golden_set: Path | None = None) -> list[dict[str, Any]]:
     index_path = results_root / "calibration-index.json"
     if not index_path.is_file():
         raise FileNotFoundError(f"Missing {index_path}")
     index = _read_json(index_path)
     expected_sha = _golden_sha(golden_set)
-    grouped: dict[str, list[dict[str, Any]]] = {}
+    entries: list[dict[str, Any]] = []
     for entry in index.get("entries", []):
         if not isinstance(entry, dict):
             continue
@@ -54,36 +46,57 @@ def calibration_run_dirs(results_root: Path, golden_set: Path | None = None) -> 
             continue
         if expected_sha and str(entry.get("golden_set_sha256") or "") != expected_sha:
             continue
-        record_dir = results_root / record_path
-        if not record_dir.is_dir():
+        if not (results_root / record_path).is_dir():
             continue
-        grouped.setdefault(detector, []).append(entry)
+        entries.append(entry)
+    return entries
+
+
+def calibration_run_dirs(results_root: Path, golden_set: Path | None = None) -> list[Path]:
+    """Resolve the best persisted calibration record per detector.
+
+    This is the authoritative/best-known view.  Smoke observations are a
+    separate provenance stream and must never replace a full calibration here.
+    """
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for entry in _matching_index_entries(results_root, golden_set):
+        grouped.setdefault(str(entry["detector_id"]), []).append(entry)
     candidates: dict[str, dict[str, Any]] = {}
     for detector, records in grouped.items():
-        newest = max(
-            records,
-            key=lambda item: str(item.get("created_at_utc") or item.get("published_at_utc") or ""),
-        )
-        build = newest.get("build") if isinstance(newest.get("build"), dict) else {}
-        newest_revision = str(build.get("pipeline_commit") or "")
-        revision_records = records
-        if newest_revision:
-            revision_records = [
-                item for item in records
-                if isinstance(item.get("build"), dict)
-                and str(item["build"].get("pipeline_commit") or "") == newest_revision
-            ]
-        candidates[detector] = max(
-            revision_records,
-            key=lambda item: (
-                _STATUS_PRIORITY.get(str(item.get("calibration_status") or ""), 0),
-                str(item.get("created_at_utc") or item.get("published_at_utc") or ""),
-            ),
-        )
+        selected = authoritative_record(records)
+        if selected is not None:
+            candidates[detector] = selected
     if not candidates:
-        suffix = f" matching {golden_set}" if expected_sha else ""
+        suffix = f" matching {golden_set}" if golden_set else ""
         raise ValueError(f"No persisted calibration records found{suffix}")
     return [results_root / str(candidates[key]["record_path"]) for key in sorted(candidates)]
+
+
+def smoke_run_dirs(results_root: Path, golden_set: Path | None = None) -> list[Path]:
+    """Resolve the latest persisted smoke observation per detector.
+
+    Ranked Detector Smoke Test Results is an observation table, not a
+    best-calibration table.  Only provisional records (the persistence status
+    assigned to smoke runs) are eligible, regardless of stronger full evidence.
+    """
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for entry in _matching_index_entries(results_root, golden_set):
+        if str(entry.get("calibration_status") or "").lower() != "provisional":
+            continue
+        grouped.setdefault(str(entry["detector_id"]), []).append(entry)
+    selected: dict[str, dict[str, Any]] = {}
+    for detector, records in grouped.items():
+        selected[detector] = max(
+            records,
+            key=lambda item: (
+                str(item.get("created_at_utc") or item.get("published_at_utc") or ""),
+                str((item.get("build") or {}).get("github_run_number") if isinstance(item.get("build"), dict) else ""),
+            ),
+        )
+    if not selected:
+        suffix = f" matching {golden_set}" if golden_set else ""
+        raise ValueError(f"No persisted smoke records found{suffix}")
+    return [results_root / str(selected[key]["record_path"]) for key in sorted(selected)]
 
 
 def generate_calibration_manifest(
@@ -96,7 +109,7 @@ def generate_calibration_manifest(
     results_commit: str,
     run_url: str,
 ) -> Path:
-    persisted_dirs = calibration_run_dirs(results_root, golden_set)
+    persisted_dirs = smoke_run_dirs(results_root, golden_set)
 
     # calibration_store intentionally persists a compact, flattened record:
     # reports/summary.json becomes <record>/summary.json, etc.  The normal

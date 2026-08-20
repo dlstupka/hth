@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.report_generator import calibration_run_dirs, generate_calibration_manifest, generate_optimizer_report
+from hth.report_generator import calibration_run_dirs, smoke_run_dirs, generate_calibration_manifest, generate_optimizer_report
 
 
 class ReportGeneratorTests(unittest.TestCase):
@@ -27,7 +27,7 @@ class ReportGeneratorTests(unittest.TestCase):
             index = {
                 "entries": [
                     {"detector_id": "a", "calibration_status": "provisional", "record_path": "records/a-smoke", "created_at_utc": "2026-01-01"},
-                    {"detector_id": "a", "calibration_status": "authoritative", "record_path": "records/a-full", "created_at_utc": "2026-01-02"},
+                    {"detector_id": "a", "calibration_status": "provisional", "record_path": "records/a-full", "created_at_utc": "2026-01-02"},
                     {"detector_id": "b", "calibration_status": "authoritative", "record_path": "records/b-full", "created_at_utc": "2026-01-03"},
                 ]
             }
@@ -35,7 +35,7 @@ class ReportGeneratorTests(unittest.TestCase):
             runs = calibration_run_dirs(root)
             self.assertEqual([path.name for path in runs], ["a-full", "b-full"])
 
-    def test_calibration_manifest_uses_newest_detector_revision_before_status(self) -> None:
+    def test_calibration_manifest_keeps_full_and_smoke_views_separate(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "records" / "old-full").mkdir(parents=True)
@@ -47,20 +47,24 @@ class ReportGeneratorTests(unittest.TestCase):
                         "calibration_status": "authoritative",
                         "record_path": "records/old-full",
                         "created_at_utc": "2026-08-19T23:00:00Z",
-                        "build": {"pipeline_commit": "old-implementation"},
+                        "search": {"strategy": "exhaustive", "exhaustive_complete": True},
+                        "selection": {"best_avg_iou": 0.97, "minimum_iou": 0.95},
+                        "build": {"pipeline_commit": "old-pipeline"},
                     },
                     {
                         "detector_id": "doc_ufcn_page_mask",
                         "calibration_status": "provisional",
                         "record_path": "records/new-smoke",
                         "created_at_utc": "2026-08-20T03:00:00Z",
-                        "build": {"pipeline_commit": "new-implementation"},
+                        "search": {"strategy": "smoke", "exhaustive_complete": False},
+                        "selection": {"best_avg_iou": 0.90, "minimum_iou": 0.80},
+                        "build": {"pipeline_commit": "new-pipeline"},
                     },
                 ]
             }
             (root / "calibration-index.json").write_text(json.dumps(index), encoding="utf-8")
-            runs = calibration_run_dirs(root)
-            self.assertEqual([path.name for path in runs], ["new-smoke"])
+            self.assertEqual([path.name for path in calibration_run_dirs(root)], ["old-full"])
+            self.assertEqual([path.name for path in smoke_run_dirs(root)], ["new-smoke"])
 
 
     def test_calibration_manifest_reads_flattened_persisted_records(self) -> None:
@@ -69,7 +73,7 @@ class ReportGeneratorTests(unittest.TestCase):
             record = root / "records" / "a-full"
             record.mkdir(parents=True)
             (root / "calibration-index.json").write_text(json.dumps({"entries": [{
-                "detector_id": "a", "calibration_status": "authoritative",
+                "detector_id": "a", "calibration_status": "provisional",
                 "record_path": "records/a-full", "intelligence_path": "records/a-full/calibration-intelligence.json",
                 "created_at_utc": "2026-01-02", "golden_set_sha256": "unknown"
             }]}), encoding="utf-8")

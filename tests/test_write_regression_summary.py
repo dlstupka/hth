@@ -555,7 +555,7 @@ class RegressionSummaryTests(unittest.TestCase):
             records = _best_known_calibrations(index_path, current_runs=[])
             self.assertEqual(records[0]["run_time_seconds"], 3723)
 
-    def test_best_known_does_not_let_older_full_cross_detector_revision(self):
+    def test_best_known_smoke_does_not_usurp_authoritative_full_across_pipeline_revision(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             entries = []
@@ -591,8 +591,8 @@ class RegressionSummaryTests(unittest.TestCase):
             index_path = root / "calibration-index.json"
             index_path.write_text(json.dumps({"entries": entries}), encoding="utf-8")
             records = _best_known_calibrations(index_path, current_runs=[])
-            self.assertEqual(records[0]["parameter_set_id"], "new-smoke")
-            self.assertAlmostEqual(records[0]["mean_iou"], 0.9747)
+            self.assertEqual(records[0]["parameter_set_id"], "old-full")
+            self.assertAlmostEqual(records[0]["mean_iou"], 0.9371)
 
 
     def test_best_known_calibration_build_link_and_persistent_record_footnote(self):
