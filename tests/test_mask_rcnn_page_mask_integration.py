@@ -17,6 +17,18 @@ class MaskRCNNPageMaskIntegrationTests(unittest.TestCase):
         self.assertIn("mask_rcnn_page_mask", PRECOMPUTED_EVIDENCE_PREPARERS)
         self.assertIn("mask_rcnn_page_mask", PRECOMPUTED_EVIDENCE_LOADERS)
 
+    def test_targeted_refinement_grid_focuses_confidence_and_padding(self):
+        config=json.loads((ROOT/"config/detectors/mask_rcnn_page_mask.json").read_text(encoding="utf-8"))
+        params=config["parameters"]
+        self.assertEqual(params["minimum_confidence"]["values"], [0.0,0.01,0.02,0.03,0.05,0.075,0.1,0.15,0.2,0.25])
+        self.assertEqual(params["minimum_instance_area_fraction"]["values"], [0.0])
+        self.assertEqual(params["minimum_page_area_fraction"]["values"], [0.25])
+        self.assertEqual(params["page_padding_fraction"]["values"], [0.0,0.005,0.01,0.015,0.02,0.025,0.03,0.035,0.04])
+        total=1
+        for spec in params.values():
+            total *= len(spec["values"])
+        self.assertEqual(total, 90)
+
     def test_detect_uses_precomputed_instance_without_runtime(self):
         image=np.zeros((100,120,3),dtype=np.uint8)
         key=detector._image_key(image)

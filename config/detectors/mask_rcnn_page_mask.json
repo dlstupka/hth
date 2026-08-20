@@ -4,10 +4,10 @@
   "description": "Historical-document Mask R-CNN page-mask calibration using the HJDataset R50-FPN model. HTH keeps the learned model fixed, precomputes parameter-invariant instance masks once per Golden Set process, anchors on the largest learned Page Frame/layout instance and expands it to a conservative spatially coherent envelope of substantial neighboring learned instances when that evidence describes a larger physical spread.",
   "profiles": {"baseline": {"minimum_confidence": 0.5, "minimum_instance_area_fraction": 0.0005, "minimum_page_area_fraction": 0.2, "page_padding_fraction": 0.02}},
   "parameters": {
-    "minimum_confidence": {"type":"float","values":[0.0,0.25,0.4,0.5,0.6,0.7,0.8,0.9]},
-    "minimum_instance_area_fraction": {"type":"float","values":[0.0,0.0001,0.0005,0.001,0.002]},
-    "minimum_page_area_fraction": {"type":"float","values":[0.08,0.12,0.16,0.2,0.25]},
-    "page_padding_fraction": {"type":"float","values":[0.0,0.01,0.02,0.03,0.04,0.05,0.06,0.08,0.1,0.12]}
+    "minimum_confidence": {"type":"float","values":[0.0,0.01,0.02,0.03,0.05,0.075,0.1,0.15,0.2,0.25]},
+    "minimum_instance_area_fraction": {"type":"float","values":[0.0]},
+    "minimum_page_area_fraction": {"type":"float","values":[0.25]},
+    "page_padding_fraction": {"type":"float","values":[0.0,0.005,0.01,0.015,0.02,0.025,0.03,0.035,0.04]}
   },
   "binary_refine":{"passes":3,"local_exhaustive_radius":1},
   "regression":{"debug_artifacts":"winner","full_space_policy":"declared-cartesian","full_space_max_parameter_sets":50176,"historic_best_reference":"mandatory-exact"},
