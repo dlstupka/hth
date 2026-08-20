@@ -494,10 +494,19 @@ PY
   local historic_best_file
   historic_best_file="$OUTPUT_DIR/.references/$detector_name-task-$task_index-best.json"
   mkdir -p "$(dirname "$historic_best_file")"
+  local -a historic_best_args=(
+    --index results-repo/calibration-index.json
+    --detector "$detector_name"
+    --golden-set-sha256 "$golden_set_sha256"
+  )
+  local model_variant_env_name model_variant_value
+  model_variant_env_name="HTH_MODEL_VARIANT_${detector_name^^}"
+  model_variant_value="${!model_variant_env_name:-}"
+  if [[ -n "$model_variant_value" ]]; then
+    historic_best_args+=(--model-variant "$model_variant_value")
+  fi
   if [[ -f results-repo/calibration-index.json ]] && python -m hth.calibration_store resolve-best-parameter \
-      --index results-repo/calibration-index.json \
-      --detector "$detector_name" \
-      --golden-set-sha256 "$golden_set_sha256" \
+      "${historic_best_args[@]}" \
       > "$historic_best_file" 2>/dev/null; then
     echo "[pipeline $pipeline_number][$detector_name] Historic best reference: $historic_best_file"
     args+=(--historic-best "$historic_best_file")

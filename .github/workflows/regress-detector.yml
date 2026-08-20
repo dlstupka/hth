@@ -88,6 +88,15 @@ on:
         options:
           - smoke
           - full
+      model_variant:
+        description: "Manual model variant; default selects each detector's current registered model (N/A for detectors without variants)"
+        required: true
+        default: default
+        type: choice
+        options:
+          - default
+          - rcnn_hjdataset_current
+          - rcnn_hjdataset_older
       strategy:
         description: Regression search strategy
         required: true
@@ -378,6 +387,7 @@ jobs:
       DETECTOR_LOADING_STRATEGY: ${{ github.event_name == 'workflow_dispatch' && inputs.detector_loading_strategy || 'lpt' }}
       PIPELINE_STAGGER_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.pipeline_stagger_minutes || '0' }}
       DEBUG_LEVEL: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_level || 'none' }}
+      HTH_MODEL_VARIANT: ${{ github.event_name == 'workflow_dispatch' && inputs.model_variant || 'default' }}
       PYTHONNOUSERSITE: "1"
       PYTHONUNBUFFERED: "1"
       HTH_RUNNER_LABELS: ${{ needs.resolve-execution-dispatch.outputs.runner_labels }}

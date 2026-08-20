@@ -88,12 +88,16 @@ def _compatibility(intelligence: dict[str, Any]) -> dict[str, Any]:
     golden = identity.get("golden_set", {}) if isinstance(identity, dict) else {}
     detector_config = identity.get("detector_configuration", {}) if isinstance(identity, dict) else {}
     parameter = intelligence.get("parameter_intelligence", {})
+    model_selection = identity.get("model_selection") if isinstance(identity, dict) else None
+    model_variant = model_selection.get("variant") if isinstance(model_selection, dict) else None
+    compatibility_model_variant = None if str(model_variant or "").endswith("_current") else model_variant
     return {
         "source_document": identity.get("source_document") if isinstance(identity, dict) else None,
         "golden_set_id": golden.get("collection_id") or golden.get("id") or golden.get("configuration"),
         "golden_set_sha256": golden.get("sha256"),
         "detector_id": intelligence.get("detector"),
         "detector_config_sha256": detector_config.get("sha256"),
+        "model_variant": compatibility_model_variant,
         "effect_size_policy": parameter.get("classification_thresholds") if isinstance(parameter, dict) else None,
         "calibration_schema_version": identity.get("calibration_schema_version") if isinstance(identity, dict) else None,
         "intelligence_schema_version": intelligence.get("schema_version"),
@@ -169,6 +173,7 @@ def publish_run(
         "golden_set_sha256": golden_sha,
         "detector_id": detector,
         "detector_config_sha256": compatibility.get("detector_config_sha256"),
+        "model_variant": ((identity.get("model_selection") or {}).get("variant") if isinstance(identity.get("model_selection"), dict) else None),
         "compatibility_key": compatibility_key,
         "created_at_utc": identity.get("created_at_utc"),
         "published_at_utc": intelligence["persistence"]["published_at_utc"],
@@ -273,6 +278,7 @@ def resolve_best_parameter_reference(
     *,
     detector: str,
     golden_set_sha256: str,
+    model_variant: str | None = None,
 ) -> dict[str, Any] | None:
     """Resolve the strongest historic exact parameter set for regression reference.
 
@@ -281,11 +287,24 @@ def resolve_best_parameter_reference(
     HTH reevaluate the historic best even after the declared search grid changes.
     """
     index = _read_json(index_path)
+    requested_variant = str(model_variant or "").strip() or None
+    def variant_compatible(item):
+        if not requested_variant:
+            return True
+        recorded = str(item.get("model_variant") or "").strip() or None
+        if recorded == requested_variant:
+            return True
+        # Calibrations created before model selection existed used the current
+        # detector model. Preserve that history for an explicitly current variant,
+        # but never let it bleed into an experimental/older model variant.
+        return recorded is None and requested_variant.endswith("_current")
+
     candidates = [
         item for item in index.get("entries", [])
         if isinstance(item, dict)
         and item.get("detector_id") == detector
         and item.get("golden_set_sha256") == golden_set_sha256
+        and variant_compatible(item)
     ]
     selected = authoritative_record(candidates)
     if not selected:
@@ -331,6 +350,7 @@ def resolve_best_parameter_reference(
         "historic_calibration_id": selected.get("calibration_id"),
         "historic_created_at_utc": selected.get("created_at_utc"),
         "provenance_source": provenance_source,
+        "model_variant": selected.get("model_variant"),
     }
 
 
@@ -362,6 +382,7 @@ def parser() -> argparse.ArgumentParser:
     best_parser.add_argument("--index", type=Path, required=True)
     best_parser.add_argument("--detector", required=True)
     best_parser.add_argument("--golden-set-sha256", required=True)
+    best_parser.add_argument("--model-variant")
     return p
 
 
@@ -379,6 +400,7 @@ def main(argv: list[str] | None = None) -> int:
             args.index,
             detector=args.detector,
             golden_set_sha256=args.golden_set_sha256,
+            model_variant=args.model_variant,
         )
         if reference is None:
             return 1

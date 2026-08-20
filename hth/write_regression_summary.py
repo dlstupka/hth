@@ -870,6 +870,7 @@ def build_summary(
         "",
         f"- Run ID: `{manifest.get('run_id', 'unknown')}`",
         f"- Detector: `{manifest.get('detector', 'unknown')}`",
+        *([f"- Model variant: `{summary.get('model_selection', {}).get('variant')}`", f"- Model ID: `{summary.get('model_selection', {}).get('model_id')}`"] if isinstance(summary.get("model_selection"), dict) and summary.get("model_selection", {}).get("variant") else []),
         f"- Strategy: `{manifest.get('strategy', 'unknown')}`",
         f"- Pipeline commit: `{_short(info.get('pipeline_commit'))}`",
         f"- Python: `{info.get('python_version', 'unknown')}`",
