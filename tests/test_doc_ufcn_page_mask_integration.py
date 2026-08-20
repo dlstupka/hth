@@ -94,6 +94,52 @@ class DocUFCNPageMaskIntegrationTests(unittest.TestCase):
         self.assertEqual(diagnostics["decision"], "single-component")
         self.assertEqual(diagnostics["joined_component_count"], 0)
 
+
+    def test_single_leaf_spread_completion_recovers_image_proven_missing_side(self):
+        import cv2
+        image = np.zeros((1000, 1400, 3), dtype=np.uint8)
+        # A strong left leaf spans the physical height; the far right page edge
+        # is independently visible in the source image.
+        cv2.line(image, (1230, 70), (1230, 940), (255, 255, 255), 3)
+        evidence = (
+            {"confidence": 0.96, "polygon": [[90, 70], [90, 940], [760, 940], [760, 70]], "area": 582900.0},
+        )
+        values = detector._parameters({
+            "minimum_confidence": 0.5,
+            "minimum_component_area_fraction": 0.0005,
+            "minimum_page_area_fraction": 0.12,
+            "page_padding_fraction": 0.0,
+        })
+        with patch.object(detector, "_infer_evidence", return_value=evidence):
+            selected, diagnostics = detector._select_page_envelope(image, values)
+        self.assertIsNotNone(selected)
+        self.assertEqual(diagnostics["decision"], "image-supported-single-leaf-spread-completion")
+        completion = diagnostics["single_leaf_spread_completion"]
+        self.assertEqual(completion["missing_side"], "right")
+        self.assertGreater(completion["boundary_x"], 1200.0)
+        xs = np.asarray(selected[2])[:, 0]
+        self.assertGreater(float(xs.max()), 1200.0)
+
+    def test_single_leaf_spread_completion_rejects_missing_side_without_image_edge(self):
+        image = np.zeros((1000, 1400, 3), dtype=np.uint8)
+        evidence = (
+            {"confidence": 0.96, "polygon": [[90, 70], [90, 940], [760, 940], [760, 70]], "area": 582900.0},
+        )
+        values = detector._parameters({
+            "minimum_confidence": 0.5,
+            "minimum_component_area_fraction": 0.0005,
+            "minimum_page_area_fraction": 0.12,
+            "page_padding_fraction": 0.0,
+        })
+        with patch.object(detector, "_infer_evidence", return_value=evidence):
+            selected, diagnostics = detector._select_page_envelope(image, values)
+        self.assertIsNotNone(selected)
+        self.assertEqual(diagnostics["decision"], "single-component")
+        self.assertEqual(
+            diagnostics["single_leaf_spread_completion"]["decision"],
+            "image-boundary-not-proven",
+        )
+
     def test_shared_evidence_round_trip(self):
         image = np.zeros((32, 48, 3), dtype=np.uint8)
         key = detector._image_key(image)

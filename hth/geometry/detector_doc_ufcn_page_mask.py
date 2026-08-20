@@ -307,6 +307,118 @@ def _select_polygon(image_bgr: np.ndarray, values):
     return item["area"], item["confidence"], item["polygon"]
 
 
+def _single_leaf_spread_completion(image_bgr: np.ndarray, primary: dict):
+    """Complete one learned page leaf only when the image proves the missing spread edge.
+
+    Some damaged open-volume pages yield one strong Doc-UFCN leaf and no usable
+    partner component.  When that leaf already spans most of the document height,
+    sits near one physical side, and leaves a large horizontal region unexplained,
+    search the unexplained side for a persistent vertical source-image boundary.
+    The learned polygon remains the seed; the missing side is synthesized only
+    when independent image evidence supports a far outer page edge.
+    """
+    height, width = image_bgr.shape[:2]
+    px0, py0, px1, py1 = primary["bounds"]
+    span_x = max(1.0, px1 - px0)
+    span_y = max(1.0, py1 - py0)
+    margins = {
+        "left": px0 / max(1.0, float(width)),
+        "right": (width - px1) / max(1.0, float(width)),
+        "top": py0 / max(1.0, float(height)),
+        "bottom": (height - py1) / max(1.0, float(height)),
+    }
+    diagnostics = {
+        "attempted": False,
+        "decision": "not-applicable",
+        "leaf_width_fraction": span_x / max(1.0, float(width)),
+        "leaf_height_fraction": span_y / max(1.0, float(height)),
+        "physical_margin_fractions": {k: round(float(v), 4) for k, v in margins.items()},
+    }
+
+    # A spread leaf must already explain the vertical page extent.  This keeps
+    # local text/page fragments from becoming full-width documents.
+    if span_y < 0.72 * height or margins["top"] > 0.18 or margins["bottom"] > 0.18:
+        diagnostics["decision"] = "insufficient-vertical-page-support"
+        return None, diagnostics
+    if span_x > 0.72 * width:
+        diagnostics["decision"] = "already-broad"
+        return None, diagnostics
+
+    side = None
+    if margins["left"] <= 0.18 and margins["right"] >= 0.25:
+        side = "right"
+    elif margins["right"] <= 0.18 and margins["left"] >= 0.25:
+        side = "left"
+    if side is None:
+        diagnostics["decision"] = "no-single-sided-spread-shape"
+        return None, diagnostics
+    diagnostics["attempted"] = True
+    diagnostics["missing_side"] = side
+
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    gx = np.abs(cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3))
+    y0 = max(0, int(round(py0 + 0.08 * span_y)))
+    y1 = min(height, int(round(py1 - 0.08 * span_y)))
+    if y1 <= y0 + 8:
+        diagnostics["decision"] = "insufficient-boundary-sampling-height"
+        return None, diagnostics
+    profile = np.median(gx[y0:y1, :], axis=0).astype(np.float32)
+    profile = cv2.GaussianBlur(profile.reshape(1, -1), (1, 0), sigmaX=2.0).reshape(-1)
+    background = float(np.median(profile))
+    mad = float(np.median(np.abs(profile - background)))
+
+    minimum_gap = max(8, int(round(max(0.08 * width, 0.15 * span_x))))
+    if side == "right":
+        start = min(width - 1, int(round(px1)) + minimum_gap)
+        stop = max(start + 1, int(round(width * 0.98)))
+        outer_limit = 0.70 * width
+    else:
+        start = max(1, int(round(width * 0.02)))
+        stop = max(start + 1, int(round(px0)) - minimum_gap)
+        outer_limit = 0.30 * width
+    if stop <= start:
+        diagnostics["decision"] = "no-boundary-search-region"
+        return None, diagnostics
+
+    segment = profile[start:stop]
+    if segment.size == 0:
+        diagnostics["decision"] = "no-boundary-search-region"
+        return None, diagnostics
+    local_index = int(np.argmax(segment))
+    boundary_x = float(start + local_index)
+    score = float(segment[local_index])
+    threshold = max(background + 3.0 * max(1.0, mad), background * 1.8, 6.0)
+    outer_enough = boundary_x >= outer_limit if side == "right" else boundary_x <= outer_limit
+    combined_x0 = min(px0, boundary_x)
+    combined_x1 = max(px1, boundary_x)
+    span_gain = (combined_x1 - combined_x0) / span_x
+    diagnostics.update({
+        "boundary_x": round(boundary_x, 3),
+        "boundary_score": round(score, 4),
+        "boundary_background": round(background, 4),
+        "boundary_mad": round(mad, 4),
+        "boundary_threshold": round(threshold, 4),
+        "boundary_contrast_ratio": round(score / max(1.0, background), 4),
+        "outer_boundary": bool(outer_enough),
+        "span_gain": round(float(span_gain), 4),
+    })
+    if score < threshold or not outer_enough or span_gain < 1.30:
+        diagnostics["decision"] = "image-boundary-not-proven"
+        return None, diagnostics
+
+    polygon = np.asarray(primary["polygon"], dtype=np.float32).reshape(-1, 2)
+    support = np.asarray([[boundary_x, py0], [boundary_x, py1]], dtype=np.float32)
+    completed = cv2.convexHull(np.concatenate([polygon, support], axis=0).reshape(-1, 1, 2)).reshape(-1, 2)
+    completed_area = abs(float(cv2.contourArea(completed)))
+    diagnostics["decision"] = "image-supported-single-leaf-spread-completion"
+    diagnostics["completed_area"] = completed_area
+    diagnostics["completed_bounds"] = [
+        round(float(combined_x0), 3), round(float(py0), 3),
+        round(float(combined_x1), 3), round(float(py1), 3),
+    ]
+    return (completed_area, float(primary["confidence"]), completed), diagnostics
+
+
 def _select_page_envelope(image_bgr: np.ndarray, values):
     """Select a Doc-UFCN page envelope, joining credible facing-page leaves.
 
@@ -364,6 +476,16 @@ def _select_page_envelope(image_bgr: np.ndarray, values):
             })
 
     if len(joined) == 1:
+        completed, completion_diagnostics = _single_leaf_spread_completion(image_bgr, primary)
+        diagnostics["single_leaf_spread_completion"] = completion_diagnostics
+        if completed is not None:
+            area, confidence, polygon = completed
+            diagnostics.update({
+                "decision": "image-supported-single-leaf-spread-completion",
+                "selected_confidence": confidence,
+                "selected_component_area": area,
+            })
+            return completed, diagnostics
         diagnostics.update({
             "selected_confidence": primary["confidence"],
             "selected_component_area": primary["area"],
