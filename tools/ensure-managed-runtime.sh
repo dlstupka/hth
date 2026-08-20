@@ -89,6 +89,19 @@ PYDOCUFCN
 
 verify_mask_rcnn() {
   python - <<'PYMASKRCNN'
+from importlib import metadata
+
+expected = {"iopath": "0.1.9", "black": "24.10.0"}
+for package, wanted in expected.items():
+    try:
+        found = metadata.version(package)
+    except metadata.PackageNotFoundError:
+        print(f"Mask R-CNN runtime dependency missing: {package}=={wanted}")
+        raise SystemExit(1)
+    if found != wanted:
+        print(f"Mask R-CNN runtime dependency mismatch: expected {package}=={wanted}, found {found}")
+        raise SystemExit(1)
+
 try:
     import torch
     import torchvision
@@ -97,7 +110,10 @@ try:
 except Exception as exc:
     print(f"Mask R-CNN runtime import failed: {type(exc).__name__}: {exc}")
     raise SystemExit(1)
-print(f"Mask R-CNN runtime verified: Detectron2; PyTorch {torch.__version__}; Torchvision {torchvision.__version__}")
+print(
+    f"Mask R-CNN runtime verified: Detectron2; PyTorch {torch.__version__}; "
+    f"Torchvision {torchvision.__version__}; iopath {expected['iopath']}; black {expected['black']}"
+)
 PYMASKRCNN
 }
 
@@ -232,7 +248,7 @@ install_mask_rcnn_layer() {
   FORCE_CUDA=0 CUDA_VISIBLE_DEVICES='' python -m pip install ninja
   FORCE_CUDA=0 CUDA_VISIBLE_DEVICES='' python -m pip install --no-build-isolation --no-deps \
     "git+https://github.com/facebookresearch/detectron2.git@57bdb21249d5418c130d54e2ebdc94dda7a4c01a"
-  python -m pip install "cloudpickle>=2" "fvcore>=0.1.5.post20221221" "iopath>=0.1.9" "matplotlib>=3.8" "omegaconf>=2.1,<2.4" "hydra-core>=1.1" "pycocotools>=2.0.7" "tensorboard>=2.18" "termcolor>=2" "tabulate" "tqdm>=4.66" "yacs>=0.1.8"
+  python -m pip install "black==24.10.0" "cloudpickle>=2" "fvcore>=0.1.5.post20221221" "iopath==0.1.9" "matplotlib>=3.8" "omegaconf>=2.1,<2.4" "hydra-core>=1.1" "pycocotools>=2.0.7" "tensorboard>=2.18" "termcolor>=2" "tabulate" "tqdm>=4.66" "yacs>=0.1.8"
 }
 
 install_kraken_layer() {

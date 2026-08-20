@@ -27,6 +27,12 @@ class LayeredRuntimeAugmentationTests(unittest.TestCase):
         self.assertIn('if [[ "$missing_dhsegment" == "true" ]]; then\n  install_dhsegment_layer\nfi', MANAGER)
         self.assertIn("Installing missing dhSegment TensorFlow layer only.", MANAGER)
 
+    def test_mask_rcnn_layer_pins_detectron2_declared_runtime_dependencies(self):
+        self.assertIn('"iopath==0.1.9"', MANAGER)
+        self.assertIn('"black==24.10.0"', MANAGER)
+        self.assertIn('expected = {"iopath": "0.1.9", "black": "24.10.0"}', MANAGER)
+        self.assertIn("python -m pip check", MANAGER)
+
     def test_incremental_update_reverifies_complete_runtime_before_commit(self):
         augment = MANAGER.index("begin_incremental_update")
         verify = MANAGER.rindex("verify_complete_runtime")
