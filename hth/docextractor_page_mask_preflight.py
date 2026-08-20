@@ -37,8 +37,10 @@ def run(*, load_model: bool = False) -> None:
 
     import torch
     import gdown  # noqa: F401
+    import toolz  # noqa: F401
     _line("torch", torch.__version__)
     _line("gdown", "available")
+    _line("toolz", "available")
 
     from hth.geometry.registry import detector_names
     if "docextractor_page_mask" not in detector_names():

@@ -35,7 +35,9 @@ class ZombieParameterSpaceTests(unittest.TestCase):
         self.assertEqual(report["error_count"], 0)
         zombie = [item for item in report["detectors"] if item["zombie_parameters"]]
         self.assertEqual([(item["detector"], item["zombie_parameters"]) for item in zombie], [
-            ("orli_page_mask", ["close_kernel_fraction", "fill_holes"])
+            ("eynollah_page_mask", ["close_kernel_fraction", "minimum_page_area_fraction"]),
+            ("orli_page_mask", ["close_kernel_fraction", "fill_holes"]),
+            ("pagenet_page_mask", ["minimum_mask_area_fraction"]),
         ])
 
     def test_contracted_search_pins_excluded_dimensions_to_baseline(self):

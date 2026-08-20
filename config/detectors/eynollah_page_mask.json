@@ -3,8 +3,8 @@
   "profiles": {
     "baseline": {
       "probability_threshold": 0.5,
-      "minimum_page_area_fraction": 0.08,
-      "close_kernel_fraction": 0.006,
+      "minimum_page_area_fraction": 0.02,
+      "close_kernel_fraction": 0.0,
       "page_padding_fraction": 0.02
     }
   },
@@ -12,49 +12,31 @@
     "probability_threshold": {
       "type": "float",
       "values": [
-        0.0,
-        0.1,
-        0.2,
+        0.25,
+        0.275,
         0.3,
+        0.325,
+        0.35,
+        0.375,
         0.4,
-        0.5,
-        0.6,
-        0.7,
-        0.8,
-        0.9
-      ]
-    },
-    "minimum_page_area_fraction": {
-      "type": "float",
-      "values": [
-        0.02,
-        0.05,
-        0.08,
-        0.12,
-        0.2
-      ]
-    },
-    "close_kernel_fraction": {
-      "type": "float",
-      "values": [
-        0.0,
-        0.003,
-        0.006,
-        0.012,
-        0.02
+        0.425,
+        0.45,
+        0.475,
+        0.5
       ]
     },
     "page_padding_fraction": {
       "type": "float",
       "values": [
         0.0,
+        0.0025,
+        0.005,
+        0.0075,
         0.01,
-        0.02,
-        0.04,
-        0.06,
-        0.08,
-        0.12,
-        0.16
+        0.0125,
+        0.015,
+        0.0175,
+        0.02
       ]
     }
   },
@@ -66,11 +48,12 @@
     "debug_artifacts": "winner",
     "full_space_policy": "declared-cartesian",
     "full_space_max_parameter_sets": 50176,
-    "historic_best_reference": "mandatory-exact"
+    "historic_best_reference": "mandatory-exact",
+    "previous_declared_parameter_sets": 2000
   },
   "optimizer_shape_compatibility": "detector-implementation",
   "detector": "eynollah_page_mask",
-  "description": "Eynollah historical page-extraction segmentation detector. The released SBB page-extraction SavedModel is fixed and inferred once per Golden Set page; calibration controls only deterministic probability threshold, page-area rejection, morphology, and envelope padding.",
+  "description": "Eynollah historical page-extraction segmentation detector. After the initial 2,000-set exhaustive HTH-0001 calibration, the released SBB page-extraction SavedModel remains fixed and inferred once per Golden Set page while calibration is surgically focused on the measured active probability-threshold/page-padding basin; measured-zombie morphology and minimum-area controls are pinned at the prior winner for normal search.",
   "lifecycle": {
     "prepare": "eynollah_page_mask",
     "model_policy": "reuse",
@@ -82,5 +65,57 @@
     "source": "SBB/eynollah-page-extraction",
     "runtime": "TensorFlow SavedModel CPU",
     "training_domain": "historical printed documents"
-  }
+  },
+  "zombie_parameters": {
+    "close_kernel_fraction": {
+      "type": "float",
+      "values": [
+        0.0,
+        0.003,
+        0.006,
+        0.012,
+        0.02
+      ],
+      "pinned_value": 0.0,
+      "classification": "zombie",
+      "audit_scope": "HTH-0001 / completed 2000-set exhaustive calibration / 2026-08-20",
+      "reason": "Complete 2,000-set HTH-0001 exhaustive calibration measured only 0.000023 Avg-IoU range (eta^2 effectively zero); pinned to the prior winner while retained for exhaustive-with-zombies revalidation.",
+      "last_measured": {
+        "classification": "Zombie",
+        "eta_squared": 5.662855474596639e-10,
+        "mean_iou_range": 2.2624999999831807e-05,
+        "near_best_value_coverage": 1.0,
+        "value_count": 5,
+        "best_values": [],
+        "source": "HTH-0001 2,000-set exhaustive calibration build #671 (2026-08-20)"
+      }
+    },
+    "minimum_page_area_fraction": {
+      "type": "float",
+      "values": [
+        0.02,
+        0.05,
+        0.08,
+        0.12,
+        0.2
+      ],
+      "pinned_value": 0.02,
+      "classification": "zombie",
+      "audit_scope": "HTH-0001 / completed 2000-set exhaustive calibration / 2026-08-20",
+      "reason": "Complete 2,000-set HTH-0001 exhaustive calibration measured exactly 0.0000 Avg-IoU range (eta^2 effectively zero); pinned to the prior winner while retained for exhaustive-with-zombies revalidation.",
+      "last_measured": {
+        "classification": "Zombie",
+        "eta_squared": 8.786172023931127e-31,
+        "mean_iou_range": 0.0,
+        "near_best_value_coverage": 1.0,
+        "value_count": 5,
+        "best_values": [],
+        "source": "HTH-0001 2,000-set exhaustive calibration build #671 (2026-08-20)"
+      }
+    }
+  },
+  "equivalence_parameters": [
+    "close_kernel_fraction",
+    "minimum_page_area_fraction"
+  ]
 }

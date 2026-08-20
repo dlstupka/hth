@@ -1,11 +1,11 @@
 {
   "schema_version": "0.1",
   "detector": "pagenet_page_mask",
-  "description": "Explicit PageNet Ohio historical page-boundary detector using the same released Caffe checkpoint and proven OpenCV-DNN execution path as learned_page_mask; retained as a distinct detector identity for comparative research.",
+  "description": "Explicit PageNet Ohio historical page-boundary detector using the same released Caffe checkpoint and proven OpenCV-DNN execution path as learned_page_mask; retained as a distinct detector identity for comparative research. The initial 50,000-set exhaustive calibration is treated as characterized evidence, with minimum mask area enrolled as a measured zombie so normal future searches do not spend evaluations on an empirically inert dimension.",
   "profiles": {
     "baseline": {
       "mask_threshold": 0.5,
-      "minimum_mask_area_fraction": 0.15,
+      "minimum_mask_area_fraction": 0.04,
       "close_kernel_fraction": 0.006,
       "polygon_epsilon_fraction": 0.012,
       "bbox_padding_fraction": 0.0
@@ -40,13 +40,6 @@
         0.248,
         0.25,
         0.5
-      ]
-    },
-    "minimum_mask_area_fraction": {
-      "type": "float",
-      "values": [
-        0.04,
-        0.15
       ]
     },
     "close_kernel_fraction": {
@@ -120,7 +113,8 @@
     "debug_artifacts": "failures",
     "full_space_policy": "declared-cartesian",
     "full_space_max_parameter_sets": 50176,
-    "historic_best_reference": "mandatory-exact"
+    "historic_best_reference": "mandatory-exact",
+    "previous_declared_parameter_sets": 50000
   },
   "lifecycle": {
     "prepare": "pagenet_page_mask",
@@ -134,5 +128,30 @@
     "source": "ctensmeyer/pagenet",
     "license": "BSD-3-Clause"
   },
-  "optimizer_shape_compatibility": "detector-implementation"
+  "optimizer_shape_compatibility": "detector-implementation",
+  "zombie_parameters": {
+    "minimum_mask_area_fraction": {
+      "type": "float",
+      "values": [
+        0.04,
+        0.15
+      ],
+      "pinned_value": 0.04,
+      "classification": "zombie",
+      "audit_scope": "HTH-0001 / completed 50000-set exhaustive calibration / 2026-08-20",
+      "reason": "Complete 50,000-set HTH-0001 exhaustive calibration measured exactly 0.0000 Avg-IoU range (eta^2 effectively zero); pinned at the winning value while retained for explicit exhaustive-with-zombies revalidation.",
+      "last_measured": {
+        "classification": "Zombie",
+        "eta_squared": 4.0257993378773937e-26,
+        "mean_iou_range": 0.0,
+        "near_best_value_coverage": 1.0,
+        "value_count": 2,
+        "best_values": [],
+        "source": "HTH-0001 50,000-set exhaustive calibration build #672 (2026-08-20)"
+      }
+    }
+  },
+  "equivalence_parameters": [
+    "minimum_mask_area_fraction"
+  ]
 }

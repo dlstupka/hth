@@ -126,11 +126,11 @@ verify_eynollah() {
 verify_docextractor() {
   python - <<'PYDOCEXTRACTOR'
 try:
-    import torch, gdown
+    import torch, gdown, toolz
 except Exception as exc:
     print(f"docExtractor runtime import failed: {type(exc).__name__}: {exc}")
     raise SystemExit(1)
-print(f"docExtractor runtime verified: PyTorch {torch.__version__}; gdown available")
+print(f"docExtractor runtime verified: PyTorch {torch.__version__}; gdown available; toolz available")
 PYDOCEXTRACTOR
 }
 
@@ -285,7 +285,7 @@ install_docextractor_layer() {
   else
     python -m pip install "torch==2.10.0" "torchvision==0.25.0"
   fi
-  python -m pip install "gdown>=5,<6"
+  python -m pip install "gdown>=5,<6" "toolz==1.0.0"
 }
 
 install_kraken_layer() {
