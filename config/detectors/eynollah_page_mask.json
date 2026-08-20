@@ -2,41 +2,39 @@
   "schema_version": "0.1",
   "profiles": {
     "baseline": {
-      "probability_threshold": 0.5,
+      "probability_threshold": 0.25,
       "minimum_page_area_fraction": 0.02,
       "close_kernel_fraction": 0.0,
-      "page_padding_fraction": 0.02
+      "page_padding_fraction": 0.0075
     }
   },
   "parameters": {
     "probability_threshold": {
       "type": "float",
       "values": [
+        0.2,
+        0.2125,
+        0.225,
+        0.2375,
         0.25,
+        0.2625,
         0.275,
-        0.3,
-        0.325,
-        0.35,
-        0.375,
-        0.4,
-        0.425,
-        0.45,
-        0.475,
-        0.5
+        0.2875,
+        0.3
       ]
     },
     "page_padding_fraction": {
       "type": "float",
       "values": [
-        0.0,
-        0.0025,
-        0.005,
+        0.0035,
+        0.0045,
+        0.0055,
+        0.0065,
         0.0075,
-        0.01,
-        0.0125,
-        0.015,
-        0.0175,
-        0.02
+        0.0085,
+        0.0095,
+        0.0105,
+        0.0115
       ]
     }
   },
@@ -49,11 +47,11 @@
     "full_space_policy": "declared-cartesian",
     "full_space_max_parameter_sets": 50176,
     "historic_best_reference": "mandatory-exact",
-    "previous_declared_parameter_sets": 2000
+    "previous_declared_parameter_sets": 99
   },
   "optimizer_shape_compatibility": "detector-implementation",
   "detector": "eynollah_page_mask",
-  "description": "Eynollah historical page-extraction segmentation detector. After the initial 2,000-set exhaustive HTH-0001 calibration, the released SBB page-extraction SavedModel remains fixed and inferred once per Golden Set page while calibration is surgically focused on the measured active probability-threshold/page-padding basin; measured-zombie morphology and minimum-area controls are pinned at the prior winner for normal search.",
+  "description": "Eynollah historical page-extraction segmentation detector in final micro-refinement. The released SBB SavedModel and shared Golden Set inference remain fixed; search is narrowed around the 0.9632 HTH-0001 winner on the only active controls, probability threshold and page padding. Previously audited morphology and minimum-area zombies remain enrolled and pinned for normal search.",
   "lifecycle": {
     "prepare": "eynollah_page_mask",
     "model_policy": "reuse",
