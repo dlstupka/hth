@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "mask_rcnn_page_mask",
-  "description": "Historical-document Mask R-CNN page-mask calibration using the HJDataset R50-FPN model. HTH keeps the learned model fixed, precomputes parameter-invariant instance masks once per Golden Set process, prefers the learned Page Frame instance when available, and falls back to a conservative envelope of substantial learned layout instances.",
+  "description": "Historical-document Mask R-CNN page-mask calibration using the HJDataset R50-FPN model. HTH keeps the learned model fixed, precomputes parameter-invariant instance masks once per Golden Set process, anchors on the largest learned Page Frame/layout instance and expands it to a conservative spatially coherent envelope of substantial neighboring learned instances when that evidence describes a larger physical spread.",
   "profiles": {"baseline": {"minimum_confidence": 0.5, "minimum_instance_area_fraction": 0.0005, "minimum_page_area_fraction": 0.2, "page_padding_fraction": 0.02}},
   "parameters": {
     "minimum_confidence": {"type":"float","values":[0.0,0.25,0.4,0.5,0.6,0.7,0.8,0.9]},

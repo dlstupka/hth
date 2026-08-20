@@ -348,7 +348,7 @@ Parallel shards share one run-local baseline cache per detector. The first shard
 
 ### Parallel completion ordering
 
-Parallel parameter evaluation records `completion_index` in actual parameter-completion order. Shard coalescing reconstructs one global completion sequence from shard start times and per-result completion elapsed time, then derives discovery time, search-space percentage, winner history, and stabilization from that sequence. When runtime history is absent, queue reports display `no history` rather than `unknown`.
+Parallel parameter evaluation records `completion_index` in actual parameter-completion order. Shard coalescing reconstructs one global completion sequence from shard start times and per-result completion elapsed time, then derives discovery time, search-space percentage, score-improvement history, and stabilization from that sequence. Score-improvement history records only strict improvements to the running best score; a later equal-score parameter set can become the deterministic final winner without adding a history event. When runtime history is absent, queue reports display `no history` rather than `unknown`.
 
 
 ## Execution optimizer intelligence

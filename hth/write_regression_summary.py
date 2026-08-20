@@ -1109,15 +1109,17 @@ def build_summary(
         winner_history = progress.get("winner_history", []) if isinstance(progress.get("winner_history"), list) else []
         lines.extend([
             "",
-            "#### Winner History",
+            "#### Score-Improvement History",
             "",
-            "| Discovery Order | Family ID | Parameter Set ID | Search Time | % Search |",
+            "This history records only strict improvements to the running best score. Later equal-score parameter sets may win deterministic final tie-breaking without creating another history event.",
+            "",
+            "| Improvement Order | Family ID | Parameter Set ID | Search Time | % Search |",
             "|---:|---|---|---:|---:|",
         ])
         for event in winner_history[-5:]:
             marker = f"{event.get('change_number', 'unknown')}"
             if event is winner_history[-1]:
-                marker += " (final)"
+                marker += " (last improvement)"
             lines.append(
                 f"| {marker} | `{_short(event.get('parameter_set_equivalence_family_id'), 12)}` | `{_short(event.get('parameter_set_id'), 12)}` | "
                 f"{_duration(event.get('elapsed_seconds'))} | {_search_space_percent(event)} |"
