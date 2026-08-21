@@ -56,6 +56,7 @@ from . import (
     detector_lsd,
     detector_radial_edge,
     detector_ransac,
+    detector_scantailor_page_frame,
 )
 from .model import Candidate
 try:
@@ -356,6 +357,16 @@ _REGISTRY: tuple[DetectorSpec, ...] = (
         authors=("OpenAI ChatGPT",),
         version=HTH_VERSION,
         repository=HTH_REPOSITORY,
+    ),
+    DetectorSpec(
+        method=detector_scantailor_page_frame.METHOD,
+        name="ScanTailor Page Frame",
+        origin="ScanTailor concepts / HTH",
+        entrypoint=detector_scantailor_page_frame.detect,
+        foundation=("ScanTailor-style scan processing", "Content-guided page framing", "Projection profiles", "OpenCV"),
+        authors=("ScanTailor contributors", "OpenAI ChatGPT"),
+        version=HTH_VERSION,
+        repository="https://github.com/scantailor/scantailor",
     ),
     DetectorSpec(
         method=detector_eynollah_page_mask.METHOD,
