@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -16,9 +17,17 @@ def _append_jsonl(path: Path | None, payload: dict[str, Any]) -> None:
     if path is None:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    line = json.dumps(payload, sort_keys=True) + "\n"
-    with path.open("a", encoding="utf-8") as stream:
-        stream.write(line)
+    line = (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
+    # Optimizer shard workers can finish simultaneously.  Use one O_APPEND
+    # write so each JSONL record is published independently without requiring
+    # the shared parallelism-index lock or interleaving partial text writes.
+    fd = os.open(path, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o666)
+    try:
+        written = os.write(fd, line)
+        if written != len(line):
+            raise OSError(f"Short optimizer JSONL append to {path}: {written}/{len(line)} bytes")
+    finally:
+        os.close(fd)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -131,7 +140,12 @@ def capture_shard_observation(
             shape_sequence=shape_sequence,
         )
         record["runner_metrics_at_completion"] = metrics
-    update_parallelism_shards(results_root, [record])
+    # During execution-optimizer fan-out the shard log is the durable,
+    # contention-free checkpoint.  The parent replays it into the shared
+    # parallelism index once after all shapes complete.  This prevents hundreds
+    # of shard workers from serializing on parallelism-index.json.lock.
+    if shard_log is None:
+        update_parallelism_shards(results_root, [record])
     _append_jsonl(shard_log, record)
     return record
 
@@ -273,7 +287,7 @@ def main() -> int:
             shard_log=args.shard_log,
             runner_metrics_log=args.runner_metrics_log,
         )
-        print(f"Persisted optimizer shard {record['shard_number']}/{record['shard_count']} wall={record['wall_clock_seconds']}s")
+        print(f"Checkpointed optimizer shard {record['shard_number']}/{record['shard_count']} wall={record['wall_clock_seconds']}s")
         return 0
 
     required = (args.run_dir, args.wall_clock_seconds, args.runner_label, args.github_run_id, args.shape_sequence)

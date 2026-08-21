@@ -86,7 +86,7 @@ class OptimizerCaptureTests(unittest.TestCase):
             self.assertTrue(observation["startup_overhead_included_in_wall_clock"])
             self.assertAlmostEqual(observation["parameter_sets_per_second"], 100 / 240.0)
 
-    def test_optimizer_shard_is_persisted_immediately_and_replayable(self) -> None:
+    def test_optimizer_shard_log_defers_shared_index_write_until_replay(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             results = root / "results"
@@ -108,13 +108,33 @@ class OptimizerCaptureTests(unittest.TestCase):
             )
             self.assertEqual(record["shard_number"], 5)
             self.assertAlmostEqual(record["parameter_sets_per_second"], 0.65)
-            payload = json.loads((results / "parallelism-index.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(payload["shard_observations"]), 1)
+            self.assertFalse((results / "parallelism-index.json").exists())
+            self.assertEqual(len(shard_log.read_text(encoding="utf-8").splitlines()), 1)
             fresh = root / "fresh"
             fresh.mkdir()
             self.assertEqual(replay_shard_observations(results_root=fresh, shard_log=shard_log), 1)
             replayed = json.loads((fresh / "parallelism-index.json").read_text(encoding="utf-8"))
             self.assertEqual(replayed["shard_observations"][0]["optimizer_run_id"], "1234")
+
+    def test_optimizer_shard_without_log_still_updates_shared_index(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            results = root / "results"
+            results.mkdir()
+            capture_shard_observation(
+                results_root=results,
+                run_dir=self._run_dir(root, actual_sets=13, shard_count=8, threads=8),
+                runner_label="e7k",
+                github_run_id="1234",
+                shape_sequence=3,
+                pipeline_number=2,
+                shard_index=4,
+                shard_count=8,
+                threads=8,
+                wall_clock_seconds=20.0,
+            )
+            payload = json.loads((results / "parallelism-index.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(payload["shard_observations"]), 1)
 
     def test_optimizer_shard_throughput_uses_locally_evaluated_sets_when_baseline_is_shared(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -1097,6 +1097,14 @@ jobs:
 
             shape_started="$(date +%s)"
             bash hth-pipeline/tools/run-detector-regressions.sh
+
+            # Shard workers checkpoint independently to JSONL so high-pipeline
+            # shapes never contend on the shared parallelism index.  Coalesce
+            # the completed shape once from the parent before continuing.
+            python -m hth.optimizer_capture \
+              --results-root results-repo \
+              --replay-shard-log "$shard_log"
+
             shape_finished="$(date +%s)"
             shape_wall=$((shape_finished - shape_started))
             startup_overhead="$(python - "$HTH_REGRESSION_OUTPUT/optimizer-overhead.json" <<'PYSTARTUP'
