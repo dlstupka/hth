@@ -207,6 +207,13 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           token: ${{ secrets.HTH_RESULTS_TOKEN }}
+          # Dispatcher only needs the persisted optimizer preference index.
+          # Avoid materializing the large results worktree just to decide which
+          # detector optimizers still need to run.
+          sparse-checkout: |
+            /optimizer-index.json
+          sparse-checkout-cone-mode: false
+          show-progress: false
 
       - name: Dispatch selected detector optimizer runs
         shell: bash
@@ -323,6 +330,26 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           token: ${{ github.event_name != 'pull_request' && secrets.HTH_RESULTS_TOKEN || github.token }}
+          # Optimizer runs need the current image set, model/evidence caches,
+          # optimizer history, and root intelligence indexes, but not tens of
+          # thousands of historical regression/debug files. Keep the shallow
+          # checkout and materialize only the paths the optimizer can read or
+          # publish. Publish retries fetch/reset this same sparse worktree.
+          sparse-checkout: |
+            /calibration-index.json
+            /parameter-provenance-index.json
+            /runtime-index.json
+            /parallelism-index.json
+            /optimizer-index.json
+            /optimizer-predictions.json
+            /multidetector-index.json
+            /orli-evidence-index.json
+            /${{ env.IMAGE_ROOT }}/
+            /models/
+            /learned-evidence/
+            /execution-optimizer/
+          sparse-checkout-cone-mode: false
+          show-progress: false
 
       - name: Runner diagnostics
         shell: bash

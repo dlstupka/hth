@@ -51,6 +51,37 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn("inputs.runner == 'self-hosted-e7k'", text)
         self.assertIn("inputs.runner == 'self-hosted-e9k'", text)
 
+    def test_execution_optimizer_results_checkout_is_shallow_sparse_and_quiet(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        optimize_job = text.split("  optimize:", 1)[1]
+        checkout = optimize_job.split("- name: Checkout results repository", 1)[1].split("- name: Runner diagnostics", 1)[0]
+        self.assertIn("fetch-depth: 1", checkout)
+        self.assertIn("sparse-checkout:", checkout)
+        self.assertIn("sparse-checkout-cone-mode: false", checkout)
+        self.assertIn("show-progress: false", checkout)
+        for required in (
+            "/calibration-index.json",
+            "/runtime-index.json",
+            "/parallelism-index.json",
+            "/optimizer-index.json",
+            "/${{ env.IMAGE_ROOT }}/",
+            "/models/",
+            "/learned-evidence/",
+            "/execution-optimizer/",
+        ):
+            self.assertIn(required, checkout)
+        self.assertNotIn("/*\n", checkout)
+
+    def test_execution_optimizer_dispatch_checkout_only_materializes_optimizer_index(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        dispatch_job = text.split("  dispatch-detectors:", 1)[1].split("  optimize:", 1)[0]
+        checkout = dispatch_job.split("- name: Checkout results repository", 1)[1].split("- name: Dispatch selected detector optimizer runs", 1)[0]
+        self.assertIn("fetch-depth: 1", checkout)
+        self.assertIn("/optimizer-index.json", checkout)
+        self.assertIn("sparse-checkout-cone-mode: false", checkout)
+        self.assertIn("show-progress: false", checkout)
+        self.assertNotIn("/models/", checkout)
+
     def test_execution_optimizer_reuses_normal_regression_setup_sequence(self) -> None:
         optimizer = WORKFLOW.read_text(encoding="utf-8")
         regression = REGRESSION.read_text(encoding="utf-8")
