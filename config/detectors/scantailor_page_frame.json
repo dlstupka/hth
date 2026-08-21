@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "scantailor_page_frame",
-  "description": "Initial characterization space for a ScanTailor-style historical scan page-frame detector. HTH independently implements the documented scan-processing idea of locating content under uneven illumination and then searching outward for the physical page frame; no ScanTailor source code is embedded or translated. The first 243-member grid deliberately varies illumination normalization, content thresholding, morphology, projection smoothing, and outward boundary search width so HTH can determine whether this production scan-processing lineage adds useful evidence beyond its existing page detectors.",
+  "description": "Expanded characterization space for a ScanTailor-style historical scan page-frame detector. The first exhaustive run established a useful 0.9300 basin but placed ink quantile and content closing at their lower bounds and projection smoothing at its upper bound. This 2,304-member grid preserves both the original baseline and first winner while extending those boundary-hit domains, widening illumination normalization, and opening the minimum-page-area gate so the next exhaustive pass can distinguish a true optimum from an edge-of-grid result.",
   "profiles": {
     "baseline": {
       "illumination_sigma_fraction": 0.035,
@@ -13,14 +13,63 @@
     }
   },
   "parameters": {
-    "illumination_sigma_fraction": {"type": "float", "values": [0.02, 0.035, 0.06]},
-    "ink_quantile": {"type": "float", "values": [0.76, 0.82, 0.88]},
-    "content_close_fraction": {"type": "float", "values": [0.006, 0.012, 0.022]},
-    "projection_smooth_fraction": {"type": "float", "values": [0.004, 0.008, 0.016]},
-    "boundary_search_margin_fraction": {"type": "float", "values": [0.035, 0.06, 0.10]},
-    "minimum_page_area_fraction": {"type": "float", "values": [0.2]}
+    "illumination_sigma_fraction": {
+      "type": "float",
+      "values": [
+        0.015,
+        0.035,
+        0.06,
+        0.09
+      ]
+    },
+    "ink_quantile": {
+      "type": "float",
+      "values": [
+        0.68,
+        0.76,
+        0.82,
+        0.88
+      ]
+    },
+    "content_close_fraction": {
+      "type": "float",
+      "values": [
+        0.0,
+        0.006,
+        0.012,
+        0.022
+      ]
+    },
+    "projection_smooth_fraction": {
+      "type": "float",
+      "values": [
+        0.004,
+        0.008,
+        0.016,
+        0.028
+      ]
+    },
+    "boundary_search_margin_fraction": {
+      "type": "float",
+      "values": [
+        0.035,
+        0.06,
+        0.1
+      ]
+    },
+    "minimum_page_area_fraction": {
+      "type": "float",
+      "values": [
+        0.12,
+        0.2,
+        0.3
+      ]
+    }
   },
-  "binary_refine": {"passes": 3, "local_exhaustive_radius": 1},
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
   "regression": {
     "debug_artifacts": "winner",
     "full_space_policy": "declared-cartesian",

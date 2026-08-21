@@ -258,23 +258,27 @@ PYPLAN
   fi
 
   if [[ "$sharding_policy" == "auto" ]]; then
-    if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
-      # Replaying an exact optimizer/preferred shape requires one shard per
-      # requested active pipeline. Standalone runtime-based shard planning must
-      # not collapse an N-pipeline optimizer shape back to a single task.
+    exhaustive_shardable=0
+    if [[ "$REGRESSION_MODE" == "full" ]] \
+      && [[ -z "${effective_limit:-}" ]] \
+      && { [[ "$effective_strategy" == "exhaustive" ]] || [[ "$effective_strategy" == "exhaustive-with-zombies" ]]; }; then
+      exhaustive_shardable=1
+    fi
+
+    if (( exhaustive_shardable == 0 )); then
+      # Non-exhaustive work is deliberately one shard per detector. Detector
+      # pipelines are workers that consume independent detector tasks; they are
+      # not a reason to replicate a smoke/contracted search across N shards.
+      planned_shards=1
+      plan_source="non-exhaustive-single-shard"
+    elif [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
+      # Full unlimited exhaustive work may replay an exact optimizer/preferred
+      # shape with one shard per requested active pipeline.
       planned_shards="$effective_pipelines"
       serial_estimate="unknown"
       plan_source="${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-optimizer}-one-shard-per-pipeline"
     else
       planned_shards="$auto_planned_shards"
-    fi
-    if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" != "1" ]] \
-      && { [[ "$REGRESSION_MODE" != "full" ]] || [[ -n "${effective_limit:-}" ]]; }; then
-      # Limited/non-full runs normally stay as one task, but an explicitly exact
-      # pipelines x threads shape is an atomic execution contract. A LIMIT only
-      # bounds the candidate budget inside the runner; it must not collapse an
-      # exact N-pipeline full run back to one shard.
-      planned_shards=1
     fi
   else
     shard_pipeline_count="$effective_pipelines"
@@ -325,7 +329,10 @@ else
   effective_pipelines=$requested_pipelines
 fi
 
-if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" && "$requested_pipelines" != "auto" && "$effective_pipelines" != "$requested_pipelines" ]]; then
+if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" \
+  && "${exhaustive_shardable:-0}" == "1" \
+  && "$requested_pipelines" != "auto" \
+  && "$effective_pipelines" != "$requested_pipelines" ]]; then
   echo "::error::Exact execution shape requested ${requested_pipelines} pipelines but executor resolved ${effective_pipelines} after shard expansion"
   exit 1
 fi
