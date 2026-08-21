@@ -12,6 +12,8 @@ class TopParameterReferenceReportingTests(unittest.TestCase):
         self.assertIn("historic best-known compatible parameter set prior to this regression run", text)
         self.assertIn("_last_build_for_parameter", text)
         self.assertIn("most recent known prior build", text)
+        self.assertIn("return \"new\"", text)
+        self.assertIn("`new` means this run is the first known evaluation", text)
 
     def test_runner_persists_reference_and_search_views(self):
         text = Path("hth/regression/runner.py").read_text(encoding="utf-8")

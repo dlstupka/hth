@@ -673,7 +673,7 @@ def _last_build_for_parameter(
         and not (current_url and row[1] == current_url)
     ]
     if not builds:
-        return "—"
+        return "new"
 
     number, url, _, _ = builds[0]
     label = f"#{number}" if number not in {"current", "unknown"} else ("current" if number == "current" else "unknown")
@@ -1074,7 +1074,7 @@ def build_summary(
             r"\* **Baseline** is the detector's default parameter-set configuration.",
             r"\*\* **Best** is the historic best-known compatible parameter set prior to this regression run.",
             "",
-            "**Last Build** is the most recent known prior build that evaluated the exact absolute parameter identity; the current manifest build is intentionally excluded.",
+            "**Last Build** is the most recent known prior build that evaluated the exact absolute parameter identity; `new` means this run is the first known evaluation of that exact identity, and the current manifest build is intentionally excluded.",
             "",
             "Baseline and Best are mandatory evaluated references in every regression and are not assigned numeric search ranks. If either exact reference parameter set is also present in the requested search, it is evaluated once and shown only as the reference row.",
         ])

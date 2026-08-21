@@ -12,29 +12,31 @@
     "probability_threshold": {
       "type": "float",
       "values": [
-        0.1,
-        0.125,
         0.15,
+        0.1625,
         0.175,
+        0.1875,
         0.2,
+        0.2125,
         0.225,
-        0.25,
-        0.275,
-        0.3
+        0.2375,
+        0.25
       ]
     },
     "close_kernel_fraction": {
       "type": "float",
       "values": [
-        0.01,
-        0.012,
-        0.014,
-        0.016,
-        0.018,
         0.02,
         0.022,
         0.024,
-        0.026
+        0.026,
+        0.028,
+        0.03,
+        0.032,
+        0.034,
+        0.036,
+        0.038,
+        0.04
       ]
     },
     "minimum_page_area_fraction": {
@@ -63,7 +65,7 @@
   },
   "optimizer_shape_compatibility": "detector-implementation",
   "detector": "docextractor_page_mask",
-  "description": "docExtractor historical ResUNet detector targeted refinement. Probability threshold and close-kernel fraction remain the searched Critical interaction; low-effect minimum-area rejection and Dormant padding are now explicit singleton grid dimensions so every candidate carries the complete detector parameter identity, the incumbent baseline is a reconstructable grid member, and refinement provenance/reporting remains exact.",
+  "description": "docExtractor historical ResUNet detector final targeted refinement. The prior 81-set pass moved the winner to close_kernel_fraction=0.026 at the upper searched boundary while preserving probability_threshold=0.2. This 99-set interaction grid extends closing upward through 0.04 and tightens threshold coverage around 0.2/0.225, while keeping the measured-Zombie minimum-area and padding dimensions explicit singleton controls for complete identities and provenance.",
   "lifecycle": {
     "prepare": "docextractor_page_mask",
     "model_policy": "reuse",
