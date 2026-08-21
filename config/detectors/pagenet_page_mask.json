@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "pagenet_page_mask",
-  "description": "Explicit PageNet Ohio historical page-boundary detector using the same released Caffe checkpoint and proven OpenCV-DNN execution path as learned_page_mask; retained as a distinct detector identity for comparative research. The initial 50,000-set exhaustive calibration is treated as characterized evidence, with minimum mask area enrolled as a measured zombie so normal future searches do not spend evaluations on an empirically inert dimension.",
+  "description": "Explicit PageNet Ohio historical page-boundary detector using the same released Caffe checkpoint and proven OpenCV-DNN execution path as learned_page_mask; retained as a distinct detector identity for comparative research. The completed 50,000-set characterization is now contracted to a compact 250-member routine regression grid centered on the measured 0.8868 winner, while preserving the exact winning parameter set and the audited minimum-mask-area zombie for explicit exhaustive-with-zombies revalidation.",
   "profiles": {
     "baseline": {
       "mask_threshold": 0.5,
@@ -15,31 +15,11 @@
     "mask_threshold": {
       "type": "float",
       "values": [
-        0.204,
-        0.206,
-        0.208,
-        0.21,
-        0.212,
-        0.214,
-        0.216,
-        0.218,
-        0.22,
         0.222,
         0.224,
         0.226,
         0.228,
-        0.23,
-        0.232,
-        0.234,
-        0.236,
-        0.238,
-        0.24,
-        0.242,
-        0.244,
-        0.246,
-        0.248,
-        0.25,
-        0.5
+        0.23
       ]
     },
     "close_kernel_fraction": {
@@ -52,56 +32,21 @@
     "polygon_epsilon_fraction": {
       "type": "float",
       "values": [
-        0.012,
-        0.014,
-        0.0145,
-        0.015,
-        0.0155,
-        0.016,
-        0.0165,
-        0.017,
-        0.0175,
-        0.018,
-        0.0185,
-        0.019,
         0.0195,
         0.02,
         0.0205,
         0.021,
-        0.0215,
-        0.022,
-        0.0225,
-        0.023
+        0.0215
       ]
     },
     "bbox_padding_fraction": {
       "type": "float",
       "values": [
-        0.0,
-        0.02,
-        0.021,
-        0.022,
-        0.023,
-        0.024,
-        0.025,
-        0.026,
         0.027,
         0.028,
         0.029,
         0.03,
-        0.031,
-        0.032,
-        0.033,
-        0.034,
-        0.035,
-        0.036,
-        0.037,
-        0.038,
-        0.039,
-        0.04,
-        0.041,
-        0.042,
-        0.043
+        0.031
       ]
     }
   },
@@ -114,7 +59,7 @@
     "full_space_policy": "declared-cartesian",
     "full_space_max_parameter_sets": 50176,
     "historic_best_reference": "mandatory-exact",
-    "previous_declared_parameter_sets": 50000
+    "previous_declared_parameter_sets": 25000
   },
   "lifecycle": {
     "prepare": "pagenet_page_mask",

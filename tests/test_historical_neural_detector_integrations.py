@@ -100,7 +100,20 @@ class HistoricalNeuralDetectorIntegrationTests(unittest.TestCase):
         self.assertEqual(zombie["pinned_value"], 0.04)
         self.assertEqual(zombie["classification"], "zombie")
         self.assertEqual(config["equivalence_parameters"], ["minimum_mask_area_fraction"])
-        self.assertEqual(len(generate(config)), 25000)
+        self.assertEqual(config["parameters"]["mask_threshold"]["values"], [0.222, 0.224, 0.226, 0.228, 0.23])
+        self.assertEqual(config["parameters"]["close_kernel_fraction"]["values"], [0.0, 0.006])
+        self.assertEqual(config["parameters"]["polygon_epsilon_fraction"]["values"], [0.0195, 0.02, 0.0205, 0.021, 0.0215])
+        self.assertEqual(config["parameters"]["bbox_padding_fraction"]["values"], [0.027, 0.028, 0.029, 0.03, 0.031])
+        winner = {
+            "mask_threshold": 0.226,
+            "minimum_mask_area_fraction": 0.04,
+            "close_kernel_fraction": 0.0,
+            "polygon_epsilon_fraction": 0.0205,
+            "bbox_padding_fraction": 0.029,
+        }
+        generated = generate(config)
+        self.assertEqual(len(generated), 251)
+        self.assertIn(winner, generated)
 
     def test_docextractor_refinement_focuses_critical_interaction_basin(self):
         config = json.loads((ROOT / "config/detectors/docextractor_page_mask.json").read_text(encoding="utf-8"))
