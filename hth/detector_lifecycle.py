@@ -1,6 +1,6 @@
 # detector lifecycle
 from __future__ import annotations
-import argparse, hashlib, importlib.metadata, importlib.resources, importlib.util, json, os, re, shlex, shutil, tempfile, urllib.request, zipfile
+import argparse, hashlib, importlib.metadata, importlib.resources, importlib.util, json, os, re, shlex, shutil, struct, tempfile, urllib.request, zipfile
 import cv2
 import numpy as np
 from datetime import datetime, timezone
@@ -66,18 +66,127 @@ def _sha256(path):
         for chunk in iter(lambda:f.read(1024*1024),b""): h.update(chunk)
     return h.hexdigest()
 
-def _download(url,target):
+def _validate_zip_file(path):
+    path=Path(path)
+    try:
+        with zipfile.ZipFile(path) as zf:
+            bad=zf.testzip()
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise RuntimeError(f"invalid ZIP archive: {exc}") from exc
+    if bad is not None:
+        raise RuntimeError(f"invalid ZIP archive member: {bad}")
+
+
+def _validate_safetensors_file(path):
+    """Validate the on-disk safetensors container without loading tensor data.
+
+    This mirrors the format invariants needed to reject interrupted/truncated
+    downloads before a detector library sees them: complete JSON header, valid
+    tensor offsets, no overlaps/gaps, and exact coverage of the data section.
+    """
+    path=Path(path)
+    size=path.stat().st_size
+    if size < 10:
+        raise RuntimeError(f"safetensors file is too small ({size} bytes)")
+    with path.open("rb") as handle:
+        raw=handle.read(8)
+        if len(raw) != 8:
+            raise RuntimeError("safetensors file has an incomplete header length")
+        header_size=struct.unpack("<Q",raw)[0]
+        if header_size <= 1 or header_size > size-8:
+            raise RuntimeError(
+                f"safetensors header length {header_size} exceeds file payload {size-8}"
+            )
+        header_raw=handle.read(header_size)
+    if len(header_raw) != header_size:
+        raise RuntimeError("safetensors metadata header is truncated")
+    try:
+        header=json.loads(header_raw.decode("utf-8").rstrip(" "))
+    except (UnicodeDecodeError,json.JSONDecodeError) as exc:
+        raise RuntimeError(f"safetensors metadata header is invalid JSON: {exc}") from exc
+    if not isinstance(header,dict):
+        raise RuntimeError("safetensors metadata header is not an object")
+    data_size=size-8-header_size
+    spans=[]
+    for name,meta in header.items():
+        if name == "__metadata__":
+            continue
+        if not isinstance(meta,dict) or "data_offsets" not in meta:
+            raise RuntimeError(f"safetensors tensor {name!r} has no data_offsets")
+        offsets=meta["data_offsets"]
+        if (
+            not isinstance(offsets,list) or len(offsets)!=2
+            or not all(isinstance(value,int) for value in offsets)
+        ):
+            raise RuntimeError(f"safetensors tensor {name!r} has invalid data_offsets")
+        start,end=offsets
+        if start < 0 or end < start or end > data_size:
+            raise RuntimeError(
+                f"safetensors tensor {name!r} offsets [{start}, {end}] exceed data size {data_size}"
+            )
+        spans.append((start,end,name))
+    if not spans:
+        raise RuntimeError("safetensors file contains no tensors")
+    spans.sort()
+    cursor=0
+    for start,end,name in spans:
+        if start != cursor:
+            relation="overlaps prior tensor data" if start < cursor else "leaves uncovered tensor data"
+            raise RuntimeError(f"safetensors tensor {name!r} {relation} at offset {start}; expected {cursor}")
+        cursor=end
+    if cursor != data_size:
+        raise RuntimeError(
+            f"safetensors tensor data covers {cursor} bytes but file contains {data_size} bytes"
+        )
+
+
+def _validator_for_path(path):
+    suffix=Path(path).suffix.lower()
+    if suffix == ".safetensors":
+        return _validate_safetensors_file
+    if suffix == ".zip":
+        return _validate_zip_file
+    return None
+
+
+def _download(url,target,*,validator=None):
     target=Path(target); target.parent.mkdir(parents=True,exist_ok=True)
+    validator=validator or _validator_for_path(target)
     with tempfile.NamedTemporaryFile(dir=target.parent,delete=False) as h: tmp=Path(h.name)
     try:
         with urllib.request.urlopen(url) as response, tmp.open("wb") as out:
             shutil.copyfileobj(response,out)
+        if validator is not None:
+            validator(tmp)
         tmp.replace(target)
     finally:
         tmp.unlink(missing_ok=True)
 
 
-def _download_from_sources(sources, target, *, artifact, variant):
+def _cached_artifact_problem(path,*,expected_sha256=None,validator=None):
+    path=Path(path)
+    if not path.is_file():
+        return "missing"
+    if expected_sha256 is not None:
+        actual=_sha256(path)
+        if actual != expected_sha256:
+            return f"SHA-256 mismatch expected={expected_sha256} actual={actual}"
+    if validator is not None:
+        try:
+            validator(path)
+        except Exception as exc:
+            return f"{type(exc).__name__}: {exc}"
+    return None
+
+
+def _log_cache_repair(*,detector,artifact,path,reason):
+    print(
+        f"Model cache invalid: detector={detector} artifact={artifact} "
+        f"path={Path(path)} reason={reason}; action=refetch-artifact"
+    )
+
+
+def _download_from_sources(sources, target, *, artifact, variant, validator=None):
     sources=tuple(sources or ())
     if not sources:
         raise RuntimeError(f"{variant} has no registered {artifact} download sources")
@@ -90,7 +199,10 @@ def _download_from_sources(sources, target, *, artifact, variant):
         ref=f" reference={reference}" if reference else ""
         print(f"Model download: variant={variant} artifact={artifact} attempt={attempt}/{len(sources)} site={site}{ref}")
         try:
-            _download(url,target)
+            if validator is None:
+                _download(url,target)
+            else:
+                _download(url,target,validator=validator)
         except Exception as exc:
             detail=f"{type(exc).__name__}: {exc}"
             failures.append(f"{site}: {detail}")
@@ -538,7 +650,32 @@ def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
     root=Path(results_root)/"models"/ORLI_MODEL_ID
     model=root/"orli_base.safetensors"
     provenance=root/"model-provenance.json"
-    complete=model.is_file() and provenance.is_file()
+    payload=None
+    if provenance.is_file():
+        try:
+            payload=json.loads(provenance.read_text(encoding="utf-8"))
+        except (OSError,json.JSONDecodeError) as exc:
+            _log_cache_repair(
+                detector="orli_page_mask", artifact=provenance.name, path=provenance,
+                reason=f"{type(exc).__name__}: {exc}",
+            )
+            provenance.unlink(missing_ok=True)
+
+    expected_sha=(payload or {}).get("model_sha256")
+    model_problem=_cached_artifact_problem(
+        model, expected_sha256=expected_sha, validator=_validate_safetensors_file
+    )
+    if policy != "refresh" and model_problem not in {None,"missing"}:
+        _log_cache_repair(
+            detector="orli_page_mask", artifact=model.name, path=model, reason=model_problem
+        )
+        # The provenance describes this exact artifact.  Invalidate only the
+        # broken model/provenance pair; all other detector caches remain intact.
+        model.unlink(missing_ok=True)
+        provenance.unlink(missing_ok=True)
+        payload=None
+
+    complete=model.is_file() and provenance.is_file() and model_problem is None
     if policy=="refresh" or not complete:
         root.mkdir(parents=True,exist_ok=True)
         _download(ORLI_MODEL_URL,model)
@@ -553,9 +690,14 @@ def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
             "device":"cpu",
         }
         provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
-    payload=json.loads(provenance.read_text(encoding="utf-8"))
-    if payload.get("model_sha256") != _sha256(model):
-        raise RuntimeError("Orli base model SHA mismatch")
+    else:
+        payload=json.loads(provenance.read_text(encoding="utf-8"))
+
+    problem=_cached_artifact_problem(
+        model, expected_sha256=payload.get("model_sha256"), validator=_validate_safetensors_file
+    )
+    if problem is not None:
+        raise RuntimeError(f"Orli base model cache validation failed after preparation: {problem}")
     env={"HTH_ORLI_PAGE_MODEL":model.resolve().as_posix(), "HTH_ORLI_PAGE_PROVENANCE":provenance.resolve().as_posix(), "CUDA_VISIBLE_DEVICES":"-1"}
     _write_env(env_file,env); os.environ.update(env)
     print(f"Orli Page-Mask ready: model={ORLI_MODEL_ID} orli={installed_version} model_sha256={str(payload.get('model_sha256') or '')[:12]}")
@@ -655,6 +797,7 @@ def _prepare_docextractor_page_mask_hook(*,results_root,policy,env_file):
                 print(f"Model download: variant=docextractor_page_mask artifact=models.zip attempt=2/2 site=Google Drive / docExtractor reference={DOCEXTRACTOR_GDRIVE_ID}")
                 result=gdown.download(id=DOCEXTRACTOR_GDRIVE_ID,output=str(model_archive),quiet=False)
                 if not result or not model_archive.is_file(): raise RuntimeError("gdown did not produce models.zip")
+                _validate_zip_file(model_archive)
                 model_source={"site":"Google Drive / docExtractor","reference":DOCEXTRACTOR_GDRIVE_ID}
             except Exception as second:
                 raise RuntimeError(f"All docExtractor model download sources failed: ENPC: {first}; Google Drive: {second}") from second
