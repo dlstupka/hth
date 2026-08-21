@@ -23,16 +23,18 @@ class ScanTailorPageFrameTests(unittest.TestCase):
         self.assertIn("ScanTailor-style scan processing", spec.foundation)
         self.assertIn("scantailor", spec.repository)
 
-    def test_declared_grid_is_expanded_2304_member_characterization(self):
+    def test_declared_grid_is_targeted_480_member_refinement(self):
         payload = json.loads(Path("config/detectors/scantailor_page_frame.json").read_text(encoding="utf-8"))
         count = 1
         for item in payload["parameters"].values():
             count *= len(item["values"])
-        self.assertEqual(count, 2304)
+        self.assertEqual(count, 480)
         self.assertEqual(payload["profiles"]["baseline"], detector.BASELINE_PARAMETERS)
         self.assertIn(0.76, payload["parameters"]["ink_quantile"]["values"])
         self.assertIn(0.0, payload["parameters"]["content_close_fraction"]["values"])
-        self.assertIn(0.016, payload["parameters"]["projection_smooth_fraction"]["values"])
+        self.assertIn(0.001, payload["parameters"]["projection_smooth_fraction"]["values"])
+        self.assertIn(0.004, payload["parameters"]["projection_smooth_fraction"]["values"])
+        self.assertIn(0.06, payload["parameters"]["boundary_search_margin_fraction"]["values"])
         self.assertIn(0.2, payload["parameters"]["minimum_page_area_fraction"]["values"])
 
     def test_synthetic_page_produces_plausible_frame(self):
