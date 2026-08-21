@@ -104,10 +104,12 @@ class HistoricalNeuralDetectorIntegrationTests(unittest.TestCase):
 
     def test_docextractor_refinement_focuses_critical_interaction_basin(self):
         config = json.loads((ROOT / "config/detectors/docextractor_page_mask.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(generate(config)), 99)
+        self.assertEqual(len(generate(config)), 100)
         self.assertEqual(set(config["parameters"]), {"probability_threshold", "close_kernel_fraction", "minimum_page_area_fraction", "page_padding_fraction"})
-        self.assertEqual(config["parameters"]["probability_threshold"]["values"], [0.15, 0.1625, 0.175, 0.1875, 0.2, 0.2125, 0.225, 0.2375, 0.25])
-        self.assertEqual(config["parameters"]["close_kernel_fraction"]["values"], [0.02, 0.022, 0.024, 0.026, 0.028, 0.03, 0.032, 0.034, 0.036, 0.038, 0.04])
+        self.assertEqual(config["parameters"]["probability_threshold"]["values"], [0.2125, 0.215, 0.2175, 0.22, 0.2225, 0.225, 0.2275, 0.23, 0.2325, 0.235, 0.2375])
+        self.assertEqual(config["parameters"]["close_kernel_fraction"]["values"], [0.024, 0.025, 0.026, 0.027, 0.028, 0.029, 0.03, 0.031, 0.032])
+        self.assertIn(0.225, config["parameters"]["probability_threshold"]["values"])
+        self.assertIn(0.028, config["parameters"]["close_kernel_fraction"]["values"])
         self.assertEqual(config["profiles"]["baseline"]["minimum_page_area_fraction"], 0.02)
         self.assertEqual(config["profiles"]["baseline"]["page_padding_fraction"], 0.0)
         self.assertEqual(config["parameters"]["minimum_page_area_fraction"]["values"], [0.02])

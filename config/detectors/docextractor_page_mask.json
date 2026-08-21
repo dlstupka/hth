@@ -12,31 +12,31 @@
     "probability_threshold": {
       "type": "float",
       "values": [
-        0.15,
-        0.1625,
-        0.175,
-        0.1875,
-        0.2,
         0.2125,
+        0.215,
+        0.2175,
+        0.22,
+        0.2225,
         0.225,
-        0.2375,
-        0.25
+        0.2275,
+        0.23,
+        0.2325,
+        0.235,
+        0.2375
       ]
     },
     "close_kernel_fraction": {
       "type": "float",
       "values": [
-        0.02,
-        0.022,
         0.024,
+        0.025,
         0.026,
+        0.027,
         0.028,
+        0.029,
         0.03,
-        0.032,
-        0.034,
-        0.036,
-        0.038,
-        0.04
+        0.031,
+        0.032
       ]
     },
     "minimum_page_area_fraction": {
@@ -61,11 +61,11 @@
     "full_space_policy": "declared-cartesian",
     "full_space_max_parameter_sets": 50176,
     "historic_best_reference": "mandatory-exact",
-    "previous_declared_parameter_sets": 81
+    "previous_declared_parameter_sets": 99
   },
   "optimizer_shape_compatibility": "detector-implementation",
   "detector": "docextractor_page_mask",
-  "description": "docExtractor historical ResUNet detector final targeted refinement. The prior 81-set pass moved the winner to close_kernel_fraction=0.026 at the upper searched boundary while preserving probability_threshold=0.2. This 99-set interaction grid extends closing upward through 0.04 and tightens threshold coverage around 0.2/0.225, while keeping the measured-Zombie minimum-area and padding dimensions explicit singleton controls for complete identities and provenance.",
+  "description": "docExtractor historical ResUNet detector final interaction-focused micro-refinement. The prior 99-set pass improved Avg IoU to 0.9344 at probability_threshold=0.225 and close_kernel_fraction=0.028, with both remaining active dimensions classified Critical and a strong measured interaction. This pass uses a 99-member search micro-grid resolving threshold in 0.0025 increments from 0.2125 through 0.2375 and closing in 0.001 increments from 0.024 through 0.032 around that winner, plus the mandatory detector-baseline reference; the measured-Zombie minimum-area and padding controls remain explicit singleton dimensions for complete identities and provenance.",
   "lifecycle": {
     "prepare": "docextractor_page_mask",
     "model_policy": "reuse",
