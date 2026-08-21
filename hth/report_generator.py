@@ -472,7 +472,11 @@ def generate_optimizer_report(results_root: Path, detector: str, output_dir: Pat
     summary = output_dir / "summary.md"
     profile = output_dir / "heatmap.svg"
     summary.write_text(render_markdown(current, run_metadata, preferred_index=preferred), encoding="utf-8")
-    profile.write_text(render_heatmap_svg(preferred), encoding="utf-8")
+    # The single-run report's shape table is run-local, so its profile must be
+    # rendered from the same current-run index.  Using the coalesced preferred
+    # index here can leave the plot showing an older compatible optimization
+    # landscape while the table below shows the newly completed exhaustive run.
+    profile.write_text(render_heatmap_svg(current), encoding="utf-8")
     return {"summary": summary, "profile": profile}
 
 

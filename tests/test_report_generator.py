@@ -133,6 +133,32 @@ class ReportGeneratorTests(unittest.TestCase):
             self.assertIn("| 2 | 2 | 1 |", text)
             self.assertNotIn("| 1 | 1 | 1 |", text)
 
+    def test_optimizer_report_profile_uses_current_run_not_coalesced_historical_shapes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            optimizer = {
+                "schema_version": 2,
+                "runs": {
+                    "1": {"detector_id": "eynollah_page_mask", "status": "completed", "run_metadata": {"pipeline_enumeration": "exhaustive"}},
+                    "2": {"detector_id": "eynollah_page_mask", "status": "completed", "run_metadata": {"pipeline_enumeration": "exhaustive"}},
+                },
+                "detectors": {"eynollah_page_mask": {}},
+            }
+            parallelism = {"observations": [
+                {"detector_id": "eynollah_page_mask", "optimizer_run_id": "1", "source": "execution-optimizer", "mode": "full", "strategy": "exhaustive", "actual_parameter_sets": 10, "possible_parameter_sets": 10, "active_pipelines": 32, "shards": 32, "threads_per_pipeline": 12, "allocated_threads": 384, "wall_clock_seconds": 40, "parameter_sets_per_second": 2.0, "execution_shape": "32p/12t", "optimizer_shape_sequence": 1, "runner": {"runner_label": "e7k", "runner_name": "host", "logical_cpu_count": 192}},
+                {"detector_id": "eynollah_page_mask", "optimizer_run_id": "2", "source": "execution-optimizer", "mode": "full", "strategy": "exhaustive", "actual_parameter_sets": 10, "possible_parameter_sets": 10, "active_pipelines": 2, "shards": 2, "threads_per_pipeline": 192, "allocated_threads": 384, "wall_clock_seconds": 20, "parameter_sets_per_second": 4.0, "execution_shape": "2p/192t", "optimizer_shape_sequence": 1, "runner": {"runner_label": "e7k", "runner_name": "host", "logical_cpu_count": 192}},
+                {"detector_id": "eynollah_page_mask", "optimizer_run_id": "2", "source": "execution-optimizer", "mode": "full", "strategy": "exhaustive", "actual_parameter_sets": 10, "possible_parameter_sets": 10, "active_pipelines": 16, "shards": 16, "threads_per_pipeline": 24, "allocated_threads": 384, "wall_clock_seconds": 10, "parameter_sets_per_second": 8.0, "execution_shape": "16p/24t", "optimizer_shape_sequence": 2, "runner": {"runner_label": "e7k", "runner_name": "host", "logical_cpu_count": 192}},
+            ]}
+            (root / "optimizer-index.json").write_text(json.dumps(optimizer), encoding="utf-8")
+            (root / "parallelism-index.json").write_text(json.dumps(parallelism), encoding="utf-8")
+            self._write_completed_optimizer_summary(root, "eynollah_page_mask", "2")
+            paths = generate_optimizer_report(root, "eynollah_page_mask", root / "out")
+            profile = paths["profile"].read_text(encoding="utf-8")
+            self.assertIn(">16<", profile)
+            self.assertNotIn(">32<", profile)
+            self.assertIn("192t", profile)
+            self.assertIn("24t", profile)
+
     def test_optimizer_report_regenerates_legacy_completed_report_from_latest_run_only(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
