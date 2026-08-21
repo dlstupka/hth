@@ -85,8 +85,10 @@ class HistoricalNeuralDetectorIntegrationTests(unittest.TestCase):
     def test_eynollah_refinement_focuses_active_basin_and_preserves_zombie_audit(self):
         config = json.loads((ROOT / "config/detectors/eynollah_page_mask.json").read_text(encoding="utf-8"))
         self.assertEqual(len(generate(config)), 81)
-        self.assertEqual(config["parameters"]["probability_threshold"]["values"], [0.2, 0.2125, 0.225, 0.2375, 0.25, 0.2625, 0.275, 0.2875, 0.3])
-        self.assertEqual(config["parameters"]["page_padding_fraction"]["values"], [0.0035, 0.0045, 0.0055, 0.0065, 0.0075, 0.0085, 0.0095, 0.0105, 0.0115])
+        self.assertEqual(config["parameters"]["probability_threshold"]["values"], [0.245, 0.25, 0.255, 0.26, 0.2625, 0.265, 0.27, 0.275, 0.28])
+        self.assertEqual(config["parameters"]["page_padding_fraction"]["values"], [0.0075, 0.008, 0.0085, 0.009, 0.0095, 0.01, 0.0105, 0.011, 0.0115])
+        self.assertEqual(config["profiles"]["baseline"]["probability_threshold"], 0.2625)
+        self.assertEqual(config["profiles"]["baseline"]["page_padding_fraction"], 0.0095)
         self.assertEqual(config["zombie_parameters"]["close_kernel_fraction"]["pinned_value"], 0.0)
         self.assertEqual(config["zombie_parameters"]["minimum_page_area_fraction"]["pinned_value"], 0.02)
         self.assertEqual(set(config["equivalence_parameters"]), {"close_kernel_fraction", "minimum_page_area_fraction"})
@@ -102,12 +104,15 @@ class HistoricalNeuralDetectorIntegrationTests(unittest.TestCase):
 
     def test_docextractor_refinement_focuses_critical_interaction_basin(self):
         config = json.loads((ROOT / "config/detectors/docextractor_page_mask.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(generate(config)), 82)
-        self.assertEqual(set(config["parameters"]), {"probability_threshold", "close_kernel_fraction"})
+        self.assertEqual(len(generate(config)), 81)
+        self.assertEqual(set(config["parameters"]), {"probability_threshold", "close_kernel_fraction", "minimum_page_area_fraction", "page_padding_fraction"})
         self.assertEqual(config["parameters"]["probability_threshold"]["values"], [0.1, 0.125, 0.15, 0.175, 0.2, 0.225, 0.25, 0.275, 0.3])
         self.assertEqual(config["parameters"]["close_kernel_fraction"]["values"], [0.01, 0.012, 0.014, 0.016, 0.018, 0.02, 0.022, 0.024, 0.026])
         self.assertEqual(config["profiles"]["baseline"]["minimum_page_area_fraction"], 0.02)
         self.assertEqual(config["profiles"]["baseline"]["page_padding_fraction"], 0.0)
+        self.assertEqual(config["parameters"]["minimum_page_area_fraction"]["values"], [0.02])
+        self.assertEqual(config["parameters"]["page_padding_fraction"]["values"], [0.0])
+        self.assertEqual(generate(config)[0], config["profiles"]["baseline"])
 
     def test_docextractor_managed_runtime_includes_upstream_toolz_dependency(self):
         runtime = (ROOT / "tools/ensure-managed-runtime.sh").read_text(encoding="utf-8")

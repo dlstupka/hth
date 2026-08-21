@@ -928,9 +928,10 @@ def build_summary(
         "|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|",
         f"| Winner | `{golden_set_id}` | `{detector_config_id}` | `{_parameter_family_id(winner)}` | `{_parameter_id(winner)}` | `{_parameter_short_name(winner)}` | {_number(winner_stats.get('mean_iou'))} | {_number(winner_stats.get('minimum_iou'))} | {_number(winner_stats.get('stddev_iou'))} | {_number(winner_stats.get('mean_iou_success', winner_stats.get('mean_iou')))} | {winner_stats.get('failure_count', 'unknown')} | {_duration(_evaluation_seconds(winner))} |",
     ])
-    if baseline and _parameter_id(baseline) != _parameter_id(winner):
+    if baseline:
+        baseline_label = "Baseline (same as winner)" if _parameter_id(baseline) == _parameter_id(winner) else "Baseline"
         lines.append(
-            f"| Baseline | `{golden_set_id}` | `{detector_config_id}` | `{_parameter_family_id(baseline)}` | `{_parameter_id(baseline)}` | `{_parameter_short_name(baseline)}` | "
+            f"| {baseline_label} | `{golden_set_id}` | `{detector_config_id}` | `{_parameter_family_id(baseline)}` | `{_parameter_id(baseline)}` | `{_parameter_short_name(baseline)}` | "
             f"{_number(baseline_stats.get('mean_iou'))} | "
             f"{_number(baseline_stats.get('minimum_iou'))} | "
             f"{_number(baseline_stats.get('stddev_iou'))} | "
@@ -1132,7 +1133,12 @@ def build_summary(
             f"Total winner changes: **{progress.get('winner_changes', 0)}**.",
             f"Search completed in **{_duration(info.get('wall_elapsed_seconds', info.get('elapsed_seconds')))}** wall-clock time.",
             "",
-            f"**Stabilization Interpretation:** {_stabilization_interpretation(winner_history[-1] if winner_history else {})}",
+            f"**Stabilization Interpretation:** "
+            + (
+                _stabilization_interpretation(winner_history[-1])
+                if winner_history
+                else "Stable throughout — no evaluated search member strictly improved on the starting baseline/incumbent."
+            ),
         ])
 
         thresholds = winner_page_report.get("thresholds", {})

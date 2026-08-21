@@ -2,38 +2,38 @@
   "schema_version": "0.1",
   "profiles": {
     "baseline": {
-      "probability_threshold": 0.25,
+      "probability_threshold": 0.2625,
       "minimum_page_area_fraction": 0.02,
       "close_kernel_fraction": 0.0,
-      "page_padding_fraction": 0.0075
+      "page_padding_fraction": 0.0095
     }
   },
   "parameters": {
     "probability_threshold": {
       "type": "float",
       "values": [
-        0.2,
-        0.2125,
-        0.225,
-        0.2375,
+        0.245,
         0.25,
+        0.255,
+        0.26,
         0.2625,
+        0.265,
+        0.27,
         0.275,
-        0.2875,
-        0.3
+        0.28
       ]
     },
     "page_padding_fraction": {
       "type": "float",
       "values": [
-        0.0035,
-        0.0045,
-        0.0055,
-        0.0065,
         0.0075,
+        0.008,
         0.0085,
+        0.009,
         0.0095,
+        0.01,
         0.0105,
+        0.011,
         0.0115
       ]
     }
@@ -47,11 +47,11 @@
     "full_space_policy": "declared-cartesian",
     "full_space_max_parameter_sets": 50176,
     "historic_best_reference": "mandatory-exact",
-    "previous_declared_parameter_sets": 99
+    "previous_declared_parameter_sets": 81
   },
   "optimizer_shape_compatibility": "detector-implementation",
   "detector": "eynollah_page_mask",
-  "description": "Eynollah historical page-extraction segmentation detector in final micro-refinement. The released SBB SavedModel and shared Golden Set inference remain fixed; search is narrowed around the 0.9632 HTH-0001 winner on the only active controls, probability threshold and page padding. Previously audited morphology and minimum-area zombies remain enrolled and pinned for normal search.",
+  "description": "Eynollah historical page-extraction segmentation detector in final interaction-focused micro-refinement. The released SBB SavedModel and shared Golden Set inference remain fixed; search resolves the measured probability-threshold x page-padding interaction around the 0.9641 HTH-0001 winner, including modest upward padding coverage while the two audited zombies remain pinned.",
   "lifecycle": {
     "prepare": "eynollah_page_mask",
     "model_policy": "reuse",

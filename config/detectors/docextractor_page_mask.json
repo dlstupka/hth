@@ -36,6 +36,18 @@
         0.024,
         0.026
       ]
+    },
+    "minimum_page_area_fraction": {
+      "type": "float",
+      "values": [
+        0.02
+      ]
+    },
+    "page_padding_fraction": {
+      "type": "float",
+      "values": [
+        0.0
+      ]
     }
   },
   "binary_refine": {
@@ -47,11 +59,11 @@
     "full_space_policy": "declared-cartesian",
     "full_space_max_parameter_sets": 50176,
     "historic_best_reference": "mandatory-exact",
-    "previous_declared_parameter_sets": 2000
+    "previous_declared_parameter_sets": 81
   },
   "optimizer_shape_compatibility": "detector-implementation",
   "detector": "docextractor_page_mask",
-  "description": "docExtractor historical ResUNet detector after the initial 2,000-set exhaustive HTH-0001 characterization. The released model and shared Golden Set inference remain fixed while this targeted refinement concentrates on the two measured Critical, strongly interacting controls: probability threshold and close-kernel fraction. Low-effect minimum-area rejection and Dormant padding are pinned at the current winner.",
+  "description": "docExtractor historical ResUNet detector targeted refinement. Probability threshold and close-kernel fraction remain the searched Critical interaction; low-effect minimum-area rejection and Dormant padding are now explicit singleton grid dimensions so every candidate carries the complete detector parameter identity, the incumbent baseline is a reconstructable grid member, and refinement provenance/reporting remains exact.",
   "lifecycle": {
     "prepare": "docextractor_page_mask",
     "model_policy": "reuse",

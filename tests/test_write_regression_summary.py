@@ -714,6 +714,55 @@ class LegacyMetricNormalizationTests(unittest.TestCase):
         self.assertEqual(stats["mean_iou"],0.72)
         self.assertEqual(stats["mean_iou_success"],0.90)
 
+    def test_result_table_keeps_baseline_visible_when_it_is_also_winner(self):
+        with tempfile.TemporaryDirectory() as td:
+            run = Path(td) / "run"
+            (run / "reports").mkdir(parents=True)
+            (run / "RUN-INFO.json").write_text(json.dumps({"detector": "grabcut", "golden_set_id": "HTH-0001"}), encoding="utf-8")
+            (run / "manifest.json").write_text(json.dumps({"run_id": "run", "detector": "grabcut", "strategy": "exhaustive", "status": "complete", "outputs": []}), encoding="utf-8")
+            (run / "parameters.json").write_text(json.dumps({"configuration": {"profiles": {"baseline": {"iterations": 1}}}}), encoding="utf-8")
+            same = {
+                "parameter_set_id": "same",
+                "parameter_set_equivalence_family_id": "same-family",
+                "profile": "baseline",
+                "parameters": {"iterations": 1},
+                "summary": {"mean_iou": .9, "minimum_iou": .8, "stddev_iou": .01, "mean_iou_success": .9, "failure_count": 0, "elapsed_ms_total": 10},
+                "pages": [],
+            }
+            (run / "reports" / "summary.json").write_text(json.dumps({
+                "detector": "grabcut", "winner": same, "baseline": same,
+                "progress": {"winner_changes": 0, "winner_history": []},
+            }), encoding="utf-8")
+            text = build_summary(run, "", parameter_build_index={})
+            self.assertIn("Baseline (same as winner)", text)
+
+    def test_no_improvement_history_reports_stable_throughout(self):
+        with tempfile.TemporaryDirectory() as td:
+            run = Path(td) / "run"
+            (run / "reports").mkdir(parents=True)
+            (run / "RUN-INFO.json").write_text(json.dumps({"detector": "grabcut", "golden_set_id": "HTH-0001"}), encoding="utf-8")
+            (run / "manifest.json").write_text(json.dumps({"run_id": "run", "detector": "grabcut", "strategy": "exhaustive", "status": "complete", "outputs": []}), encoding="utf-8")
+            (run / "parameters.json").write_text(json.dumps({"configuration": {"profiles": {"baseline": {"iterations": 1}}}}), encoding="utf-8")
+            same = {
+                "parameter_set_id": "same",
+                "parameter_set_equivalence_family_id": "same-family",
+                "profile": "baseline",
+                "parameters": {"iterations": 1},
+                "summary": {"mean_iou": .9, "minimum_iou": .8, "stddev_iou": .01, "mean_iou_success": .9, "failure_count": 0, "elapsed_ms_total": 10},
+                "pages": [{"global_ordinal": 1, "status": "ok", "iou": .9}],
+            }
+            (run / "reports" / "summary.json").write_text(json.dumps({
+                "detector": "grabcut", "winner": same, "baseline": same,
+                "winner_page_report": {
+                    "pages": [{"golden_set_page": 1, "baseline_iou": .9, "winner_iou": .9, "delta_iou": 0.0, "status": "Unchanged", "parameter_set": "baseline", "problem": False}],
+                    "thresholds": {}, "counts": {}
+                },
+                "progress": {"winner_changes": 0, "winner_history": []},
+            }), encoding="utf-8")
+            text = build_summary(run, "", parameter_build_index={})
+            self.assertIn("Stable throughout", text)
+            self.assertNotIn("completed-search fraction was not recorded", text)
+
 
 def test_best_known_uses_authoritative_record_selector():
     from pathlib import Path
