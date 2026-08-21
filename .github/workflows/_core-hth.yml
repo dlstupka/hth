@@ -1198,7 +1198,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ inputs.report_type }}" == "detector-calibration-manifest" ]]; then
-            cat generated-report/detector-calibration-manifest.md >> "$GITHUB_STEP_SUMMARY"
+            python hth-pipeline/hth/write_action_summary.py generated-report/detector-calibration-manifest.md "$GITHUB_STEP_SUMMARY"
           else
             # Optimizer summaries reference raw SVGs from the results repository.
             # Append them only after successful publication so the images cannot

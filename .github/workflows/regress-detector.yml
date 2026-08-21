@@ -1071,7 +1071,7 @@ jobs:
             --runtime-index results-repo/runtime-index.json \
             --output regression-summary.md
 
-          cat regression-summary.md >> "$GITHUB_STEP_SUMMARY"
+          python hth-pipeline/hth/write_action_summary.py regression-summary.md "$GITHUB_STEP_SUMMARY"
 
       - name: Upload regression run
         if: ${{ always() }}
