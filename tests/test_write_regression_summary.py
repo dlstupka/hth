@@ -468,6 +468,7 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("| Detector pipelines | 4 |", text)
             self.assertIn("| Detector loading strategy | LPT (Longest Processing Time first) |", text)
             self.assertIn("| 1 | GrabCut Segmentation (`grabcut`) | 1 | 10s | runtime-index:test |", text)
+            self.assertIn("| Pipeline | Initial LPT claim batch | Estimated Work | Threads |\n|---:|---|---:|---:|", text)
             self.assertIn("### Regression Recommendations Summary", text)
             self.assertIn("#### Execution Configuration", text)
             self.assertIn("#### Estimated Runtime", text)

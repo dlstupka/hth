@@ -2580,7 +2580,7 @@ def build_combined_summary(
             estimate_floor_seconds=float(claim_optimization["estimate_floor_seconds"]),
         )
         lines.extend(["","| Pipeline | Initial LPT claim batch | Estimated Work | Threads |",
-                      "|---:|---|---|---:|---:|"])
+                      "|---:|---|---:|---:|"])
         for batch in initial_batches:
             names="<br>".join(
                 f"{_detector_friendly_name(str(row['detector']))} (`{row['detector']}`)"
