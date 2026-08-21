@@ -78,6 +78,7 @@ on:
           - radial_edge
           - radon_boundary
           - ransac
+          - scantailor_page_frame
           - segment_supported_polar_vote
           - signed_polar_boundary_vote
           - star_convex
