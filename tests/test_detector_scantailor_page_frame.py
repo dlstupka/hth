@@ -23,19 +23,29 @@ class ScanTailorPageFrameTests(unittest.TestCase):
         self.assertIn("ScanTailor-style scan processing", spec.foundation)
         self.assertIn("scantailor", spec.repository)
 
-    def test_declared_grid_is_targeted_480_member_refinement(self):
+    def test_declared_grid_is_focused_two_dimensional_refinement(self):
         payload = json.loads(Path("config/detectors/scantailor_page_frame.json").read_text(encoding="utf-8"))
         count = 1
         for item in payload["parameters"].values():
             count *= len(item["values"])
-        self.assertEqual(count, 480)
+        self.assertEqual(count, 54)
         self.assertEqual(payload["profiles"]["baseline"], detector.BASELINE_PARAMETERS)
-        self.assertIn(0.76, payload["parameters"]["ink_quantile"]["values"])
-        self.assertIn(0.0, payload["parameters"]["content_close_fraction"]["values"])
-        self.assertIn(0.001, payload["parameters"]["projection_smooth_fraction"]["values"])
-        self.assertIn(0.004, payload["parameters"]["projection_smooth_fraction"]["values"])
-        self.assertIn(0.06, payload["parameters"]["boundary_search_margin_fraction"]["values"])
-        self.assertIn(0.2, payload["parameters"]["minimum_page_area_fraction"]["values"])
+
+        self.assertEqual(payload["parameters"]["illumination_sigma_fraction"]["values"], [0.09])
+        self.assertEqual(payload["parameters"]["ink_quantile"]["values"], [0.76])
+        self.assertEqual(payload["parameters"]["content_close_fraction"]["values"], [0.012])
+        self.assertEqual(payload["parameters"]["minimum_page_area_fraction"]["values"], [0.12])
+
+        smoothing = payload["parameters"]["projection_smooth_fraction"]["values"]
+        self.assertEqual(smoothing, [0.002, 0.0025, 0.003, 0.0035, 0.004, 0.0045])
+        self.assertIn(0.003, smoothing)
+
+        margins = payload["parameters"]["boundary_search_margin_fraction"]["values"]
+        self.assertEqual(
+            margins,
+            [0.065, 0.0675, 0.07, 0.0725, 0.075, 0.0775, 0.08, 0.0825, 0.085],
+        )
+        self.assertIn(0.075, margins)
 
     def test_synthetic_page_produces_plausible_frame(self):
         image = self._synthetic_page()
