@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "amsre_doc_ufcn_fusion",
-  "description": "Fusion Gen3 uses the calibrated AMSRE winner as the primary geometry and the calibrated Doc-UFCN winner only as a confidence-gated rescue. After the initial 210-point characterization, Doc-UFCN minimum confidence is pinned at the measured winner because it was Zombie; the refinement spends resolution only on the two Critical arbitration dimensions around the observed 0.95 / 0.01 winner while retaining that winner in-grid.",
+  "description": "Fusion Gen3 uses the calibrated AMSRE winner as primary geometry and calibrated Doc-UFCN as a selective rescue. The second-stage refinement adds AMSRE refined-ray support as the discriminating gate: prior evidence shows the false rescues on Golden Set pages 1/5 retained ~80% refined support while the legitimate rescues on pages 9/10 retained 0%/~56%. The search therefore preserves the incumbent behavior at a 1.0 support ceiling while testing tighter measured-support ceilings, with the previously characterized AMSRE score and Doc-UFCN confidence pinned and corner disagreement kept local.",
   "child_calibrations": {
     "adaptive_multi_scale_radial_edge": {
       "parameter_set_id": "21ea516c3c5a",
@@ -27,21 +27,15 @@
     "baseline": {
       "amsre_rescue_score_ceiling": 0.85,
       "doc_ufcn_minimum_confidence": 0.75,
-      "minimum_corner_disagreement_fraction": 0.01
+      "minimum_corner_disagreement_fraction": 0.01,
+      "maximum_amsre_refined_support_fraction": 1.0
     }
   },
   "parameters": {
     "amsre_rescue_score_ceiling": {
       "type": "float",
       "values": [
-        0.9,
-        0.91,
-        0.92,
-        0.93,
-        0.94,
-        0.95,
-        0.96,
-        0.97
+        0.95
       ]
     },
     "doc_ufcn_minimum_confidence": {
@@ -53,14 +47,22 @@
     "minimum_corner_disagreement_fraction": {
       "type": "float",
       "values": [
-        0.005,
         0.0075,
         0.01,
         0.0125,
-        0.015,
-        0.02,
-        0.03,
-        0.04
+        0.015
+      ]
+    },
+    "maximum_amsre_refined_support_fraction": {
+      "type": "float",
+      "values": [
+        0.45,
+        0.5,
+        0.55,
+        0.6,
+        0.65,
+        0.7,
+        1.0
       ]
     }
   },
@@ -71,7 +73,7 @@
   "regression": {
     "debug_artifacts": "winner",
     "full_space_policy": "declared-cartesian",
-    "full_space_max_parameter_sets": 64,
+    "full_space_max_parameter_sets": 28,
     "historic_best_reference": "mandatory-exact"
   },
   "optimizer_shape_compatibility": "detector-implementation",

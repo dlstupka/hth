@@ -260,6 +260,9 @@ jobs:
           repository: ${{ inputs.results_repository }}
           path: results-repo
           fetch-depth: 1
+          sparse-checkout: |
+            calibration-index.json
+          sparse-checkout-cone-mode: false
           persist-credentials: false
           token: ${{ secrets.HTH_RESULTS_TOKEN }}
 
@@ -323,6 +326,9 @@ jobs:
           repository: ${{ github.event_name == 'workflow_dispatch' && inputs.results_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results' }}
           path: results-repo
           fetch-depth: 1
+          sparse-checkout: |
+            parallelism-index.json
+          sparse-checkout-cone-mode: false
           persist-credentials: false
           token: ${{ github.event_name != 'pull_request' && secrets.HTH_RESULTS_TOKEN || github.token }}
 
@@ -433,6 +439,18 @@ jobs:
           repository: ${{ env.RESULTS_REPOSITORY }}
           path: results-repo
           fetch-depth: 1
+          sparse-checkout: |
+            calibration-index.json
+            parameter-provenance-index.json
+            runtime-index.json
+            parallelism-index.json
+            multidetector-index.json
+            optimizer-predictions.json
+            orli-evidence-index.json
+            source-documents
+            learned-evidence/orli_page_mask
+            ${{ env.IMAGE_ROOT }}
+          sparse-checkout-cone-mode: false
           persist-credentials: false
           token: ${{ github.event_name != 'pull_request' && secrets.HTH_RESULTS_TOKEN || github.token }}
 
@@ -619,7 +637,7 @@ jobs:
           HTH_NEED_DHSEGMENT: ${{ matrix.detector == 'dhsegment_page_mask' || matrix.detector == 'all' }}
           HTH_NEED_EYNOLLAH: ${{ matrix.detector == 'eynollah_page_mask' || matrix.detector == 'all' }}
           HTH_NEED_DOCEXTRACTOR: ${{ matrix.detector == 'docextractor_page_mask' || matrix.detector == 'all' }}
-          HTH_NEED_DOC_UFCN: ${{ matrix.detector == 'doc_ufcn_page_mask' || matrix.detector == 'all' }}
+          HTH_NEED_DOC_UFCN: ${{ matrix.detector == 'doc_ufcn_page_mask' || matrix.detector == 'amsre_doc_ufcn_fusion' || matrix.detector == 'all' }}
           HTH_NEED_MASK_RCNN: ${{ matrix.detector == 'mask_rcnn_page_mask' || matrix.detector == 'all' }}
           HTH_NEED_KRAKEN: ${{ matrix.detector == 'kraken_page_mask' || matrix.detector == 'all' }}
           HTH_NEED_ORLI: ${{ matrix.detector == 'orli_page_mask' || matrix.detector == 'all' }}
@@ -637,7 +655,7 @@ jobs:
           print(f"Mask R-CNN runtime verified — Detectron2; PyTorch {torch.__version__}; Torchvision {torchvision.__version__}")
           PY
       - name: Verify Doc-UFCN historical page-segmentation runtime
-        if: ${{ matrix.detector == 'doc_ufcn_page_mask' || matrix.detector == 'all' }}
+        if: ${{ matrix.detector == 'doc_ufcn_page_mask' || matrix.detector == 'amsre_doc_ufcn_fusion' || matrix.detector == 'all' }}
         shell: bash
         run: |
           set -euo pipefail

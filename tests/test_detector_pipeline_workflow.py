@@ -199,3 +199,14 @@ def test_parallel_shards_share_one_run_local_baseline_cache() -> None:
     assert 'shared_baseline="$OUTPUT_DIR/.baselines/$detector_name.json"' in text
     assert 'if (( shard_count > 1 )); then' in text
     assert 'args+=(--shared-baseline "$shared_baseline")' in text
+
+
+def test_results_repository_checkout_is_shallow_and_sparse() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "fetch-depth: 1" in text
+    assert "sparse-checkout-cone-mode: false" in text
+    assert "            calibration-index.json\n" in text
+    assert "            parallelism-index.json\n" in text
+    assert "            ${{ env.IMAGE_ROOT }}\n" in text
+    assert "            source-documents\n" in text
+    assert "            learned-evidence/orli_page_mask\n" in text

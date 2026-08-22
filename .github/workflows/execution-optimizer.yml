@@ -535,7 +535,7 @@ jobs:
           HTH_NEED_DHSEGMENT: ${{ inputs.algorithm == 'dhsegment_page_mask' || inputs.algorithm == 'all' }}
           HTH_NEED_EYNOLLAH: ${{ inputs.algorithm == 'eynollah_page_mask' || inputs.algorithm == 'all' }}
           HTH_NEED_DOCEXTRACTOR: ${{ inputs.algorithm == 'docextractor_page_mask' || inputs.algorithm == 'all' }}
-          HTH_NEED_DOC_UFCN: ${{ inputs.algorithm == 'doc_ufcn_page_mask' || inputs.algorithm == 'all' }}
+          HTH_NEED_DOC_UFCN: ${{ inputs.algorithm == 'doc_ufcn_page_mask' || inputs.algorithm == 'amsre_doc_ufcn_fusion' || inputs.algorithm == 'all' }}
           HTH_NEED_MASK_RCNN: ${{ inputs.algorithm == 'mask_rcnn_page_mask' || inputs.algorithm == 'all' }}
           HTH_NEED_KRAKEN: ${{ inputs.algorithm == 'kraken_page_mask' || inputs.algorithm == 'all' }}
           HTH_NEED_ORLI: ${{ inputs.algorithm == 'orli_page_mask' || inputs.algorithm == 'all' }}
@@ -553,7 +553,7 @@ jobs:
           print(f"Mask R-CNN runtime verified — Detectron2; PyTorch {torch.__version__}; Torchvision {torchvision.__version__}")
           PY
       - name: Verify Doc-UFCN historical page-segmentation runtime
-        if: ${{ inputs.algorithm == 'doc_ufcn_page_mask' || inputs.algorithm == 'all' }}
+        if: ${{ inputs.algorithm == 'doc_ufcn_page_mask' || inputs.algorithm == 'amsre_doc_ufcn_fusion' || inputs.algorithm == 'all' }}
         shell: bash
         run: |
           set -euo pipefail

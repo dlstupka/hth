@@ -24,10 +24,12 @@ class FusionGen3Tests(unittest.TestCase):
         payload = json.loads(Path("config/detectors/amsre_doc_ufcn_fusion.json").read_text(encoding="utf-8"))
         self.assertEqual(payload["child_calibrations"], detector.CHILD_CALIBRATIONS)
         self.assertEqual(payload["profiles"]["baseline"], detector.BASELINE_PARAMETERS)
-        self.assertEqual(len(exhaustive_parameter_sets(payload)), 64)
+        self.assertEqual(len(exhaustive_parameter_sets(payload)), 28)
         self.assertEqual(payload["parameters"]["doc_ufcn_minimum_confidence"]["values"], [0.9])
-        self.assertIn(0.95, payload["parameters"]["amsre_rescue_score_ceiling"]["values"])
+        self.assertEqual(payload["parameters"]["amsre_rescue_score_ceiling"]["values"], [0.95])
         self.assertIn(0.01, payload["parameters"]["minimum_corner_disagreement_fraction"]["values"])
+        self.assertIn(0.6, payload["parameters"]["maximum_amsre_refined_support_fraction"]["values"])
+        self.assertIn(1.0, payload["parameters"]["maximum_amsre_refined_support_fraction"]["values"])
         self.assertEqual(payload["regression"]["historic_best_reference"], "mandatory-exact")
         self.assertEqual(payload["lifecycle"]["prepare"], "doc_ufcn_page_mask")
 
@@ -50,7 +52,37 @@ class FusionGen3Tests(unittest.TestCase):
             )
         self.assertEqual(candidate.method, detector.METHOD)
         self.assertEqual(candidate.corners, doc.corners)
-        self.assertEqual(candidate.diagnostics["decision"], "doc-ufcn-confidence-gated-rescue")
+        self.assertEqual(candidate.diagnostics["decision"], "doc-ufcn-refined-support-gated-rescue")
+
+    def test_refined_support_gate_separates_strong_amsre_from_rescue_case(self):
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        mask = np.ones((100, 100), dtype=np.uint8) * 255
+        doc = Candidate("doc_ufcn_page_mask", [5,5,95,95], [[5,5],[95,5],[95,95],[5,95]], 0.99, 0.99, {"selected_confidence": 0.99})
+        strong = Candidate(
+            "adaptive_multi_scale_radial_edge", [10,10,90,90], [[10,10],[90,10],[90,90],[10,90]], 0.87, 0.87,
+            {"refinement_triggered": True, "refined_supported_rays": 800, "total_supported_rays": 960},
+        )
+        weak = Candidate(
+            "adaptive_multi_scale_radial_edge", [10,10,90,90], [[10,10],[90,10],[90,90],[10,90]], 0.89, 0.89,
+            {"refinement_triggered": True, "refined_supported_rays": 215, "total_supported_rays": 384},
+        )
+        params = {
+            "amsre_rescue_score_ceiling": 0.95,
+            "doc_ufcn_minimum_confidence": 0.9,
+            "minimum_corner_disagreement_fraction": 0.01,
+            "maximum_amsre_refined_support_fraction": 0.6,
+        }
+        with patch.object(detector.detector_doc_ufcn_page_mask, "detect", return_value=doc):
+            with patch.object(detector.detector_adaptive_multi_scale_radial_edge, "detect", return_value=strong):
+                candidate = detector.detect(image_bgr=image, mask=mask, parameters=params)
+                self.assertEqual(candidate.corners, strong.corners)
+                self.assertFalse(candidate.diagnostics["rescue_gates"]["amsre_refined_support_below_ceiling"])
+            with patch.object(detector.detector_adaptive_multi_scale_radial_edge, "detect", return_value=weak):
+                candidate = detector.detect(image_bgr=image, mask=mask, parameters=params)
+                self.assertEqual(candidate.corners, doc.corners)
+                self.assertTrue(candidate.diagnostics["rescue_gates"]["amsre_refined_support_below_ceiling"])
+                self.assertAlmostEqual(candidate.diagnostics["amsre_refined_support_fraction"], 215 / 384)
+                self.assertIn("bbox_iou", candidate.diagnostics["candidate_geometry"])
 
     def test_amsre_remains_primary_when_rescue_gate_fails(self):
         image = np.zeros((100, 100, 3), dtype=np.uint8)

@@ -36,6 +36,7 @@ BASELINE_PARAMETERS: dict[str, Any] = {
     "amsre_rescue_score_ceiling": 0.85,
     "doc_ufcn_minimum_confidence": 0.75,
     "minimum_corner_disagreement_fraction": 0.01,
+    "maximum_amsre_refined_support_fraction": 1.0,
 }
 
 
@@ -52,6 +53,8 @@ def _parameters(overrides: dict[str, Any] | None) -> dict[str, float]:
             raise ValueError(f"{name} must be between 0 and 1")
     if values["minimum_corner_disagreement_fraction"] < 0.0:
         raise ValueError("minimum_corner_disagreement_fraction must be non-negative")
+    if not 0.0 <= values["maximum_amsre_refined_support_fraction"] <= 1.0:
+        raise ValueError("maximum_amsre_refined_support_fraction must be between 0 and 1")
     return values
 
 
@@ -77,6 +80,56 @@ def _corner_disagreement_fraction(first: Candidate, second: Candidate, image_bgr
     diagonal = max(1.0, float(np.hypot(image_bgr.shape[1], image_bgr.shape[0])))
     return float(np.mean(np.linalg.norm(a - b, axis=1)) / diagonal)
 
+
+
+def _bbox_geometry(first: Candidate, second: Candidate, image_bgr: np.ndarray) -> dict[str, float | None]:
+    if first.bbox is None or second.bbox is None:
+        return {
+            "doc_to_amsre_area_ratio": None,
+            "doc_to_amsre_width_ratio": None,
+            "doc_to_amsre_height_ratio": None,
+            "center_displacement_fraction": None,
+            "bbox_iou": None,
+        }
+    ax1, ay1, ax2, ay2 = (float(value) for value in first.bbox)
+    bx1, by1, bx2, by2 = (float(value) for value in second.bbox)
+    aw, ah = max(0.0, ax2 - ax1), max(0.0, ay2 - ay1)
+    bw, bh = max(0.0, bx2 - bx1), max(0.0, by2 - by1)
+    area_a, area_b = aw * ah, bw * bh
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    intersection = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+    union = area_a + area_b - intersection
+    diagonal = max(1.0, float(np.hypot(image_bgr.shape[1], image_bgr.shape[0])))
+    center_a = np.asarray(((ax1 + ax2) / 2.0, (ay1 + ay2) / 2.0), dtype=np.float64)
+    center_b = np.asarray(((bx1 + bx2) / 2.0, (by1 + by2) / 2.0), dtype=np.float64)
+    return {
+        "doc_to_amsre_area_ratio": float(area_b / area_a) if area_a > 0.0 else None,
+        "doc_to_amsre_width_ratio": float(bw / aw) if aw > 0.0 else None,
+        "doc_to_amsre_height_ratio": float(bh / ah) if ah > 0.0 else None,
+        "center_displacement_fraction": float(np.linalg.norm(center_a - center_b) / diagonal),
+        "bbox_iou": float(intersection / union) if union > 0.0 else None,
+    }
+
+
+def _amsre_refined_support_fraction(candidate: Candidate) -> float:
+    diagnostics = candidate.diagnostics or {}
+    total = diagnostics.get("total_supported_rays")
+    refined = diagnostics.get("refined_supported_rays")
+    refinement_triggered = diagnostics.get("refinement_triggered")
+    if refinement_triggered is False and refined is None:
+        refined = 0
+    try:
+        total_value = float(total)
+        refined_value = float(refined)
+    except (TypeError, ValueError):
+        # Missing provenance should never make rescue easier. 1.0 preserves
+        # the pre-refinement arbitration behavior while the explicit search
+        # can tighten the gate only when AMSRE exposes measured support.
+        return 1.0
+    if total_value <= 0.0:
+        return 1.0
+    return float(np.clip(refined_value / total_value, 0.0, 1.0))
 
 def _summary(candidate: Candidate, method: str) -> dict[str, Any]:
     return {
@@ -125,17 +178,27 @@ def detect(*, image_bgr: np.ndarray, mask: np.ndarray, parameters: dict[str, Any
         return Candidate(METHOD, amsre.bbox, amsre.corners, amsre.confidence, amsre.score, diagnostics)
 
     disagreement = _corner_disagreement_fraction(amsre, doc, image_bgr)
+    refined_support_fraction = _amsre_refined_support_fraction(amsre)
     doc_selected_confidence = float(doc.diagnostics.get("selected_confidence") or doc.confidence)
-    rescue = (
-        float(amsre.score) <= values["amsre_rescue_score_ceiling"]
-        and doc_selected_confidence >= values["doc_ufcn_minimum_confidence"]
-        and disagreement >= values["minimum_corner_disagreement_fraction"]
-    )
+    geometry = _bbox_geometry(amsre, doc, image_bgr)
+    rescue_gates = {
+        "amsre_score_below_ceiling": float(amsre.score) <= values["amsre_rescue_score_ceiling"],
+        "doc_ufcn_confidence_sufficient": doc_selected_confidence >= values["doc_ufcn_minimum_confidence"],
+        "corner_disagreement_sufficient": disagreement >= values["minimum_corner_disagreement_fraction"],
+        "amsre_refined_support_below_ceiling": refined_support_fraction <= values["maximum_amsre_refined_support_fraction"],
+    }
+    rescue = all(rescue_gates.values())
     diagnostics.update({
         "corner_disagreement_fraction": disagreement,
         "amsre_score": float(amsre.score),
+        "amsre_refined_support_fraction": refined_support_fraction,
+        "amsre_refinement_triggered": (amsre.diagnostics or {}).get("refinement_triggered"),
+        "amsre_refined_supported_rays": (amsre.diagnostics or {}).get("refined_supported_rays"),
+        "amsre_total_supported_rays": (amsre.diagnostics or {}).get("total_supported_rays"),
         "doc_ufcn_selected_confidence": doc_selected_confidence,
-        "decision": "doc-ufcn-confidence-gated-rescue" if rescue else "amsre-primary",
+        "candidate_geometry": geometry,
+        "rescue_gates": rescue_gates,
+        "decision": "doc-ufcn-refined-support-gated-rescue" if rescue else "amsre-primary",
         "selected_child": "doc_ufcn_page_mask" if rescue else "adaptive_multi_scale_radial_edge",
     })
     selected = doc if rescue else amsre
