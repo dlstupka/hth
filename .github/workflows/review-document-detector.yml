@@ -1,0 +1,159 @@
+name: Review approved detector over existing production build
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Successful preprocess-production workflow run ID containing the complete generated-build artifact"
+        required: true
+        type: string
+      detector:
+        description: "Approved detector calibration to run over the existing production build"
+        required: true
+        type: choice
+        default: amsre_doc_ufcn_fusion
+        options:
+          - amsre_doc_ufcn_fusion
+      artifact_retention_days:
+        description: "Review artifact retention period"
+        required: false
+        type: number
+        default: 7
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: init.defaultBranch
+  GIT_CONFIG_VALUE_0: main
+
+jobs:
+  review-document-detector:
+    name: Run approved detector over existing production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
+        with:
+          path: hth-pipeline
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download complete production build
+        uses: actions/download-artifact@v5
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+          pattern: hth-production-*
+          path: production-build
+          merge-multiple: true
+
+      - name: Verify production build
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            production-build/summary.json
+            production-build/metadata/image_manifest.json
+            production-build/page-analysis/page-analysis.json
+          )
+          for path in "${required[@]}"; do
+            [[ -f "$path" ]] || {
+              echo "::error::Downloaded run does not contain the required complete production build file: $path"
+              exit 1
+            }
+          done
+          [[ -d production-build/raw ]] || {
+            echo "::error::Downloaded artifact has no raw/ image directory; choose a run where 'Upload complete generated build' was enabled."
+            exit 1
+          }
+          echo "Production build:"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = json.loads(Path('production-build/summary.json').read_text(encoding='utf-8'))
+          print(f"  collection: {p.get('collection_id', 'unknown')}")
+          print(f"  images: {p.get('image_count', 'unknown')}")
+          PY
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: hth-pipeline/requirements.txt
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install --requirement hth-pipeline/requirements.txt
+
+      - name: Install managed detector runtime
+        shell: bash
+        env:
+          HTH_NEED_DOC_UFCN: ${{ inputs.detector == 'amsre_doc_ufcn_fusion' }}
+        run: |
+          set -euo pipefail
+          bash hth-pipeline/tools/ensure-managed-runtime.sh
+
+      - name: Run approved detector over collection
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          python hth-pipeline/hth/run_document_detector.py \
+            --manifest production-build/metadata/image_manifest.json \
+            --analysis production-build/page-analysis/page-analysis.json \
+            --image-root production-build \
+            --output production-build/page-analysis/page-analysis-with-detector.json \
+            --detector "${{ inputs.detector }}" \
+            --catalog hth-pipeline/config/document-detectors.json \
+            --lifecycle-root production-build/detector-runtime \
+            --overwrite
+          mv production-build/page-analysis/page-analysis-with-detector.json \
+             production-build/page-analysis/page-analysis.json
+
+      - name: Add review workbench
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p production-build/tools
+          cp hth-pipeline/tools/reference-collection-editor-multidetector.html \
+             production-build/tools/
+          cat > production-build/DETECTOR-REVIEW.txt <<EOF
+          Detector review build
+          =====================
+          Source preprocess run: ${{ inputs.source_run_id }}
+          Detector: ${{ inputs.detector }}
+          Pipeline commit: ${{ github.sha }}
+
+          Open tools/reference-collection-editor-multidetector.html and choose
+          'Open results workspace', then select this extracted artifact directory.
+          EOF
+
+      - name: Write job summary
+        shell: bash
+        run: |
+          {
+            echo "## Full-collection detector review"
+            echo
+            echo "- Source preprocess run: \`${{ inputs.source_run_id }}\`"
+            echo "- Detector: \`${{ inputs.detector }}\`"
+            echo "- Source material: existing complete production artifact (Git LFS is not re-fetched)"
+            echo "- Viewer: \`tools/reference-collection-editor-multidetector.html\` in the review artifact"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload detector review build
+        uses: actions/upload-artifact@v6
+        with:
+          name: hth-document-review-${{ inputs.detector }}-${{ github.run_number }}
+          path: production-build
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact_retention_days }}
+          compression-level: 0
