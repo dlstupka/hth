@@ -78,6 +78,11 @@ on:
         required: false
         type: string
         default: "never"
+      document_detector:
+        description: "Approved detector calibration to run over every production page; blank disables corpus inference"
+        required: false
+        type: string
+        default: ""
     secrets:
       HTH_RESULTS_TOKEN:
         required: false
@@ -290,6 +295,15 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --requirement hth-pipeline/requirements.txt
 
+      - name: Install managed detector runtime for document inference
+        if: ${{ inputs.mode == 'production' && inputs.document_detector != '' && inputs.document_detector != 'none' }}
+        shell: bash
+        env:
+          HTH_NEED_DOC_UFCN: ${{ inputs.document_detector == 'amsre_doc_ufcn_fusion' || inputs.document_detector == 'doc_ufcn_page_mask' }}
+        run: |
+          set -euo pipefail
+          bash hth-pipeline/tools/ensure-managed-runtime.sh
+
       ############################################################
       # STAGE_PREPROCESS
       ############################################################
@@ -377,6 +391,23 @@ jobs:
             --started-at "${{ steps.stage_detect_current_start.outputs.started_at }}" \
             --status "${{ steps.run_physical_page_analysis.outcome }}" \
             --timings-file "$RUNNER_TEMP/hth-stage-timings.jsonl"
+
+      - name: Run approved detector over production collection
+        if: ${{ inputs.mode == 'production' && inputs.document_detector != '' && inputs.document_detector != 'none' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python hth-pipeline/hth/run_document_detector.py \
+            --manifest "$OUTPUT_DIRECTORY/metadata/image_manifest.json" \
+            --analysis "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json" \
+            --image-root "$OUTPUT_DIRECTORY" \
+            --output "$OUTPUT_DIRECTORY/page-analysis/page-analysis-with-detector.json" \
+            --detector "${{ inputs.document_detector }}" \
+            --catalog hth-pipeline/config/document-detectors.json \
+            --lifecycle-root "$OUTPUT_DIRECTORY/detector-runtime" \
+            --overwrite
+          mv "$OUTPUT_DIRECTORY/page-analysis/page-analysis-with-detector.json" \
+             "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json"
 
       ############################################################
       # STAGE_DETECT_CANDIDATES

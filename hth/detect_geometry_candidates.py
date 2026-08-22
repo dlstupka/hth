@@ -17,6 +17,7 @@ from geometry.model import Candidate
 from geometry.registry import (
     detector_catalog,
     detector_names,
+    run_registered_detector,
     run_registered_detectors,
     summarize_candidates,
 )
@@ -42,7 +43,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def run_detectors(image_path: Path, maximum: int) -> list[Candidate]:
+def run_detectors(image_path: Path, maximum: int, *, detector: str | None = None, parameters: dict[str, Any] | None = None) -> list[Candidate]:
     original = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
     if original is None:
         raise RuntimeError(f"Could not read image: {image_path}")
@@ -50,7 +51,11 @@ def run_detectors(image_path: Path, maximum: int) -> list[Candidate]:
     original_height, original_width = original.shape[:2]
     image, scale = resize_for_analysis(original, maximum)
     mask, mask_diag = document_mask(image)
-    candidates = run_registered_detectors(image_bgr=image, mask=mask)
+    candidates = (
+        [run_registered_detector(detector, image_bgr=image, mask=mask, parameters=parameters)]
+        if detector
+        else run_registered_detectors(image_bgr=image, mask=mask)
+    )
 
     inverse = 1.0 / scale
     for candidate in candidates:
@@ -108,6 +113,14 @@ def main() -> int:
 
     # These are global contract failures and intentionally remain fatal.
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
+    parameters = None
+    if args.parameters_json is not None:
+        if not args.detector:
+            raise SystemExit("--parameters-json requires --detector")
+        parameters = json.loads(args.parameters_json.read_text(encoding="utf-8"))
+        if not isinstance(parameters, dict):
+            raise SystemExit("--parameters-json must contain a JSON object")
+    active_methods = [args.detector] if args.detector else detector_names()
     analysis = json.loads(args.analysis.read_text(encoding="utf-8"))
     manifest_records = {
         int(record["global_ordinal"]): record for record in manifest.get("records", [])
@@ -115,13 +128,13 @@ def main() -> int:
 
     page_counts: Counter[str] = Counter()
     method_counts: dict[str, Counter[str]] = {
-        method: Counter() for method in detector_names()
+        method: Counter() for method in active_methods
     }
     method_elapsed_ms: dict[str, list[float]] = {
-        method: [] for method in detector_names()
+        method: [] for method in active_methods
     }
     method_confidence: dict[str, list[float]] = {
-        method: [] for method in detector_names()
+        method: [] for method in active_methods
     }
 
     for record in analysis.get("records", []):
@@ -131,7 +144,7 @@ def main() -> int:
 
         try:
             image_path = path_for_record(manifest_record, args.image_root)
-            candidates = run_detectors(image_path, args.max_dimension)
+            candidates = run_detectors(image_path, args.max_dimension, detector=args.detector, parameters=parameters)
             record["geometry_candidates"] = [asdict(candidate) for candidate in candidates]
             record["geometry_candidate_status"] = _page_status(candidates)
             record["geometry_candidate_summary"] = summarize_candidates(candidates)
@@ -162,7 +175,9 @@ def main() -> int:
         # Keep the original keys for downstream compatibility.
         "processed": page_counts["complete"] + page_counts["partial"],
         "errors": page_error_count,
-        "methods": detector_names(),
+        "methods": active_methods,
+        "selected_detector": args.detector,
+        "selected_parameters": parameters,
         # New resilience/observability fields.
         "page_status_counts": {
             "complete": page_counts["complete"],
@@ -190,7 +205,7 @@ def main() -> int:
                     sum(method_confidence[method]) / len(method_confidence[method]), 6
                 ) if method_confidence[method] else None,
             }
-            for method in detector_names()
+            for method in active_methods
         },
         "fail_on": args.fail_on,
     }

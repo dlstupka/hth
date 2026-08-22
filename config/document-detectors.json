@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "default_detector": "amsre_doc_ufcn_fusion",
+  "detectors": {
+    "amsre_doc_ufcn_fusion": {
+      "display_name": "Fusion Gen3 — AMSRE + Doc-UFCN",
+      "golden_set_id": "HTH-0001",
+      "parameter_set_id": "57b3edb3ac1c",
+      "parameters": {
+        "amsre_rescue_score_ceiling": 0.95,
+        "doc_ufcn_minimum_confidence": 0.9,
+        "maximum_amsre_refined_support_fraction": 0.65,
+        "minimum_corner_disagreement_fraction": 0.0075
+      }
+    }
+  }
+}

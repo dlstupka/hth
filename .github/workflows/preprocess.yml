@@ -43,6 +43,14 @@ on:
         required: true
         type: boolean
         default: true
+      document_detector:
+        description: "Run approved detector over every page for corpus review"
+        required: true
+        type: choice
+        default: none
+        options:
+          - none
+          - amsre_doc_ufcn_fusion
 
 permissions:
   contents: read
@@ -65,4 +73,5 @@ jobs:
       publish_results: true
       upload_full_artifact: ${{ inputs.upload_full_artifact }}
       artifact_retention_days: 14
+      document_detector: ${{ inputs.document_detector }}
     secrets: inherit
