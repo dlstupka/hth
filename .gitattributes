@@ -1,1 +1,1 @@
-data/source/**/*.docx filter=lfs diff=lfs merge=lfs -text
+# Large immutable source masters are stored as verified GitHub Release assets, not in Git history.

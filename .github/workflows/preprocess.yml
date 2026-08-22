@@ -8,6 +8,11 @@ on:
         required: true
         type: string
         default: "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898"
+      source_release_tag:
+        description: "Immutable source Release tag"
+        required: true
+        type: string
+        default: "HTH-SOURCE-0001"
       results_repository:
         description: "Results repository"
         required: true
@@ -68,6 +73,7 @@ jobs:
       specific_runner: ${{ inputs.specific_runner }}
       custom_runner_label: ${{ inputs.custom_runner_label }}
       source_repository: ${{ inputs.source_repository }}
+      source_release_tag: ${{ inputs.source_release_tag }}
       results_repository: ${{ inputs.results_repository }}
       output_directory: hth-pipeline/build/preprocessed
       publish_results: true

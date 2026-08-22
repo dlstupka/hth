@@ -231,7 +231,8 @@ This directory contains the design, operating, and project-reference documentati
 ## Acquisition and preprocessing
 
 - [Acquisition pipeline](acquisition-pipeline.md) — source-image capture and ingestion.
-- [Preprocessor](preprocessor.md) — DOCX extraction and normalized publication inputs.
+- [Preprocessor](preprocessor.md)
+- [Immutable source releases](source-releases.md) — DOCX extraction and normalized publication inputs.
 - [Physical-page analysis](analyze-pages.md) — page analysis and review-queue generation.
 
 ## Geometry and detectors

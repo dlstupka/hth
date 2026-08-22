@@ -10,10 +10,15 @@ on:
         required: true
         type: string
       source_repository:
-        description: "Source repository containing DOCX masters"
+        description: "Source repository owning immutable source Releases"
         required: false
         type: string
         default: ""
+      source_release_tag:
+        description: "Immutable GitHub Release tag containing DOCX masters"
+        required: false
+        type: string
+        default: "HTH-SOURCE-0001"
       results_repository:
         description: "Results repository"
         required: true
@@ -86,6 +91,8 @@ on:
     secrets:
       HTH_RESULTS_TOKEN:
         required: false
+      HTH_SOURCE_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -114,6 +121,7 @@ jobs:
     env:
       HTH_MODE: ${{ inputs.mode }}
       SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+      SOURCE_RELEASE_TAG: ${{ inputs.source_release_tag }}
       RESULTS_REPOSITORY: ${{ inputs.results_repository }}
       OUTPUT_DIRECTORY: ${{ inputs.output_directory }}
 
@@ -141,14 +149,25 @@ jobs:
         shell: bash
         run: git config --global init.defaultBranch main
 
-      - name: Checkout source repository
-        uses: actions/checkout@v6
+      - name: Set up Python for source acquisition
+        uses: actions/setup-python@v6
         with:
-          repository: ${{ inputs.source_repository }}
-          path: source-repo
-          fetch-depth: 1
-          lfs: true
-          persist-credentials: false
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: hth-pipeline/requirements.txt
+
+      - name: Download immutable source release
+        id: source_release
+        shell: bash
+        env:
+          HTH_SOURCE_TOKEN: ${{ secrets.HTH_SOURCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          rm -rf source-repo
+          python hth-pipeline/hth/source_release.py \
+            --repository "$SOURCE_REPOSITORY" \
+            --tag "$SOURCE_RELEASE_TAG" \
+            --destination source-repo
 
       - name: Checkout results repository
         if: ${{ inputs.publish_results }}
@@ -240,13 +259,20 @@ jobs:
           set -euo pipefail
 
           PIPELINE_COMMIT="$(git -C hth-pipeline rev-parse HEAD)"
-          SOURCE_COMMIT="$(git -C source-repo rev-parse HEAD)"
+          SOURCE_COMMIT="${{ steps.source_release.outputs.source_commit }}"
+          SOURCE_RELEASE_MANIFEST_SHA256="${{ steps.source_release.outputs.manifest_sha256 }}"
           PIPELINE_SHORT_COMMIT="${PIPELINE_COMMIT:0:8}"
-          SOURCE_SHORT_COMMIT="${SOURCE_COMMIT:0:8}"
+          if [[ "$SOURCE_COMMIT" =~ ^[0-9a-fA-F]{8,}$ ]]; then
+            SOURCE_SHORT_COMMIT="${SOURCE_COMMIT:0:8}"
+          else
+            SOURCE_SHORT_COMMIT="${SOURCE_RELEASE_TAG}"
+          fi
           PROCESSED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
           echo "pipeline_commit=$PIPELINE_COMMIT" >> "$GITHUB_OUTPUT"
           echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "source_release_tag=$SOURCE_RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "source_release_manifest_sha256=$SOURCE_RELEASE_MANIFEST_SHA256" >> "$GITHUB_OUTPUT"
           echo "pipeline_short_commit=$PIPELINE_SHORT_COMMIT" >> "$GITHUB_OUTPUT"
           echo "source_short_commit=$SOURCE_SHORT_COMMIT" >> "$GITHUB_OUTPUT"
           echo "processed_at=$PROCESSED_AT" >> "$GITHUB_OUTPUT"
@@ -266,7 +292,9 @@ jobs:
             echo
             echo "- Mode: \`$HTH_MODE\`"
             echo "- Source repository: \`$SOURCE_REPOSITORY\`"
-            echo "- Source commit: \`$SOURCE_COMMIT\`"
+            echo "- Source release: \`$SOURCE_RELEASE_TAG\`"
+            echo "- Source release manifest SHA-256: \`$SOURCE_RELEASE_MANIFEST_SHA256\`"
+            echo "- Recorded source commit: \`$SOURCE_COMMIT\`"
             if [[ "$HTH_MODE" != "production" ]]; then
               echo "- Source file: \`${{ steps.source.outputs.test_file }}\`"
             fi
@@ -280,13 +308,6 @@ jobs:
       ############################################################
       # PYTHON ENVIRONMENT
       ############################################################
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: hth-pipeline/requirements.txt
 
       - name: Install dependencies
         shell: bash
@@ -673,6 +694,8 @@ jobs:
         shell: bash
         env:
           SOURCE_COMMIT: ${{ steps.build.outputs.source_commit }}
+          SOURCE_RELEASE_TAG: ${{ steps.build.outputs.source_release_tag }}
+          SOURCE_RELEASE_MANIFEST_SHA256: ${{ steps.build.outputs.source_release_manifest_sha256 }}
           PIPELINE_COMMIT: ${{ steps.build.outputs.pipeline_commit }}
           PROCESSED_AT: ${{ steps.build.outputs.processed_at }}
           COLLECTION_ID: ${{ steps.verify.outputs.collection_id }}
@@ -726,6 +749,8 @@ jobs:
           collection:
             id: {quote(os.environ["COLLECTION_ID"])}
             source_repository: {quote(os.environ["SOURCE_REPOSITORY"])}
+            source_release: {quote(os.environ["SOURCE_RELEASE_TAG"])}
+            source_release_manifest_sha256: {quote(os.environ["SOURCE_RELEASE_MANIFEST_SHA256"])}
             source_commit: {quote(os.environ["SOURCE_COMMIT"])}
             source_path: "images/"
 
@@ -765,10 +790,10 @@ jobs:
           # San Antonio Baptism Records — Processed Publication
 
           This repository contains processing metadata and research work
-          products generated from the corresponding HTH source repository.
+          products generated from the corresponding HTH source collection.
 
-          The full-resolution DOCX masters and source images are preserved in
-          the source repository and are not duplicated here.
+          The immutable DOCX masters are preserved as verified GitHub Release
+          assets in the source repository and are not duplicated here.
 
           See `BUILD-INFO.yaml` for the exact source commit, pipeline commit,
           workflow run, and processing counts used to create the current
@@ -931,6 +956,8 @@ jobs:
 
           source:
             repository: $SOURCE_REPOSITORY
+            release: ${{ steps.build.outputs.source_release_tag }}
+            release_manifest_sha256: ${{ steps.build.outputs.source_release_manifest_sha256 }}
             commit: ${{ steps.build.outputs.source_commit }}
             file: ${{ steps.source.outputs.test_file }}
 

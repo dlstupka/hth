@@ -145,7 +145,7 @@ jobs:
             echo
             echo "- Source preprocess run: \`${{ inputs.source_run_id }}\`"
             echo "- Detector: \`${{ inputs.detector }}\`"
-            echo "- Source material: existing complete production artifact (Git LFS is not re-fetched)"
+            echo "- Source material: existing complete production artifact (source Release is not re-downloaded)"
             echo "- Viewer: \`tools/reference-collection-editor-multidetector.html\` in the review artifact"
           } >> "$GITHUB_STEP_SUMMARY"
 

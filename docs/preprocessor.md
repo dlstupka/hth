@@ -59,4 +59,4 @@ The included workflow runs the same preprocessing and uploads the result as a Gi
 
 ## Large source files
 
-Use Git LFS for DOCX masters over normal GitHub file limits, or run locally and commit only the code and generated metadata.
+HTH source masters are not stored in Git history. Publish each immutable DOCX master as an asset on a versioned GitHub Release in the collection source repository. `source-release-manifest.json` records the size and SHA-256 of every source asset, and cloud preprocessing verifies every download before processing. See `source-releases.md`.

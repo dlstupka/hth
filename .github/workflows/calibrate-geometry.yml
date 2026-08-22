@@ -64,6 +64,7 @@ jobs:
       specific_runner: ${{ inputs.specific_runner }}
       custom_runner_label: ${{ inputs.custom_runner_label }}
       source_repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898
+      source_release_tag: HTH-SOURCE-0001
       results_repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
       test_file: ${{ inputs.test_file }}
       output_directory: hth-pipeline/build/calibration

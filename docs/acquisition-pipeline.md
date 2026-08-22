@@ -36,7 +36,7 @@ Each manifest entry should carry an HTH image ID, source system and persistent i
 1. Preserve the current DOCX masters as recovery evidence.
 2. Modify AHK to save each capture directly as a numbered PNG as well as, temporarily, Word.
 3. Run a local acquisition agent that watches the folder, hashes images, appends the manifest, and uploads completed batches.
-4. Store large immutable originals in object storage or Git LFS; keep manifests, provenance, config, and rights notes in Git.
+4. Publish large immutable originals as verified GitHub Release assets in the collection source repository; keep manifests, provenance, config, and rights notes in Git.
 5. Trigger cloud preprocessing after a completed batch is uploaded.
 
 AHK can still drive the authenticated browser locally. The cloud begins immediately after each local capture, avoiding clipboard/Word as the authoritative source.
@@ -48,7 +48,7 @@ Windows capture host + AHK
         ↓
 local acquisition agent
         ↓
-S3 / Azure Blob / Google Cloud Storage
+GitHub Release assets (or future object-storage adapter)
         ↓
 GitHub Actions or self-hosted runner
         ↓

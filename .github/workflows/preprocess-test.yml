@@ -66,6 +66,7 @@ jobs:
       specific_runner: ${{ github.event_name == 'workflow_dispatch' && inputs.specific_runner || 'any' }}
       custom_runner_label: ${{ github.event_name == 'workflow_dispatch' && inputs.custom_runner_label || '' }}
       source_repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898
+      source_release_tag: HTH-SOURCE-0001
       results_repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
       test_file: ${{ inputs.test_file || 'Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx' }}
       output_directory: hth-pipeline/build/preprocessed-test
