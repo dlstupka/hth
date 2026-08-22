@@ -260,6 +260,7 @@ class PreferredDispatchConfigurationContractTests(unittest.TestCase):
             "radial_edge",
             "adaptive_multi_scale_radial_edge",
             "amsre_bfq_spbv_pbg",
+            "amsre_doc_ufcn_fusion",
             "adaptive_radial_edge",
             "msre_bfq_spbv_pbg",
             "multi_scale_radial_edge",

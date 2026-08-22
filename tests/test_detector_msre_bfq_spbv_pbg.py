@@ -18,22 +18,23 @@ class FusionGen1Tests(unittest.TestCase):
         payload = json.loads(Path("config/detectors/msre_bfq_spbv_pbg.json").read_text(encoding="utf-8"))
         self.assertEqual(payload["child_calibrations"], detector_msre_bfq_spbv_pbg.CHILD_CALIBRATIONS)
 
-    def test_refined_search_space_is_50176_sets(self) -> None:
+    def test_refined_search_space_is_12544_sets(self) -> None:
         payload = json.loads(Path("config/detectors/msre_bfq_spbv_pbg.json").read_text(encoding="utf-8"))
         size = 1
         for spec in payload["parameters"].values():
             size *= len(spec["values"])
-        self.assertEqual(size, 50176)
+        self.assertEqual(size, 12544)
 
     def test_refined_grid_preserves_gen1_anchors_and_collapses_dormant_dimensions(self) -> None:
         payload = json.loads(Path("config/detectors/msre_bfq_spbv_pbg.json").read_text(encoding="utf-8"))
         parameters = payload["parameters"]
-        self.assertEqual(len(parameters["minimum_side_consensus"]["values"]), 224)
-        self.assertEqual(len(parameters["consensus_tolerance_fraction"]["values"]), 224)
-        for value in (0.25, 0.5, 0.75):
-            self.assertIn(value, parameters["minimum_side_consensus"]["values"])
-        for value in (0.006, 0.012, 0.024):
-            self.assertIn(value, parameters["consensus_tolerance_fraction"]["values"])
+        self.assertEqual(len(parameters["minimum_side_consensus"]["values"]), 112)
+        self.assertEqual(len(parameters["consensus_tolerance_fraction"]["values"]), 112)
+        self.assertIn(0.5, parameters["minimum_side_consensus"]["values"])
+        self.assertIn(0.867713, parameters["minimum_side_consensus"]["values"])
+        self.assertIn(0.012, parameters["consensus_tolerance_fraction"]["values"])
+        self.assertIn(0.031641, parameters["consensus_tolerance_fraction"]["values"])
+        self.assertEqual(payload["regression"]["historic_best_reference"], "mandatory-exact")
         self.assertEqual(parameters["gradient_weight"]["values"], [0.25])
         self.assertEqual(parameters["gradient_percentile"]["values"], [76.0])
         self.assertEqual(parameters["consensus_weight"]["values"], [0.6])

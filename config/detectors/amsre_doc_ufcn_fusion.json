@@ -1,0 +1,63 @@
+{
+  "schema_version": "0.1",
+  "detector": "amsre_doc_ufcn_fusion",
+  "description": "Fusion Gen3 uses the calibrated AMSRE winner as the primary geometry and the calibrated Doc-UFCN winner only as a confidence-gated rescue when AMSRE evidence is weak and the two geometries materially disagree. Child calibrations are fixed; regression searches only the small arbitration layer.",
+  "child_calibrations": {
+    "adaptive_multi_scale_radial_edge": {
+      "parameter_set_id": "21ea516c3c5a",
+      "parameters": {
+        "coarse_angle_step_degrees": 2.0454545454545454,
+        "refined_angle_step_degrees": 0.35,
+        "weak_side_support_fraction": 0.65,
+        "side_assignment_tolerance_fraction": 0.0075,
+        "maximum_refined_sides": 3
+      }
+    },
+    "doc_ufcn_page_mask": {
+      "parameter_set_id": "595002645fcc",
+      "parameters": {
+        "minimum_confidence": 0.5,
+        "minimum_component_area_fraction": 0.0005,
+        "minimum_page_area_fraction": 0.2,
+        "page_padding_fraction": 0.01
+      }
+    }
+  },
+  "profiles": {
+    "baseline": {
+      "amsre_rescue_score_ceiling": 0.85,
+      "doc_ufcn_minimum_confidence": 0.75,
+      "minimum_corner_disagreement_fraction": 0.01
+    }
+  },
+  "parameters": {
+    "amsre_rescue_score_ceiling": {
+      "type": "float",
+      "values": [0.55, 0.65, 0.75, 0.85, 0.9, 0.95, 1.0]
+    },
+    "doc_ufcn_minimum_confidence": {
+      "type": "float",
+      "values": [0.5, 0.6, 0.7, 0.75, 0.8, 0.9]
+    },
+    "minimum_corner_disagreement_fraction": {
+      "type": "float",
+      "values": [0.0, 0.005, 0.01, 0.02, 0.04]
+    }
+  },
+  "binary_refine": {
+    "passes": 3,
+    "local_exhaustive_radius": 1
+  },
+  "regression": {
+    "debug_artifacts": "winner",
+    "full_space_policy": "declared-cartesian",
+    "full_space_max_parameter_sets": 210,
+    "historic_best_reference": "mandatory-exact"
+  },
+  "optimizer_shape_compatibility": "detector-implementation",
+  "lifecycle": {
+    "prepare": "doc_ufcn_page_mask",
+    "finalize": "doc_ufcn_page_mask",
+    "policy": "reuse"
+  }
+}

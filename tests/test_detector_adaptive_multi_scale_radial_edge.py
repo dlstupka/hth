@@ -55,11 +55,11 @@ class AdaptiveMultiScaleRadialEdgeTests(unittest.TestCase):
         ):
             self.assertIn(name, images)
 
-    def test_generation_2_refinement_is_exactly_50000_angular_only_sets(self) -> None:
+    def test_generation_2_refinement_is_exactly_25000_angular_only_sets(self) -> None:
         config = json.loads(
             Path("config/detectors/adaptive_multi_scale_radial_edge.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(len(exhaustive_parameter_sets(config)), 50000)
+        self.assertEqual(len(exhaustive_parameter_sets(config)), 25000)
         self.assertEqual(set(config["parameters"]), {
             "coarse_angle_step_degrees",
             "refined_angle_step_degrees",

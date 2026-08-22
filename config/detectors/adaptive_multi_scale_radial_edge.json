@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "adaptive_multi_scale_radial_edge",
-  "description": "Generation-2 refinement for Adaptive Multi-Scale Radial Edge Search. MSRE multiscale evidence remains fixed while exhaustive calibration densely resolves the narrow angular-adaptation basin found by Generation 1.",
+  "description": "Generation-2 refinement for Adaptive Multi-Scale Radial Edge Search. MSRE multiscale evidence remains fixed while exhaustive calibration densely resolves the narrow angular-adaptation basin found by Generation 1. Full regression now uses a half-density coarse-angle axis (25,000 declared combinations) while mandatory historic-best evaluation preserves the exact incumbent outside or inside the reduced grid.",
   "parent_detector": "multi_scale_radial_edge",
   "parent_parameter_set_id": "ddb7623ebb92",
   "profiles": {
@@ -31,14 +31,9 @@
       "type": "float",
       "values": [
         1.85,
-        1.9,
         1.95,
-        2.0,
-        2.025,
         2.0454545454545454,
-        2.075,
         2.1,
-        2.15,
         2.2
       ]
     },
@@ -105,7 +100,7 @@
   "regression": {
     "debug_artifacts": "winner",
     "full_space_policy": "declared-cartesian",
-    "full_space_max_parameter_sets": 50176,
+    "full_space_max_parameter_sets": 25000,
     "historic_best_reference": "mandatory-exact"
   },
   "optimizer_shape_compatibility": "detector-implementation"
