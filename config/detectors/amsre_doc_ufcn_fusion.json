@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "amsre_doc_ufcn_fusion",
-  "description": "Fusion Gen3 uses the calibrated AMSRE winner as the primary geometry and the calibrated Doc-UFCN winner only as a confidence-gated rescue when AMSRE evidence is weak and the two geometries materially disagree. Child calibrations are fixed; regression searches only the small arbitration layer.",
+  "description": "Fusion Gen3 uses the calibrated AMSRE winner as the primary geometry and the calibrated Doc-UFCN winner only as a confidence-gated rescue. After the initial 210-point characterization, Doc-UFCN minimum confidence is pinned at the measured winner because it was Zombie; the refinement spends resolution only on the two Critical arbitration dimensions around the observed 0.95 / 0.01 winner while retaining that winner in-grid.",
   "child_calibrations": {
     "adaptive_multi_scale_radial_edge": {
       "parameter_set_id": "21ea516c3c5a",
@@ -33,15 +33,35 @@
   "parameters": {
     "amsre_rescue_score_ceiling": {
       "type": "float",
-      "values": [0.55, 0.65, 0.75, 0.85, 0.9, 0.95, 1.0]
+      "values": [
+        0.9,
+        0.91,
+        0.92,
+        0.93,
+        0.94,
+        0.95,
+        0.96,
+        0.97
+      ]
     },
     "doc_ufcn_minimum_confidence": {
       "type": "float",
-      "values": [0.5, 0.6, 0.7, 0.75, 0.8, 0.9]
+      "values": [
+        0.9
+      ]
     },
     "minimum_corner_disagreement_fraction": {
       "type": "float",
-      "values": [0.0, 0.005, 0.01, 0.02, 0.04]
+      "values": [
+        0.005,
+        0.0075,
+        0.01,
+        0.0125,
+        0.015,
+        0.02,
+        0.03,
+        0.04
+      ]
     }
   },
   "binary_refine": {
@@ -51,7 +71,7 @@
   "regression": {
     "debug_artifacts": "winner",
     "full_space_policy": "declared-cartesian",
-    "full_space_max_parameter_sets": 210,
+    "full_space_max_parameter_sets": 64,
     "historic_best_reference": "mandatory-exact"
   },
   "optimizer_shape_compatibility": "detector-implementation",

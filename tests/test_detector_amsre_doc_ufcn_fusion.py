@@ -24,7 +24,10 @@ class FusionGen3Tests(unittest.TestCase):
         payload = json.loads(Path("config/detectors/amsre_doc_ufcn_fusion.json").read_text(encoding="utf-8"))
         self.assertEqual(payload["child_calibrations"], detector.CHILD_CALIBRATIONS)
         self.assertEqual(payload["profiles"]["baseline"], detector.BASELINE_PARAMETERS)
-        self.assertEqual(len(exhaustive_parameter_sets(payload)), 210)
+        self.assertEqual(len(exhaustive_parameter_sets(payload)), 64)
+        self.assertEqual(payload["parameters"]["doc_ufcn_minimum_confidence"]["values"], [0.9])
+        self.assertIn(0.95, payload["parameters"]["amsre_rescue_score_ceiling"]["values"])
+        self.assertIn(0.01, payload["parameters"]["minimum_corner_disagreement_fraction"]["values"])
         self.assertEqual(payload["regression"]["historic_best_reference"], "mandatory-exact")
         self.assertEqual(payload["lifecycle"]["prepare"], "doc_ufcn_page_mask")
 
