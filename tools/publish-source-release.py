@@ -52,7 +52,12 @@ def main() -> int:
         "source_commit": git_commit(source_root),
         "created_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "assets": [
-            {"name": doc.name, "size": doc.stat().st_size, "sha256": sha256(doc)}
+            {
+                "name": doc.name,
+                "path": f"images/{doc.name}",
+                "size": doc.stat().st_size,
+                "sha256": sha256(doc),
+            }
             for doc in docs
         ],
     }
