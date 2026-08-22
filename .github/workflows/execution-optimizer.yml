@@ -183,6 +183,13 @@ permissions:
   contents: read
   actions: write
 
+# Apply the branch convention to every git process, including actions/checkout's
+# internal git init before any shell step can run.
+env:
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: init.defaultBranch
+  GIT_CONFIG_VALUE_0: main
+
 concurrency:
   group: execution-optimizer-${{ github.ref }}-${{ inputs.runner }}-${{ inputs.algorithm }}
   cancel-in-progress: false

@@ -12,6 +12,15 @@ hth/validate_golden_set.py
 README-golden-set.md
 ```
 
+
+## Frozen Golden Set identity
+
+`HTH-0001` is the original five-page calibration/validation set (global ordinals 1, 5, 6, 9, and 10) and is now frozen. Its existing `config/golden_set.json` bytes are intentionally unchanged so all previously persisted calibration evidence remains compatible with the same Golden Set SHA-256.
+
+The external freeze manifest at `config/golden_sets/HTH-0001.freeze.json` records the immutable content hash, membership, source-document identity, and freeze policy. CI runs `hth/validate_golden_set_freeze.py` whenever the Golden Set or freeze metadata changes. Any in-place change to HTH-0001 fails validation; new or corrected truth data must receive a new Golden Set identity such as `HTH-0002`.
+
+HTH-0001 remains a permanent legacy validation subset even after a broader Golden Set is introduced. This preserves the historical meaning of every calibration already keyed to `HTH-0001` while allowing future sets to challenge generalization across a wider corpus.
+
 ## Choose representative pages
 
 Include examples of:

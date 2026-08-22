@@ -1,0 +1,48 @@
+name: HTH Golden Set freeze guard
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "config/golden_set.json"
+      - "config/golden_sets/**"
+      - "hth/validate_golden_set_freeze.py"
+      - ".github/workflows/golden-set-freeze.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "config/golden_set.json"
+      - "config/golden_sets/**"
+      - "hth/validate_golden_set_freeze.py"
+      - ".github/workflows/golden-set-freeze.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Must apply before actions/checkout performs its internal git init.
+env:
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: init.defaultBranch
+  GIT_CONFIG_VALUE_0: main
+
+jobs:
+  verify-hth-0001:
+    name: Verify frozen HTH-0001
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify HTH-0001 freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          python hth/validate_golden_set_freeze.py \
+            --freeze config/golden_sets/HTH-0001.freeze.json \
+            --repository-root .

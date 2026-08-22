@@ -85,6 +85,13 @@ on:
 permissions:
   contents: read
 
+# Apply the branch convention to every git process, including actions/checkout's
+# internal git init before any shell step can run.
+env:
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: init.defaultBranch
+  GIT_CONFIG_VALUE_0: main
+
 jobs:
   run-hth:
     if: ${{ inputs.mode != 'report' }}
@@ -1210,3 +1217,61 @@ jobs:
               "${{ inputs.report_algorithm }}" \
               "$GITHUB_RUN_ID"
           fi
+
+      - name: Assemble report research artifact
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf report-research-artifact
+          mkdir -p report-research-artifact/generated-report
+          mkdir -p report-research-artifact/intelligence
+          mkdir -p report-research-artifact/golden-set
+
+          cp -a generated-report/. report-research-artifact/generated-report/
+          GOLDEN_SOURCE="hth-pipeline/${{ inputs.report_golden_set }}"
+          cp "$GOLDEN_SOURCE" report-research-artifact/golden-set/selected-golden-set.json
+          GOLDEN_ID="$(python -c 'import json,sys; p=json.load(open(sys.argv[1], encoding="utf-8")); print(p.get("collection_id") or p.get("id") or "unknown")' "$GOLDEN_SOURCE")"
+          FREEZE_SOURCE="hth-pipeline/config/golden_sets/${GOLDEN_ID}.freeze.json"
+          if [[ -f "$FREEZE_SOURCE" ]]; then
+            cp "$FREEZE_SOURCE" "report-research-artifact/golden-set/${GOLDEN_ID}.freeze.json"
+          fi
+
+          # Persisted research intelligence: calibration identity/quality, runtime,
+          # parallelism, optimizer, provenance, scheduling, and source metadata.
+          # Detector regression/debug/verbose trees are deliberately excluded.
+          shopt -s nullglob
+          for index in results-repo/*-index.json; do
+            cp "$index" report-research-artifact/intelligence/
+          done
+          for file in results-repo/optimizer-predictions.json; do
+            [[ -f "$file" ]] && cp "$file" report-research-artifact/intelligence/
+          done
+          for directory in reports execution-optimizer source-documents; do
+            if [[ -d "results-repo/$directory" ]]; then
+              cp -a "results-repo/$directory" "report-research-artifact/intelligence/$directory"
+            fi
+          done
+
+          cat > report-research-artifact/README.md <<'EOF'
+          # HTH report research artifact
+
+          This artifact accompanies the GitHub Actions report summary. It contains the
+          generated report, the frozen Golden Set identity/provenance, and persisted
+          calibration/execution intelligence needed to research detector calibration,
+          runtime, parallelism, optimizer, scheduling, and source provenance.
+
+          Individual detector regression/debug/verbose logging is intentionally excluded;
+          that evidence remains part of detector-specific research artifacts.
+          EOF
+
+      - name: Upload report research artifact
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: hth-report-${{ inputs.report_type }}-${{ github.run_number }}
+          path: report-research-artifact
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact_retention_days }}
+          compression-level: 6
+

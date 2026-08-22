@@ -34,6 +34,13 @@ permissions:
   contents: read
   actions: read
 
+# Apply the branch convention to every git process, including actions/checkout's
+# internal git init before any shell step can run.
+env:
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: init.defaultBranch
+  GIT_CONFIG_VALUE_0: main
+
 concurrency:
   group: historical-regression-rerank-${{ inputs.results_repository }}
   cancel-in-progress: false
