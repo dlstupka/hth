@@ -42,3 +42,9 @@ change is a prompt to investigate—not proof of a regression.
 Expected runtimes should be documented only after several representative runs.
 The stage table makes those expectations measurable as detectors and later OCR,
 transcription, translation, extraction, and reasoning stages are added.
+
+## Concurrent persistence
+
+Results-repository publication uses the shared hardened persistence mechanism rather than a one-shot Git push. Each writer refreshes the latest durable `main`, reapplies only the payload it owns, commits, and retries confirmed non-fast-forward collisions with bounded backoff. Production, test, calibration, optimizer, report, and reranking writers share this contract so concurrent workflows preserve one another's state.
+
+Moving pointers such as `test/latest` have monotonic policy: an older run may still preserve its unique history after a race, but it must not replace a newer successful `latest`.

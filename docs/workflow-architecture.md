@@ -1,4 +1,4 @@
-# HTH Workflow Architecture — v0.6
+# HTH Workflow Architecture
 
 ## Workflows
 

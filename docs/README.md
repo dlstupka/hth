@@ -57,7 +57,7 @@ An overlay must:
 
 - contain only files added or modified for the current task;
 - include all changed source files, tests, and documentation;
-- include a terse `COMMIT-MESSAGE.md` containing the recommended commit title and body;
+- include `COMMIT-MESSAGE.md` with a short, meaningful subject line, an appropriately detailed body, and a trailing blank line;
 - omit unchanged files, generated artifacts, caches, and the repository root directory;
 - preserve the existing repository layout; and
 - extract directly over the repository root.

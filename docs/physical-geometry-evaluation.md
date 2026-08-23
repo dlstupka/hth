@@ -55,7 +55,7 @@ Exit policies:
 - `--fail-on fail`: hard failures stop CI; near-passes do not
 - `--fail-on near-pass`: both hard failures and near-passes stop CI
 
-During v0.6 calibration, use `--fail-on never`. Once the detector is redesigned, move to `--fail-on fail`.
+During detector research and calibration, use `--fail-on never` when failures are evidence to be measured rather than workflow-stopping errors. Use stricter failure policy only when the execution contract requires it.
 
 Add to output verification:
 

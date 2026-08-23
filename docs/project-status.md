@@ -1,58 +1,67 @@
 # Hidden Texas History — Project Status
 
-*Last updated: 2026-07-18*
-*Framework release: v0.6.1*
-*AutoHotkey acquisition utility: v0.5*
+*Last updated: 2026-08-23*
 
 ## Mission
 
-Build an open, reproducible digital-humanities framework for preserving,
-analyzing, and publishing Texas historical records, beginning with the San
-Fernando Cathedral baptism registers.
+Build an open, reproducible historic-document research framework for preserving, analyzing, and publishing difficult primary-source collections, beginning with the San Antonio baptism registers and the research surrounding Juana Navarro Alsbury.
 
-## Current collection
+## Current reference collection
 
 **HTH-0001 — San Antonio Baptisms, 1788–1824 and 1858–1898**
 
-- 929 FamilySearch source images represented in DOCX masters;
-- replacement captures for early pages;
-- stable acquisition and preprocessing workflow;
-- structured manifests, page analysis, geometry candidates, and validation.
+- 11 source DOCX masters preserved in immutable source release `HTH-SOURCE-0001`;
+- 928 embedded source images processed in the current production corpus;
+- frozen five-page Golden Set `HTH-0001` with immutable identity and SHA-256;
+- source, pipeline, detector, parameter-set, publication, and run provenance recorded in machine-readable outputs.
 
-## Framework status
+The original corpus was bootstrapped through browser/AHK capture. HTH now prefers direct authorized archival acquisition and includes a FamilySearch API acquisition adapter pending developer/API access.
 
-Completed foundation:
+## Production status
 
-- reusable production, test, and calibration workflow core;
-- preprocess and physical-page analysis stages;
-- detector registry and detector resilience;
-- contour, Connected Components, RANSAC, Hough, LSD, and GrabCut candidate detectors;
-- physical-geometry validation and reference tooling;
-- production and test publication layouts;
-- Publication Manifest and Pipeline Health;
-- canonical stage banners, UTC timestamps, and elapsed-time reporting;
-- unit tests and v0.6.1 detector/provenance documentation.
-
-## Current pipeline
+The production preprocess path is operational end to end:
 
 ```text
-Acquisition
+immutable source release
 → STAGE_PREPROCESS
 → STAGE_DETECT_CURRENT
-→ STAGE_DETECT_CANDIDATES
-→ STAGE_VALIDATE_GEOMETRY
+→ authoritative approved detector inference
 → STAGE_VALIDATE_OUTPUTS
-→ STAGE_PUBLISH_PRODUCTION / STAGE_PUBLISH_TEST
+→ STAGE_PUBLISH_PRODUCTION
+→ durable results + temporary full-build artifact
 ```
+
+The current approved document detector is **Fusion Gen3 — AMSRE + Doc-UFCN** (`amsre_doc_ufcn_fusion`) resolved from authoritative calibration evidence for `HTH-0001`.
+
+The first successful full production build processed all **928/928 pages**, produced **928/928 detector candidates**, recorded **0 detector errors / 0 missing candidates**, and measured **0.920780 average detector confidence** across the corpus. Confidence is a prioritization signal, not IoU or ground truth.
+
+## Calibration and execution intelligence
+
+HTH maintains separate research/calibration and production concerns:
+
+- detector regression and parameter-search evidence are persisted separately from production outputs;
+- Golden Set identities are frozen rather than edited in place;
+- calibration selection resolves the strongest **Approved** authoritative detector/configuration;
+- runtime/parallelism history supports execution-shape recommendations;
+- shared hardened persistence protects results-repository writers from concurrent non-fast-forward races;
+- smoke, calibration, optimizer, report, and preprocess writers use the same persistence contract.
+
+Detector research has exercised the framework through hundreds of regression runs and more than one hundred optimizer runs. The goal is now to consume that evidence rather than continuously retune production without a new failure class.
+
+## Source acquisition
+
+Large source masters are distributed through immutable GitHub Releases rather than Git LFS. Builds verify release-manifest hashes before processing.
+
+The next source-quality objective is to reacquire the current FamilySearch collection through authorized FamilySearch API/image access at the best available source quality, eliminating browser/AHK capture from the preferred acquisition path while retaining the original source edition as provenance.
 
 ## Next technical work
 
-1. Establish representative stage-runtime expectations.
-2. Add and evaluate consensus without changing the retained candidate evidence.
-3. Benchmark detector quality and runtime against the approved reference collection.
-4. Advance OCR, transcription, translation, record extraction, historical reasoning, and publication.
+1. Complete authorized direct-source acquisition for the reference collection.
+2. Compare direct-source production inference with the bootstrap source edition.
+3. Use full-collection evidence—especially low-confidence and detector-disagreement pages—to decide whether and how to instantiate `HTH-0002`.
+4. Continue downstream transcription, translation, indexing, citation, and historical-research stages.
+5. Keep collection-specific data and immutable source truth outside the reusable HTH engine so additional collections can use the same framework.
 
 ## Historical objective
 
-Locate, document, and contextualize the baptism of Juana Navarro Alsbury while
-creating reusable tools for transparent Texas historical research.
+Locate, document, and contextualize the baptism and life of Juana Navarro Alsbury while creating reusable tooling for transparent Texas historical research.

@@ -31,6 +31,11 @@ The publisher computes the manifest, creates the immutable Release, and uploads 
 
 After the release verifies successfully, the source repository can remove the DOCX pointer files and any source-binary tracking rules from its current branch. Existing historical Git objects can remain as historical provenance; HTH execution no longer depends on them.
 
+
+## Direct-source reacquisition
+
+A better authorized source representation does not overwrite an established source release. For example, if the current FamilySearch collection is reacquired directly through approved API/image access, publish that corpus as a new immutable source edition and preserve `HTH-SOURCE-0001` as bootstrap provenance. Downstream comparison can then distinguish detector changes from source-quality changes.
+
 ## New or changed source material
 
 Never mutate an established source Release. Any changed source master, new batch, or replacement rendition gets a new release tag such as `HTH-SOURCE-0002`. Builds persist both the Release tag and the Release-manifest SHA-256, so a source corpus remains reproducible even when the surrounding repository continues to evolve.

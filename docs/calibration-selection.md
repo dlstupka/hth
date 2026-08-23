@@ -1,10 +1,10 @@
 # HTH Calibration Selection Workbench
 
-This update keeps the fast test/CI workflow unchanged and adds a separate, editable calibration selection to the reference collection editor.
+The reference-collection editor supports explicit calibration membership so Golden Set and detector-research pages can be selected without changing the normal production or preprocess-test paths.
 
-## New workbench controls
+## Workbench controls
 
-**Show images** defaults to **All images** and supports:
+**Show images** supports:
 
 - All images
 - Calibration set only
@@ -14,13 +14,13 @@ This update keeps the fast test/CI workflow unchanged and adds a separate, edita
 - Needs review
 - Approved
 
-Each page has:
+Each page can carry:
 
 ```json
 "calibration_selected": true
 ```
 
-Missing values default to `true`, preserving the requested “show/use all by default” behavior.
+Missing values default to `true` for backward compatibility.
 
 The workbench can:
 
@@ -29,50 +29,22 @@ The workbench can:
 - export `calibration_manifest.json`;
 - preserve calibration membership in `reference_collection.json`.
 
-## Recommended pipeline separation
+## Current pipeline separation
 
-Keep the existing `preprocess-test.yml` exactly as the fast break/fix and sneak-preview workflow.
+Calibration is deliberately separate from production preprocessing and the fast `preprocess-test.yml` smoke path.
 
-Add a separate manual calibration workflow later:
+`calibrate-geometry.yml` and the shared workflow core are responsible for selecting the requested Golden Set/calibration scope, evaluating detector parameter sets, persisting calibration evidence, and publishing calibration intelligence without overwriting production or test outputs.
 
-```text
-calibrate-geometry.yml
-```
+Authoritative detector choice is resolved from persisted calibration evidence. Production preprocessing uses the strongest **Approved** authoritative calibration for the requested Golden Set rather than rerunning detector research.
 
-Its responsibilities should be:
+## Golden Set discipline
 
-1. Read `reference_collection.json` or `calibration_manifest.json`.
-2. Select only pages where `calibration_selected` is true.
-3. Run every detector.
-4. Score each detector against the approved physical geometry.
-5. Produce the leaderboard and page-type summaries.
-6. Never publish over the normal test/latest output.
+Calibration pages tune detector parameters and selection. Frozen Golden Sets give persisted calibration evidence a stable identity and SHA-256. `HTH-0001` is frozen and must never be edited in place; corrected or expanded truth receives a new identity such as `HTH-0002`.
 
-Suggested output namespace:
+A broader Golden Set should be driven by evidence from full-collection inference: low-confidence pages, structurally distinct capture regimes, detector-disagreement cases, and representative controls. Detector confidence is useful for prioritization but is not ground truth.
 
-```text
-calibration/<run-id>/
-    calibration-manifest.json
-    detector-scores.csv
-    detector-leaderboard.json
-    detector-leaderboard.md
-    page-results.json
-```
+See:
 
-## Scientific safeguard
-
-Use calibration pages to tune thresholds and detector selection.
-
-Reserve a small holdout set that is not used for tuning. The holdout can be selected later with a separate field such as:
-
-```json
-"evaluation_role": "calibration"
-```
-
-or:
-
-```json
-"evaluation_role": "holdout"
-```
-
-For the first pass, pages 1–20 can be the calibration set. Add pages in batches of 10 and monitor whether detector rankings and mean IoU materially change.
+- [`golden-set.md`](golden-set.md)
+- [`regression.md`](regression.md)
+- [`document-detector-review.md`](document-detector-review.md)

@@ -1,4 +1,4 @@
-# HTH Preprocessor v0.1
+# HTH Preprocessor
 
 This tool performs the mechanical preprocessing needed before historical analysis.
 
@@ -31,7 +31,7 @@ It also creates thumbnails and, with `--contact-sheets`, labeled review sheets f
 
 ## It does not yet pretend to read the handwriting
 
-Version 0.1 intentionally does not auto-fill names, dates, priests, or manuscript page numbers. Those fields exist in the map template, but weak OCR guesses are not promoted to historical facts.
+The preprocessor intentionally does not auto-fill names, dates, priests, or manuscript page numbers. Those fields exist in the map template, but weak OCR guesses are not promoted to historical facts.
 
 ## Local Windows use
 

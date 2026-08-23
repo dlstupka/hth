@@ -136,11 +136,11 @@ algorithm experimentation inexpensive without weakening production loading.
 
 ## Detector-specific documentation
 
-- [Contour](docs/README-detector-contour.md)
-- [Contour-based quadrilateral](docs/README-detector-contour-quad.md)
-- [Connected Components](docs/README-detector-components.md)
-- [Line Segment Detector](docs/README-detector-lsd.md)
-- [GrabCut](docs/README-detector-grabcut.md)
+- [Contour](detector-contour.md)
+- [Contour-based quadrilateral](detector-contour-quad.md)
+- [Connected Components](detector-components.md)
+- [Line Segment Detector](detector-lsd.md)
+- [GrabCut](detector-grabcut.md)
 
 LSD and GrabCut are registered as OpenCV-origin detectors. Their `version` is
 the installed OpenCV version, their canonical repository is the OpenCV project,

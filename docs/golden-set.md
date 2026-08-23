@@ -34,7 +34,7 @@ Include examples of:
 - marginalia, signatures, seals, or unfamiliar marks
 - early, middle, and late capture styles
 
-Start with 10–20 pages. Add another page only when it represents a new failure class.
+`HTH-0001` intentionally remains the frozen five-page legacy set. A future `HTH-0002` should be evidence-driven rather than expanded by quota: add pages when full-collection inference exposes a distinct failure class, capture regime, detector-disagreement case, or structural layout not represented by the frozen set. Include representative controls as well as difficult pages.
 
 ## Coordinates
 

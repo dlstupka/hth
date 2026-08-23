@@ -5,7 +5,7 @@ probable foreground/background seed for OpenCV GrabCut. Border pixels are fixed
 as background, an eroded mask core is fixed as foreground, and the refined
 largest region becomes the candidate document geometry.
 
-The detector is experimental evidence for v0.6.1. It does not replace existing
+The detector is retained as experimental evidence. It does not replace existing
 detectors or alter candidate selection. The registry supplies timing, exception
 isolation, status normalization, and provenance metadata.
 

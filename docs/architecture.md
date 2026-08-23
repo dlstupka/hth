@@ -1,4 +1,4 @@
-# HTH Architecture — v0.6
+# HTH Architecture
 
 ## Design objective
 

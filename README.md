@@ -32,13 +32,15 @@ STAGE_PREPROCESS
         ↓
 STAGE_DETECT_CURRENT
         ↓
-STAGE_DETECT_CANDIDATES
-        ↓
-STAGE_VALIDATE_GEOMETRY
+approved detector inference
         ↓
 STAGE_VALIDATE_OUTPUTS
         ↓
 STAGE_PUBLISH_PRODUCTION / STAGE_PUBLISH_TEST
+
+detector research/calibration (separate path)
+        ↓
+STAGE_DETECT_CANDIDATES → Golden Set evaluation → persisted calibration intelligence
         ↓
 transcription → translation → indexing → citation → research
 ```

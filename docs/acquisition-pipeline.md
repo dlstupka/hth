@@ -2,71 +2,70 @@
 
 ## Goal
 
-Replace the fragile path:
+Use the best authorized archival representation available and keep acquisition independent from downstream processing.
+
+Preferred path:
 
 ```text
-FamilySearch viewer → screenshot/snipping → clipboard → Word → local extraction → source repo
+authorized archival source
+        ↓
+source-specific acquisition adapter
+        ↓
+verified immutable source images
+        ↓
+manifest + SHA-256 provenance
+        ↓
+source release / durable storage
+        ↓
+HTH preprocessing
 ```
 
-with a source-neutral package:
+The original bootstrap path used browser/AHK capture through DOCX masters. Those captures remain useful recovery and provenance evidence, but they are not the preferred acquisition architecture.
 
-```text
-authorized image source → acquisition adapter → immutable images → manifest/checksums → storage → HTH preprocessing
-```
+## Legal and custodial boundary
 
-## Legal boundary
-
-Do not automate retrieval in a way prohibited by the image provider or record custodian. Use an official download mechanism, an approved API/integration, or written permission before unattended cloud retrieval.
-
+HTH does not bypass repository controls. Automated retrieval must use an official download mechanism, approved API/integration, or other permission granted by the source provider or record custodian. If an authenticated source exposes metadata but not an authorized image representation, the acquisition adapter stops rather than falling back to scraping.
 
 ## Preferred FamilySearch adapter
 
-For FamilySearch collections, prefer `tools/acquire-familysearch-images.py` over
-AHK/browser capture. See `docs/familysearch-acquisition.md`. The adapter uses an
-authenticated FamilySearch API token, stores verified source images directly in
-`images/`, and records FamilySearch image identity plus checksums/provenance in
-`familysearch-source-manifest.json`. AHK remains recovery/bootstrap evidence,
-not the preferred acquisition path.
+For FamilySearch collections, prefer `tools/acquire-familysearch-images.py` over AHK/browser capture. See [`familysearch-acquisition.md`](familysearch-acquisition.md).
+
+The adapter is designed to:
+
+- authenticate through FamilySearch-supported access;
+- follow FamilySearch Historical Records image resources;
+- store verified source images directly beneath `images/`;
+- never overwrite an existing logical image name;
+- validate downloaded image structure and compare dimensions, size, or checksums when FamilySearch metadata makes those checks possible;
+- record FamilySearch image identity, persistent identifiers, SHA-256, dimensions, media type, and sanitized provenance; and
+- resume safely after interruption.
+
+HTH is currently pursuing FamilySearch developer/API access so this authorized direct-source path can replace the bootstrap AHK capture for the San Antonio baptism reference collection.
 
 ## Normalized acquisition package
 
-```text
-acquisition/
-├── originals/image_000001.png
-├── manifest.json
-├── checksums.sha256
-├── acquisition-info.yaml
-└── capture-log.jsonl
-```
-
-Each manifest entry should carry an HTH image ID, source system and persistent identifier, source sequence, filename, SHA-256, capture time/method, MIME type, and rights status.
-
-## Practical transition
-
-1. Preserve the current DOCX masters as recovery evidence.
-2. Modify AHK to save each capture directly as a numbered PNG as well as, temporarily, Word.
-3. Run a local acquisition agent that watches the folder, hashes images, appends the manifest, and uploads completed batches.
-4. Publish large immutable originals as verified GitHub Release assets in the collection source repository; keep manifests, provenance, config, and rights notes in Git.
-5. Trigger cloud preprocessing after a completed batch is uploaded.
-
-AHK can still drive the authenticated browser locally. The cloud begins immediately after each local capture, avoiding clipboard/Word as the authoritative source.
-
-## Cloud pattern
+A source adapter should produce a durable package equivalent to:
 
 ```text
-Windows capture host + AHK
-        ↓
-local acquisition agent
-        ↓
-GitHub Release assets (or future object-storage adapter)
-        ↓
-GitHub Actions or self-hosted runner
-        ↓
-HTH source manifest + results repo
+images/
+├── fs_0001.<ext>
+├── fs_0002.<ext>
+└── ...
+source-manifest.json
+checksums.sha256
+acquisition-info.yaml
 ```
 
-A self-hosted runner is useful when browser authentication or local folders must remain on your machine while GitHub still orchestrates the job.
+Each manifest entry should carry a stable HTH logical image identity, source system and persistent identifier, source sequence, filename, SHA-256, acquisition method/time, MIME type, dimensions, and rights/access status where known.
 
-## Trivial future source replacement
+## Source editions and replacement renditions
 
-Use stable logical IDs such as `HTH-0001-I000001`, independent of the source file. Map each ID to one or more renditions and mark one preferred. When archive TIFFs or direct source images arrive, add the new rendition, preserve the screen capture, switch the preferred rendition, and rerun only stages whose input hash changed. Reference annotations, record links, and citations remain attached to the stable HTH ID.
+Do not silently replace established source evidence. When a materially better source rendition becomes available, publish it as a new immutable source edition or rendition while retaining the prior source identity and provenance.
+
+For the current collection, the existing DOCX-based source release remains reproducible evidence. A future FamilySearch-direct acquisition should receive a new source release identity rather than mutating `HTH-SOURCE-0001`.
+
+Stable logical image IDs should remain independent of source-file format so annotations, Golden Set truth, citations, and downstream research can survive a source-rendition upgrade.
+
+## Execution boundary
+
+Acquisition and analysis are separate contracts. HTH preprocessing should consume a verified source package without caring whether its images originated from FamilySearch, another archive API, a local archival scan, or a legacy capture. This keeps source stewardship replaceable without redesigning detector, transcription, translation, indexing, or citation stages.
