@@ -56,9 +56,15 @@ class HardenedPersistenceTests(unittest.TestCase):
             run_quiet(["git", "--git-dir", str(remote), "symbolic-ref", "HEAD", "refs/heads/main"])
             run_quiet(["git", "clone", str(remote), str(writer)])
             run_quiet(["git", "clone", str(remote), str(racer)])
+            # Native Windows git records a local clone origin as C:\\..., which
+            # bash-invoked git can misread as scp syntax ("host c"). Normalize
+            # both working clones to an explicit file:// URL that Git accepts
+            # consistently from Python, Git Bash/MSYS, and POSIX shells.
+            remote_url = remote.resolve().as_uri()
             for checkout in (writer, racer):
                 run_quiet(["git", "-C", str(checkout), "config", "user.name", "test"])
                 run_quiet(["git", "-C", str(checkout), "config", "user.email", "test@example.com"])
+                run_quiet(["git", "-C", str(checkout), "remote", "set-url", "origin", remote_url])
 
             rel_root = root.relative_to(ROOT).as_posix()
             writer_sh = f"{rel_root}/writer"
