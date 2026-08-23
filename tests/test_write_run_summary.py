@@ -133,6 +133,42 @@ class RunSummaryTests(unittest.TestCase):
             self.assertIn("11.2 ms", text)
             self.assertIn("0.812", text)
 
+    def test_summary_prefers_resolved_document_detector_over_legacy_zoo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            geometry = Path(tmp) / "page-analysis.json"
+            geometry.write_text(json.dumps({
+                "document_detector": {
+                    "detector": "amsre_doc_ufcn_fusion",
+                    "display_name": "Fusion Gen3 — AMSRE + Doc-UFCN",
+                    "rank": 1,
+                    "parameter_set_id": "57b3edb3ac1c",
+                },
+                "geometry_candidate_summary": {
+                    "detector_performance": {
+                        "amsre_doc_ufcn_fusion": {
+                            "runs": 10,
+                            "elapsed_ms_average": 136.2,
+                            "confidence_average": 0.989,
+                        },
+                        "obsolete_detector": {"runs": 10, "elapsed_ms_average": 1.0},
+                    },
+                    "method_status_counts": {
+                        "amsre_doc_ufcn_fusion": {"ok": 10, "no_candidate": 0, "error": 0},
+                        "obsolete_detector": {"ok": 0, "no_candidate": 0, "error": 10},
+                    },
+                    "detectors": [
+                        {"method": "obsolete_detector", "name": "Obsolete Detector"},
+                    ],
+                },
+            }), encoding="utf-8")
+            args = self.make_args(page_analysis_json=str(geometry))
+            text = build_summary(args)
+            self.assertIn("## Preferred document detector performance", text)
+            self.assertIn("Fusion Gen3", text)
+            self.assertIn("57b3edb3ac1c", text)
+            self.assertNotIn("Obsolete Detector", text)
+            self.assertNotIn("## Detector performance", text)
+
     def test_summary_includes_timestamps_and_stage_performance(self):
         with tempfile.TemporaryDirectory() as tmp:
             timings = Path(tmp) / "stage-timings.jsonl"

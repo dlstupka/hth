@@ -645,7 +645,7 @@ jobs:
 
       - name: STAGE_DETECT_CANDIDATES
         id: stage_detect_candidates_start
-        if: ${{ inputs.mode != 'production' }}
+        if: ${{ inputs.mode == 'calibration' }}
         shell: bash
         run: |
           python hth-pipeline/hth/stage_timing.py start \
@@ -653,7 +653,7 @@ jobs:
 
       - name: Generate geometry candidates
         id: generate_geometry_candidates
-        if: ${{ inputs.mode != 'production' }}
+        if: ${{ inputs.mode == 'calibration' }}
         shell: bash
         run: |
           set -euo pipefail

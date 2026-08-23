@@ -182,6 +182,40 @@ def _read_detector_performance(path: str) -> list[dict[str, Any]]:
     return rows
 
 
+
+def _read_preferred_detector_performance(path: str) -> dict[str, Any] | None:
+    payload = _read_json(path)
+    selected = payload.get("document_detector")
+    if not isinstance(selected, dict):
+        return None
+
+    method = str(selected.get("detector") or "").strip()
+    if not method:
+        return None
+
+    summary = payload.get("geometry_candidate_summary", {})
+    performance = summary.get("detector_performance", {}) if isinstance(summary, dict) else {}
+    statuses = summary.get("method_status_counts", {}) if isinstance(summary, dict) else {}
+    perf = performance.get(method, {}) if isinstance(performance, dict) else {}
+    counts = statuses.get(method, {}) if isinstance(statuses, dict) else {}
+    if not isinstance(perf, dict):
+        perf = {}
+    if not isinstance(counts, dict):
+        counts = {}
+
+    return {
+        "detector": method,
+        "display_name": selected.get("display_name") or method,
+        "rank": selected.get("rank"),
+        "parameter_set_id": selected.get("parameter_set_id"),
+        "runs": perf.get("runs"),
+        "average_ms": perf.get("elapsed_ms_average"),
+        "average_confidence": perf.get("confidence_average"),
+        "ok": counts.get("ok", 0),
+        "no_candidate": counts.get("no_candidate", 0),
+        "error": counts.get("error", 0),
+    }
+
 def _existing_outputs(paths: Iterable[str]) -> list[str]:
     result: list[str] = []
     for raw in paths:
@@ -244,32 +278,56 @@ def build_summary(args: argparse.Namespace) -> str:
                 f"| {elapsed} |"
             )
 
-    detector_rows = _read_detector_performance(args.page_analysis_json)
-    if detector_rows:
+    preferred = _read_preferred_detector_performance(args.page_analysis_json)
+    if preferred:
+        average_ms = _as_float(preferred.get("average_ms"))
+        elapsed = f"{average_ms:.1f} ms" if average_ms is not None else "unknown"
+        confidence = _as_float(preferred.get("average_confidence"))
+        confidence_text = f"{confidence:.3f}" if confidence is not None else "—"
+        rank = preferred.get("rank")
+        rank_text = f"#{rank}" if rank is not None else "unknown"
         lines.extend([
             "",
-            "## Detector performance",
+            "## Preferred document detector performance",
             "",
-            "| Detector | Runs | Candidate | No candidate | Errors | Avg elapsed | Avg confidence |",
-            "|---|---:|---:|---:|---:|---:|---:|",
+            "| Detector | Rank | Parameter Set ID | Pages | Candidate | No candidate | Errors | Avg elapsed | Avg confidence |",
+            "|---|---:|---|---:|---:|---:|---:|---:|---:|",
+            (
+                f"| {preferred.get('display_name', preferred.get('detector', 'unknown'))} "
+                f"(`{preferred.get('detector', 'unknown')}`) | {rank_text} "
+                f"| `{preferred.get('parameter_set_id', 'unknown')}` "
+                f"| {preferred.get('runs', 'unknown')} | {preferred.get('ok', 0)} "
+                f"| {preferred.get('no_candidate', 0)} | {preferred.get('error', 0)} "
+                f"| {elapsed} | {confidence_text} |"
+            ),
         ])
-        for row in detector_rows:
-            average_ms = _as_float(row.get("average_ms"))
-            elapsed = f"{average_ms:.1f} ms" if average_ms is not None else "unknown"
-            confidence = _as_float(row.get("average_confidence"))
-            confidence_text = f"{confidence:.3f}" if confidence is not None else "—"
-            version = str(row.get("version", "")).strip()
-            origin = str(row.get("origin", "")).strip()
-            detector = str(row.get("name") or row.get("display_name") or "unknown")
-            if version:
-                detector += f" `v{version}`"
-            if origin:
-                detector += f" ({origin})"
-            lines.append(
-                f"| {detector} | {row.get('runs', 'unknown')} "
-                f"| {row.get('ok', 0)} | {row.get('no_candidate', 0)} "
-                f"| {row.get('error', 0)} | {elapsed} | {confidence_text} |"
-            )
+    else:
+        detector_rows = _read_detector_performance(args.page_analysis_json)
+        if detector_rows:
+            lines.extend([
+                "",
+                "## Detector performance",
+                "",
+                "| Detector | Runs | Candidate | No candidate | Errors | Avg elapsed | Avg confidence |",
+                "|---|---:|---:|---:|---:|---:|---:|",
+            ])
+            for row in detector_rows:
+                average_ms = _as_float(row.get("average_ms"))
+                elapsed = f"{average_ms:.1f} ms" if average_ms is not None else "unknown"
+                confidence = _as_float(row.get("average_confidence"))
+                confidence_text = f"{confidence:.3f}" if confidence is not None else "—"
+                version = str(row.get("version", "")).strip()
+                origin = str(row.get("origin", "")).strip()
+                detector = str(row.get("name") or row.get("display_name") or "unknown")
+                if version:
+                    detector += f" `v{version}`"
+                if origin:
+                    detector += f" ({origin})"
+                lines.append(
+                    f"| {detector} | {row.get('runs', 'unknown')} "
+                    f"| {row.get('ok', 0)} | {row.get('no_candidate', 0)} "
+                    f"| {row.get('error', 0)} | {elapsed} | {confidence_text} |"
+                )
 
     if args.notes:
         lines.extend(["", "## Notes", "", args.notes.strip()])
