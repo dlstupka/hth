@@ -9,7 +9,13 @@ import sys
 import tempfile
 from pathlib import Path
 
-from detector_lifecycle import finalize_detector, prepare_detector
+# This entrypoint is intentionally invoked as a file by the reusable preprocess
+# workflow.  Put the repository root on sys.path so package-qualified imports
+# behave identically in preprocess-test and full production preprocess.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from hth.detector_lifecycle import finalize_detector, prepare_detector
 
 
 def main() -> int:
