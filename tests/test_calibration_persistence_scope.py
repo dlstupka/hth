@@ -26,11 +26,13 @@ class CalibrationPersistenceScopeTests(unittest.TestCase):
         start = text.index("- name: Persist calibration intelligence")
         end = text.index("\n      - name:", start + 1)
         block = text[start:end]
+        helper = (ROOT / "tools" / "hardened-persistence.sh").read_text(encoding="utf-8")
 
-        self.assertIn("push_log=", block)
-        self.assertIn("non-fast-forward|fetch first|failed to push some refs", block)
-        self.assertIn("Calibration publish collision confirmed;", block)
-        self.assertIn("not retrying as a collision", block)
+        self.assertIn("source hth-pipeline/tools/hardened-persistence.sh", block)
+        self.assertIn("hth_hardened_persist", block)
+        self.assertIn("non-fast-forward|fetch first|failed to push some refs", helper)
+        self.assertIn("concurrent update confirmed", helper)
+        self.assertIn("refusing to misclassify and retry it", helper)
 
 
 if __name__ == "__main__":

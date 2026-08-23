@@ -96,38 +96,38 @@ jobs:
             --output "$run_ids"
           echo "run_ids_file=$run_ids" >> "$GITHUB_OUTPUT"
 
-      - name: Stream retained artifacts through canonical reranking
-        shell: bash
-        env:
-          PYTHONPATH: hth-pipeline
-        run: |
-          python -m hth.historical_rebuild_workflow stream \
-            --repository "$GITHUB_REPOSITORY" \
-            --run-ids-file "${{ steps.runs.outputs.run_ids_file }}" \
-            --results-root results-repo \
-            --top "${{ inputs.top }}" \
-            --summary historical-rerank-summary.md
-
       - name: Publish rebuilt derived intelligence
         shell: bash
         env:
           HTH_RESULTS_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN }}
         run: |
           set -euo pipefail
+          source hth-pipeline/tools/hardened-persistence.sh
+          [[ -n "${HTH_RESULTS_TOKEN:-}" ]] || {
+            echo "::error::HTH_RESULTS_TOKEN is required to publish rebuilt historical intelligence"
+            exit 1
+          }
+
           git -C results-repo config user.name "github-actions[bot]"
           git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C results-repo remote set-url origin \
             "https://x-access-token:${HTH_RESULTS_TOKEN}@github.com/${{ inputs.results_repository }}.git"
 
-          git -C results-repo add calibration-index.json source-documents/
-          if git -C results-repo diff --cached --quiet; then
-            echo "Historical derived intelligence already matches canonical metrics."
-            exit 0
-          fi
+          apply_historical_rebuild() {
+            python -m hth.historical_rebuild_workflow stream \
+              --repository "$GITHUB_REPOSITORY" \
+              --run-ids-file "${{ steps.runs.outputs.run_ids_file }}" \
+              --results-root results-repo \
+              --top "${{ inputs.top }}" \
+              --summary historical-rerank-summary.md
+            git -C results-repo add -A -- calibration-index.json source-documents/
+          }
 
-          git -C results-repo commit -m \
-            "Rebuild historical regression metrics from HTH run ${{ github.run_number }}"
-          git -C results-repo push origin HEAD:main
+          hth_hardened_persist \
+            results-repo main \
+            "Rebuild historical regression metrics from HTH run ${{ github.run_number }}" \
+            apply_historical_rebuild \
+            "Historical regression intelligence"
 
       - name: Upload rerank summary
         if: ${{ always() }}

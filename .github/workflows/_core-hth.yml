@@ -1032,91 +1032,57 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          source hth-pipeline/tools/hardened-persistence.sh
 
           git -C results-repo config user.name "github-actions[bot]"
           git -C results-repo config \
             user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Snapshot this run's generated production payload outside the checkout.
-          # Each retry starts from the newest remote main, then reapplies only these
-          # production paths so concurrent test/calibration publications survive.
           publication_payload="$RUNNER_TEMP/hth-production-publication-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar"
           tar -C results-repo -cf "$publication_payload" \
-            metadata reports analysis ocr transcriptions translations indexes \
-            citations research-notes BUILD-INFO.yaml README.md
+            metadata analysis ocr transcriptions translations indexes \
+            citations research-notes BUILD-INFO.yaml README.md \
+            reports/preprocess-summary.json
 
-          published=0
-          changed=false
-          max_publish_attempts=5
-          for attempt in $(seq 1 "$max_publish_attempts"); do
-            if (( attempt > 1 )); then
-              retry_delay=$((5 * (attempt - 1)))
-              echo "Production publish collision confirmed; waiting ${retry_delay}s before retrying against the latest main."
-              sleep "$retry_delay"
-            fi
-
-            git -C results-repo fetch origin main
-            git -C results-repo reset --hard origin/main
-            git -C results-repo clean -fd -- \
-              metadata reports analysis ocr transcriptions translations indexes \
-              citations research-notes BUILD-INFO.yaml README.md
+          apply_production_publication() {
+            # These are the production writer's owned paths. Remove them before
+            # restoring the run snapshot so deletions are persisted as well as
+            # additions, while every unrelated results-repo path remains intact.
+            rm -rf \
+              results-repo/metadata results-repo/analysis \
+              results-repo/ocr results-repo/transcriptions results-repo/translations \
+              results-repo/indexes results-repo/citations results-repo/research-notes \
+              results-repo/BUILD-INFO.yaml results-repo/README.md \
+              results-repo/reports/preprocess-summary.json
             tar -C results-repo -xf "$publication_payload"
-            git -C results-repo add --all
+            git -C results-repo add -A -- \
+              metadata analysis ocr transcriptions translations indexes \
+              citations research-notes BUILD-INFO.yaml README.md \
+              reports/preprocess-summary.json
+          }
 
-            if git -C results-repo diff --cached --quiet; then
-              echo "Production publication already current against latest main."
-              published=1
-              break
-            fi
+          hth_hardened_persist \
+            results-repo main \
+            "Publish HTH production build from source ${{ steps.build.outputs.source_short_commit }}" \
+            apply_production_publication \
+            "Production publication"
 
-            git -C results-repo commit \
-              -m "Publish HTH production build from source ${{ steps.build.outputs.source_short_commit }}"
-            changed=true
-
-            push_log="$RUNNER_TEMP/hth-production-push-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}.log"
-            if git -C results-repo push origin HEAD:main 2>&1 | tee "$push_log"; then
-              published=1
-              break
-            fi
-
-            if grep -Eqi \
-              'non-fast-forward|fetch first|failed to push some refs|updates were rejected because the remote contains work|updates were rejected because the tip of your current branch is behind' \
-              "$push_log"; then
-              if (( attempt == max_publish_attempts )); then
-                echo "::error::Production publish collision persisted through ${max_publish_attempts} attempts."
-                break
-              fi
-              continue
-            fi
-
-            echo "::error::Production publication push failed for a reason other than concurrent publication; not retrying as a collision."
-            exit 1
-          done
-
-          if (( published == 0 )); then
-            echo "::error::Unable to publish production results after ${max_publish_attempts} attempts"
-            exit 1
-          fi
-
-          RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
-          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          RESULTS_COMMIT="$HTH_PERSIST_COMMIT"
+          changed="$HTH_PERSIST_CHANGED"
           echo "results_commit=$RESULTS_COMMIT" >> "$GITHUB_OUTPUT"
           {
             echo
-            echo "### Production publication"
+            echo "### Publication repository validation"
             echo
+            echo "- Cross-repository checkout: successful"
             if [[ "$changed" == "true" ]]; then
-              echo "- Production publication committed successfully"
+              echo "- Production publication: successful"
             else
-              echo "The production publication was already current."
+              echo "- Production publication was already current"
             fi
             echo "- Publication commit: \`$RESULTS_COMMIT\`"
-            echo "- Metadata: \`metadata/\`"
-            echo "- Report: \`reports/preprocess-summary.json\`"
-            echo "- Build identity: \`BUILD-INFO.yaml\`"
             echo "- Existing \`test/\` and calibration intelligence were preserved"
           } >> "$GITHUB_STEP_SUMMARY"
-
 
       - name: Complete STAGE_PUBLISH_PRODUCTION
         if: ${{ always() && steps.stage_publish_production_start.outcome != 'skipped' }}
@@ -1244,6 +1210,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          source hth-pipeline/tools/hardened-persistence.sh
 
           git -C results-repo config user.name "github-actions[bot]"
           git -C results-repo config \
@@ -1252,20 +1219,9 @@ jobs:
           publication_payload="$RUNNER_TEMP/hth-test-publication-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar"
           tar -C results-repo -cf "$publication_payload" \
             test/latest "test/history/run-${GITHUB_RUN_NUMBER}"
+          publish_latest=1
 
-          published=0
-          changed=false
-          max_publish_attempts=5
-          for attempt in $(seq 1 "$max_publish_attempts"); do
-            if (( attempt > 1 )); then
-              retry_delay=$((5 * (attempt - 1)))
-              echo "Test publish collision confirmed; waiting ${retry_delay}s before retrying against the latest main."
-              sleep "$retry_delay"
-            fi
-
-            git -C results-repo fetch origin main
-            git -C results-repo reset --hard origin/main
-
+          apply_test_publication() {
             publish_latest=1
             latest_info="results-repo/test/latest/BUILD-INFO.yaml"
             if [[ -f "$latest_info" ]]; then
@@ -1286,62 +1242,33 @@ jobs:
               rm -rf results-repo/test/latest
               tar -C results-repo -xf "$publication_payload"
             else
-              temp_payload="$RUNNER_TEMP/hth-test-payload-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}"
+              temp_payload="$RUNNER_TEMP/hth-test-payload-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${HTH_PERSIST_ATTEMPTS}"
               rm -rf "$temp_payload"
               mkdir -p "$temp_payload"
               tar -C "$temp_payload" -xf "$publication_payload"
-              mkdir -p "results-repo/test/history"
+              mkdir -p results-repo/test/history
               cp -a \
                 "$temp_payload/test/history/run-${GITHUB_RUN_NUMBER}" \
-                "results-repo/test/history/"
+                results-repo/test/history/
             fi
 
-            git -C results-repo add \
-              test/latest \
-              "test/history/run-${GITHUB_RUN_NUMBER}"
+            git -C results-repo add -A -- \
+              test/latest "test/history/run-${GITHUB_RUN_NUMBER}"
+          }
 
-            if git -C results-repo diff --cached --quiet; then
-              echo "Test publication already current against latest main."
-              published=1
-              break
-            fi
+          hth_hardened_persist \
+            results-repo main \
+            "Record preprocessing test run ${GITHUB_RUN_NUMBER}" \
+            apply_test_publication \
+            "Test publication"
 
-            git -C results-repo commit \
-              -m "Record preprocessing test run ${GITHUB_RUN_NUMBER}"
-            changed=true
-
-            push_log="$RUNNER_TEMP/hth-test-push-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}.log"
-            if git -C results-repo push origin HEAD:main 2>&1 | tee "$push_log"; then
-              published=1
-              break
-            fi
-
-            if grep -Eqi \
-              'non-fast-forward|fetch first|failed to push some refs|updates were rejected because the remote contains work|updates were rejected because the tip of your current branch is behind' \
-              "$push_log"; then
-              if (( attempt == max_publish_attempts )); then
-                echo "::error::Test publish collision persisted through ${max_publish_attempts} attempts."
-                break
-              fi
-              continue
-            fi
-
-            echo "::error::Test publication push failed for a reason other than concurrent publication; not retrying as a collision."
-            exit 1
-          done
-
-          if (( published == 0 )); then
-            echo "::error::Unable to publish test results after ${max_publish_attempts} attempts"
-            exit 1
-          fi
-
-          RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
+          RESULTS_COMMIT="$HTH_PERSIST_COMMIT"
           {
             echo
             echo "### Publication repository validation"
             echo
             echo "- Cross-repository checkout: successful"
-            if [[ "$changed" == "true" ]]; then
+            if [[ "$HTH_PERSIST_CHANGED" == "true" ]]; then
               echo "- Test publication: successful"
             else
               echo "- Test publication was already current"
@@ -1354,7 +1281,6 @@ jobs:
               echo "- Existing newer \`test/latest/\` preserved"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-
 
       - name: Complete STAGE_PUBLISH_TEST
         if: ${{ always() && steps.stage_publish_test_start.outcome != 'skipped' }}
@@ -1528,6 +1454,7 @@ jobs:
           HTH_RESULTS_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN }}
         run: |
           set -euo pipefail
+          source hth-pipeline/tools/hardened-persistence.sh
           [[ -n "${HTH_RESULTS_TOKEN:-}" ]] || {
             echo "::error::HTH_RESULTS_TOKEN is required to publish generated reports"
             exit 1
@@ -1555,7 +1482,7 @@ jobs:
                 --run-url "$HTH_RUN_URL"
               mkdir -p results-repo/reports
               cp generated-report/detector-calibration-manifest.md results-repo/reports/detector-calibration-manifest.md
-              git -C results-repo add reports/detector-calibration-manifest.md
+              git -C results-repo add -A -- reports/detector-calibration-manifest.md
             else
               python -m hth.report_generator execution-optimizer \
                 --results-root results-repo \
@@ -1565,34 +1492,15 @@ jobs:
               mkdir -p "results-repo/execution-optimizer/${{ inputs.report_algorithm }}"
               cp -a "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/." \
                 "results-repo/execution-optimizer/${{ inputs.report_algorithm }}/"
-              git -C results-repo add "execution-optimizer/${{ inputs.report_algorithm }}"
+              git -C results-repo add -A -- "execution-optimizer/${{ inputs.report_algorithm }}"
             fi
           }
 
-          max_attempts=5
-          for attempt in $(seq 1 "$max_attempts"); do
-            echo "Report publish attempt $attempt/$max_attempts"
-            git -C results-repo fetch origin main
-            git -C results-repo reset --hard origin/main
-            regenerate_and_stage
-
-            if git -C results-repo diff --cached --quiet; then
-              echo "Generated report is already current."
-              exit 0
-            fi
-
-            git -C results-repo commit -m "Regenerate ${{ inputs.report_type }} report"
-            if git -C results-repo push origin HEAD:main; then
-              exit 0
-            fi
-
-            if (( attempt == max_attempts )); then
-              echo "::error::Unable to publish regenerated report after ${max_attempts} attempts"
-              exit 1
-            fi
-            echo "Concurrent results update detected; refreshing and regenerating report before retry."
-            sleep $((attempt * 2))
-          done
+          hth_hardened_persist \
+            results-repo main \
+            "Regenerate ${{ inputs.report_type }} report" \
+            regenerate_and_stage \
+            "Report publication"
 
       - name: Publish regenerated report summary
         shell: bash

@@ -61,17 +61,15 @@ class GenerateReportWorkflowTests(unittest.TestCase):
     def test_core_report_publish_retries_concurrent_results_updates_with_regeneration(self) -> None:
         text = CORE.read_text(encoding="utf-8")
         publish_step = text.split("- name: Publish regenerated report", 1)[1].split("- name: Publish regenerated report summary", 1)[0]
-        self.assertIn("max_attempts=5", publish_step)
-        self.assertIn("git -C results-repo fetch origin main", publish_step)
-        self.assertIn("git -C results-repo reset --hard origin/main", publish_step)
+        self.assertIn("source hth-pipeline/tools/hardened-persistence.sh", publish_step)
+        self.assertIn("hth_hardened_persist", publish_step)
         self.assertIn("regenerate_and_stage", publish_step)
-        self.assertIn("Concurrent results update detected; refreshing and regenerating report before retry.", publish_step)
 
     def test_core_publishes_optimizer_report_directory_recursively(self) -> None:
         text = CORE.read_text(encoding="utf-8")
         publish_step = text.split("- name: Publish regenerated report", 1)[1]
         self.assertIn('cp -a "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/."', publish_step)
-        self.assertIn('git -C results-repo add "execution-optimizer/${{ inputs.report_algorithm }}"', publish_step)
+        self.assertIn('git -C results-repo add -A -- "execution-optimizer/${{ inputs.report_algorithm }}"', publish_step)
 
 
 if __name__ == "__main__":

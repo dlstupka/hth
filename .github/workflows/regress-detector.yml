@@ -954,6 +954,7 @@ jobs:
           HTH_RESULTS_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN }}
         run: |
           set -euo pipefail
+          source hth-pipeline/tools/hardened-persistence.sh
 
           if [[ -z "${HTH_RESULTS_TOKEN:-}" ]]; then
             echo "::error::HTH_RESULTS_TOKEN is required to persist calibration intelligence"
@@ -971,18 +972,11 @@ jobs:
           git -C results-repo remote set-url origin \
             "https://x-access-token:${HTH_RESULTS_TOKEN}@github.com/${RESULTS_REPOSITORY}.git"
 
-          published=0
-          max_publish_attempts=5
-          for attempt in $(seq 1 "$max_publish_attempts"); do
-            if (( attempt > 1 )); then
-              retry_delay=$((5 * (attempt - 1)))
-              echo "Calibration publish collision confirmed; waiting ${retry_delay}s before retrying against the latest main."
-              sleep "$retry_delay"
-            fi
-
-            git -C results-repo fetch origin main
-            git -C results-repo reset --hard origin/main
-            git -C results-repo clean -fd -- calibration-index.json parameter-provenance-index.json runtime-index.json parallelism-index.json multidetector-index.json optimizer-predictions.json source-documents/
+          apply_calibration_intelligence() {
+            git -C results-repo clean -fd -- \
+              calibration-index.json parameter-provenance-index.json runtime-index.json \
+              parallelism-index.json multidetector-index.json optimizer-predictions.json \
+              source-documents/
             if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
               python -m hth.regression.learned_evidence rebuild-orli-index --results-root results-repo
             fi
@@ -1014,64 +1008,30 @@ jobs:
                 --results-root results-repo
             fi
 
-            # Persist calibration intelligence only. Learned-model payloads are
-            # runtime assets and must never be swept into calibration commits.
-            git -C results-repo add \
-              calibration-index.json \
-              parameter-provenance-index.json \
-              runtime-index.json \
-              parallelism-index.json \
-              multidetector-index.json \
-              source-documents/
+            git -C results-repo add -A -- \
+              calibration-index.json parameter-provenance-index.json runtime-index.json \
+              parallelism-index.json multidetector-index.json source-documents/
             if [[ -f results-repo/optimizer-predictions.json ]]; then
-              git -C results-repo add optimizer-predictions.json
+              git -C results-repo add -A -- optimizer-predictions.json
             fi
             if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
-              git -C results-repo add learned-evidence/orli_page_mask orli-evidence-index.json
+              git -C results-repo add -A -- learned-evidence/orli_page_mask orli-evidence-index.json
             fi
 
             if git -C results-repo diff --cached --name-only | grep -E '(^|/)models/' >/dev/null; then
               echo "::error::Calibration persistence attempted to stage a model payload."
               git -C results-repo diff --cached --name-only
-              exit 1
+              return 1
             fi
+          }
 
-            if git -C results-repo diff --cached --quiet; then
-              echo "Calibration intelligence store already current."
-              published=1
-              break
-            fi
+          hth_hardened_persist \
+            results-repo main \
+            "Update calibration intelligence from HTH run ${{ github.run_number }}" \
+            apply_calibration_intelligence \
+            "Calibration intelligence"
 
-            git -C results-repo commit -m \
-              "Update calibration intelligence from HTH run ${{ github.run_number }}"
-
-            push_log="$RUNNER_TEMP/hth-calibration-push-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}.log"
-            if git -C results-repo push origin HEAD:main 2>&1 | tee "$push_log"; then
-              published=1
-              break
-            fi
-
-            if grep -Eqi \
-              'non-fast-forward|fetch first|failed to push some refs|updates were rejected because the remote contains work' \
-              "$push_log"; then
-              if (( attempt == max_publish_attempts )); then
-                echo "::error::Calibration publish collision persisted through ${max_publish_attempts} attempts."
-                break
-              fi
-              continue
-            fi
-
-            echo "::error::Calibration intelligence push failed for a reason other than concurrent publication; not retrying as a collision."
-            exit 1
-          done
-
-          if (( published == 0 )); then
-            echo "::error::Unable to publish calibration intelligence after ${max_publish_attempts} attempts"
-            exit 1
-          fi
-
-          RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
-          echo "results_commit=$RESULTS_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "results_commit=$HTH_PERSIST_COMMIT" >> "$GITHUB_OUTPUT"
 
       - name: Write Regression Manifest
         if: ${{ always() && steps.regression.outcome == 'success' }}

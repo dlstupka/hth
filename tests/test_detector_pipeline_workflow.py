@@ -62,19 +62,13 @@ def test_loading_strategies_runtime_index_and_announcements_are_wired() -> None:
     assert "git -C results-repo add optimizer-predictions.json" in workflow
 
 
-def test_intelligence_publisher_rebuilds_from_latest_results_state_on_retry() -> None:
+def test_intelligence_publisher_uses_shared_hardened_persistence() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert 'max_publish_attempts=5' in text
-    assert 'git -C results-repo fetch origin main' in text
-    assert 'git -C results-repo reset --hard origin/main' in text
-    assert 'git -C results-repo clean -fd -- calibration-index.json parameter-provenance-index.json runtime-index.json parallelism-index.json multidetector-index.json optimizer-predictions.json source-documents/' in text
-    assert 'python -m hth.calibration_store publish' in text
-    assert 'git -C results-repo push origin HEAD:main' in text
-    assert 'git -C results-repo pull --rebase origin main' not in text
-    assert 'retry_delay=$((5 * (attempt - 1)))' in text
-    assert 'Calibration publish collision confirmed; waiting ${retry_delay}s before retrying against the latest main.' in text
-    assert 'not retrying as a collision' in text
-    assert "non-fast-forward|fetch first|failed to push some refs" in text
+    assert "source hth-pipeline/tools/hardened-persistence.sh" in text
+    assert "hth_hardened_persist" in text
+    assert "apply_calibration_intelligence" in text
+    assert "python -m hth.calibration_store publish" in text
+    assert "git -C results-repo clean -fd -- calibration-index.json" in text
 
 
 def test_manual_debug_level_choices_default_to_none_and_are_forwarded() -> None:

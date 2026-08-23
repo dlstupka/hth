@@ -12,25 +12,23 @@ class PreprocessPublicationCollisionTests(unittest.TestCase):
         end = text.index("\n      - name:", start + 1)
         return text[start:end]
 
-    def test_production_publication_rebuilds_from_latest_main_on_collision(self):
+    def test_production_publication_uses_shared_hardened_persistence(self):
         block = self._publication_block()
-        self.assertIn("max_publish_attempts=5", block)
-        self.assertIn("git -C results-repo fetch origin main", block)
-        self.assertIn("git -C results-repo reset --hard origin/main", block)
+        self.assertIn("source hth-pipeline/tools/hardened-persistence.sh", block)
+        self.assertIn("hth_hardened_persist", block)
+        self.assertIn("apply_production_publication", block)
         self.assertIn('tar -C results-repo -xf "$publication_payload"', block)
-        self.assertIn("git -C results-repo push origin HEAD:main", block)
-        self.assertIn("Production publish collision confirmed;", block)
-        self.assertIn("non-fast-forward|fetch first|failed to push some refs", block)
 
     def test_retry_preserves_nonproduction_results_repo_content(self):
         block = self._publication_block()
-        clean = block.index("git -C results-repo clean -fd --")
-        restore = block.index('tar -C results-repo -xf "$publication_payload"')
-        retry_reset = block[clean:restore]
-        self.assertNotIn("test/", retry_reset)
-        self.assertNotIn("calibration-index.json", retry_reset)
-        self.assertIn("metadata reports analysis", retry_reset)
-        self.assertIn("Existing \\`test/\\` and calibration intelligence were preserved", block)
+        self.assertNotIn("results-repo/test/", block)
+        self.assertNotIn("results-repo/calibration-index.json", block)
+        self.assertIn("results-repo/metadata", block)
+        self.assertIn("reports/preprocess-summary.json", block)
+        self.assertNotIn("results-repo/reports results-repo/analysis", block)
+        self.assertIn("calibration intelligence were preserved", block)
+        self.assertIn("git -C results-repo add -A --", block)
+        self.assertNotIn("git -C results-repo add --all", block)
 
 
 if __name__ == "__main__":
