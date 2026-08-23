@@ -52,10 +52,22 @@ class ModelDownloadFallbackTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, patch(
             "hth.detector_lifecycle._download", side_effect=OSError("offline")
         ):
-            with self.assertRaisesRegex(RuntimeError, "one: OSError: offline.*two: OSError: offline.*three: OSError: offline"):
-                _download_from_sources(
-                    sources, Path(temp) / "model.pth", artifact="model", variant="test_variant"
-                )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "one: OSError: offline.*two: OSError: offline.*three: OSError: offline",
+                ):
+                    _download_from_sources(
+                        sources,
+                        Path(temp) / "model.pth",
+                        artifact="model",
+                        variant="test_variant",
+                    )
+
+        self.assertIn("site=one", stdout.getvalue())
+        self.assertEqual(stderr.getvalue(), "")
 
 
 if __name__ == "__main__":

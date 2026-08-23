@@ -20,51 +20,91 @@ class HardenedPersistenceTests(unittest.TestCase):
         self.assertIn("refusing to misclassify and retry it", text)
 
     def test_real_non_fast_forward_retry_preserves_concurrent_remote_write(self):
-        with tempfile.TemporaryDirectory() as td:
+        def run_quiet(args, **kwargs):
+            return subprocess.run(
+                args,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                **kwargs,
+            )
+
+        # Keep the race fixture beneath the repository and use only paths
+        # relative to ROOT inside bash.  That works with Git Bash, MSYS, WSL,
+        # and POSIX bash without trying to translate Windows paths.
+        scratch_root = ROOT / ".test-hardened-persistence"
+        scratch_root.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch_root) as td:
             root = Path(td)
             remote = root / "remote.git"
             seed = root / "seed"
             writer = root / "writer"
             racer = root / "racer"
-            subprocess.run(["git", "init", "--bare", "--initial-branch=main", str(remote)], check=True, stdout=subprocess.DEVNULL)
-            subprocess.run(["git", "clone", str(remote), str(seed)], check=True, stdout=subprocess.DEVNULL)
-            subprocess.run(["git", "-C", str(seed), "config", "user.name", "test"], check=True)
-            subprocess.run(["git", "-C", str(seed), "config", "user.email", "test@example.com"], check=True)
-            (seed / "base.txt").write_text("base\n", encoding="utf-8")
-            subprocess.run(["git", "-C", str(seed), "add", "base.txt"], check=True)
-            subprocess.run(["git", "-C", str(seed), "commit", "-m", "seed"], check=True, stdout=subprocess.DEVNULL)
-            subprocess.run(["git", "-C", str(seed), "branch", "-M", "main"], check=True)
-            subprocess.run(["git", "-C", str(seed), "push", "origin", "main"], check=True, stdout=subprocess.DEVNULL)
-            subprocess.run(["git", "--git-dir", str(remote), "symbolic-ref", "HEAD", "refs/heads/main"], check=True)
-            subprocess.run(["git", "clone", str(remote), str(writer)], check=True, stdout=subprocess.DEVNULL)
-            subprocess.run(["git", "clone", str(remote), str(racer)], check=True, stdout=subprocess.DEVNULL)
-            for checkout in (writer, racer):
-                subprocess.run(["git", "-C", str(checkout), "config", "user.name", "test"], check=True)
-                subprocess.run(["git", "-C", str(checkout), "config", "user.email", "test@example.com"], check=True)
+            runner_temp = root / "runner-temp"
+            runner_temp.mkdir()
 
-            script = root / "race.sh"
-            script.write_text(
+            run_quiet(["git", "init", "--bare", "--initial-branch=main", str(remote)])
+            run_quiet(["git", "clone", str(remote), str(seed)])
+            run_quiet(["git", "-C", str(seed), "config", "user.name", "test"])
+            run_quiet(["git", "-C", str(seed), "config", "user.email", "test@example.com"])
+            (seed / "base.txt").write_text("base\n", encoding="utf-8")
+            run_quiet(["git", "-C", str(seed), "add", "base.txt"])
+            run_quiet(["git", "-C", str(seed), "commit", "-m", "seed"])
+            run_quiet(["git", "-C", str(seed), "branch", "-M", "main"])
+            run_quiet(["git", "-C", str(seed), "push", "origin", "main"])
+            run_quiet(["git", "--git-dir", str(remote), "symbolic-ref", "HEAD", "refs/heads/main"])
+            run_quiet(["git", "clone", str(remote), str(writer)])
+            run_quiet(["git", "clone", str(remote), str(racer)])
+            for checkout in (writer, racer):
+                run_quiet(["git", "-C", str(checkout), "config", "user.name", "test"])
+                run_quiet(["git", "-C", str(checkout), "config", "user.email", "test@example.com"])
+
+            rel_root = root.relative_to(ROOT).as_posix()
+            writer_sh = f"{rel_root}/writer"
+            racer_sh = f"{rel_root}/racer"
+            runner_temp_sh = f"{rel_root}/runner-temp"
+
+            script = (
                 "set -euo pipefail\n"
-                f"source \"{HELPER}\"\n"
+                "source tools/hardened-persistence.sh\n"
                 "apply_writer() {\n"
                 "  local attempt=\"$1\"\n"
                 "  if [[ \"$attempt\" == \"1\" ]]; then\n"
-                f"    printf 'racer\\n' > \"{racer}/racer.txt\"\n"
-                f"    git -C \"{racer}\" add racer.txt\n"
-                f"    git -C \"{racer}\" commit -m racer >/dev/null\n"
-                f"    git -C \"{racer}\" push origin main >/dev/null\n"
+                f"    printf 'racer\\n' > \"{racer_sh}/racer.txt\"\n"
+                f"    git -C \"{racer_sh}\" add racer.txt\n"
+                f"    git -C \"{racer_sh}\" commit -m racer >/dev/null\n"
+                f"    git -C \"{racer_sh}\" push origin main >/dev/null\n"
                 "  fi\n"
-                f"  printf 'writer\\n' > \"{writer}/writer.txt\"\n"
-                f"  git -C \"{writer}\" add writer.txt\n"
+                f"  printf 'writer\\n' > \"{writer_sh}/writer.txt\"\n"
+                f"  git -C \"{writer_sh}\" add writer.txt\n"
                 "}\n"
-                f"HTH_PERSIST_BACKOFF_SECONDS=0 hth_hardened_persist \"{writer}\" main writer apply_writer Test\n",
-                encoding="utf-8",
+                f"RUNNER_TEMP=\"{runner_temp_sh}\" "
+                "GITHUB_RUN_ID=persistence-race-test "
+                "GITHUB_RUN_ATTEMPT=1 "
+                "HTH_PERSIST_BACKOFF_SECONDS=0 "
+                f"hth_hardened_persist \"{writer_sh}\" main writer apply_writer Test\n"
             )
-            subprocess.run(["bash", str(script)], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            subprocess.run(["git", "-C", str(writer), "fetch", "origin", "main"], check=True, stdout=subprocess.DEVNULL)
-            subprocess.run(["git", "-C", str(writer), "reset", "--hard", "origin/main"], check=True, stdout=subprocess.DEVNULL)
+
+            proc = subprocess.run(
+                ["bash"],
+                input=script,
+                cwd=ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr or proc.stdout)
+
+            run_quiet(["git", "-C", str(writer), "fetch", "origin", "main"])
+            run_quiet(["git", "-C", str(writer), "reset", "--hard", "origin/main"])
             self.assertEqual((writer / "racer.txt").read_text(encoding="utf-8"), "racer\n")
             self.assertEqual((writer / "writer.txt").read_text(encoding="utf-8"), "writer\n")
+
+        try:
+            scratch_root.rmdir()
+        except OSError:
+            pass
 
     def test_all_results_repo_workflow_pushes_use_shared_helper(self):
         offenders = []
