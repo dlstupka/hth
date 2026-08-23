@@ -15,7 +15,15 @@ import cv2
 import numpy as np
 
 from .model import Candidate
-from hth.thread_safe_stderr import capture_native_stderr
+try:
+    # Package mode: imported as hth.geometry.*.
+    from hth.thread_safe_stderr import capture_native_stderr
+except ModuleNotFoundError as exc:
+    # Script mode: hth/detect_geometry_candidates.py is executed directly,
+    # so the hth/ directory itself is on sys.path rather than its parent.
+    if exc.name != "hth":
+        raise
+    from thread_safe_stderr import capture_native_stderr
 
 METHOD = "kraken_page_mask"
 MODEL_ENV = "HTH_KRAKEN_PAGE_MODEL"

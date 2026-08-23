@@ -15,7 +15,15 @@ import cv2
 import numpy as np
 
 from .model import Candidate
-from hth.thread_safe_stderr import suppress_native_stderr
+try:
+    # Package mode: imported as hth.geometry.*.
+    from hth.thread_safe_stderr import suppress_native_stderr
+except ModuleNotFoundError as exc:
+    # Script mode: hth/detect_geometry_candidates.py is executed directly,
+    # so the hth/ directory itself is on sys.path rather than its parent.
+    if exc.name != "hth":
+        raise
+    from thread_safe_stderr import suppress_native_stderr
 
 METHOD = "dhsegment_page_mask"
 MODEL_DIR_ENV = "HTH_DHSEGMENT_PAGE_MODEL_DIR"

@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 import threading
 import time
 import unittest
@@ -28,6 +30,18 @@ class ThreadSafeStderrTests(unittest.TestCase):
         self.assertIn("with capture_native_stderr() as captured:", kraken)
         self.assertIn("from hth.thread_safe_stderr import suppress_native_stderr", dhsegment)
         self.assertIn("with suppress_native_stderr():", dhsegment)
+
+    def test_geometry_candidate_cli_imports_in_direct_script_mode(self):
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "hth/detect_geometry_candidates.py"), "--help"],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--manifest", result.stdout)
 
     def test_capture_contexts_serialize_process_global_fd2(self):
         entered = []
