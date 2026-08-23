@@ -354,6 +354,12 @@ jobs:
             /metadata/
             /reports/
             /analysis/
+            /ocr/
+            /transcriptions/
+            /translations/
+            /indexes/
+            /citations/
+            /research-notes/
             /test/
           sparse-checkout-cone-mode: false
           show-progress: false

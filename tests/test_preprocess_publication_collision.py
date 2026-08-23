@@ -30,6 +30,24 @@ class PreprocessPublicationCollisionTests(unittest.TestCase):
         self.assertIn("git -C results-repo add -A --", block)
         self.assertNotIn("git -C results-repo add --all", block)
 
+    def test_production_owned_paths_are_materialized_by_sparse_checkout(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        checkout_start = text.index("- name: Checkout results repository")
+        checkout_end = text.index("\n      ############################################################", checkout_start)
+        checkout = text[checkout_start:checkout_end]
+        for path in (
+            "/metadata/",
+            "/analysis/",
+            "/ocr/",
+            "/transcriptions/",
+            "/translations/",
+            "/indexes/",
+            "/citations/",
+            "/research-notes/",
+            "/reports/",
+        ):
+            self.assertIn(path, checkout, path)
+
 
 if __name__ == "__main__":
     unittest.main()
