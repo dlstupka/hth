@@ -1248,31 +1248,112 @@ jobs:
           git -C results-repo config user.name "github-actions[bot]"
           git -C results-repo config \
             user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C results-repo add test/
 
-          if git -C results-repo diff --cached --quiet; then
-            echo "Test publication is unchanged; nothing to commit."
-            {
-              echo
-              echo "### Publication repository validation"
-              echo
-              echo "Checkout succeeded; generated test content was unchanged."
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
+          publication_payload="$RUNNER_TEMP/hth-test-publication-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar"
+          tar -C results-repo -cf "$publication_payload" \
+            test/latest "test/history/run-${GITHUB_RUN_NUMBER}"
+
+          published=0
+          changed=false
+          max_publish_attempts=5
+          for attempt in $(seq 1 "$max_publish_attempts"); do
+            if (( attempt > 1 )); then
+              retry_delay=$((5 * (attempt - 1)))
+              echo "Test publish collision confirmed; waiting ${retry_delay}s before retrying against the latest main."
+              sleep "$retry_delay"
+            fi
+
+            git -C results-repo fetch origin main
+            git -C results-repo reset --hard origin/main
+
+            publish_latest=1
+            latest_info="results-repo/test/latest/BUILD-INFO.yaml"
+            if [[ -f "$latest_info" ]]; then
+              remote_run_number="$(
+                awk -F': *' '/^[[:space:]]*workflow_run_number:/ {print $2; exit}' "$latest_info" \
+                  | tr -d '\r' \
+                  || true
+              )"
+              if [[ "$remote_run_number" =~ ^[0-9]+$ ]] \
+                 && (( remote_run_number > GITHUB_RUN_NUMBER )); then
+                echo "Remote test/latest is newer (run ${remote_run_number}); preserving it while publishing run ${GITHUB_RUN_NUMBER} history."
+                publish_latest=0
+              fi
+            fi
+
+            rm -rf "results-repo/test/history/run-${GITHUB_RUN_NUMBER}"
+            if (( publish_latest == 1 )); then
+              rm -rf results-repo/test/latest
+              tar -C results-repo -xf "$publication_payload"
+            else
+              temp_payload="$RUNNER_TEMP/hth-test-payload-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}"
+              rm -rf "$temp_payload"
+              mkdir -p "$temp_payload"
+              tar -C "$temp_payload" -xf "$publication_payload"
+              mkdir -p "results-repo/test/history"
+              cp -a \
+                "$temp_payload/test/history/run-${GITHUB_RUN_NUMBER}" \
+                "results-repo/test/history/"
+            fi
+
+            git -C results-repo add \
+              test/latest \
+              "test/history/run-${GITHUB_RUN_NUMBER}"
+
+            if git -C results-repo diff --cached --quiet; then
+              echo "Test publication already current against latest main."
+              published=1
+              break
+            fi
+
             git -C results-repo commit \
               -m "Record preprocessing test run ${GITHUB_RUN_NUMBER}"
-            git -C results-repo push origin main
-            RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
-            {
-              echo
-              echo "### Publication repository validation"
-              echo
-              echo "- Cross-repository checkout: successful"
-              echo "- Test publication: successful"
-              echo "- Publication commit: \`$RESULTS_COMMIT\`"
-              echo "- Published under: \`test/latest/\`"
-            } >> "$GITHUB_STEP_SUMMARY"
+            changed=true
+
+            push_log="$RUNNER_TEMP/hth-test-push-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}.log"
+            if git -C results-repo push origin HEAD:main 2>&1 | tee "$push_log"; then
+              published=1
+              break
+            fi
+
+            if grep -Eqi \
+              'non-fast-forward|fetch first|failed to push some refs|updates were rejected because the remote contains work|updates were rejected because the tip of your current branch is behind' \
+              "$push_log"; then
+              if (( attempt == max_publish_attempts )); then
+                echo "::error::Test publish collision persisted through ${max_publish_attempts} attempts."
+                break
+              fi
+              continue
+            fi
+
+            echo "::error::Test publication push failed for a reason other than concurrent publication; not retrying as a collision."
+            exit 1
+          done
+
+          if (( published == 0 )); then
+            echo "::error::Unable to publish test results after ${max_publish_attempts} attempts"
+            exit 1
           fi
+
+          RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
+          {
+            echo
+            echo "### Publication repository validation"
+            echo
+            echo "- Cross-repository checkout: successful"
+            if [[ "$changed" == "true" ]]; then
+              echo "- Test publication: successful"
+            else
+              echo "- Test publication was already current"
+            fi
+            echo "- Publication commit: \`$RESULTS_COMMIT\`"
+            echo "- Published history: \`test/history/run-${GITHUB_RUN_NUMBER}/\`"
+            if (( publish_latest == 1 )); then
+              echo "- Published under: \`test/latest/\`"
+            else
+              echo "- Existing newer \`test/latest/\` preserved"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
 
       - name: Complete STAGE_PUBLISH_TEST
