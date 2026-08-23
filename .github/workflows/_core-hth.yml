@@ -1036,38 +1036,86 @@ jobs:
           git -C results-repo config user.name "github-actions[bot]"
           git -C results-repo config \
             user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C results-repo add --all
 
-          if git -C results-repo diff --cached --quiet; then
-            RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "results_commit=$RESULTS_COMMIT" >> "$GITHUB_OUTPUT"
-            {
-              echo
-              echo "### Production publication"
-              echo
-              echo "The production publication was already current."
-              echo "- Publication commit: \`$RESULTS_COMMIT\`"
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
+          # Snapshot this run's generated production payload outside the checkout.
+          # Each retry starts from the newest remote main, then reapplies only these
+          # production paths so concurrent test/calibration publications survive.
+          publication_payload="$RUNNER_TEMP/hth-production-publication-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar"
+          tar -C results-repo -cf "$publication_payload" \
+            metadata reports analysis ocr transcriptions translations indexes \
+            citations research-notes BUILD-INFO.yaml README.md
+
+          published=0
+          changed=false
+          max_publish_attempts=5
+          for attempt in $(seq 1 "$max_publish_attempts"); do
+            if (( attempt > 1 )); then
+              retry_delay=$((5 * (attempt - 1)))
+              echo "Production publish collision confirmed; waiting ${retry_delay}s before retrying against the latest main."
+              sleep "$retry_delay"
+            fi
+
+            git -C results-repo fetch origin main
+            git -C results-repo reset --hard origin/main
+            git -C results-repo clean -fd -- \
+              metadata reports analysis ocr transcriptions translations indexes \
+              citations research-notes BUILD-INFO.yaml README.md
+            tar -C results-repo -xf "$publication_payload"
+            git -C results-repo add --all
+
+            if git -C results-repo diff --cached --quiet; then
+              echo "Production publication already current against latest main."
+              published=1
+              break
+            fi
+
             git -C results-repo commit \
               -m "Publish HTH production build from source ${{ steps.build.outputs.source_short_commit }}"
-            git -C results-repo push origin main
-            RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "results_commit=$RESULTS_COMMIT" >> "$GITHUB_OUTPUT"
-            {
-              echo
-              echo "### Production publication"
-              echo
-              echo "- Production publication committed successfully"
-              echo "- Publication commit: \`$RESULTS_COMMIT\`"
-              echo "- Metadata: \`metadata/\`"
-              echo "- Report: \`reports/preprocess-summary.json\`"
-              echo "- Build identity: \`BUILD-INFO.yaml\`"
-              echo "- Existing \`test/\` content was preserved"
-            } >> "$GITHUB_STEP_SUMMARY"
+            changed=true
+
+            push_log="$RUNNER_TEMP/hth-production-push-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}.log"
+            if git -C results-repo push origin HEAD:main 2>&1 | tee "$push_log"; then
+              published=1
+              break
+            fi
+
+            if grep -Eqi \
+              'non-fast-forward|fetch first|failed to push some refs|updates were rejected because the remote contains work|updates were rejected because the tip of your current branch is behind' \
+              "$push_log"; then
+              if (( attempt == max_publish_attempts )); then
+                echo "::error::Production publish collision persisted through ${max_publish_attempts} attempts."
+                break
+              fi
+              continue
+            fi
+
+            echo "::error::Production publication push failed for a reason other than concurrent publication; not retrying as a collision."
+            exit 1
+          done
+
+          if (( published == 0 )); then
+            echo "::error::Unable to publish production results after ${max_publish_attempts} attempts"
+            exit 1
           fi
+
+          RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "results_commit=$RESULTS_COMMIT" >> "$GITHUB_OUTPUT"
+          {
+            echo
+            echo "### Production publication"
+            echo
+            if [[ "$changed" == "true" ]]; then
+              echo "- Production publication committed successfully"
+            else
+              echo "The production publication was already current."
+            fi
+            echo "- Publication commit: \`$RESULTS_COMMIT\`"
+            echo "- Metadata: \`metadata/\`"
+            echo "- Report: \`reports/preprocess-summary.json\`"
+            echo "- Build identity: \`BUILD-INFO.yaml\`"
+            echo "- Existing \`test/\` and calibration intelligence were preserved"
+          } >> "$GITHUB_STEP_SUMMARY"
 
 
       - name: Complete STAGE_PUBLISH_PRODUCTION
