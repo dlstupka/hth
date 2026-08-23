@@ -332,7 +332,31 @@ jobs:
           path: results-repo
           ref: main
           token: ${{ secrets.HTH_RESULTS_TOKEN }}
-          fetch-depth: 0
+          fetch-depth: 1
+          # Preprocess needs publication surfaces plus the same reusable model /
+          # intelligence caches used by regression and optimizer.  Keep the
+          # working tree shallow and materialize only paths this job reads or
+          # updates; tracked paths outside the sparse tree remain untouched.
+          sparse-checkout: |
+            /README.md
+            /BUILD-INFO.yaml
+            /calibration-index.json
+            /parameter-provenance-index.json
+            /runtime-index.json
+            /parallelism-index.json
+            /optimizer-index.json
+            /optimizer-predictions.json
+            /multidetector-index.json
+            /orli-evidence-index.json
+            /models/
+            /learned-evidence/
+            /source-documents/
+            /metadata/
+            /reports/
+            /analysis/
+            /test/
+          sparse-checkout-cone-mode: false
+          show-progress: false
           persist-credentials: true
 
       ############################################################
@@ -464,21 +488,25 @@ jobs:
       # PYTHON ENVIRONMENT
       ############################################################
 
-      - name: Install dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          python -m pip install --requirement hth-pipeline/requirements.txt
-
-      - name: Install managed detector runtime for document inference
-        if: ${{ inputs.mode == 'production' && inputs.document_detector != '' && inputs.document_detector != 'none' }}
+      - name: Verify / Install complete managed runtime
         shell: bash
         env:
-          HTH_NEED_DOC_UFCN: ${{ inputs.document_detector == 'amsre_doc_ufcn_fusion' || inputs.document_detector == 'doc_ufcn_page_mask' }}
+          HTH_NEED_DOC_UFCN: ${{ inputs.mode == 'production' && (inputs.document_detector == 'amsre_doc_ufcn_fusion' || inputs.document_detector == 'doc_ufcn_page_mask') }}
         run: |
           set -euo pipefail
           bash hth-pipeline/tools/ensure-managed-runtime.sh
+
+      - name: Verify Doc-UFCN historical page-segmentation runtime
+        if: ${{ inputs.mode == 'production' && (inputs.document_detector == 'amsre_doc_ufcn_fusion' || inputs.document_detector == 'doc_ufcn_page_mask') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import torch
+          from doc_ufcn.main import DocUFCN
+          print("Doc-UFCN runtime verified — HTH-pinned source: 0.2.0rc4")
+          print(f"PyTorch: {torch.__version__}")
+          PY
 
       ############################################################
       # STAGE_PREPROCESS
@@ -573,6 +601,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ -d results-repo/.git ]]; then
+            lifecycle_root="results-repo"
+            echo "Using persisted detector/model cache from results repository."
+          else
+            lifecycle_root="$OUTPUT_DIRECTORY/detector-runtime"
+            echo "Results repository is unavailable; using run-local detector/model cache."
+          fi
+
           python hth-pipeline/hth/run_document_detector.py \
             --manifest "$OUTPUT_DIRECTORY/metadata/image_manifest.json" \
             --analysis "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json" \
@@ -580,7 +616,7 @@ jobs:
             --output "$OUTPUT_DIRECTORY/page-analysis/page-analysis-with-detector.json" \
             --detector "${{ inputs.document_detector }}" \
             --catalog hth-pipeline/config/document-detectors.json \
-            --lifecycle-root "$OUTPUT_DIRECTORY/detector-runtime" \
+            --lifecycle-root "$lifecycle_root" \
             --overwrite
           mv "$OUTPUT_DIRECTORY/page-analysis/page-analysis-with-detector.json" \
              "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json"
