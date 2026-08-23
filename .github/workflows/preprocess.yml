@@ -61,7 +61,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: preprocess-${{ inputs.source_repository }}
+  group: >-
+    ${{ github.workflow }}-${{ github.ref }}-${{
+      github.event_name == 'workflow_dispatch'
+      && format('manual-{0}', github.run_id)
+      || 'automatic'
+    }}
   cancel-in-progress: false
 
 jobs:

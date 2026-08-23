@@ -54,8 +54,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: preprocess-test-${{ github.ref }}
-  cancel-in-progress: true
+  group: >-
+    ${{ github.workflow }}-${{ github.ref }}-${{
+      github.event_name == 'workflow_dispatch'
+      && format('manual-{0}', github.run_id)
+      || 'automatic'
+    }}
+  cancel-in-progress: false
 
 jobs:
   preprocess-test:
