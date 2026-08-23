@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from hth.calibration_store import resolve_best_parameter_reference
+from hth.domain.calibration import calibration_search_type, calibration_status
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -32,13 +33,24 @@ def _score(entry: dict[str, Any]) -> tuple[float, float, float, str]:
 
 
 def _approved(entry: dict[str, Any]) -> bool:
-    if str(entry.get("calibration_status") or "").lower() != "authoritative":
+    """Apply the same authoritative/approval semantics used by Best Known.
+
+    ``calibration_status=authoritative`` is already the persisted completeness
+    contract.  Older index entries need not repeat ``exhaustive_complete=True``,
+    and calibration evidence may be persisted either as a rating string or the
+    richer evidence object used by calibration intelligence.
+    """
+    if calibration_status(entry) != "authoritative":
         return False
-    search = entry.get("search") if isinstance(entry.get("search"), dict) else {}
+    if calibration_search_type(entry).replace("_", "-") not in {
+        "exhaustive", "exhaustive-with-zombies", "cartesian"
+    }:
+        return False
     selection = entry.get("selection") if isinstance(entry.get("selection"), dict) else {}
-    strategy = str(search.get("strategy") or "").lower().replace("_", "-")
-    evidence = str(selection.get("calibration_evidence") or "").lower()
-    return strategy == "exhaustive" and bool(search.get("exhaustive_complete")) and evidence == "high"
+    evidence = selection.get("calibration_evidence")
+    if isinstance(evidence, dict):
+        evidence = evidence.get("rating")
+    return str(evidence or "").strip().lower() == "high"
 
 
 def resolve_rank_one(index_path: Path, *, golden_set_id: str) -> dict[str, Any]:

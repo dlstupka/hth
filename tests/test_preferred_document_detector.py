@@ -73,6 +73,16 @@ class PreferredDocumentDetectorTests(unittest.TestCase):
             self.assertIn("0.9814", summary)
             self.assertIn("maximum_amsre_refined_support_fraction", summary)
 
+    def test_approved_accepts_persisted_authoritative_index_semantics(self):
+        from hth.resolve_document_detector import _approved
+
+        # Best Known treats authoritative exhaustive-family records as complete;
+        # historic index rows need not redundantly carry exhaustive_complete.
+        entry = self._entry("detector", 0.9897, 0.9814, 0.0063, {"rating": "High"}, "record", "abc")
+        entry["search"].pop("exhaustive_complete")
+        entry["search"]["strategy"] = "exhaustive-with-zombies"
+        self.assertTrue(_approved(entry))
+
     def test_workflows_use_preferred_without_detector_research_dropdown(self):
         root = Path(__file__).resolve().parents[1]
         preprocess = (root / ".github/workflows/preprocess.yml").read_text(encoding="utf-8")
