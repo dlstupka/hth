@@ -79,4 +79,5 @@ jobs:
       upload_full_artifact: true
       artifact_retention_days: 7
       geometry_fail_on: never
+      document_detector: preferred
     secrets: inherit

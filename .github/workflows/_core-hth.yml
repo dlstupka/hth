@@ -84,10 +84,10 @@ on:
         type: string
         default: "never"
       document_detector:
-        description: "Approved detector calibration to run over every production page; blank disables corpus inference"
+        description: "Document detector selection policy; preferred resolves the Rank #1 Approved calibration"
         required: false
         type: string
-        default: ""
+        default: "preferred"
     secrets:
       HTH_RESULTS_TOKEN:
         required: false
@@ -325,7 +325,7 @@ jobs:
             --destination source-repo
 
       - name: Checkout results repository
-        if: ${{ inputs.publish_results }}
+        if: ${{ inputs.publish_results || inputs.document_detector == 'preferred' }}
         uses: actions/checkout@v6
         with:
           repository: ${{ inputs.results_repository }}
@@ -484,6 +484,25 @@ jobs:
             echo "- Processed at: \`$PROCESSED_AT\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Resolve Rank #1 approved document detector
+        id: preferred_document_detector
+        if: ${{ inputs.document_detector == 'preferred' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f results-repo/calibration-index.json ]]; then
+            echo "::error::Preferred document inference requires results-repo/calibration-index.json"
+            exit 1
+          fi
+          cd hth-pipeline
+          python -m hth.resolve_document_detector \
+            --index ../results-repo/calibration-index.json \
+            --golden-set-id HTH-0001 \
+            --catalog config/document-detectors.json \
+            --output "$RUNNER_TEMP/preferred-document-detector.json" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
       ############################################################
       # PYTHON ENVIRONMENT
       ############################################################
@@ -491,13 +510,13 @@ jobs:
       - name: Verify / Install complete managed runtime
         shell: bash
         env:
-          HTH_NEED_DOC_UFCN: ${{ inputs.mode == 'production' && (inputs.document_detector == 'amsre_doc_ufcn_fusion' || inputs.document_detector == 'doc_ufcn_page_mask') }}
+          HTH_NEED_DOC_UFCN: ${{ steps.preferred_document_detector.outputs.needs_doc_ufcn || 'false' }}
         run: |
           set -euo pipefail
           bash hth-pipeline/tools/ensure-managed-runtime.sh
 
       - name: Verify Doc-UFCN historical page-segmentation runtime
-        if: ${{ inputs.mode == 'production' && (inputs.document_detector == 'amsre_doc_ufcn_fusion' || inputs.document_detector == 'doc_ufcn_page_mask') }}
+        if: ${{ steps.preferred_document_detector.outputs.needs_doc_ufcn == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -597,7 +616,7 @@ jobs:
             --timings-file "$RUNNER_TEMP/hth-stage-timings.jsonl"
 
       - name: Run approved detector over production collection
-        if: ${{ inputs.mode == 'production' && inputs.document_detector != '' && inputs.document_detector != 'none' }}
+        if: ${{ (inputs.mode == 'production' || inputs.mode == 'test') && inputs.document_detector == 'preferred' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -614,8 +633,7 @@ jobs:
             --analysis "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json" \
             --image-root "$OUTPUT_DIRECTORY" \
             --output "$OUTPUT_DIRECTORY/page-analysis/page-analysis-with-detector.json" \
-            --detector "${{ inputs.document_detector }}" \
-            --catalog hth-pipeline/config/document-detectors.json \
+            --selection "$RUNNER_TEMP/preferred-document-detector.json" \
             --lifecycle-root "$lifecycle_root" \
             --overwrite
           mv "$OUTPUT_DIRECTORY/page-analysis/page-analysis-with-detector.json" \

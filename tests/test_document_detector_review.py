@@ -13,11 +13,12 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertEqual(gen3['parameters']['maximum_amsre_refined_support_fraction'],0.65)
         self.assertEqual(gen3['parameters']['minimum_corner_disagreement_fraction'],0.0075)
 
-    def test_production_workflow_exposes_document_detector(self):
-        text=(ROOT/'.github/workflows/preprocess.yml').read_text()
-        self.assertIn('document_detector:',text)
-        self.assertIn('amsre_doc_ufcn_fusion',text)
-        core=(ROOT/'.github/workflows/_core-hth.yml').read_text()
+    def test_production_workflow_uses_preferred_rank_one_detector(self):
+        text=(ROOT/'.github/workflows/preprocess.yml').read_text(encoding='utf-8')
+        self.assertIn('document_detector: preferred',text)
+        self.assertNotIn('amsre_doc_ufcn_fusion',text)
+        core=(ROOT/'.github/workflows/_core-hth.yml').read_text(encoding='utf-8')
+        self.assertIn('Resolve Rank #1 approved document detector',core)
         self.assertIn('run_document_detector.py',core)
 
     def test_workbench_knows_gen3(self):
