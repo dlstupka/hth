@@ -18,6 +18,16 @@ authorized image source → acquisition adapter → immutable images → manifes
 
 Do not automate retrieval in a way prohibited by the image provider or record custodian. Use an official download mechanism, an approved API/integration, or written permission before unattended cloud retrieval.
 
+
+## Preferred FamilySearch adapter
+
+For FamilySearch collections, prefer `tools/acquire-familysearch-images.py` over
+AHK/browser capture. See `docs/familysearch-acquisition.md`. The adapter uses an
+authenticated FamilySearch API token, stores verified source images directly in
+`images/`, and records FamilySearch image identity plus checksums/provenance in
+`familysearch-source-manifest.json`. AHK remains recovery/bootstrap evidence,
+not the preferred acquisition path.
+
 ## Normalized acquisition package
 
 ```text
