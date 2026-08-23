@@ -49,6 +49,8 @@ Stage names are stable HTH concepts rather than GitHub Actions implementation de
 
 ## Document detection and calibration
 
+HTH currently carries **47 registered document/page detectors** spanning classical geometry, learned historical-document segmentation, OpenCV primitives, and three generations of fusion. The authoritative inventory is the [Document Detector Catalog](docs/detector-catalog.md).
+
 Historic document images are rarely clean scans. Pages may be skewed, cropped, shadowed, surrounded by viewer chrome or background material, partially obscured, or captured at inconsistent scale. HTH treats physical-page detection as a measurable research-engineering problem rather than a one-off image-processing step.
 
 The detector framework supports multiple independent approaches, including classical image-processing methods, historical-document neural models, and detector fusions. Detectors expose their geometry, confidence, timing, diagnostics, and debug evidence through a common framework.

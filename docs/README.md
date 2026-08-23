@@ -258,6 +258,11 @@ This directory contains the design, operating, and project-reference documentati
 - [Hough Lines detector](detector-hough.md) — probabilistic Hough-transform detector.
 - [Line Segment Detector](detector-lsd.md) — LSD-based detector.
 
+
+## Detector catalog
+
+- [Authoritative document detector catalog](detector-catalog.md) — all 47 registered detectors, method IDs, families, origins, foundations, and production status. The registry-backed catalog is the definitive public inventory; detector links elsewhere in this rulebook are topical rather than exhaustive.
+
 ## Calibration and regression
 
 - [Golden Set](golden-set.md) — approved references and evaluation inputs.

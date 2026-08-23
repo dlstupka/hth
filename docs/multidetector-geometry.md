@@ -1,16 +1,8 @@
-# HTH Multi-Detector Geometry Trial
+# HTH Multi-Detector Geometry Architecture
 
-The geometry trial runs nine registered candidates:
+HTH began with a nine-detector geometry trial and has grown into an authoritative registry of **47 document/page detectors**. The complete current inventory is maintained in the [Document Detector Catalog](detector-catalog.md).
 
-1. **Contour**
-2. **Contour-based quadrilateral hybrid**
-3. **Consensus Quad**
-4. **Edge-Contour Hybrid**
-5. **Connected Components envelope**
-6. **RANSAC four-edge fitting**
-7. **Hough-line envelope**
-8. **OpenCV Line Segment Detector (LSD)**
-9. **OpenCV GrabCut segmentation**
+The original trial established the core contract that still applies: every detector returns an independent candidate with diagnostics and provenance, and detector failure is isolated as data rather than aborting the page.
 
 Every candidate is retained with diagnostics and provenance. Existing workbench overlays remain backward compatible; UI support for additional overlays may be added separately.
 
@@ -100,7 +92,7 @@ Each has an independent `100 / 75 / 50 / 25 / 0%` opacity selector.
 
 ## Important expectation
 
-This is an evaluation trial, not a declaration that any detector is correct.
+Registry membership is not a declaration that any detector is correct or production-approved.
 
 The reference collection and physical-geometry validator decide which method performs best by page type. Retain every candidate and its diagnostics, even when it loses.
 
