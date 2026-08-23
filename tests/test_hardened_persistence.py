@@ -86,15 +86,19 @@ class HardenedPersistenceTests(unittest.TestCase):
                 f"hth_hardened_persist \"{writer_sh}\" main writer apply_writer Test\n"
             )
 
+            # Feed bytes, not text, so Windows Python cannot translate the
+            # script's LF newlines to CRLF while writing subprocess stdin.
+            # Bash otherwise sees "pipefail\r" and rejects the first line.
             proc = subprocess.run(
                 ["bash"],
-                input=script,
+                input=script.encode("utf-8"),
                 cwd=ROOT,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True,
             )
-            self.assertEqual(proc.returncode, 0, proc.stderr or proc.stdout)
+            stdout = proc.stdout.decode("utf-8", errors="replace")
+            stderr = proc.stderr.decode("utf-8", errors="replace")
+            self.assertEqual(proc.returncode, 0, stderr or stdout)
 
             run_quiet(["git", "-C", str(writer), "fetch", "origin", "main"])
             run_quiet(["git", "-C", str(writer), "reset", "--hard", "origin/main"])
