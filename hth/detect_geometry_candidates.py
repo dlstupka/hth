@@ -30,6 +30,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--max-dimension", type=int, default=1800)
+    parser.add_argument(
+        "--detector",
+        choices=detector_names(),
+        help="Run only the named registered detector.",
+    )
+    parser.add_argument(
+        "--parameters-json",
+        type=Path,
+        help="JSON object of detector parameters; requires --detector.",
+    )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument(
         "--fail-on",
