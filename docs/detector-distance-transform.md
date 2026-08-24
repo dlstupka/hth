@@ -1,0 +1,13 @@
+# Distance Transform Detector
+
+`distance_transform` is an HTH document/page detector in the authoritative geometry registry.
+
+## Approach
+
+The detector operates by distance-to-background cores identify the interior of a likely page region. Distance transform cores are associated with connected components and filtered by area and rectangularity.
+
+Like the other registered detectors, it emits the common HTH candidate contract: page geometry, confidence/score, status, parameters, and detector-specific diagnostics. This allows the method to participate in the same Golden Set regression, calibration, optimizer, and comparison machinery as the rest of the detector registry.
+
+## Role in HTH
+
+This detector remains registered as independent evidence and a research/calibration candidate. Registry presence does not imply production approval; production inference resolves the strongest approved authoritative calibration for the requested Golden Set.

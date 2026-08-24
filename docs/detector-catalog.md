@@ -28,7 +28,7 @@ The current production recommendation for Golden Set `HTH-0001` is **Fusion Gen3
 | 10 | [Radial Edge Search](detector-radial-edge.md) | `radial_edge` | Classical / heuristic | HTH | Radial gradient search, OpenCV |
 | 11 | [Adaptive Multi-Scale Radial Edge Search](detector-adaptive-multi-scale-radial-edge.md) | `adaptive_multi_scale_radial_edge` | Classical / heuristic | HTH | Multi-scale gradients, Adaptive angular refinement, Radial gradient search, OpenCV |
 | 12 | [Fusion Gen2 — AMSRE + BFQ + SPBV + Page Background](detector-amsre-bfq-spbv-pbg.md) | `amsre_bfq_spbv_pbg` | Fusion | HTH | Adaptive Multi-Scale Radial Edge, Border Fusion Quad, Signed Polar Boundary Voting, Page Background, Side-level consensus, OpenCV |
-| 13 | Fusion Gen3 — AMSRE + Doc-UFCN | `amsre_doc_ufcn_fusion` | Fusion | HTH | Adaptive Multi-Scale Radial Edge, Doc-UFCN, Confidence-gated rescue, Geometric disagreement, OpenCV |
+| 13 | [Fusion Gen3 — AMSRE + Doc-UFCN](detector-amsre-doc-ufcn-fusion.md) | `amsre_doc_ufcn_fusion` | Fusion | HTH | Adaptive Multi-Scale Radial Edge, Doc-UFCN, Confidence-gated rescue, Geometric disagreement, OpenCV |
 | 14 | [Adaptive Radial Edge Search](detector-adaptive-radial-edge.md) | `adaptive_radial_edge` | Classical / heuristic | HTH | Two-pass radial gradient search, Adaptive angular refinement, OpenCV |
 | 15 | [Multi-Scale Radial Edge Search](detector-multi-scale-radial-edge.md) | `multi_scale_radial_edge` | Classical / heuristic | HTH | Scale-space gradients, Radial gradient search, OpenCV |
 | 16 | [Fusion Gen1 — MSRE + BFQ + SPBV + Page Background](detector-msre-bfq-spbv-pbg.md) | `msre_bfq_spbv_pbg` | Fusion | HTH | Multi-Scale Radial Edge, Border Fusion Quad, Signed Polar Boundary Voting, Page Background, Side-level consensus, OpenCV |
@@ -36,18 +36,18 @@ The current production recommendation for Golden Set `HTH-0001` is **Fusion Gen3
 | 18 | [Border Fusion Quad](detector-border-fusion-quad.md) | `border_fusion_quad` | Classical / heuristic | HTH | Radial Edge Search, Polar Boundary Voting, Gradient Boundary Voting, Side-level fusion, OpenCV |
 | 19 | [Border Energy Validator](detector-border-energy.md) | `border_energy` | Classical / heuristic | HTH | Contour geometry, Sobel border energy, OpenCV |
 | 20 | [Edge-Contour Hybrid](detector-edge-contour.md) | `edge_contour` | Classical / heuristic | HTH | Contour geometry, Line Segment Detector, OpenCV |
-| 21 | Convex Hull Detector | `convex_hull` | Classical / heuristic | HTH | Convex hull geometry, OpenCV |
-| 22 | Distance Transform Detector | `distance_transform` | Classical / heuristic | HTH | Distance transform, Connected components, OpenCV |
-| 23 | Polar Boundary Voting | `polar_boundary_vote` | Classical / heuristic | HTH | Polar gradient voting, OpenCV |
-| 24 | Signed Polar Boundary Voting | `signed_polar_boundary_vote` | Classical / heuristic | HTH | Signed radial gradients, Polar boundary voting, OpenCV |
-| 25 | Segment-Supported Polar Voting | `segment_supported_polar_vote` | Classical / heuristic | HTH | Polar boundary voting, Line Segment Detector, OpenCV |
-| 26 | Star-Convex Boundary Optimization | `star_convex` | Classical / heuristic | HTH | Star-convex geometry, Radial mask support, OpenCV |
-| 27 | Distance-Transform Rectangle Proposal | `distance_transform_rect` | Classical / heuristic | HTH | Distance transform, Rectangle proposal, OpenCV |
-| 28 | Radon Boundary Projection | `radon_boundary` | Classical / heuristic | HTH | Projection-angle integration, Sobel gradients, OpenCV |
-| 29 | Text Flow Envelope | `text_flow` | Classical / heuristic | HTH | Connected components, Text-line geometry, OpenCV |
+| 21 | [Convex Hull Detector](detector-convex-hull.md) | `convex_hull` | Classical / heuristic | HTH | Convex hull geometry, OpenCV |
+| 22 | [Distance Transform Detector](detector-distance-transform.md) | `distance_transform` | Classical / heuristic | HTH | Distance transform, Connected components, OpenCV |
+| 23 | [Polar Boundary Voting](detector-polar-boundary-vote.md) | `polar_boundary_vote` | Classical / heuristic | HTH | Polar gradient voting, OpenCV |
+| 24 | [Signed Polar Boundary Voting](detector-signed-polar-boundary-vote.md) | `signed_polar_boundary_vote` | Classical / heuristic | HTH | Signed radial gradients, Polar boundary voting, OpenCV |
+| 25 | [Segment-Supported Polar Voting](detector-segment-supported-polar-vote.md) | `segment_supported_polar_vote` | Classical / heuristic | HTH | Polar boundary voting, Line Segment Detector, OpenCV |
+| 26 | [Star-Convex Boundary Optimization](detector-star-convex.md) | `star_convex` | Classical / heuristic | HTH | Star-convex geometry, Radial mask support, OpenCV |
+| 27 | [Distance-Transform Rectangle Proposal](detector-distance-transform-rect.md) | `distance_transform_rect` | Classical / heuristic | HTH | Distance transform, Rectangle proposal, OpenCV |
+| 28 | [Radon Boundary Projection](detector-radon-boundary.md) | `radon_boundary` | Classical / heuristic | HTH | Projection-angle integration, Sobel gradients, OpenCV |
+| 29 | [Text Flow Envelope](detector-text-flow.md) | `text_flow` | Classical / heuristic | HTH | Connected components, Text-line geometry, OpenCV |
 | 30 | [Page Background](detector-page-background.md) | `page_background` | Classical / heuristic | HTH | Robust border background model, CIE Lab color distance, Negative-space segmentation, OpenCV |
-| 31 | Whitespace Frame | `whitespace_frame` | Classical / heuristic | HTH | Negative-space segmentation, Morphology, OpenCV |
-| 32 | Joint Rectangle Voting | `joint_rectangle_vote` | Classical / heuristic | HTH | Hough lines, Joint rectangle scoring, OpenCV |
+| 31 | [Whitespace Frame](detector-whitespace-frame.md) | `whitespace_frame` | Classical / heuristic | HTH | Negative-space segmentation, Morphology, OpenCV |
+| 32 | [Joint Rectangle Voting](detector-joint-rectangle-vote.md) | `joint_rectangle_vote` | Classical / heuristic | HTH | Hough lines, Joint rectangle scoring, OpenCV |
 | 33 | [ScanTailor Page Frame](detector-scantailor-page-frame.md) | `scantailor_page_frame` | External-concept hybrid | ScanTailor concepts / HTH | ScanTailor-style scan processing, Content-guided page framing, Projection profiles, OpenCV |
 | 34 | [Eynollah Page-Mask Detector](detector-eynollah-page-mask.md) | `eynollah_page_mask` | Learned / model-backed | SBB Eynollah / HTH | Eynollah, Historical-document page extraction, TensorFlow SavedModel |
 | 35 | [PageNet Page-Mask Detector](detector-pagenet-page-mask.md) | `pagenet_page_mask` | Learned / model-backed | PageNet / HTH | PageNet, Ohio Death Records, OpenCV DNN, Caffe |
@@ -55,7 +55,7 @@ The current production recommendation for Golden Set `HTH-0001` is **Fusion Gen3
 | 37 | [Mask R-CNN Page-Mask Detector](detector-mask-rcnn-page-mask.md) | `mask_rcnn_page_mask` | Learned / model-backed | HJDataset / LayoutParser / HTH | Mask R-CNN, ResNet-50 FPN, HJDataset historical-document layout segmentation, Detectron2 |
 | 38 | [Doc-UFCN Page-Mask Detector](detector-doc-ufcn-page-mask.md) | `doc_ufcn_page_mask` | Learned / model-backed | Teklia Doc-UFCN / HTH | Doc-UFCN, Historical-document page segmentation, PyTorch |
 | 39 | [dhSegment Page-Mask Detector](detector-dhsegment-page-mask.md) | `dhsegment_page_mask` | Learned / model-backed | dhSegment / HTH | dhSegment, ResNet-50, Learned page segmentation, TensorFlow SavedModel |
-| 40 | Kraken Page-Mask Detector | `kraken_page_mask` | Learned / model-backed | Kraken BLLA / HTH | Kraken, BLLA, Historical-document layout segmentation, PyTorch |
+| 40 | [Kraken Page-Mask Detector](detector-kraken-page-mask.md) | `kraken_page_mask` | Learned / model-backed | Kraken BLLA / HTH | Kraken, BLLA, Historical-document layout segmentation, PyTorch |
 | 41 | [Orli Page-Mask Detector](detector-orli-page-mask.md) | `orli_page_mask` | Learned / model-backed | Orli / HTH | Orli, Kraken 7 plugin, Historical-document baseline segmentation, PyTorch |
 | 42 | [Learned Page-Mask Detector](detector-learned-page-mask.md) | `learned_page_mask` | Learned / model-backed | PageNet / HTH | PageNet, Learned page segmentation, OpenCV DNN, Caffe |
 | 43 | [Connected Components](detector-components.md) | `components` | OpenCV primitive | OpenCV | OpenCV |
@@ -71,7 +71,7 @@ The current production recommendation for Golden Set `HTH-0001` is **Fusion Gen3
 The fusion line records the progression from classical multi-evidence consensus to the current hybrid production detector:
 
 - **[Fusion Gen2 — AMSRE + BFQ + SPBV + Page Background](detector-amsre-bfq-spbv-pbg.md)** — `amsre_bfq_spbv_pbg`; Adaptive Multi-Scale Radial Edge, Border Fusion Quad, Signed Polar Boundary Voting, Page Background, Side-level consensus, OpenCV.
-- **Fusion Gen3 — AMSRE + Doc-UFCN** — `amsre_doc_ufcn_fusion`; Adaptive Multi-Scale Radial Edge, Doc-UFCN, Confidence-gated rescue, Geometric disagreement, OpenCV.
+- **[Fusion Gen3 — AMSRE + Doc-UFCN](detector-amsre-doc-ufcn-fusion.md)** — `amsre_doc_ufcn_fusion`; Adaptive Multi-Scale Radial Edge, Doc-UFCN, Confidence-gated rescue, Geometric disagreement, OpenCV.
 - **[Fusion Gen1 — MSRE + BFQ + SPBV + Page Background](detector-msre-bfq-spbv-pbg.md)** — `msre_bfq_spbv_pbg`; Multi-Scale Radial Edge, Border Fusion Quad, Signed Polar Boundary Voting, Page Background, Side-level consensus, OpenCV.
 
 ### Learned / model-backed
@@ -84,7 +84,7 @@ HTH deliberately evaluated multiple historical-document segmentation families ra
 - **[Mask R-CNN Page-Mask Detector](detector-mask-rcnn-page-mask.md)** — `mask_rcnn_page_mask`; origin: HJDataset / LayoutParser / HTH.
 - **[Doc-UFCN Page-Mask Detector](detector-doc-ufcn-page-mask.md)** — `doc_ufcn_page_mask`; origin: Teklia Doc-UFCN / HTH.
 - **[dhSegment Page-Mask Detector](detector-dhsegment-page-mask.md)** — `dhsegment_page_mask`; origin: dhSegment / HTH.
-- **Kraken Page-Mask Detector** — `kraken_page_mask`; origin: Kraken BLLA / HTH.
+- **[Kraken Page-Mask Detector](detector-kraken-page-mask.md)** — `kraken_page_mask`; origin: Kraken BLLA / HTH.
 - **[Orli Page-Mask Detector](detector-orli-page-mask.md)** — `orli_page_mask`; origin: Orli / HTH.
 - **[Learned Page-Mask Detector](detector-learned-page-mask.md)** — `learned_page_mask`; origin: PageNet / HTH.
 
@@ -97,6 +97,12 @@ The remaining HTH detectors span contour geometry, radial and multi-scale edge s
 The repository currently contains **47** detector calibration configuration files under `config/detectors/`, matching the registry one-for-one. Exhaustive, contracted, smoke, and optimizer searches operate over those declared discrete domains while preserving stable detector method IDs.
 
 Detector quality and execution recommendations are persisted independently. See [Detector regression](regression.md), [Calibration selection](calibration-selection.md), [Golden Set](golden-set.md), and [Full-collection detector review](document-detector-review.md).
+
+## Next detector-system step: automatic calibration
+
+The detector registry is intentionally not considered finished, but adding methods is no longer the only scaling problem. HTH now has frozen Golden Sets, declared parameter spaces, exhaustive and contracted search, parameter-influence evidence, optimizer support, and persisted authoritative winners. The next architectural step is **automatic calibration**: detect when calibration is required, select and execute an appropriate search, validate the resulting evidence, and promote a winner under the same reproducibility and review contracts used today.
+
+Autocalibration should not make calibration opaque. Search provenance, parameter identity, Golden Set identity, metrics, and promotion evidence must remain explicit and reproducible.
 
 ## Keeping this catalog current
 

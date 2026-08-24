@@ -355,3 +355,8 @@ Their calibration JSON files define the complete discrete search grids used by e
 - Parameter provenance includes an additive `Parameter Set Equivalence Family ID` immediately before `Parameter Set ID` in report tables. It groups exact configurations only across durably enrolled equivalence dimensions; exact Parameter Set IDs and historical provenance are never rewritten.
 
 - [Doc-UFCN Page-Mask Detector](detector-doc-ufcn-page-mask.md)
+
+
+## Release notes
+
+- [HTH Framework v0.7.0](release-v0.7.0.md) — document detection, calibration, execution optimization, provenance, and production hardening.
