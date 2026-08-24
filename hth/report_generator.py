@@ -16,6 +16,7 @@ from typing import Any
 from hth.optimizer_store import build_optimizer_index, render_all_markdown, render_heatmap_svg, render_markdown, select_preferred_shape
 from hth.write_regression_summary import build_combined_summary
 from hth.domain.calibration import authoritative_record
+from hth.calibration_store import load_index_with_persisted_backfill
 
 
 
@@ -36,7 +37,7 @@ def _matching_index_entries(results_root: Path, golden_set: Path | None = None) 
     index_path = readable_index_path(results_root, "calibration-index.json")
     if not index_path.is_file():
         raise FileNotFoundError(f"Missing {index_path}")
-    index = _read_json(index_path)
+    index = load_index_with_persisted_backfill(index_path)
     expected_sha = _golden_sha(golden_set)
     entries: list[dict[str, Any]] = []
     for entry in index.get("entries", []):

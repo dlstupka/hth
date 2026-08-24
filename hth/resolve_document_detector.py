@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from hth.calibration_store import resolve_best_parameter_reference
+from hth.calibration_store import resolve_best_parameter_reference, load_index_with_persisted_backfill
 from hth.domain.calibration import calibration_search_type, calibration_status
 
 
@@ -54,7 +54,7 @@ def _approved(entry: dict[str, Any]) -> bool:
 
 
 def resolve_rank_one(index_path: Path, *, golden_set_id: str) -> dict[str, Any]:
-    index = _read_json(index_path)
+    index = load_index_with_persisted_backfill(index_path)
     target = _slug(golden_set_id)
     candidates = [
         entry for entry in index.get("entries", [])

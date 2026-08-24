@@ -106,6 +106,130 @@ def _compatibility(intelligence: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+
+def _entry_from_persisted_intelligence(results_root: Path, intelligence_path: Path) -> dict[str, Any] | None:
+    """Reconstruct one calibration-index row from durable per-run evidence."""
+    try:
+        intelligence = _read_json(intelligence_path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    if not intelligence.get("available"):
+        return None
+
+    identity = intelligence.get("calibration_identity")
+    identity = identity if isinstance(identity, dict) else {}
+    calibration_id = str(identity.get("calibration_run_id") or intelligence_path.parent.name)
+    detector = str(intelligence.get("detector") or "").strip()
+    if not detector:
+        return None
+
+    try:
+        relative_dir = intelligence_path.parent.relative_to(results_root)
+    except ValueError:
+        return None
+
+    compatibility = _compatibility(intelligence)
+    compatibility_key = _canonical_hash(compatibility)
+    golden = identity.get("golden_set") if isinstance(identity.get("golden_set"), dict) else {}
+    selection = intelligence.get("detector_selection_intelligence")
+    selection = selection if isinstance(selection, dict) else {}
+    search = intelligence.get("search")
+    search = search if isinstance(search, dict) else {}
+    build = identity.get("build") if isinstance(identity.get("build"), dict) else {}
+    persistence = intelligence.get("persistence") if isinstance(intelligence.get("persistence"), dict) else {}
+    status = str(intelligence.get("calibration_status") or "").strip().lower()
+    if not status:
+        status = "authoritative" if search.get("exhaustive_complete") else "partial"
+
+    provenance = relative_dir / "parameter-provenance.json"
+    return {
+        "calibration_id": calibration_id,
+        "calibration_status": status,
+        "record_path": relative_dir.as_posix(),
+        "intelligence_path": (relative_dir / "calibration-intelligence.json").as_posix(),
+        "parameter_provenance_path": provenance.as_posix() if (results_root / provenance).is_file() else None,
+        "source_document_id": _source_document_id(intelligence, "source-document"),
+        "golden_set_id": _golden_set_id(intelligence),
+        "golden_set_sha256": str(golden.get("sha256") or ""),
+        "detector_id": detector,
+        "detector_config_sha256": compatibility.get("detector_config_sha256"),
+        "model_variant": ((identity.get("model_selection") or {}).get("variant") if isinstance(identity.get("model_selection"), dict) else None),
+        "compatibility_key": compatibility_key,
+        "created_at_utc": identity.get("created_at_utc"),
+        "published_at_utc": persistence.get("published_at_utc"),
+        "build": dict(build),
+        "search": {
+            "strategy": search.get("strategy"),
+            "parameter_sets": search.get("parameter_sets"),
+            "possible_parameter_sets": search.get("possible_parameter_sets"),
+            "exhaustive_complete": search.get("exhaustive_complete"),
+        },
+        "selection": {
+            "recommended_parameter_set_id": selection.get("recommended_parameter_set_id"),
+            "best_avg_iou": selection.get("best_avg_iou"),
+            "minimum_iou": selection.get("minimum_iou"),
+            "stddev_iou": selection.get("stddev_iou"),
+            "failure_count": selection.get("failure_count"),
+            "calibration_evidence": selection.get("calibration_evidence"),
+        },
+    }
+
+
+def load_index_with_persisted_backfill(index_path: Path) -> dict[str, Any]:
+    """Load calibration index and recover any durable calibrations omitted by it.
+
+    The results index is a cache/discovery structure; per-run calibration evidence
+    under source-documents/ is the durable source of truth.  This protects report
+    generation and production Rank resolution from an incomplete index migration.
+    """
+    index_path = Path(index_path)
+    results_root = index_results_root(index_path)
+    if index_path.is_file():
+        index = adapt_calibration_index(_read_json(index_path))
+    else:
+        index = {"schema_version": INDEX_SCHEMA_VERSION, "entries": [], "preferred": {}}
+
+    current = index.get("entries") if isinstance(index.get("entries"), list) else []
+    def cache_key(item: dict[str, Any]) -> tuple[str, str]:
+        compatibility = str(item.get("compatibility_key") or "").strip()
+        calibration = str(item.get("calibration_id") or "").strip()
+        if compatibility or calibration:
+            return compatibility, calibration
+        # Preserve older/minimal index rows that predate compatibility identity.
+        # record_path is unique per persisted calibration run.
+        return "__record_path__", str(item.get("record_path") or id(item))
+
+    by_identity = {
+        cache_key(item): item
+        for item in current if isinstance(item, dict)
+    }
+
+    for intelligence_path in results_root.glob(
+        "source-documents/*/golden-sets/*/*/calibrations/*/*/calibration-intelligence.json"
+    ):
+        recovered = _entry_from_persisted_intelligence(results_root, intelligence_path)
+        if not recovered:
+            continue
+        key = cache_key(recovered)
+        existing = by_identity.get(key)
+        # Prefer the index row when present because it may carry later schema
+        # adaptations; otherwise recover the durable record.
+        if existing is None:
+            by_identity[key] = recovered
+
+    merged = sorted(
+        by_identity.values(),
+        key=lambda item: (
+            str(item.get("source_document_id") or ""),
+            str(item.get("golden_set_id") or ""),
+            str(item.get("detector_id") or ""),
+            str(item.get("created_at_utc") or ""),
+        ),
+    )
+    index["entries"] = merged
+    return index
+
+
 def publish_run(
     run_dir: Path,
     results_root: Path,
@@ -201,10 +325,7 @@ def publish_run(
 def update_index(results_root: Path, entries: list[dict[str, Any]]) -> dict[str, Any]:
     index_path = canonical_index_path(results_root, "calibration-index.json")
     read_path = readable_index_path(results_root, "calibration-index.json")
-    if read_path.is_file():
-        index = adapt_calibration_index(_read_json(read_path))
-    else:
-        index = {"schema_version": INDEX_SCHEMA_VERSION, "entries": [], "preferred": {}}
+    index = load_index_with_persisted_backfill(read_path)
     current = index.get("entries") if isinstance(index.get("entries"), list) else []
     by_identity = {(item.get("compatibility_key"), item.get("calibration_id")): item for item in current if isinstance(item, dict)}
     for entry in entries:
@@ -262,7 +383,7 @@ def update_index(results_root: Path, entries: list[dict[str, Any]]) -> dict[str,
 
 
 def resolve(index_path: Path, *, detector: str, golden_set_sha256: str, detector_config_sha256: str | None = None) -> Path | None:
-    index = _read_json(index_path)
+    index = load_index_with_persisted_backfill(index_path)
     candidates = [
         item for item in index.get("entries", [])
         if isinstance(item, dict)
@@ -290,7 +411,7 @@ def resolve_best_parameter_reference(
     detector and Golden Set must match, while absolute parameter provenance lets
     HTH reevaluate the historic best even after the declared search grid changes.
     """
-    index = _read_json(index_path)
+    index = load_index_with_persisted_backfill(index_path)
     requested_variant = str(model_variant or "").strip() or None
     def variant_compatible(item):
         if not requested_variant:
