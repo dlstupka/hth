@@ -989,7 +989,13 @@ def update_optimizer_artifacts(
     markdown_path = output_dir / "summary.md"
     svg_path = output_dir / "heatmap.svg"
     markdown_path.write_text(render_markdown(current, run_metadata, preferred_index=compatible_historical), encoding="utf-8")
-    svg_path.write_text(render_heatmap_svg(compatible_historical), encoding="utf-8")
+    # The published single-run optimizer summary is run-local below the preferred
+    # configuration section, so its plot must visualize the same run-local
+    # measurements as Section 3.  The preferred table may legitimately coalesce
+    # compatible historical evidence, but plotting that aggregate here can make
+    # the graph show an older/different run while the shape table shows the
+    # current execution.
+    svg_path.write_text(render_heatmap_svg(current), encoding="utf-8")
     return {"index": index_path, "markdown": markdown_path, "heatmap": svg_path}
 
 
