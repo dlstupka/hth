@@ -358,14 +358,15 @@ def _attach_prediction_history(results_root: Path, index: dict[str, Any], detect
 def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     optimizer_path = readable_index_path(results_root, "optimizer-index.json")
     parallelism_path = readable_index_path(results_root, "parallelism-index.json")
-    if not optimizer_path.is_file():
-        raise FileNotFoundError(f"Missing {optimizer_path}")
     if not parallelism_path.is_file():
         raise FileNotFoundError(f"Missing {parallelism_path}")
 
-    # Report ONLY fully published optimizer executions. Never infer completion
-    # from shard checkpoints or partial shape observations.
-    optimizer = _read_json(optimizer_path)
+    # optimizer-index.json is derived planning state. During the indexes/
+    # migration it may be absent even though durable completed optimizer
+    # summaries and parallelism observations still exist. Treat a missing
+    # optimizer index as empty derived state and recover only from persisted
+    # completion evidence; never infer completion from checkpoints.
+    optimizer = _read_json(optimizer_path) if optimizer_path.is_file() else {}
     parallelism = _read_json(parallelism_path)
     persisted_report_dir = results_root / "execution-optimizer" / detector
     persisted_summary = persisted_report_dir / "summary.md"
@@ -403,9 +404,10 @@ def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dic
 
 def _completed_optimizer_detectors(results_root: Path) -> list[str]:
     optimizer_path = readable_index_path(results_root, "optimizer-index.json")
-    if not optimizer_path.is_file():
-        raise FileNotFoundError(f"Missing {optimizer_path}")
-    optimizer = _read_json(optimizer_path)
+    # The optimizer index is reconstructable derived state. Persisted
+    # execution-optimizer/<detector>/ reports remain valid completion evidence
+    # when that index is missing (notably across results-layout migrations).
+    optimizer = _read_json(optimizer_path) if optimizer_path.is_file() else {}
     candidates: set[str] = set()
     detectors = optimizer.get("detectors") if isinstance(optimizer.get("detectors"), dict) else {}
     candidates.update(str(detector) for detector in detectors if str(detector).strip())

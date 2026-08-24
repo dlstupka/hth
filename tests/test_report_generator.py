@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.report_generator import calibration_run_dirs, smoke_run_dirs, generate_calibration_manifest, generate_optimizer_report
+from hth.report_generator import calibration_run_dirs, smoke_run_dirs, generate_calibration_manifest, generate_optimizer_report, generate_optimizer_report_all
 
 
 class ReportGeneratorTests(unittest.TestCase):
@@ -364,6 +364,48 @@ class ReportGeneratorTests(unittest.TestCase):
             self.assertTrue((root / "out" / "profiles" / "grabcut.svg").is_file())
             self.assertIn("  - [grabcut](#detector-run-profile-grabcut)", summary)
 
+
+
+    def test_optimizer_report_recovers_when_optimizer_index_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            parallelism = {"observations": [
+                {"detector_id": "adaptive_radial_edge", "optimizer_run_id": "200", "source": "execution-optimizer",
+                 "mode": "full", "strategy": "exhaustive", "actual_parameter_sets": 10, "possible_parameter_sets": 10,
+                 "active_pipelines": 2, "shards": 2, "threads_per_pipeline": 1, "allocated_threads": 2,
+                 "wall_clock_seconds": 10, "parameter_sets_per_second": 2.0, "execution_shape": "2p/1t",
+                 "optimizer_shape_sequence": 1, "captured_at_utc": "2026-01-02T00:00:00Z",
+                 "runner": {"runner_label": "e7k", "name": "host", "logical_cpus": 96}},
+            ]}
+            indexes = root / "indexes"
+            indexes.mkdir()
+            (indexes / "parallelism-index.json").write_text(json.dumps(parallelism), encoding="utf-8")
+            self._write_completed_optimizer_summary(root, "adaptive_radial_edge", "200")
+
+            paths = generate_optimizer_report(root, "adaptive_radial_edge", root / "out")
+            text = paths["summary"].read_text(encoding="utf-8")
+            self.assertIn("Optimizer run: **200**", text)
+            self.assertIn("| 2 | 2 | 1 |", text)
+
+    def test_optimizer_report_all_discovers_persisted_detectors_without_optimizer_index(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            parallelism = {"observations": [
+                {"detector_id": "adaptive_radial_edge", "optimizer_run_id": "200", "source": "execution-optimizer",
+                 "mode": "full", "strategy": "exhaustive", "actual_parameter_sets": 10, "possible_parameter_sets": 10,
+                 "active_pipelines": 2, "shards": 2, "threads_per_pipeline": 1, "allocated_threads": 2,
+                 "wall_clock_seconds": 10, "parameter_sets_per_second": 2.0, "execution_shape": "2p/1t",
+                 "optimizer_shape_sequence": 1, "captured_at_utc": "2026-01-02T00:00:00Z",
+                 "runner": {"runner_label": "e7k", "name": "host", "logical_cpus": 96}},
+            ]}
+            indexes = root / "indexes"
+            indexes.mkdir()
+            (indexes / "parallelism-index.json").write_text(json.dumps(parallelism), encoding="utf-8")
+            self._write_completed_optimizer_summary(root, "adaptive_radial_edge", "200")
+
+            paths = generate_optimizer_report_all(root, root / "out")
+            text = paths["summary"].read_text(encoding="utf-8")
+            self.assertIn("adaptive_radial_edge", text)
 
 
 if __name__ == "__main__":
