@@ -18,6 +18,7 @@ from hth.domain.result_metrics import baseline_surpassed, calibration_metric_vie
 from hth.runtime_store import coherent_execution_profile, select_runtime_observation
 from hth.regression.parameter_provenance import parameter_identity_sha256, resolve_parameter_set
 from hth.regression.parameter_space import parameter_set_equivalence_family_id
+from hth.calibration_store import load_index_with_persisted_backfill
 
 
 
@@ -457,7 +458,7 @@ def _build_parameter_build_index(
     if calibration_index is None or not calibration_index.is_file():
         return by_detector
     try:
-        index = _read_json(calibration_index)
+        index = load_index_with_persisted_backfill(calibration_index)
     except (OSError, ValueError, json.JSONDecodeError):
         return by_detector
 
@@ -1467,7 +1468,7 @@ def _best_known_calibrations(
     indexed_records: list[dict[str, Any]] = []
     if calibration_index and calibration_index.is_file():
         try:
-            index = _read_json(calibration_index)
+            index = load_index_with_persisted_backfill(calibration_index)
         except (OSError, ValueError, json.JSONDecodeError):
             index = {}
         for entry in index.get("entries", []):

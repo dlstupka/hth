@@ -5,6 +5,7 @@ from pathlib import Path
 
 from hth.calibration_store import load_index_with_persisted_backfill
 from hth.report_generator import calibration_run_dirs
+from hth.write_regression_summary import _best_known_calibrations, _build_parameter_build_index
 from hth.resolve_document_detector import resolve_rank_one
 from hth.regression.parameter_space import parameter_set_id
 from hth.regression.parameter_provenance import parameter_identity_sha256
@@ -84,6 +85,15 @@ class CalibrationIndexRecoveryTests(unittest.TestCase):
 
             run_dirs = calibration_run_dirs(results)
             self.assertEqual(run_dirs, [record])
+
+            best_known = _best_known_calibrations(index_path, current_runs=[])
+            self.assertEqual(best_known[0]["detector"], detector)
+            self.assertEqual(best_known[0]["search_type"], "exhaustive")
+            self.assertNotEqual(str(best_known[0].get("approval_level") or "").lower(), "provisional")
+
+            history = _build_parameter_build_index(index_path)
+            self.assertIn(detector, history)
+            self.assertTrue(any(row.get("build_number") == "782" for row in history[detector]))
 
 
 if __name__ == "__main__":
