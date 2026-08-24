@@ -502,13 +502,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! -f results-repo/indexes/calibration-index.json ]]; then
-            echo "::error::Preferred document inference requires results-repo/indexes/calibration-index.json"
+          calibration_index="results-repo/indexes/calibration-index.json"
+          if [[ ! -f "$calibration_index" && -f results-repo/calibration-index.json ]]; then
+            calibration_index="results-repo/calibration-index.json"
+            echo "Using legacy root calibration index during indexes/ migration."
+          fi
+          if [[ ! -f "$calibration_index" ]]; then
+            echo "::error::Preferred document inference requires results-repo/indexes/calibration-index.json (or the legacy root calibration-index.json during migration)"
             exit 1
           fi
           cd hth-pipeline
           python -m hth.resolve_document_detector \
-            --index ../results-repo/indexes/calibration-index.json \
+            --index "../$calibration_index" \
             --golden-set-id HTH-0001 \
             --catalog config/document-detectors.json \
             --output "$RUNNER_TEMP/preferred-document-detector.json" \

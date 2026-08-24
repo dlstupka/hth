@@ -92,6 +92,9 @@ class PreferredDocumentDetectorTests(unittest.TestCase):
         self.assertIn("document_detector: preferred", preprocess)
         self.assertIn("document_detector: preferred", test)
         self.assertIn("Resolve Rank #1 approved document detector", core)
+        self.assertIn('if [[ ! -f "$calibration_index" && -f results-repo/calibration-index.json ]]', core)
+        self.assertIn('calibration_index="results-repo/calibration-index.json"', core)
+        self.assertIn('--index "../$calibration_index"', core)
         self.assertIn("--selection \"$RUNNER_TEMP/preferred-document-detector.json\"", core)
 
 

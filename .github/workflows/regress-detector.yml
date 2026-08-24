@@ -269,6 +269,7 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             indexes/calibration-index.json
+            calibration-index.json
           sparse-checkout-cone-mode: false
           persist-credentials: false
           token: ${{ secrets.HTH_RESULTS_TOKEN }}
@@ -283,7 +284,7 @@ jobs:
           python -m hth.regression_dispatch \
             --mode all-without-exhaustive \
             --detector-dir hth-pipeline/config/detectors \
-            --calibration-index results-repo/indexes/calibration-index.json \
+            --calibration-index "$(test -f results-repo/indexes/calibration-index.json && printf '%s' results-repo/indexes/calibration-index.json || printf '%s' results-repo/calibration-index.json)" \
             --golden-set "hth-pipeline/${{ inputs.golden_set }}" \
             --repository "$GITHUB_REPOSITORY" \
             --ref "${{ github.ref_name }}" \
@@ -448,12 +449,18 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             indexes/calibration-index.json
+            calibration-index.json
             indexes/parameter-provenance-index.json
+            parameter-provenance-index.json
             indexes/runtime-index.json
+            runtime-index.json
             indexes/parallelism-index.json
+            parallelism-index.json
             indexes/multidetector-index.json
+            multidetector-index.json
             optimizer-predictions.json
             indexes/orli-evidence-index.json
+            orli-evidence-index.json
             source-documents
             learned-evidence/orli_page_mask
             ${{ env.IMAGE_ROOT }}
