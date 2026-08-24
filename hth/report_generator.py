@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 
 from hth.results_layout import canonical_index_path, readable_index_path
+from hth.optimizer_history import completed_run_records
 from typing import Any
 
 from hth.optimizer_store import build_optimizer_index, render_all_markdown, render_heatmap_svg, render_markdown, select_preferred_shape
@@ -368,6 +369,29 @@ def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dic
     # completion evidence; never infer completion from checkpoints.
     optimizer = _read_json(optimizer_path) if optimizer_path.is_file() else {}
     parallelism = _read_json(parallelism_path)
+
+    # Completed per-run records are the durable optimizer source of truth. Merge
+    # them into the rebuildable aggregate views so report regeneration retains
+    # every published run even if optimizer-index.json was replaced/rebuilt.
+    durable_runs = completed_run_records(results_root, detector)
+    if durable_runs:
+        observations = list(parallelism.get("observations", [])) if isinstance(parallelism.get("observations"), list) else []
+        by_id = {str(row.get("observation_id")): row for row in observations if isinstance(row, dict) and row.get("observation_id")}
+        optimizer_runs = dict(optimizer.get("runs", {})) if isinstance(optimizer.get("runs"), dict) else {}
+        for record in durable_runs:
+            manifest = record["manifest"]
+            durable_run_id = str(manifest.get("optimizer_run_id"))
+            for row in record["observations"]:
+                key = str(row.get("observation_id") or f"durable:{durable_run_id}:{len(by_id)}")
+                by_id[key] = row
+            optimizer_runs[durable_run_id] = {
+                "optimizer_run_id": durable_run_id,
+                "detector_id": detector,
+                "run_metadata": manifest.get("run_metadata") if isinstance(manifest.get("run_metadata"), dict) else {},
+                "updated_at_utc": (manifest.get("run_metadata") or {}).get("completed_at_utc", "") if isinstance(manifest.get("run_metadata"), dict) else "",
+            }
+        parallelism["observations"] = list(by_id.values())
+        optimizer["runs"] = optimizer_runs
     persisted_report_dir = results_root / "execution-optimizer" / detector
     persisted_summary = persisted_report_dir / "summary.md"
     run_id = _completed_optimizer_run_id(results_root, detector)

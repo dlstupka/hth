@@ -1178,6 +1178,8 @@ jobs:
               --startup-overhead-seconds "$startup_overhead" \
               --observation-log "$observation_log" \
               --runner-metrics-log "$HTH_OPTIMIZER_RUNNER_METRICS_LOG" \
+              --observation-log "$observation_log" \
+              --shard-log "$shard_log" \
               --observation-json optimizer-work/latest-shape.json
 
             assessment="$(python -m hth.optimizer_capture \
@@ -1252,7 +1254,9 @@ jobs:
             --detector "$DETECTOR_ALGORITHM" \
             --optimizer-run-id "$GITHUB_RUN_ID" \
             --run-metadata "$run_metadata" \
-            --runner-metrics-log "$HTH_OPTIMIZER_RUNNER_METRICS_LOG"
+            --runner-metrics-log "$HTH_OPTIMIZER_RUNNER_METRICS_LOG" \
+            --observation-log "$observation_log" \
+            --shard-log "$shard_log"
 
           python - "$GITHUB_STEP_SUMMARY" "results-repo/execution-optimizer/$DETECTOR_ALGORITHM/summary.md" "$RESULTS_REPOSITORY" "$DETECTOR_ALGORITHM" "$GITHUB_RUN_ID" <<'PYSUMMARY'
           import sys
@@ -1305,14 +1309,17 @@ jobs:
               --detector "$DETECTOR_ALGORITHM" \
               --optimizer-run-id "$GITHUB_RUN_ID" \
               --run-metadata "$run_metadata" \
-              --runner-metrics-log "$HTH_OPTIMIZER_RUNNER_METRICS_LOG"
+              --runner-metrics-log "$HTH_OPTIMIZER_RUNNER_METRICS_LOG" \
+              --observation-log "$observation_log" \
+              --shard-log "$shard_log"
 
             git -C results-repo rm -f --ignore-unmatch -- calibration-index.json parameter-provenance-index.json runtime-index.json parallelism-index.json optimizer-index.json multidetector-index.json orli-evidence-index.json
 
             git -C results-repo add -A -- \
               indexes/parallelism-index.json indexes/optimizer-index.json \
               "execution-optimizer/$DETECTOR_ALGORITHM/summary.md" \
-              "execution-optimizer/$DETECTOR_ALGORITHM/heatmap.svg"
+              "execution-optimizer/$DETECTOR_ALGORITHM/heatmap.svg" \
+              "execution-optimizer/$DETECTOR_ALGORITHM/runs/"
             if [[ -d results-repo/models ]]; then
               git -C results-repo add -A -- models/
             fi

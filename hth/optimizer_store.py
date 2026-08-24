@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from hth.results_layout import canonical_index_path, readable_index_path
+from hth.optimizer_history import completed_run_records, persist_completed_run
 from typing import Any, Iterable
 
 from hth.contracts import OPTIMIZER_INDEX_SCHEMA_VERSION, adapt_optimizer_index
@@ -852,11 +853,26 @@ def update_optimizer_artifacts(
     optimizer_run_id: str | None = None,
     run_metadata_path: Path | None = None,
     runner_metrics_log: Path | None = None,
+    observation_log: Path | None = None,
+    shard_log: Path | None = None,
 ) -> dict[str, Path]:
     parallelism_path = readable_index_path(results_root, "parallelism-index.json")
     if not parallelism_path.is_file():
         raise FileNotFoundError(f"Missing {parallelism_path}")
     parallelism = _read_json(parallelism_path)
+
+    # Rehydrate aggregate planning state from durable completed runs before
+    # computing preferences.  This makes optimizer-index.json rebuildable and
+    # prevents retention/index migrations from collapsing cross-run history.
+    durable_records = completed_run_records(results_root, detector_id)
+    if durable_records:
+        observations = list(parallelism.get("observations", [])) if isinstance(parallelism.get("observations"), list) else []
+        by_id = {str(row.get("observation_id")): row for row in observations if isinstance(row, dict) and row.get("observation_id")}
+        for record in durable_records:
+            for row in record["observations"]:
+                key = str(row.get("observation_id") or f"durable:{len(by_id)}")
+                by_id[key] = row
+        parallelism["observations"] = list(by_id.values())
     historical = build_optimizer_index(parallelism, detector_id)
     current = build_optimizer_index(parallelism, detector_id, optimizer_run_id) if optimizer_run_id is not None else historical
 
@@ -888,6 +904,16 @@ def update_optimizer_artifacts(
         existing = {"schema_version": OPTIMIZER_INDEX_SCHEMA_VERSION, "detectors": {}, "runs": {}}
     detectors = existing.get("detectors") if isinstance(existing.get("detectors"), dict) else {}
     runs = existing.get("runs") if isinstance(existing.get("runs"), dict) else {}
+    for record in durable_records:
+        manifest = record["manifest"]
+        durable_run_id = str(manifest.get("optimizer_run_id") or "").strip()
+        if not durable_run_id:
+            continue
+        runs.setdefault(durable_run_id, {
+            "optimizer_run_id": durable_run_id,
+            "detector_id": detector_id,
+            "run_metadata": manifest.get("run_metadata") if isinstance(manifest.get("run_metadata"), dict) else {},
+        })
     if optimizer_run_id is not None:
         shard_rows = [
             row for row in parallelism.get("shard_observations", [])
@@ -951,6 +977,13 @@ def update_optimizer_artifacts(
     })
     _write_json(index_path, existing)
 
+    if optimizer_run_id is not None:
+        persist_completed_run(
+            results_root=results_root, detector=detector_id, run_id=str(optimizer_run_id),
+            run_metadata=run_metadata, observation_log=observation_log, shard_log=shard_log,
+            runner_metrics_log=runner_metrics_log,
+        )
+
     output_dir = results_root / "execution-optimizer" / detector_id
     output_dir.mkdir(parents=True, exist_ok=True)
     markdown_path = output_dir / "summary.md"
@@ -967,6 +1000,8 @@ def _main() -> int:
     parser.add_argument("--optimizer-run-id")
     parser.add_argument("--run-metadata", type=Path)
     parser.add_argument("--runner-metrics-log", type=Path)
+    parser.add_argument("--observation-log", type=Path)
+    parser.add_argument("--shard-log", type=Path)
     args = parser.parse_args()
     paths = update_optimizer_artifacts(
         args.results_root,
@@ -974,6 +1009,8 @@ def _main() -> int:
         optimizer_run_id=args.optimizer_run_id,
         run_metadata_path=args.run_metadata,
         runner_metrics_log=args.runner_metrics_log,
+        observation_log=args.observation_log,
+        shard_log=args.shard_log,
     )
     for name, path in paths.items():
         print(f"{name}={path}")
