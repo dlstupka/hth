@@ -370,24 +370,32 @@ def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dic
     parallelism = _read_json(parallelism_path)
     persisted_report_dir = results_root / "execution-optimizer" / detector
     persisted_summary = persisted_report_dir / "summary.md"
-    persisted_profile = persisted_report_dir / "heatmap.svg"
     run_id = _completed_optimizer_run_id(results_root, detector)
     if run_id is None:
         run_id = _latest_completed_run_from_index(optimizer, detector)
-    if run_id is None and persisted_summary.is_file() and persisted_profile.is_file():
+    if run_id is None and persisted_summary.is_file():
         run_id = _latest_legacy_published_run_from_parallelism(parallelism, detector)
-    legacy_current = None
-    if run_id is None and persisted_summary.is_file() and persisted_profile.is_file():
-        legacy_current = _legacy_completed_index_from_summary(persisted_summary, detector)
-    if run_id is None and legacy_current is None:
+
+    # A published summary is itself the durable end-of-run artifact.  Older
+    # results repositories may no longer retain the derived optimizer index or
+    # the run-tagged parallelism rows that originally produced it, so parse the
+    # published shape table as the final recovery source.  Do not require the
+    # SVG: report publication can legitimately replace/regenerate that derived
+    # presentation artifact independently of the completion summary.
+    published_current = _legacy_completed_index_from_summary(persisted_summary, detector)
+    if published_current is not None and run_id is not None:
+        published_current["optimizer_run_id"] = str(run_id)
+    if run_id is None and published_current is None:
         raise ValueError(f"No completed persisted optimizer run found for detector {detector}")
 
-    if legacy_current is not None:
-        return legacy_current, legacy_current, {}
+    if run_id is None:
+        return published_current, published_current, {}
 
     run_payload = _completed_run_payload(optimizer, detector, run_id)
     current = _attach_optimizer_run_metadata(build_optimizer_index(parallelism, detector, run_id), optimizer, detector)
     if not current.get("observation_count"):
+        if published_current is not None:
+            return published_current, published_current, run_payload.get("run_metadata", {}) if isinstance(run_payload.get("run_metadata"), dict) else {}
         raise ValueError(
             f"Completed optimizer run {run_id} has no persisted completed shape observations for {detector}"
         )

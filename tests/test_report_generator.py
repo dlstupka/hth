@@ -387,6 +387,29 @@ class ReportGeneratorTests(unittest.TestCase):
             self.assertIn("Optimizer run: **200**", text)
             self.assertIn("| 2 | 2 | 1 |", text)
 
+    def test_optimizer_report_recovers_published_table_when_indexes_lost_run_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            indexes = root / "indexes"
+            indexes.mkdir()
+            (indexes / "parallelism-index.json").write_text(json.dumps({"observations": []}), encoding="utf-8")
+            persisted = root / "execution-optimizer" / "adaptive_radial_edge"
+            persisted.mkdir(parents=True)
+            (persisted / "summary.md").write_text(
+                "### Execution optimizer summary\n\n"
+                "Detector: `adaptive_radial_edge`  \n"
+                "Optimizer run: **200** — completed.\n\n"
+                "| Runner | Pipelines | Shards | Threads / pipeline | Allocated threads | Fastest wall | Median wall | Sets/s | Speedup vs 1 pipeline | Efficiency | Runs |\n"
+                "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n"
+                "| e7k — host (96 vCPU) | 2 | 2 | 48 | 96 | 10s | 10s | 2.0 | 2.00× | 100% | 1 |\n",
+                encoding="utf-8",
+            )
+
+            paths = generate_optimizer_report_all(root, root / "out")
+            text = paths["summary"].read_text(encoding="utf-8")
+            self.assertIn("adaptive_radial_edge", text)
+            self.assertIn("2.00", text)
+
     def test_optimizer_report_all_discovers_persisted_detectors_without_optimizer_index(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
