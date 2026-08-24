@@ -9,6 +9,8 @@ import math
 from datetime import datetime, timezone
 from pathlib import Path
 
+from hth.results_layout import resolve_index_relative_path
+
 from hth.results_layout import canonical_index_path, readable_index_path
 from typing import Any, Iterable
 
@@ -331,7 +333,7 @@ def _runtime_observations_from_calibration_store(calibration_index_path: Path | 
         record_path = entry.get("record_path")
         if not record_path:
             continue
-        info_path = calibration_index_path.parent / str(record_path) / "RUN-INFO.json"
+        info_path = resolve_index_relative_path(calibration_index_path, str(record_path)) / "RUN-INFO.json"
         if not info_path.is_file():
             continue
         try:

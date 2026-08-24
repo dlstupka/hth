@@ -100,6 +100,25 @@ class ParameterBuildHistoryIndexTests(unittest.TestCase):
             self.assertEqual([row[0] for row in first], ["300", "100"])
             self.assertNotIn("400", [row[0] for row in first])
 
+    def test_canonical_indexes_directory_resolves_repository_relative_history(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            detector = "demo"
+            target = {"threshold": 0.2, "radius": 2}
+            entry, _ = self._write_record(root, detector, 300, "authoritative", target)
+            index_path = root / "indexes" / "calibration-index.json"
+            index_path.parent.mkdir()
+            index_path.write_text(json.dumps({"entries": [entry]}), encoding="utf-8")
+
+            history = report._build_parameter_build_index(index_path)
+            full_sha = parameter_identity_sha256(detector, target, schema_version="1")
+            builds = report._known_builds_for_parameter(
+                detector=detector, full_sha=full_sha, parameters=target, info={}, run_url="",
+                parameter_build_index=history,
+            )
+
+            self.assertEqual([row[0] for row in builds], ["300"])
+
     def test_current_build_is_sorted_with_historical_builds_newest_first(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

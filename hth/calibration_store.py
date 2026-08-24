@@ -10,7 +10,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from hth.results_layout import canonical_index_path, readable_index_path
+from hth.results_layout import canonical_index_path, readable_index_path, index_results_root, resolve_index_relative_path
 from typing import Any
 
 from hth.runtime_store import observation_from_run, update_runtime_index
@@ -273,7 +273,7 @@ def resolve(index_path: Path, *, detector: str, golden_set_sha256: str, detector
     if not candidates:
         return None
     selected = authoritative_record(candidates)
-    results_root = index_path.parent.parent if index_path.parent.name == "indexes" else index_path.parent
+    results_root = index_results_root(index_path)
     return results_root / str(selected["intelligence_path"]) if selected else None
 
 
@@ -323,13 +323,13 @@ def resolve_best_parameter_reference(
     provenance_source = None
     provenance_rel = selected.get("parameter_provenance_path")
     if provenance_rel:
-        provenance_path = index_path.parent / str(provenance_rel)
+        provenance_path = resolve_index_relative_path(index_path, str(provenance_rel))
         if provenance_path.is_file():
             provenance = _read_json(provenance_path)
             provenance_source = "parameter-provenance"
 
     if provenance is None:
-        record_dir = index_path.parent / str(selected.get("record_path") or "")
+        record_dir = resolve_index_relative_path(index_path, str(selected.get("record_path") or ""))
         legacy_parameters = record_dir / "parameters.json"
         if legacy_parameters.is_file():
             provenance = provenance_from_legacy_parameters(legacy_parameters)

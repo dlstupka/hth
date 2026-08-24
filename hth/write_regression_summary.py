@@ -8,6 +8,8 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
+
+from hth.results_layout import resolve_index_relative_path
 from typing import Any
 from hth.regression.result_metrics import normalize_summary_metrics
 from hth.regression.authoritative_record import authoritative_record
@@ -473,7 +475,7 @@ def _build_parameter_build_index(
         prov_rel = entry.get("parameter_provenance_path")
         if not detector or not prov_rel:
             continue
-        prov_path = calibration_index.parent / str(prov_rel)
+        prov_path = resolve_index_relative_path(calibration_index, str(prov_rel))
         if not prov_path.is_file():
             continue
         try:
@@ -507,9 +509,9 @@ def _build_parameter_build_index(
         winner_parameter_set_id = str((entry.get("selection") or {}).get("recommended_parameter_set_id") or "")
         record_rel = entry.get("record_path")
         if record_rel:
-            summary_path = calibration_index.parent / str(record_rel) / "summary.json"
+            summary_path = resolve_index_relative_path(calibration_index, str(record_rel)) / "summary.json"
             if not summary_path.is_file():
-                summary_path = calibration_index.parent / str(record_rel) / "reports" / "summary.json"
+                summary_path = resolve_index_relative_path(calibration_index, str(record_rel)) / "reports" / "summary.json"
             if summary_path.is_file():
                 try:
                     historical_summary = _read_json(summary_path)
@@ -1473,14 +1475,14 @@ def _best_known_calibrations(
                 continue
             if current_sha != "unknown" and str(entry.get("golden_set_sha256") or "unknown") != current_sha:
                 continue
-            intelligence_path = calibration_index.parent / str(entry.get("intelligence_path") or "")
+            intelligence_path = resolve_index_relative_path(calibration_index, str(entry.get("intelligence_path") or ""))
             if not intelligence_path.is_file():
                 continue
             try:
                 payload = _read_json(intelligence_path)
             except (OSError, ValueError, json.JSONDecodeError):
                 continue
-            record_dir = calibration_index.parent / str(entry.get("record_path") or "")
+            record_dir = resolve_index_relative_path(calibration_index, str(entry.get("record_path") or ""))
             summary_path = record_dir / "summary.json"
             info_path = record_dir / "RUN-INFO.json"
             summary = normalize_summary_metrics(_read_json(summary_path)) if summary_path.is_file() else {}
