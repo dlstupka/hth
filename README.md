@@ -4,7 +4,7 @@
 
 HTH is designed for difficult historical collections: photographed manuscripts, bound registers, irregular page geometry, degraded images, handwritten records, and source material that must retain a clear chain of provenance. The framework separates source preservation, processing, calibration, validation, publication, and later research stages so that every result can be traced back to the exact source material and software that produced it.
 
-The current reference collection is **HTH-0001 — San Antonio Baptisms, 1788–1824 and 1858–1898**, but the pipeline and detector framework are intentionally collection-independent.
+The current reference collection is **[HTH-0001 — San Antonio Baptisms, 1788–1824 and 1858–1898](https://github.com/dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898)**, but the pipeline and detector framework are intentionally collection-independent.
 
 ## What HTH does
 
