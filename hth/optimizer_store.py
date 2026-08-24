@@ -11,6 +11,8 @@ import re
 import statistics
 from datetime import datetime, timezone
 from pathlib import Path
+
+from hth.results_layout import canonical_index_path, readable_index_path
 from typing import Any, Iterable
 
 from hth.contracts import OPTIMIZER_INDEX_SCHEMA_VERSION, adapt_optimizer_index
@@ -851,7 +853,7 @@ def update_optimizer_artifacts(
     run_metadata_path: Path | None = None,
     runner_metrics_log: Path | None = None,
 ) -> dict[str, Path]:
-    parallelism_path = results_root / "parallelism-index.json"
+    parallelism_path = readable_index_path(results_root, "parallelism-index.json")
     if not parallelism_path.is_file():
         raise FileNotFoundError(f"Missing {parallelism_path}")
     parallelism = _read_json(parallelism_path)
@@ -878,9 +880,10 @@ def update_optimizer_artifacts(
         run_metadata = _read_json(run_metadata_path)
     runner_samples = _read_jsonl(runner_metrics_log, optimizer_run_id)
 
-    index_path = results_root / "optimizer-index.json"
-    if index_path.is_file():
-        existing = adapt_optimizer_index(_read_json(index_path))
+    index_path = canonical_index_path(results_root, "optimizer-index.json")
+    read_index_path = readable_index_path(results_root, "optimizer-index.json")
+    if read_index_path.is_file():
+        existing = adapt_optimizer_index(_read_json(read_index_path))
     else:
         existing = {"schema_version": OPTIMIZER_INDEX_SCHEMA_VERSION, "detectors": {}, "runs": {}}
     detectors = existing.get("detectors") if isinstance(existing.get("detectors"), dict) else {}

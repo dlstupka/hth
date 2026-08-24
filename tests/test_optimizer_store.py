@@ -186,7 +186,7 @@ class OptimizerStoreTests(unittest.TestCase):
                 "shape_sequence": idx // 100, "shard_index": idx,
             } for idx in range(5005)]
             update_parallelism_shards(root, shards)
-            payload = json.loads((root / "parallelism-index.json").read_text(encoding="utf-8"))
+            payload = json.loads((root / "indexes" / "parallelism-index.json").read_text(encoding="utf-8"))
             self.assertEqual(len([row for row in payload["observations"] if row.get("source") == "execution-optimizer"]), 520)
             self.assertEqual(len([row for row in payload["shard_observations"] if row.get("source") == "execution-optimizer"]), 5005)
 

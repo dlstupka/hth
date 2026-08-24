@@ -43,7 +43,7 @@ No additional compression or decomposition is applied. HTH records the actual ma
 
 ## Orli evidence index
 
-`orli-evidence-index.json` is the repository-level inventory of reusable Orli inference artifacts. Each entry records:
+`indexes/orli-evidence-index.json` is the repository-level inventory of reusable Orli inference artifacts. Each entry records:
 
 - evidence id and repository-relative manifest path;
 - manifest SHA-256 and byte size;

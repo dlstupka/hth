@@ -7,6 +7,8 @@ import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+
+from hth.results_layout import canonical_index_path, readable_index_path
 from typing import Any
 
 
@@ -39,7 +41,7 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def _published_run_ids(results_root: Path) -> set[str]:
-    index = results_root / "optimizer-index.json"
+    index = readable_index_path(results_root, "optimizer-index.json")
     if not index.is_file():
         return set()
     payload = _read_json(index)

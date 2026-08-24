@@ -7,6 +7,8 @@ import json
 import math
 from datetime import datetime, timezone
 from pathlib import Path
+
+from hth.results_layout import canonical_index_path, readable_index_path
 from typing import Any
 
 from hth.domain.multidetector_schedule import workload_class
@@ -147,8 +149,9 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def publish(metadata: Path, results_root: Path) -> dict[str, Any]:
-    observation=_read_json(metadata); path=results_root/"multidetector-index.json"
-    index=_read_json(path) if path.is_file() else {"schema_version":INDEX_SCHEMA_VERSION,"observations":[]}
+    observation=_read_json(metadata); path=canonical_index_path(results_root, "multidetector-index.json")
+    read_path=readable_index_path(results_root, "multidetector-index.json")
+    index=_read_json(read_path) if read_path.is_file() else {"schema_version":INDEX_SCHEMA_VERSION,"observations":[]}
     by_id={str(r.get("observation_id")):r for r in index.get("observations",[]) if isinstance(r,dict) and r.get("observation_id")}
     by_id[str(observation["observation_id"])]=observation
     rows=sorted(by_id.values(),key=lambda r:str(r.get("observed_at_utc") or ""),reverse=True)[:MAX_OBSERVATIONS]

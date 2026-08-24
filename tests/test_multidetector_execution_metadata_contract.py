@@ -16,7 +16,7 @@ class MultiDetectorExecutionMetadataContractTests(unittest.TestCase):
 
     def test_workflow_persists_multidetector_index(self):
         text = (ROOT / ".github/workflows/regress-detector.yml").read_text(encoding="utf-8")
-        self.assertIn("--multidetector-index results-repo/multidetector-index.json", text)
+        self.assertIn("--multidetector-index results-repo/indexes/multidetector-index.json", text)
         self.assertIn("hth.multidetector_store publish", text)
         self.assertIn("multidetector-index.json", text)
 

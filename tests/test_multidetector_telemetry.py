@@ -40,7 +40,7 @@ class MultiDetectorTelemetryTests(unittest.TestCase):
 
             results = root / "results"
             publish(out, results)
-            index = json.loads((results / "multidetector-index.json").read_text(encoding="utf-8"))
+            index = json.loads((results / "indexes" / "multidetector-index.json").read_text(encoding="utf-8"))
             self.assertEqual(index["observations"][0]["observation_id"], "x")
 
 

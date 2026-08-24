@@ -52,7 +52,7 @@ class CalibrationStoreTests(unittest.TestCase):
             self.assertEqual(preferred["selection"]["best_avg_iou"], 0.9137)
 
             selected = resolve(
-                results / "calibration-index.json",
+                results / "indexes" / "calibration-index.json",
                 detector="grabcut",
                 golden_set_sha256="abc123",
                 detector_config_sha256="cfg123",
@@ -81,7 +81,7 @@ class CalibrationStoreTests(unittest.TestCase):
             self.assertEqual(len(index["entries"]), 2)
             preferred = next(iter(index["preferred"].values()))
             self.assertEqual(preferred["calibration_status"], "authoritative")
-            selected = resolve(results / "calibration-index.json", detector="grabcut", golden_set_sha256="abc123", detector_config_sha256="cfg123")
+            selected = resolve(results / "indexes" / "calibration-index.json", detector="grabcut", golden_set_sha256="abc123", detector_config_sha256="cfg123")
             self.assertIsNotNone(selected)
             self.assertIn("full", selected.as_posix())
             stored = json.loads(selected.read_text(encoding="utf-8"))

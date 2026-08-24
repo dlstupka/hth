@@ -143,8 +143,7 @@ The first full run is calibration. Review the highest and lowest values before t
 ├── transcriptions/
 ├── translations/
 ├── indexes/
-├── citations/
-├── research-notes/
+├── docs/
 └── test/
 ```
 

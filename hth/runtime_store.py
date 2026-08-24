@@ -8,6 +8,8 @@ import json
 import math
 from datetime import datetime, timezone
 from pathlib import Path
+
+from hth.results_layout import canonical_index_path, readable_index_path
 from typing import Any, Iterable
 
 from hth.contracts import (
@@ -132,9 +134,10 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
 
 
 def update_runtime_index(results_root: Path, observations: Iterable[dict[str, Any]]) -> dict[str, Any]:
-    path = results_root / "runtime-index.json"
-    if path.is_file():
-        index = adapt_runtime_index(_read_json(path))
+    path = canonical_index_path(results_root, "runtime-index.json")
+    read_path = readable_index_path(results_root, "runtime-index.json")
+    if read_path.is_file():
+        index = adapt_runtime_index(_read_json(read_path))
     else:
         index = {"schema_version": RUNTIME_INDEX_SCHEMA_VERSION, "observations": [], "latest": {}}
 

@@ -9,6 +9,8 @@ import re
 import shutil
 import tempfile
 from pathlib import Path
+
+from hth.results_layout import canonical_index_path, readable_index_path
 from typing import Any
 
 from hth.optimizer_store import build_optimizer_index, render_all_markdown, render_heatmap_svg, render_markdown, select_preferred_shape
@@ -31,7 +33,7 @@ def _golden_sha(path: Path | None) -> str | None:
 
 
 def _matching_index_entries(results_root: Path, golden_set: Path | None = None) -> list[dict[str, Any]]:
-    index_path = results_root / "calibration-index.json"
+    index_path = readable_index_path(results_root, "calibration-index.json")
     if not index_path.is_file():
         raise FileNotFoundError(f"Missing {index_path}")
     index = _read_json(index_path)
@@ -145,8 +147,8 @@ def generate_calibration_manifest(
             pipeline_repository=pipeline_repository,
             results_repository=results_repository,
             results_commit=results_commit,
-            calibration_index=results_root / "calibration-index.json",
-            runtime_index=results_root / "runtime-index.json",
+            calibration_index=readable_index_path(results_root, "calibration-index.json"),
+            runtime_index=readable_index_path(results_root, "runtime-index.json"),
         )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(text, encoding="utf-8")
@@ -353,8 +355,8 @@ def _attach_prediction_history(results_root: Path, index: dict[str, Any], detect
 
 
 def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-    optimizer_path = results_root / "optimizer-index.json"
-    parallelism_path = results_root / "parallelism-index.json"
+    optimizer_path = readable_index_path(results_root, "optimizer-index.json")
+    parallelism_path = readable_index_path(results_root, "parallelism-index.json")
     if not optimizer_path.is_file():
         raise FileNotFoundError(f"Missing {optimizer_path}")
     if not parallelism_path.is_file():
@@ -399,7 +401,7 @@ def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dic
 
 
 def _completed_optimizer_detectors(results_root: Path) -> list[str]:
-    optimizer_path = results_root / "optimizer-index.json"
+    optimizer_path = readable_index_path(results_root, "optimizer-index.json")
     if not optimizer_path.is_file():
         raise FileNotFoundError(f"Missing {optimizer_path}")
     optimizer = _read_json(optimizer_path)

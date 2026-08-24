@@ -7,6 +7,8 @@ import json
 import statistics
 from datetime import datetime, timezone
 from pathlib import Path
+
+from hth.results_layout import canonical_index_path, readable_index_path
 from typing import Any, Iterable
 import os
 import time
@@ -54,6 +56,7 @@ def _canonical_hash(payload: Any) -> str:
 
 @contextmanager
 def _index_lock(path: Path, timeout_seconds: float = 30.0):
+    path.parent.mkdir(parents=True, exist_ok=True)
     lock = path.with_suffix(path.suffix + ".lock")
     deadline = time.monotonic() + timeout_seconds
     fd = None
@@ -79,10 +82,11 @@ def _index_lock(path: Path, timeout_seconds: float = 30.0):
 
 
 def update_parallelism_shards(results_root: Path, shard_observations: Iterable[dict[str, Any]]) -> dict[str, Any]:
-    path = results_root / "parallelism-index.json"
+    path = canonical_index_path(results_root, "parallelism-index.json")
     with _index_lock(path):
-        if path.is_file():
-            index = adapt_parallelism_index(_read_json(path))
+        read_path = readable_index_path(results_root, "parallelism-index.json")
+        if read_path.is_file():
+            index = adapt_parallelism_index(_read_json(read_path))
         else:
             index = {"schema_version": PARALLELISM_INDEX_SCHEMA_VERSION, "observations": [], "shard_observations": []}
         by_id = {
@@ -228,7 +232,7 @@ def _is_comparable(row: dict[str, Any]) -> bool:
 
 
 def update_parallelism_index(results_root: Path, observations: Iterable[dict[str, Any]]) -> dict[str, Any]:
-    path = results_root / "parallelism-index.json"
+    path = canonical_index_path(results_root, "parallelism-index.json")
     with _index_lock(path):
         return _update_parallelism_index_locked(path, observations)
 

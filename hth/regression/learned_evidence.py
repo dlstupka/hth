@@ -24,7 +24,7 @@ EXPORTERS = {
     "pagenet_page_mask": detector_pagenet_page_mask.export_precomputed_golden_set_evidence,
 }
 
-ORLI_EVIDENCE_INDEX = "orli-evidence-index.json"
+ORLI_EVIDENCE_INDEX = Path("indexes") / "orli-evidence-index.json"
 ORLI_EVIDENCE_ROOT = Path("learned-evidence") / "orli_page_mask"
 ORLI_PERSISTENCE_SCHEMA_VERSION = "1.0"
 

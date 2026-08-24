@@ -47,7 +47,7 @@ def test_loading_strategies_runtime_index_and_announcements_are_wired() -> None:
     for strategy in ("lpt", "fifo", "ranked"):
         assert f"          - {strategy}" in workflow
     assert "python -m hth.runtime_store order" in text
-    assert "results-repo/runtime-index.json" in text
+    assert "results-repo/indexes/runtime-index.json" in text
     assert "LOAD detector=$detector_name shard=$((shard_index + 1))/$shard_count" in text
     assert "START detector=$detector_name shard=$((shard_index + 1))/$shard_count" in text
     assert "UNLOAD detector=$detector_name shard=$((shard_index + 1))/$shard_count status=complete" in text

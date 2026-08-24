@@ -113,7 +113,7 @@ The multi-detector `Detector Regression Reports` section begins with:
 
 Report regeneration is concurrency-safe with calibration/optimizer publication. Before each publish attempt the report writer fetches and resets to the current results-repository `main`, regenerates the requested report from that fresh snapshot, and retries a bounded number of times if another writer wins the push race. This avoids publishing a stale report merely because calibration jobs updated the results repository while the report was being generated.
 
-Every report ends with one **Engineering Continuous Improvement** section. Its Calibration Intelligence Persistence subsection lists, in order, the linked results commit, workflow run, pipeline repository, results repository, `calibration-index.json`, and `runtime-index.json`. The displayed commit, repository names, workflow label, and filenames are the hyperlinks; separate “open repository,” “open file,” and “open commit” helper links are not emitted. No duplicate persistence or workflow footer is appended after the report. The section explains how the two indexes preserve independent quality and execution evidence. Runtime and thread guidance must remain grounded in compatible historical measurements and is specific to the Golden Set, detector configuration, parameter grid, strategy, thread count, and runner characteristics represented by those observations.
+Every report ends with one **Engineering Continuous Improvement** section. Its Calibration Intelligence Persistence subsection lists, in order, the linked results commit, workflow run, pipeline repository, results repository, `indexes/calibration-index.json`, and `indexes/runtime-index.json`. The displayed commit, repository names, workflow label, and filenames are the hyperlinks; separate “open repository,” “open file,” and “open commit” helper links are not emitted. No duplicate persistence or workflow footer is appended after the report. The section explains how the two indexes preserve independent quality and execution evidence. Runtime and thread guidance must remain grounded in compatible historical measurements and is specific to the Golden Set, detector configuration, parameter grid, strategy, thread count, and runner characteristics represented by those observations.
 
 The report-writer workflow also uploads a **report research artifact** alongside the Actions summary. It contains the regenerated report, the frozen Golden Set manifest and exact Golden Set JSON, all persisted root `*-index.json` intelligence, optimizer predictions when present, accumulated report and execution-optimizer outputs, and source-document metadata. Detector-specific regression/debug/verbose trees are intentionally excluded and remain exclusive to detector research artifacts. This keeps the report writer useful as the go-to calibration/execution research entry point without duplicating verbose detector evidence.
 
@@ -326,7 +326,7 @@ an authoritative calibration.
 Concurrent smoke, manual, and full regressions may finish together and attempt to publish to
 the same results repository. Publication therefore refreshes to the latest `origin/main`,
 reapplies the completed run records, and deterministically rebuilds both
-`calibration-index.json` and `runtime-index.json` before every push attempt. A rejected push
+`indexes/calibration-index.json` and `indexes/runtime-index.json` before every push attempt. A rejected push
 is treated as a publication collision rather than a merge problem: the publisher waits 5,
 10, 15, then 20 seconds across subsequent attempts, refreshes again, and rebuilds the indexes
 from the new authoritative repository state. Generated intelligence indexes are never rebased
@@ -346,7 +346,7 @@ Shard claims are leases rather than permanent locks. Active workers renew their 
 
 Parallel shards share one run-local baseline cache per detector. The first shard to reach the baseline evaluates and publishes it; sibling shards wait for and reuse that result instead of repeating the same Golden Set inference. The cache is discarded with the regression output, so it never becomes cross-run calibration state. Progress accounting includes the baseline as a completed parameter set, keeping the progress numerator/denominator consistent with **Planned Parameter Sets** and **Planned Page Evaluations**. Shard optimizer telemetry separately records locally evaluated parameter sets so reused baseline results do not inflate per-shard throughput.
 
-`orli_page_mask` additionally persists its deterministic parameter-invariant neural evidence in the results repository. Compatible model/page/inference identities hydrate the run-local shared-evidence manifest without rerunning Orli, so execution-optimizer shapes and later builds reuse the same expensive inference work. See [Orli learned-evidence persistence](orli-evidence-persistence.md) for the identity and `orli-evidence-index.json` contract.
+`orli_page_mask` additionally persists its deterministic parameter-invariant neural evidence in the results repository. Compatible model/page/inference identities hydrate the run-local shared-evidence manifest without rerunning Orli, so execution-optimizer shapes and later builds reuse the same expensive inference work. See [Orli learned-evidence persistence](orli-evidence-persistence.md) for the identity and `indexes/orli-evidence-index.json` contract.
 
 ### Parallel completion ordering
 
@@ -361,7 +361,7 @@ Pipeline enumeration supports exhaustive integer progression, `powers-of-2` samp
 
 Optimizer resume is shape-level. The manual `resume` input defaults to `auto` and can reuse completed shapes from a compatible unpublished local checkpoint left by a failed optimizer job on the same self-hosted runner; `no` forces a fresh run and an explicit prior optimizer run ID requires that checkpoint. Completed shapes are imported into the new optimizer execution and skipped, while incomplete shapes are rerun. Resume does not yet join a live optimizer or partially completed shape. Run-local optimizer reporting includes both newly completed shapes and compatible completed shapes reused from the checkpoint.
 
-After every successfully completed shape, the optimizer compares parameter sets/second with the best throughput seen so far. By default, three consecutive shapes that improve by no more than 2% from that perceived maximum stop the remaining sweep. The stop rule is evaluated only after a complete shape and its state is retained in `optimizer-index.json`.
+After every successfully completed shape, the optimizer compares parameter sets/second with the best throughput seen so far. By default, three consecutive shapes that improve by no more than 2% from that perceived maximum stop the remaining sweep. The stop rule is evaluated only after a complete shape and its state is retained in `indexes/optimizer-index.json`.
 
 Every optimizer shard writes a shard-completion checkpoint into the raw optimizer parallelism data as soon as that shard finishes. Shape aggregates are written after merge. This preserves partial experimental evidence without turning optimizer runs into calibration runs. Optimizer execution does not publish calibration intelligence, regression manifests, or normal regression artifacts.
 
@@ -369,8 +369,8 @@ Runner health sampling is intentionally coarse. On the existing optimizer heartb
 
 Persistent artifacts are:
 
-- `parallelism-index.json` — raw shape observations plus per-shard optimizer checkpoints;
-- `optimizer-index.json` — detector- and runner-specific historical execution preferences plus individual optimizer-run metadata and runner samples;
+- `indexes/parallelism-index.json` — raw shape observations plus per-shard optimizer checkpoints;
+- `indexes/optimizer-index.json` — detector- and runner-specific historical execution preferences plus individual optimizer-run metadata and runner samples;
 - `execution-optimizer/<detector>/summary.md` — a table containing only shapes completed in the current optimizer execution; and
 - `execution-optimizer/<detector>/heatmap.svg` — the current execution processing profile with detector pipelines on the X axis and parameter sets/second on the Y axis, with threads per pipeline annotated at each point.
 
@@ -390,7 +390,7 @@ The manual execution optimizer detector selector also provides `all` and `all-wi
 
 ### Fill missing exhaustive calibration evidence
 
-The manual detector-regression selector places `all-without-exhaustive` first. This mode reads the current results-repository `calibration-index.json` and dispatches one ordinary detector regression for each configured detector that lacks compatible completed exhaustive evidence for the current Golden Set hash and detector-configuration hash. The dispatched child runs are always `full`, `exhaustive`, and unlimited; execution-shape and runner selections are preserved. Each child is an ordinary single-detector workflow run, so GitHub Actions can schedule them concurrently across every online self-hosted runner matching the selected labels, while excess detector jobs simply queue.
+The manual detector-regression selector places `all-without-exhaustive` first. This mode reads the current results-repository `indexes/calibration-index.json` and dispatches one ordinary detector regression for each configured detector that lacks compatible completed exhaustive evidence for the current Golden Set hash and detector-configuration hash. The dispatched child runs are always `full`, `exhaustive`, and unlimited; execution-shape and runner selections are preserved. Each child is an ordinary single-detector workflow run, so GitHub Actions can schedule them concurrently across every online self-hosted runner matching the selected labels, while excess detector jobs simply queue.
 
 
 ### Preferred-shape fallback and prediction history

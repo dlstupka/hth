@@ -219,6 +219,7 @@ jobs:
           # Avoid materializing the large results worktree just to decide which
           # detector optimizers still need to run.
           sparse-checkout: |
+            /indexes/optimizer-index.json
             /optimizer-index.json
           sparse-checkout-cone-mode: false
           show-progress: false
@@ -233,7 +234,7 @@ jobs:
           python -m hth.optimizer_dispatch \
             --mode "${{ inputs.algorithm }}" \
             --detector-dir hth-pipeline/config/detectors \
-            --optimizer-index results-repo/optimizer-index.json \
+            --optimizer-index results-repo/indexes/optimizer-index.json \
             --repository "$GITHUB_REPOSITORY" \
             --ref "${{ github.ref_name }}" \
             --summary "$GITHUB_STEP_SUMMARY" \
@@ -344,13 +345,20 @@ jobs:
           # checkout and materialize only the paths the optimizer can read or
           # publish. Publish retries fetch/reset this same sparse worktree.
           sparse-checkout: |
+            /indexes/calibration-index.json
             /calibration-index.json
+            /indexes/parameter-provenance-index.json
             /parameter-provenance-index.json
+            /indexes/runtime-index.json
             /runtime-index.json
+            /indexes/parallelism-index.json
             /parallelism-index.json
+            /indexes/optimizer-index.json
             /optimizer-index.json
             /optimizer-predictions.json
+            /indexes/multidetector-index.json
             /multidetector-index.json
+            /indexes/orli-evidence-index.json
             /orli-evidence-index.json
             /${{ env.IMAGE_ROOT }}/
             /models/
@@ -1284,7 +1292,7 @@ jobs:
 
           apply_optimizer_intelligence() {
             git -C results-repo clean -fd -- \
-              optimizer-index.json optimizer-predictions.json execution-optimizer/
+              indexes/optimizer-index.json optimizer-predictions.json execution-optimizer/
             if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
               python -m hth.regression.learned_evidence rebuild-orli-index --results-root results-repo
             fi
@@ -1299,15 +1307,17 @@ jobs:
               --run-metadata "$run_metadata" \
               --runner-metrics-log "$HTH_OPTIMIZER_RUNNER_METRICS_LOG"
 
+            git -C results-repo rm -f --ignore-unmatch -- calibration-index.json parameter-provenance-index.json runtime-index.json parallelism-index.json optimizer-index.json multidetector-index.json orli-evidence-index.json
+
             git -C results-repo add -A -- \
-              parallelism-index.json optimizer-index.json \
+              indexes/parallelism-index.json indexes/optimizer-index.json \
               "execution-optimizer/$DETECTOR_ALGORITHM/summary.md" \
               "execution-optimizer/$DETECTOR_ALGORITHM/heatmap.svg"
             if [[ -d results-repo/models ]]; then
               git -C results-repo add -A -- models/
             fi
             if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
-              git -C results-repo add -A -- learned-evidence/orli_page_mask orli-evidence-index.json
+              git -C results-repo add -A -- learned-evidence/orli_page_mask indexes/orli-evidence-index.json
             fi
             if [[ -f results-repo/optimizer-predictions.json ]]; then
               git -C results-repo add -A -- optimizer-predictions.json

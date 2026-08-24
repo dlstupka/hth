@@ -89,7 +89,7 @@ class OrliEvidencePersistenceTests(unittest.TestCase):
         for workflow in ("regress-detector.yml", "execution-optimizer.yml"):
             text = (Path(".github/workflows") / workflow).read_text(encoding="utf-8")
             self.assertIn("rebuild-orli-index --results-root results-repo", text)
-            self.assertIn("git -C results-repo add -A -- learned-evidence/orli_page_mask orli-evidence-index.json", text)
+            self.assertIn("git -C results-repo add -A -- learned-evidence/orli_page_mask indexes/orli-evidence-index.json", text)
 
     def test_identity_changes_when_model_or_page_changes(self):
         base = {

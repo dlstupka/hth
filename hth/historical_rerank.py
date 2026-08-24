@@ -6,6 +6,8 @@ import argparse
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+
+from hth.results_layout import canonical_index_path, readable_index_path
 from typing import Any
 
 from hth.calibration_store import publish_run, update_index
@@ -28,7 +30,7 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def _matching_index_entry(results_root: Path, run_id: str) -> dict[str, Any] | None:
-    index_path = results_root / "calibration-index.json"
+    index_path = readable_index_path(results_root, "calibration-index.json")
     if not index_path.is_file():
         return None
     index = _read_json(index_path)

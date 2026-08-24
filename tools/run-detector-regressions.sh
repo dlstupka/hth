@@ -195,8 +195,8 @@ if [[ "${DETECTOR_ALGORITHM,,}" == "all" ]]; then
   done < <(python -m hth.runtime_store order \
     "${order_args[@]}" \
     --loading-strategy "$DETECTOR_LOADING_STRATEGY" \
-    --runtime-index results-repo/runtime-index.json \
-    --calibration-index results-repo/calibration-index.json \
+    --runtime-index results-repo/indexes/runtime-index.json \
+    --calibration-index results-repo/indexes/calibration-index.json \
     --mode "$REGRESSION_MODE" \
     --search-strategy "$effective_strategy" \
     --threads "$order_threads" \
@@ -241,7 +241,7 @@ PYPLAN
     plan_source="${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-optimizer}-exact-shape"
   else
     read -r planned_threads auto_planned_shards serial_estimate plan_source < <(
-      python - "$detector_config" "results-repo/runtime-index.json" "$detector_name" "${HTH_RUNNER_LABEL:-}" "$THREADS" "$SHARD_TARGET_MINUTES" <<'PYPLAN'
+      python - "$detector_config" "results-repo/indexes/runtime-index.json" "$detector_name" "${HTH_RUNNER_LABEL:-}" "$THREADS" "$SHARD_TARGET_MINUTES" <<'PYPLAN'
 import json, sys
 from pathlib import Path
 from hth.regression.sharding import best_smoke_observation, estimate_serial_runtime, plan_shards
@@ -517,7 +517,7 @@ PY
   historic_best_file="$OUTPUT_DIR/.references/$detector_name-task-$task_index-best.json"
   mkdir -p "$(dirname "$historic_best_file")"
   local -a historic_best_args=(
-    --index results-repo/calibration-index.json
+    --index results-repo/indexes/calibration-index.json
     --detector "$detector_name"
     --golden-set-sha256 "$golden_set_sha256"
   )
@@ -527,7 +527,7 @@ PY
   if [[ -n "$model_variant_value" ]]; then
     historic_best_args+=(--model-variant "$model_variant_value")
   fi
-  if [[ -f results-repo/calibration-index.json ]] && python -m hth.calibration_store resolve-best-parameter \
+  if [[ -f results-repo/indexes/calibration-index.json ]] && python -m hth.calibration_store resolve-best-parameter \
       "${historic_best_args[@]}" \
       > "$historic_best_file" 2>/dev/null; then
     echo "[pipeline $pipeline_number][$detector_name] Historic best reference: $historic_best_file"
@@ -558,9 +558,9 @@ print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
 PY
       )"
       calibration_file=""
-      if [[ -f results-repo/calibration-index.json ]]; then
+      if [[ -f results-repo/indexes/calibration-index.json ]]; then
         calibration_file="$(python -m hth.calibration_store resolve \
-          --index results-repo/calibration-index.json \
+          --index results-repo/indexes/calibration-index.json \
           --detector "$detector_name" \
           --golden-set-sha256 "$golden_set_sha256" \
           --detector-config-sha256 "$detector_config_sha256" 2>/dev/null || true)"

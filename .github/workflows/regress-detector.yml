@@ -268,7 +268,7 @@ jobs:
           path: results-repo
           fetch-depth: 1
           sparse-checkout: |
-            calibration-index.json
+            indexes/calibration-index.json
           sparse-checkout-cone-mode: false
           persist-credentials: false
           token: ${{ secrets.HTH_RESULTS_TOKEN }}
@@ -283,7 +283,7 @@ jobs:
           python -m hth.regression_dispatch \
             --mode all-without-exhaustive \
             --detector-dir hth-pipeline/config/detectors \
-            --calibration-index results-repo/calibration-index.json \
+            --calibration-index results-repo/indexes/calibration-index.json \
             --golden-set "hth-pipeline/${{ inputs.golden_set }}" \
             --repository "$GITHUB_REPOSITORY" \
             --ref "${{ github.ref_name }}" \
@@ -334,7 +334,7 @@ jobs:
           path: results-repo
           fetch-depth: 1
           sparse-checkout: |
-            parallelism-index.json
+            indexes/parallelism-index.json
           sparse-checkout-cone-mode: false
           persist-credentials: false
           token: ${{ github.event_name != 'pull_request' && secrets.HTH_RESULTS_TOKEN || github.token }}
@@ -352,7 +352,7 @@ jobs:
             --strategy "${{ github.event_name == 'workflow_dispatch' && inputs.strategy || 'exhaustive' }}" \
             --limit "${{ github.event_name == 'workflow_dispatch' && inputs.limit || '' }}" \
             --detector "${{ github.event_name == 'workflow_dispatch' && inputs.algorithm || 'all' }}" \
-            --parallelism-index results-repo/parallelism-index.json \
+            --parallelism-index results-repo/indexes/parallelism-index.json \
             --detector-config-root hth-pipeline/config/detectors \
             --golden-set "hth-pipeline/${{ github.event_name == 'workflow_dispatch' && inputs.golden_set || 'config/golden_set.json' }}" \
             --max-dimension "${{ github.event_name == 'workflow_dispatch' && inputs.max_dimension || '1800' }}" \
@@ -447,13 +447,13 @@ jobs:
           path: results-repo
           fetch-depth: 1
           sparse-checkout: |
-            calibration-index.json
-            parameter-provenance-index.json
-            runtime-index.json
-            parallelism-index.json
-            multidetector-index.json
+            indexes/calibration-index.json
+            indexes/parameter-provenance-index.json
+            indexes/runtime-index.json
+            indexes/parallelism-index.json
+            indexes/multidetector-index.json
             optimizer-predictions.json
-            orli-evidence-index.json
+            indexes/orli-evidence-index.json
             source-documents
             learned-evidence/orli_page_mask
             ${{ env.IMAGE_ROOT }}
@@ -917,9 +917,9 @@ jobs:
             --limit "${LIMIT:-}" \
             --detector "$DETECTOR_ALGORITHM" \
             --manual-shape "${MANUAL_EXECUTION_SHAPE:-}" \
-            --parallelism-index results-repo/parallelism-index.json \
+            --parallelism-index results-repo/indexes/parallelism-index.json \
             --predictions-index results-repo/optimizer-predictions.json \
-            --multidetector-index results-repo/multidetector-index.json \
+            --multidetector-index results-repo/indexes/multidetector-index.json \
             --detector-config-root hth-pipeline/config/detectors \
             --golden-set "hth-pipeline/$GOLDEN_SET" \
             --max-dimension "$MAX_DIMENSION" \
@@ -974,8 +974,8 @@ jobs:
 
           apply_calibration_intelligence() {
             git -C results-repo clean -fd -- \
-              calibration-index.json parameter-provenance-index.json runtime-index.json \
-              parallelism-index.json multidetector-index.json optimizer-predictions.json \
+              indexes/calibration-index.json indexes/parameter-provenance-index.json indexes/runtime-index.json \
+              indexes/parallelism-index.json indexes/multidetector-index.json optimizer-predictions.json \
               source-documents/
             if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
               python -m hth.regression.learned_evidence rebuild-orli-index --results-root results-repo
@@ -1008,14 +1008,16 @@ jobs:
                 --results-root results-repo
             fi
 
+            git -C results-repo rm -f --ignore-unmatch -- calibration-index.json parameter-provenance-index.json runtime-index.json parallelism-index.json optimizer-index.json multidetector-index.json orli-evidence-index.json
+
             git -C results-repo add -A -- \
-              calibration-index.json parameter-provenance-index.json runtime-index.json \
-              parallelism-index.json multidetector-index.json source-documents/
+              indexes/calibration-index.json indexes/parameter-provenance-index.json indexes/runtime-index.json \
+              indexes/parallelism-index.json indexes/multidetector-index.json source-documents/
             if [[ -f results-repo/optimizer-predictions.json ]]; then
               git -C results-repo add -A -- optimizer-predictions.json
             fi
             if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
-              git -C results-repo add -A -- learned-evidence/orli_page_mask orli-evidence-index.json
+              git -C results-repo add -A -- learned-evidence/orli_page_mask indexes/orli-evidence-index.json
             fi
 
             if git -C results-repo diff --cached --name-only | grep -E '(^|/)models/' >/dev/null; then
@@ -1053,8 +1055,8 @@ jobs:
             --pipeline-repository "${{ github.repository }}" \
             --results-repository "$RESULTS_REPOSITORY" \
             --results-commit "${{ steps.persistence.outputs.results_commit }}" \
-            --calibration-index results-repo/calibration-index.json \
-            --runtime-index results-repo/runtime-index.json \
+            --calibration-index results-repo/indexes/calibration-index.json \
+            --runtime-index results-repo/indexes/runtime-index.json \
             --output regression-summary.md
 
           python hth-pipeline/hth/write_action_summary.py regression-summary.md "$GITHUB_STEP_SUMMARY"

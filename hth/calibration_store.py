@@ -9,6 +9,8 @@ import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+
+from hth.results_layout import canonical_index_path, readable_index_path
 from typing import Any
 
 from hth.runtime_store import observation_from_run, update_runtime_index
@@ -132,7 +134,7 @@ def publish_run(
     intelligence["calibration_status"] = _status(mode, intelligence)
     intelligence["persistence"] = {
         "store": "results-repository",
-        "index": "calibration-index.json",
+        "index": "indexes/calibration-index.json",
         "published_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
 
@@ -197,9 +199,10 @@ def publish_run(
 
 
 def update_index(results_root: Path, entries: list[dict[str, Any]]) -> dict[str, Any]:
-    index_path = results_root / "calibration-index.json"
-    if index_path.is_file():
-        index = adapt_calibration_index(_read_json(index_path))
+    index_path = canonical_index_path(results_root, "calibration-index.json")
+    read_path = readable_index_path(results_root, "calibration-index.json")
+    if read_path.is_file():
+        index = adapt_calibration_index(_read_json(read_path))
     else:
         index = {"schema_version": INDEX_SCHEMA_VERSION, "entries": [], "preferred": {}}
     current = index.get("entries") if isinstance(index.get("entries"), list) else []
@@ -247,7 +250,7 @@ def update_index(results_root: Path, entries: list[dict[str, Any]]) -> dict[str,
             "build": item.get("build"),
         })
     _write_json(
-        results_root / "parameter-provenance-index.json",
+        canonical_index_path(results_root, "parameter-provenance-index.json"),
         {
             "schema_version": "1.0",
             "updated_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -270,7 +273,8 @@ def resolve(index_path: Path, *, detector: str, golden_set_sha256: str, detector
     if not candidates:
         return None
     selected = authoritative_record(candidates)
-    return index_path.parent / str(selected["intelligence_path"]) if selected else None
+    results_root = index_path.parent.parent if index_path.parent.name == "indexes" else index_path.parent
+    return results_root / str(selected["intelligence_path"]) if selected else None
 
 
 def resolve_best_parameter_reference(

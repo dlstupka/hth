@@ -120,7 +120,7 @@ jobs:
               --results-root results-repo \
               --top "${{ inputs.top }}" \
               --summary historical-rerank-summary.md
-            git -C results-repo add -A -- calibration-index.json source-documents/
+            git -C results-repo add -A -- indexes/calibration-index.json source-documents/
           }
 
           hth_hardened_persist \

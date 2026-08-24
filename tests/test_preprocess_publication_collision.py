@@ -42,8 +42,7 @@ class PreprocessPublicationCollisionTests(unittest.TestCase):
             "/transcriptions/",
             "/translations/",
             "/indexes/",
-            "/citations/",
-            "/research-notes/",
+            "/docs/",
             "/reports/",
         ):
             self.assertIn(path, checkout, path)

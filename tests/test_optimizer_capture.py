@@ -108,12 +108,12 @@ class OptimizerCaptureTests(unittest.TestCase):
             )
             self.assertEqual(record["shard_number"], 5)
             self.assertAlmostEqual(record["parameter_sets_per_second"], 0.65)
-            self.assertFalse((results / "parallelism-index.json").exists())
+            self.assertFalse((results / "indexes" / "parallelism-index.json").exists())
             self.assertEqual(len(shard_log.read_text(encoding="utf-8").splitlines()), 1)
             fresh = root / "fresh"
             fresh.mkdir()
             self.assertEqual(replay_shard_observations(results_root=fresh, shard_log=shard_log), 1)
-            replayed = json.loads((fresh / "parallelism-index.json").read_text(encoding="utf-8"))
+            replayed = json.loads((fresh / "indexes" / "parallelism-index.json").read_text(encoding="utf-8"))
             self.assertEqual(replayed["shard_observations"][0]["optimizer_run_id"], "1234")
 
     def test_optimizer_shard_without_log_still_updates_shared_index(self) -> None:
@@ -133,7 +133,7 @@ class OptimizerCaptureTests(unittest.TestCase):
                 threads=8,
                 wall_clock_seconds=20.0,
             )
-            payload = json.loads((results / "parallelism-index.json").read_text(encoding="utf-8"))
+            payload = json.loads((results / "indexes" / "parallelism-index.json").read_text(encoding="utf-8"))
             self.assertEqual(len(payload["shard_observations"]), 1)
 
     def test_optimizer_shard_throughput_uses_locally_evaluated_sets_when_baseline_is_shared(self) -> None:
@@ -182,7 +182,7 @@ class OptimizerCaptureTests(unittest.TestCase):
             fresh = root / "fresh"
             fresh.mkdir()
             self.assertEqual(replay_observations(results_root=fresh, observation_log=log), 1)
-            payload = json.loads((fresh / "parallelism-index.json").read_text(encoding="utf-8"))
+            payload = json.loads((fresh / "indexes" / "parallelism-index.json").read_text(encoding="utf-8"))
             self.assertEqual(payload["observations"][0]["wall_clock_seconds"], 100.0)
 
     def test_early_stop_requires_three_consecutive_sub_one_percent_shapes(self) -> None:
