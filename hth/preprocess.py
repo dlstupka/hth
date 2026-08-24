@@ -202,7 +202,7 @@ def main():
     try:
             
         p = argparse.ArgumentParser()
-        p.add_argument("--input", type=Path, default=Path("data/source"))
+        p.add_argument("--input", type=Path, required=True, help="External source DOCX file or directory; collection source data is not stored inside the HTH framework repository.")
         p.add_argument("--output", type=Path, default=Path("build/preprocessed"))
         p.add_argument("--config", type=Path, default=Path("config/preprocess.json"))
         p.add_argument("--source-repository", default="")

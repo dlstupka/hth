@@ -33,7 +33,23 @@ It also creates thumbnails and, with `--contact-sheets`, labeled review sheets f
 
 The preprocessor intentionally does not auto-fill names, dates, priests, or manuscript page numbers. Those fields exist in the map template, but weak OCR guesses are not promoted to historical facts.
 
+## Source boundary
+
+HTH is a collection-independent framework. Collection source material belongs in a separate source repository or another explicitly supplied external path; the framework repository does not reserve or populate a local source-data tree.
+
+`--input` is therefore required when invoking the preprocessor directly. It may name one DOCX master or a directory containing DOCX masters.
+
+Cloud production and test workflows already materialize the selected external source collection and pass its resolved path explicitly through the shared workflow core.
+
 ## Local Windows use
+
+From the HTH framework repository, point the launcher at the external collection source path:
+
+```powershell
+.\tools\run-preprocess.ps1 ..\hth-baptisms-san-antonio-1788-1824--1858-1898\images
+```
+
+Or invoke the preprocessor directly:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -41,13 +57,15 @@ py -3.12 -m venv .venv
 python -m pip install -r requirements.txt
 
 python hth\preprocess.py `
-  --input data\source `
+  --input ..\hth-baptisms-san-antonio-1788-1824--1858-1898\images `
   --output build\preprocessed `
   --config config\preprocess.json `
   --derive `
   --contact-sheets `
   --overwrite
 ```
+
+The San Antonio path above is only an example of the current reference collection. HTH itself does not depend on that repository name or layout beyond receiving a path containing the source masters.
 
 ## Overlapping/replacement DOCX files
 
