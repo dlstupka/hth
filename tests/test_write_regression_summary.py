@@ -256,6 +256,7 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("### Detector-Selection Intelligence", text)
             self.assertIn("### Calibration Analysis", text)
             self.assertIn("#### Parameter Set Domain Space Reduction", text)
+            self.assertIn("% Executable Universe", text)
             self.assertIn("#### Parameter Influence", text)
             self.assertIn("#### Parameter Classification", text)
             self.assertIn("| Parameter | Classification | η² | Avg-IoU range |", text)

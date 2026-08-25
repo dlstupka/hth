@@ -1779,7 +1779,7 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
             estimated_full_seconds = zombie_exhaustive_count * page_count / page_rate
         lines.extend([
             "", "#### Parameter Set Domain Space Reduction", "",
-            "| Effect Size Group | Parameter Sets | % All Sets | New Time Est* | Set Reduction Factor |",
+            "| Effect Size Group | Executable Parameter Sets | % Executable Universe | New Time Est* | Set Reduction Factor |",
             "|---|---:|---:|---:|---:|",
         ])
         for key, label in (("exhaustive_with_zombies", "Exhaustive-with-zombies"), ("exhaustive", "Exhaustive"), ("non_dormant", "Non-dormant"), ("low_plus", "Low+"), ("moderate_plus", "Moderate+"), ("important_plus", "Important+"), ("critical", "Critical")):
@@ -1794,7 +1794,7 @@ def _render_detector_calibration(detector: str, payload: dict[str, Any], summary
             lines.append(f"| {label} | {count_value} | {_percent(percent)} | {_duration(seconds)} | {factor_text} |")
         lines.extend([
             "",
-            r"\* Uses the same serial measured-page-rate assumptions as the Calibration Landscape serial-runtime estimate.",
+            r"\* Uses the same serial measured-page-rate assumptions as the Calibration Landscape serial-runtime estimate. Percentages and reduction factors are relative to the executable search universe for the selected strategy; mandatory baseline/historic reference evaluations are not extra Cartesian-domain members.",
             "",
             "*Contracted-search note: every excluded parameter is pinned to its detector baseline value, so reduced-grid parameter identities are stable across builds. Under the current HTH classification thresholds, `Non-dormant` and `Low+` intentionally resolve to the same parameter domain; both labels are retained for compatibility and possible future policy differentiation.*",
         ])

@@ -200,6 +200,7 @@ class CalibrationIntelligenceTests(unittest.TestCase):
         self.assertEqual(domains["non_dormant"]["fixed_parameter_policy"], "baseline")
         self.assertEqual(domains["low_plus"]["fixed_parameter_policy"], "baseline")
         self.assertEqual(domains["non_dormant"]["parameter_set_count"], domains["low_plus"]["parameter_set_count"])
+        self.assertLessEqual(domains["non_dormant"]["parameter_set_count"], domains["exhaustive"]["parameter_set_count"])
         for domain in domains.values():
             if not isinstance(domain, dict):
                 continue
@@ -267,6 +268,7 @@ class CalibrationIntelligenceTests(unittest.TestCase):
         self.assertEqual(report["domain_space"]["exhaustive_with_zombies"]["parameter_set_count"], 4)
         self.assertEqual(report["domain_space"]["exhaustive"]["parameter_set_count"], 2)
         self.assertLessEqual(report["domain_space"]["non_dormant"]["parameter_set_count"], 2)
+        self.assertLessEqual(report["domain_space"]["critical"]["parameter_set_count"], 2)
         self.assertEqual(report["canonical_search_space"]["evaluated_search_space_parameter_sets"], 2)
 
 

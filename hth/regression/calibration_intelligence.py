@@ -187,6 +187,7 @@ def _domain_space(
     live_parameter_sets: int | None,
     zombie_inclusive_parameter_sets: int | None,
     configured_zombies: set[str] | None = None,
+    live_parameter_configurations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build executable cumulative effect-size parameter domains.
 
@@ -197,6 +198,28 @@ def _domain_space(
     exhaustive_count = int(live_parameter_sets or 0)
     zombie_count = int(zombie_inclusive_parameter_sets or exhaustive_count)
     configured_zombies = set(configured_zombies or ())
+    live_parameter_configurations = [
+        dict(item) for item in (live_parameter_configurations or [])
+        if isinstance(item, dict)
+    ]
+
+    def contracted_count(included_names: list[str]) -> int:
+        # Reduced domains are subsets/projections of the canonical executable live
+        # search universe. Counting the raw product of observed per-parameter value
+        # counts can invent impossible combinations when the detector grid contains
+        # constraints, canonicalization, or dependent dimensions.
+        if live_parameter_configurations:
+            keys = tuple(sorted(included_names))
+            projected = {
+                tuple((name, _value_key(config.get(name, baseline_parameters.get(name)))) for name in keys)
+                for config in live_parameter_configurations
+            }
+            return len(projected) if projected else 1
+        return math.prod(
+            max(1, int(item.get("value_count", 1) or 1))
+            for item in parameters_report
+            if str(item.get("parameter")) in included_names
+        ) if included_names else 1
     all_names = [str(item.get("parameter")) for item in parameters_report]
     live_names = [name for name in all_names if name not in configured_zombies]
     domains: dict[str, Any] = {
@@ -229,8 +252,10 @@ def _domain_space(
             item for item in parameters_report
             if _EFFECT_GROUP_RANK.get(str(item.get("classification")), 0) >= minimum_rank
         ]
-        count = math.prod(max(1, int(item.get("value_count", 1) or 1)) for item in included) if included else 0
         names = [str(item.get("parameter")) for item in included]
+        count = contracted_count(names)
+        if exhaustive_count:
+            count = min(count, exhaustive_count)
         domains[key] = {
             "parameter_set_count": count,
             "included_parameters": names,
@@ -617,6 +642,11 @@ def build_calibration_intelligence(
             live_possible_parameter_sets,
             zombie_possible_parameter_sets,
             configured_zombies,
+            [
+                dict(result.get("parameters", {}))
+                for result in ranked
+                if isinstance(result.get("parameters"), dict)
+            ] if exhaustive_complete else None,
         )
         if measurement_state["informative"] else {}
     )
