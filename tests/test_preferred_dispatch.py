@@ -71,12 +71,10 @@ class PreferredDispatchTests(unittest.TestCase):
                 custom_runner_label="",
             )
 
-            self.assertTrue(result["exact"])
-            self.assertEqual(result["runs_on"], ["self-hosted", "Linux", "X64", "192t"])
-            self.assertEqual(result["runner_label"], "192t")
-            self.assertEqual(result["runner_name"], "rh8-al319")
-            self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (4, 96))
-            self.assertEqual(result["runner_budget"], 384)
+            self.assertFalse(result["exact"])
+            self.assertEqual(result["runs_on"], ["ubuntu-latest"])
+            self.assertEqual(result["runner_label"], "github-hosted")
+            self.assertEqual(result["source"], "requested-runner-no-compatible-preferred-history")
 
 
     def test_capacity_runner_budget_preserves_free_threads_for_preferred_shape(self) -> None:
@@ -118,9 +116,9 @@ class PreferredDispatchTests(unittest.TestCase):
                 golden_set=golden, max_dimension=1800, requested_runner="github-hosted",
                 specific_runner="any", custom_runner_label="",
             )
-            self.assertTrue(result["exact"])
-            self.assertEqual(result["allocated_threads"], 380)
-            self.assertEqual(result["runner_budget"], 384)
+            self.assertFalse(result["exact"])
+            self.assertEqual(result["runs_on"], ["ubuntu-latest"])
+            self.assertEqual(result["runner_label"], "github-hosted")
 
     def test_pre_resolved_shape_is_validated_against_dispatch_budget(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -220,10 +218,9 @@ class PreferredDispatchTests(unittest.TestCase):
                 custom_runner_label="",
             )
 
-            self.assertTrue(result["exact"])
-            self.assertEqual(result["runs_on"], ["self-hosted", "Linux", "X64", "192t"])
-            self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (9, 42))
-            self.assertEqual(result["source"], "preferred-dispatch-optimizer")
+            self.assertFalse(result["exact"])
+            self.assertEqual(result["runs_on"], ["ubuntu-latest"])
+            self.assertEqual(result["source"], "requested-runner-no-compatible-preferred-history")
 
     def test_nonpreferred_dispatch_preserves_requested_runner(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

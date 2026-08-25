@@ -316,6 +316,37 @@ class RegressionSummaryTests(unittest.TestCase):
             # detector as an indivisible 8000s task.
             self.assertAlmostEqual(_estimate_scope_makespan(run_dirs, "exhaustive", 4), 4000.0)
 
+            smoke = root / "smoke" / "run-1"
+            (smoke / "reports").mkdir(parents=True)
+            (smoke / "manifest.json").write_text(json.dumps({"detector": "smoke"}), encoding="utf-8")
+            (smoke / "RUN-INFO.json").write_text(json.dumps({
+                "elapsed_seconds": 10.0, "golden_set_sha256": "golden123"
+            }), encoding="utf-8")
+            (smoke / "reports" / "summary.json").write_text(json.dumps({"parameter_set_count": 10}), encoding="utf-8")
+            (smoke / "reports" / "calibration-intelligence.json").write_text(json.dumps({"available": True, "domain_space": {}}), encoding="utf-8")
+            persisted = root / "persisted"
+            persisted.mkdir()
+            (persisted / "calibration-intelligence.json").write_text(json.dumps({
+                "available": True,
+                "domain_space": {"exhaustive": {"parameter_set_count": 100}},
+            }), encoding="utf-8")
+            index_dir = root / "indexes"
+            index_dir.mkdir()
+            calibration_index = index_dir / "calibration-index.json"
+            calibration_index.write_text(json.dumps({
+                "entries": [{
+                    "detector_id": "smoke",
+                    "golden_set_sha256": "golden123",
+                    "calibration_status": "authoritative",
+                    "created_at_utc": "2026-08-25T00:00:00Z",
+                    "intelligence_path": "persisted/calibration-intelligence.json"
+                }]
+            }), encoding="utf-8")
+            self.assertAlmostEqual(
+                _estimate_scope_makespan([smoke], "exhaustive", 1, calibration_index_path=calibration_index),
+                100.0,
+            )
+
     def test_builds_combined_manifest_for_multiple_detectors(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

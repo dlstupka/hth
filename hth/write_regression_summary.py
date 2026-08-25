@@ -2015,6 +2015,53 @@ def _scope_parameter_count(payload: dict[str, Any] | None, scope: str) -> int | 
     return None
 
 
+def _persisted_scope_parameter_count(
+    calibration_index: Path | None,
+    *,
+    detector: str,
+    golden_sha256: str,
+    scope: str,
+) -> int | None:
+    if calibration_index is None or not calibration_index.is_file():
+        return None
+    try:
+        index = load_index_with_persisted_backfill(calibration_index)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+
+    matches: list[tuple[str, int]] = []
+    for entry in index.get("entries", []):
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("detector_id") or "") != detector:
+            continue
+        if golden_sha256 and str(entry.get("golden_set_sha256") or "") != golden_sha256:
+            continue
+        if str(entry.get("calibration_status") or "").lower() != "authoritative":
+            continue
+        intelligence_path = resolve_index_relative_path(
+            calibration_index, str(entry.get("intelligence_path") or "")
+        )
+        if not intelligence_path.is_file():
+            continue
+        try:
+            payload = _read_json(intelligence_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        if not payload.get("available"):
+            continue
+        count = _scope_parameter_count(payload, scope)
+        if count is None:
+            continue
+        stamp = str(entry.get("created_at_utc") or entry.get("published_at_utc") or "")
+        matches.append((stamp, count))
+
+    if not matches:
+        return None
+    matches.sort(key=lambda item: item[0])
+    return matches[-1][1]
+
+
 def _load_runtime_index(path: Path | None) -> dict[str, Any]:
     if path is None or not path.is_file():
         return {"observations": []}
@@ -2062,6 +2109,7 @@ def _estimate_scope_makespan(
     *,
     runtime_index_path: Path | None = None,
     execution_profile: dict[str, Any] | None = None,
+    calibration_index_path: Path | None = None,
 ) -> float | None:
     """Estimate full-scope wall time using the same shard/LPT execution model.
 
@@ -2082,14 +2130,21 @@ def _estimate_scope_makespan(
         summary = normalize_summary_metrics(_read_json(run_dir / "reports" / "summary.json"))
         evaluated = int(summary.get("parameter_set_count", 0) or 0)
         elapsed = float(info.get("elapsed_seconds", 0.0) or 0.0)
+        manifest_path = run_dir / "manifest.json"
+        detector = (
+            str(_read_json(manifest_path).get("detector", run_dir.parent.name))
+            if manifest_path.is_file() else run_dir.parent.name
+        )
         target_count = _scope_parameter_count(_calibration_payload(run_dir), scope)
+        if target_count is None:
+            target_count = _persisted_scope_parameter_count(
+                calibration_index_path,
+                detector=detector,
+                golden_sha256=_combined_golden_sha(run_dirs),
+                scope=scope,
+            )
 
         if execution_profile and runtime_index_path is not None:
-            manifest_path = run_dir / "manifest.json"
-            detector = (
-                str(_read_json(manifest_path).get("detector", run_dir.parent.name))
-                if manifest_path.is_file() else run_dir.parent.name
-            )
             observation, _ = select_runtime_observation(
                 runtime_index,
                 detector,
@@ -2502,14 +2557,17 @@ def build_combined_summary(
     exhaustive_estimate = _estimate_scope_makespan(
         run_dirs, "exhaustive", pipeline_count,
         runtime_index_path=runtime_index, execution_profile=execution.get("profile"),
+        calibration_index_path=calibration_index,
     )
     non_dormant_estimate = _estimate_scope_makespan(
         run_dirs, "non_dormant", pipeline_count,
         runtime_index_path=runtime_index, execution_profile=execution.get("profile"),
+        calibration_index_path=calibration_index,
     )
     critical_estimate = _estimate_scope_makespan(
         run_dirs, "critical", pipeline_count,
         runtime_index_path=runtime_index, execution_profile=execution.get("profile"),
+        calibration_index_path=calibration_index,
     )
 
     lines.extend([

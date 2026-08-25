@@ -137,6 +137,11 @@ def _requested_runner_target(
     labels, label = mapping.get(runner, mapping["github-hosted"])
     return list(labels), label
 
+
+def _row_matches_requested_runner(row: dict[str, Any], requested_labels: list[str]) -> bool:
+    """Reuse optimizer evidence only from the runner target requested for this run."""
+    return _runner_labels_from_row(row) == requested_labels
+
 def parse_manual_shape(value: str) -> tuple[int, int]:
     text = value.strip().lower().replace(" ", "")
     patterns = (
@@ -405,6 +410,11 @@ def resolve_preferred_dispatch(
         fallback["source"] = "requested-runner-no-preferred-history"
         return fallback
 
+    rows = [row for row in rows if _row_matches_requested_runner(row, requested_labels)]
+    if not rows:
+        fallback["source"] = "requested-runner-no-compatible-preferred-history"
+        return fallback
+
     best = select_preferred_shape(_shape_from_row(row) for row in rows)
     if not best:
         fallback["source"] = "requested-runner-no-preferred-shape"
@@ -424,7 +434,7 @@ def resolve_preferred_dispatch(
             if _as_int(row.get("active_pipelines")) == pipelines
             and _as_int(row.get("threads_per_pipeline")) == threads
         ]
-    row = next((item for item in matching if _runner_labels_from_row(item) != ["ubuntu-latest"]), matching[0] if matching else rows[0])
+    row = matching[0] if matching else rows[0]
     runner = _runner_from_row(row)
     runner_label = str(runner.get("runner_label") or "unknown").strip() or "unknown"
     allocated = int(best.get("allocated_threads") or pipelines * threads)
