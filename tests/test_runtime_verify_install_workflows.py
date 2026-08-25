@@ -26,6 +26,18 @@ class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
             self.assertIn('rm -rf "/tmp/.ar/.hth-runtime"', text, workflow.name)
             self.assertIn('PIP_DISABLE_PIP_VERSION_CHECK=1', text, workflow.name)
 
+    def test_regression_cleans_reusable_results_checkout_before_checkout_action(self):
+        text = (ROOT / ".github/workflows/regress-detector.yml").read_text(encoding="utf-8")
+        self.assertEqual(text.count("- name: Clean reusable results checkout"), 3)
+        self.assertEqual(text.count("git -C results-repo reset --hard"), 3)
+        self.assertEqual(text.count("git -C results-repo clean -ffd"), 3)
+        for match in [
+            pos for pos in range(len(text))
+            if text.startswith("- name: Clean reusable results checkout", pos)
+        ]:
+            checkout = text.index("- name: Checkout results repository", match)
+            self.assertLess(match, checkout)
+
     def test_runtime_is_built_once_then_specialized_steps_only_verify(self):
         manager = RUNTIME_MANAGER.read_text(encoding="utf-8")
         for workflow in WORKFLOWS:

@@ -261,6 +261,17 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Clean reusable results checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -d results-repo/.git ]]; then
+            git -C results-repo reset --hard
+            git -C results-repo clean -ffd
+          elif [[ -e results-repo ]]; then
+            rm -rf results-repo
+          fi
+
       - name: Checkout results repository
         uses: actions/checkout@v6
         with:
@@ -327,6 +338,17 @@ jobs:
           path: hth-pipeline
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Clean reusable results checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -d results-repo/.git ]]; then
+            git -C results-repo reset --hard
+            git -C results-repo clean -ffd
+          elif [[ -e results-repo ]]; then
+            rm -rf results-repo
+          fi
 
       - name: Checkout results repository
         uses: actions/checkout@v6
@@ -440,6 +462,17 @@ jobs:
           path: hth-pipeline
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Clean reusable results checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -d results-repo/.git ]]; then
+            git -C results-repo reset --hard
+            git -C results-repo clean -ffd
+          elif [[ -e results-repo ]]; then
+            rm -rf results-repo
+          fi
 
       - name: Checkout results repository
         uses: actions/checkout@v6
