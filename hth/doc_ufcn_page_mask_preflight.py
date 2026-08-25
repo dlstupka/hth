@@ -37,10 +37,7 @@ def run(*, load_model: bool = False) -> None:
 
     import torch
     from doc_ufcn.main import DocUFCN
-    from hth.doc_ufcn_compat import use_modern_torch_autocast
-    use_modern_torch_autocast()
     _line("torch version", torch.__version__)
-    _line("autocast API", "torch.amp.autocast(cuda)")
     _line("DocUFCN import", "ok")
 
     from hth.geometry.registry import detector_names
