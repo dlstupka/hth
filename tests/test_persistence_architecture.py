@@ -69,6 +69,10 @@ class PersistenceArchitectureTests(unittest.TestCase):
             self.assertNotIn("git -C results-repo rm -f --ignore-unmatch -- calibration-index.json", text, workflow.name)
         action = (ROOT / ".github/actions/hardened-upload-artifact/action.yml").read_text(encoding="utf-8")
         self.assertEqual(action.count("uses: actions/upload-artifact@v6"), 3)
+        self.assertIn("durable-persistence-confirmed", action)
+        self.assertIn("::warning::Artifact service failed after three attempts", action)
+        regression = (WORKFLOWS / "regress-detector.yml").read_text(encoding="utf-8")
+        self.assertIn("durable-persistence-confirmed: ${{ steps.persistence.outcome == 'success' }}", regression)
 
     def test_source_acquisition_uses_authenticated_github_token_fallback(self):
         core = (WORKFLOWS / "_core-hth.yml").read_text(encoding="utf-8")

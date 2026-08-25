@@ -1078,3 +1078,4 @@ jobs:
             regression-summary.md
           if-no-files-found: warn
           retention-days: 14
+          durable-persistence-confirmed: ${{ steps.persistence.outcome == 'success' }}

@@ -14,6 +14,10 @@ inputs:
   compression-level:
     required: false
     default: '6'
+  durable-persistence-confirmed:
+    description: Set true only when the same run payload has already been committed to authoritative durable storage.
+    required: false
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -59,9 +63,15 @@ runs:
         retention-days: ${{ inputs.retention-days }}
         compression-level: ${{ inputs.compression-level }}
         overwrite: true
-    - name: Enforce artifact delivery
-      if: ${{ steps.upload1.outcome == 'failure' && steps.upload2.outcome == 'failure' && steps.upload3.outcome == 'failure' }}
+    - name: Report degraded artifact delivery
+      if: ${{ steps.upload1.outcome == 'failure' && steps.upload2.outcome == 'failure' && steps.upload3.outcome == 'failure' && inputs.durable-persistence-confirmed == 'true' }}
       shell: bash
       run: |
-        echo "::error::Artifact service failed after three attempts. Durable results-repository persistence, if already completed, remains authoritative."
+        echo "::warning::Artifact service failed after three attempts. Authoritative durable persistence was confirmed, so artifact delivery is degraded but non-fatal."
+
+    - name: Enforce artifact delivery
+      if: ${{ steps.upload1.outcome == 'failure' && steps.upload2.outcome == 'failure' && steps.upload3.outcome == 'failure' && inputs.durable-persistence-confirmed != 'true' }}
+      shell: bash
+      run: |
+        echo "::error::Artifact service failed after three attempts and no authoritative durable persistence was confirmed."
         exit 1
