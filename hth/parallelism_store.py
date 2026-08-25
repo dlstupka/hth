@@ -8,7 +8,7 @@ import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 
-from hth.results_layout import canonical_index_path, readable_index_path
+from hth.persistence import canonical_index_path, readable_index_path, read_json as _read_json, atomic_write_json as _write_json, load_index, write_index
 from typing import Any, Iterable
 import os
 import time
@@ -21,17 +21,6 @@ from hth.contracts import (
 )
 MAX_OBSERVATIONS_PER_DETECTOR = 500
 
-
-def _read_json(path: Path) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError(f"Expected a JSON object in {path}")
-    return payload
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _as_int(value: Any) -> int | None:
@@ -84,11 +73,7 @@ def _index_lock(path: Path, timeout_seconds: float = 30.0):
 def update_parallelism_shards(results_root: Path, shard_observations: Iterable[dict[str, Any]]) -> dict[str, Any]:
     path = canonical_index_path(results_root, "parallelism-index.json")
     with _index_lock(path):
-        read_path = readable_index_path(results_root, "parallelism-index.json")
-        if read_path.is_file():
-            index = adapt_parallelism_index(_read_json(read_path))
-        else:
-            index = {"schema_version": PARALLELISM_INDEX_SCHEMA_VERSION, "observations": [], "shard_observations": []}
+        index = load_index(results_root, "parallelism-index.json")
         by_id = {
             str(item.get("observation_id")): item
             for item in index.get("shard_observations", [])
@@ -107,7 +92,7 @@ def update_parallelism_shards(results_root: Path, shard_observations: Iterable[d
         index["updated_at_utc"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         index["shard_observations"] = optimizer_rows + other_rows
         index.setdefault("observations", [])
-        _write_json(path, index)
+        write_index(path.parent.parent, "parallelism-index.json", index)
         return index
 
 def observation_from_run(
@@ -117,7 +102,10 @@ def observation_from_run(
     wall_clock_seconds: float | None = None,
 ) -> dict[str, Any]:
     info = _read_json(run_dir / "RUN-INFO.json")
-    summary = _read_json(run_dir / "reports" / "summary.json")
+    summary_path = run_dir / "reports" / "summary.json"
+    if not summary_path.is_file():
+        summary_path = run_dir / "summary.json"
+    summary = _read_json(summary_path)
     pipeline = info.get("detector_pipeline") if isinstance(info.get("detector_pipeline"), dict) else {}
     shard = info.get("shard") if isinstance(info.get("shard"), dict) else {}
     runner = summary.get("runner") if isinstance(summary.get("runner"), dict) else {}
@@ -161,6 +149,7 @@ def observation_from_run(
         "strategy": info.get("strategy") or summary.get("strategy"),
         "possible_parameter_sets": possible_sets,
         "actual_parameter_sets": actual_sets,
+        "optimizer_benchmark_parameter_sets": _as_int(build.get("optimizer_benchmark_parameter_sets")),
         "max_dimension": _as_int(info.get("max_dimension") or summary.get("max_dimension")),
     }
     runner_identity = {
@@ -194,6 +183,7 @@ def observation_from_run(
         "detector_config_sha256": detector_config_sha256,
         "possible_parameter_sets": possible_sets,
         "actual_parameter_sets": actual_sets,
+        "optimizer_benchmark_parameter_sets": workload.get("optimizer_benchmark_parameter_sets"),
         "golden_set_pages": page_count,
         "page_evaluations": page_evaluations,
         "max_dimension": compatibility["max_dimension"],
@@ -223,12 +213,14 @@ def observation_from_run(
 
 
 def _is_comparable(row: dict[str, Any]) -> bool:
-    return (
-        row.get("mode") == "full"
-        and row.get("strategy") == "exhaustive"
-        and _as_int(row.get("actual_parameter_sets")) == _as_int(row.get("possible_parameter_sets"))
-        and (_as_float(row.get("wall_clock_seconds")) or 0) > 0
-    )
+    if row.get("mode") != "full" or (_as_float(row.get("wall_clock_seconds")) or 0) <= 0:
+        return False
+    actual = _as_int(row.get("actual_parameter_sets"))
+    possible = _as_int(row.get("possible_parameter_sets"))
+    benchmark = _as_int(row.get("optimizer_benchmark_parameter_sets"))
+    if benchmark is not None and benchmark > 0 and row.get("source") == "execution-optimizer":
+        return actual == min(possible or benchmark, benchmark)
+    return row.get("strategy") == "exhaustive" and actual == possible
 
 
 def update_parallelism_index(results_root: Path, observations: Iterable[dict[str, Any]]) -> dict[str, Any]:
@@ -238,10 +230,7 @@ def update_parallelism_index(results_root: Path, observations: Iterable[dict[str
 
 
 def _update_parallelism_index_locked(path: Path, observations: Iterable[dict[str, Any]]) -> dict[str, Any]:
-    if path.is_file():
-        index = adapt_parallelism_index(_read_json(path))
-    else:
-        index = {"schema_version": PARALLELISM_INDEX_SCHEMA_VERSION, "observations": [], "shard_observations": []}
+    index = load_index(path.parent.parent, "parallelism-index.json")
 
     by_id = {
         str(item.get("observation_id")): item
@@ -342,5 +331,5 @@ def _update_parallelism_index_locked(path: Path, observations: Iterable[dict[str
         "best_by_compatibility": best_compact,
         "best": best_by_detector,
     })
-    _write_json(path, index)
+    write_index(path.parent.parent, "parallelism-index.json", index)
     return index

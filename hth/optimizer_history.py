@@ -58,10 +58,12 @@ def completed_run_records(results_root: Path, detector: str) -> list[dict[str, A
             continue
         if str(manifest.get("detector_id") or "") != detector:
             continue
-        observations: list[dict[str, Any]] = []
-        observation_path = run_dir / "observations.jsonl"
-        if observation_path.is_file():
-            for line in observation_path.read_text(encoding="utf-8").splitlines():
+        def read_jsonl(name: str) -> list[dict[str, Any]]:
+            rows: list[dict[str, Any]] = []
+            path = run_dir / name
+            if not path.is_file():
+                return rows
+            for line in path.read_text(encoding="utf-8").splitlines():
                 if not line.strip():
                     continue
                 try:
@@ -69,6 +71,13 @@ def completed_run_records(results_root: Path, detector: str) -> list[dict[str, A
                 except json.JSONDecodeError:
                     continue
                 if isinstance(row, dict):
-                    observations.append(row)
-        records.append({"manifest": manifest, "observations": observations, "path": run_dir})
+                    rows.append(row)
+            return rows
+        records.append({
+            "manifest": manifest,
+            "observations": read_jsonl("observations.jsonl"),
+            "shard_observations": read_jsonl("shards.jsonl"),
+            "runner_metrics": read_jsonl("runner-metrics.jsonl"),
+            "path": run_dir,
+        })
     return records

@@ -11,6 +11,7 @@ from pathlib import Path
 
 from hth.geometry import detector_dhsegment_page_mask, detector_eynollah_page_mask, detector_docextractor_page_mask, detector_pagenet_page_mask, detector_doc_ufcn_page_mask, detector_mask_rcnn_page_mask, detector_kraken_page_mask, detector_orli_page_mask
 from hth.regression.runner import load_pages
+from hth.persistence import canonical_index_path, atomic_write_json
 
 
 EXPORTERS = {
@@ -24,7 +25,7 @@ EXPORTERS = {
     "pagenet_page_mask": detector_pagenet_page_mask.export_precomputed_golden_set_evidence,
 }
 
-ORLI_EVIDENCE_INDEX = Path("indexes") / "orli-evidence-index.json"
+ORLI_EVIDENCE_INDEX = Path("indexes") / "orli-evidence-index.json"  # compatibility alias; canonical path is owned by hth.persistence
 ORLI_EVIDENCE_ROOT = Path("learned-evidence") / "orli_page_mask"
 ORLI_PERSISTENCE_SCHEMA_VERSION = "1.0"
 
@@ -52,13 +53,6 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def _write_json_atomic(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
 
 
 def _orli_identity(*, golden_set: Path, maximum_dimension: int, images) -> dict:
@@ -96,7 +90,7 @@ def _orli_artifact_path(results_root: Path, evidence_id: str) -> Path:
 
 
 def _orli_index_path(results_root: Path) -> Path:
-    return Path(results_root) / ORLI_EVIDENCE_INDEX
+    return canonical_index_path(results_root, "orli-evidence-index.json")
 
 
 def _orli_manifest_matches(path: Path, *, evidence_id: str, identity: dict) -> bool:
@@ -156,7 +150,7 @@ def rebuild_orli_index(*, results_root: Path) -> Path:
         "entries": entries,
     }
     target = _orli_index_path(results_root)
-    _write_json_atomic(target, payload)
+    atomic_write_json(target, payload)
     return target
 
 
@@ -189,7 +183,7 @@ def _persist_orli_evidence(*, manifest: Path, results_root: Path, identity: dict
     }
     # Keep the process-local artifact identical to the authoritative persisted
     # artifact so workers exercise exactly what future builds will reuse.
-    _write_json_atomic(Path(manifest), payload)
+    atomic_write_json(Path(manifest), payload)
 
     artifact = _orli_artifact_path(results_root, evidence_id)
     artifact.parent.mkdir(parents=True, exist_ok=True)

@@ -120,7 +120,7 @@ jobs:
               --results-root results-repo \
               --top "${{ inputs.top }}" \
               --summary historical-rerank-summary.md
-            git -C results-repo add -A -- indexes/calibration-index.json source-documents/
+            hth_results_stage results-repo indexes/calibration-index.json source-documents/
           }
 
           hth_hardened_persist \
@@ -131,7 +131,7 @@ jobs:
 
       - name: Upload rerank summary
         if: ${{ always() }}
-        uses: actions/upload-artifact@v6
+        uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
         with:
           name: historical-regression-rerank-${{ github.run_id }}
           path: historical-rerank-summary.md

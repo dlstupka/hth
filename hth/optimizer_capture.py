@@ -49,6 +49,7 @@ def capture_observation(
     observation_log: Path | None = None,
     runner_metrics_log: Path | None = None,
 ) -> dict[str, Any]:
+    benchmark_limit = os.environ.get("HTH_OPTIMIZER_BENCHMARK_PARAMETER_SETS", "").strip()
     build = {
         "mode": "full",
         "runner_label": runner_label,
@@ -56,6 +57,7 @@ def capture_observation(
         "optimizer_run_id": github_run_id,
         "optimizer_shape_sequence": shape_sequence,
         "source": "execution-optimizer",
+        "optimizer_benchmark_parameter_sets": int(benchmark_limit) if benchmark_limit.isdigit() else None,
     }
     observation = observation_from_run(run_dir, build=build, wall_clock_seconds=wall_clock_seconds)
     observation["observation_id"] = f"optimizer:{github_run_id}:{shape_sequence}:{observation['run_id']}"

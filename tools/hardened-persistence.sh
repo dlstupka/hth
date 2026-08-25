@@ -94,3 +94,49 @@ hth_hardened_persist() {
   echo "::error::${label}: persistence attempts exhausted unexpectedly."
   return 1
 }
+
+# Canonical results-layout helpers shared by every results-repository writer.
+# Keep path ownership and migration cleanup in one place so workflow YAML never
+# needs to know the list of derived indexes.
+HTH_RESULTS_INDEXES=(
+  calibration-index.json
+  multidetector-index.json
+  optimizer-index.json
+  orli-evidence-index.json
+  parallelism-index.json
+  parameter-provenance-index.json
+  runtime-index.json
+)
+
+hth_results_remove_legacy_indexes() {
+  local repo="${1:?results repository path is required}"
+  local -a legacy=()
+  local name
+  for name in "${HTH_RESULTS_INDEXES[@]}"; do
+    legacy+=("$name")
+  done
+  git -C "$repo" rm -f --ignore-unmatch -- "${legacy[@]}"
+}
+
+hth_results_stage() {
+  local repo="${1:?results repository path is required}"
+  shift
+  git -C "$repo" add -A -- "$@"
+}
+
+hth_results_assert_no_legacy_indexes() {
+  local repo="${1:?results repository path is required}"
+  local name
+  for name in "${HTH_RESULTS_INDEXES[@]}"; do
+    if [[ -e "$repo/$name" ]]; then
+      echo "::error::Legacy results index escaped canonical persistence boundary: $name"
+      return 1
+    fi
+  done
+}
+
+hth_results_clean_owned() {
+  local repo="${1:?results repository path is required}"
+  shift
+  git -C "$repo" clean -fd -- "$@"
+}

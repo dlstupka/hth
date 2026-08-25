@@ -69,7 +69,7 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         text = CORE.read_text(encoding="utf-8")
         publish_step = text.split("- name: Publish regenerated report", 1)[1]
         self.assertIn('cp -a "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/."', publish_step)
-        self.assertIn('git -C results-repo add -A -- "execution-optimizer/${{ inputs.report_algorithm }}"', publish_step)
+        self.assertIn('hth_results_stage results-repo "execution-optimizer/${{ inputs.report_algorithm }}"', publish_step)
 
 
 if __name__ == "__main__":

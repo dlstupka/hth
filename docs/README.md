@@ -360,3 +360,5 @@ Their calibration JSON files define the complete discrete search grids used by e
 ## Release notes
 
 - [HTH Framework v0.7.0](release-v0.7.0.md) — document detection, calibration, execution optimization, provenance, and production hardening.
+
+- [Persistence architecture](persistence-architecture.md) — canonical durable-evidence, derived-index, acquisition, and publication contracts.

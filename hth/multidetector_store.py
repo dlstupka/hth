@@ -8,7 +8,7 @@ import math
 from datetime import datetime, timezone
 from pathlib import Path
 
-from hth.results_layout import canonical_index_path, readable_index_path
+from hth.persistence import canonical_index_path, readable_index_path, read_json as _read_json, atomic_write_json as _write_json, load_index, write_index
 from typing import Any
 
 from hth.domain.multidetector_schedule import workload_class
@@ -17,17 +17,6 @@ INDEX_SCHEMA_VERSION = 1
 OBSERVATION_SCHEMA_VERSION = 1
 MAX_OBSERVATIONS = 200
 
-
-def _read_json(path: Path) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError(f"Expected JSON object in {path}")
-    return payload
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _float(text: str) -> float:
@@ -150,13 +139,16 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
 
 def publish(metadata: Path, results_root: Path) -> dict[str, Any]:
     observation=_read_json(metadata); path=canonical_index_path(results_root, "multidetector-index.json")
-    read_path=readable_index_path(results_root, "multidetector-index.json")
-    index=_read_json(read_path) if read_path.is_file() else {"schema_version":INDEX_SCHEMA_VERSION,"observations":[]}
+    durable_dir = Path(results_root) / "execution-history" / "multidetector"
+    durable_dir.mkdir(parents=True, exist_ok=True)
+    durable_name = str(observation.get("observation_id") or "unknown").replace("/", "_").replace(":", "_") + ".json"
+    _write_json(durable_dir / durable_name, observation)
+    index=load_index(results_root, "multidetector-index.json")
     by_id={str(r.get("observation_id")):r for r in index.get("observations",[]) if isinstance(r,dict) and r.get("observation_id")}
     by_id[str(observation["observation_id"])]=observation
     rows=sorted(by_id.values(),key=lambda r:str(r.get("observed_at_utc") or ""),reverse=True)[:MAX_OBSERVATIONS]
     index.update({"schema_version":INDEX_SCHEMA_VERSION,"updated_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),"observations":rows})
-    _write_json(path,index); return index
+    write_index(results_root, "multidetector-index.json", index); return index
 
 
 def parser() -> argparse.ArgumentParser:

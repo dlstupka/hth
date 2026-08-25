@@ -12,7 +12,7 @@ import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 
-from hth.results_layout import canonical_index_path, readable_index_path
+from hth.persistence import canonical_index_path, readable_index_path, read_json as _read_json, atomic_write_json as _write_json, load_index, write_index
 from hth.optimizer_history import completed_run_records, persist_completed_run
 from typing import Any, Iterable
 
@@ -20,17 +20,6 @@ from hth.contracts import OPTIMIZER_INDEX_SCHEMA_VERSION, adapt_optimizer_index
 from hth.domain.execution_shape import select_preferred_shape
 
 
-
-def _read_json(path: Path) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError(f"Expected a JSON object in {path}")
-    return payload
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _as_int(value: Any) -> int | None:
@@ -152,11 +141,15 @@ def _comparable(rows: Iterable[dict[str, Any]], detector_id: str, optimizer_run_
         possible_sets = _as_int(row.get("possible_parameter_sets"))
         if actual_sets is None or actual_sets <= 0:
             continue
-        # Exhaustive execution is comparable only when the complete declared
-        # Cartesian space was evaluated. Effect-size strategies intentionally
-        # benchmark a deterministic selected subset, so actual < possible is
-        # expected and is not an incomplete optimizer observation.
-        if strategy in {"exhaustive", "exhaustive-with-zombies"} and actual_sets != possible_sets:
+        # Normal exhaustive observations must cover the complete declared grid.
+        # Execution optimizer observations instead use a canonical bounded
+        # benchmark workload; their explicit benchmark budget is part of the
+        # workload/compatibility identity and must be fully consumed.
+        benchmark = _as_int(row.get("optimizer_benchmark_parameter_sets"))
+        if benchmark is not None and benchmark > 0 and row.get("source") == "execution-optimizer":
+            if actual_sets != min(possible_sets or benchmark, benchmark):
+                continue
+        elif strategy in {"exhaustive", "exhaustive-with-zombies"} and actual_sets != possible_sets:
             continue
         if (_as_float(row.get("wall_clock_seconds")) or 0) <= 0:
             continue
@@ -979,7 +972,7 @@ def update_optimizer_artifacts(
         "preferred_executor_configurations": _preferred_executor_records(detectors),
         "runs": runs,
     })
-    _write_json(index_path, existing)
+    write_index(results_root, "optimizer-index.json", existing)
 
     if optimizer_run_id is not None:
         persist_completed_run(

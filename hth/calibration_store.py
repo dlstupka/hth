@@ -10,7 +10,10 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from hth.results_layout import canonical_index_path, readable_index_path, index_results_root, resolve_index_relative_path
+from hth.persistence import (
+    canonical_index_path, readable_index_path, index_results_root, resolve_index_relative_path,
+    read_json as _read_json, atomic_write_json as _write_json, load_index, write_index,
+)
 from typing import Any
 
 from hth.runtime_store import observation_from_run, update_runtime_index
@@ -32,17 +35,6 @@ PERSISTED_FILES = (
     "reports/calibration-intelligence.json",
 )
 
-
-def _read_json(path: Path) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError(f"Expected a JSON object in {path}")
-    return payload
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _slug(value: Any, fallback: str) -> str:
@@ -184,10 +176,7 @@ def load_index_with_persisted_backfill(index_path: Path) -> dict[str, Any]:
     """
     index_path = Path(index_path)
     results_root = index_results_root(index_path)
-    if index_path.is_file():
-        index = adapt_calibration_index(_read_json(index_path))
-    else:
-        index = {"schema_version": INDEX_SCHEMA_VERSION, "entries": [], "preferred": {}}
+    index = load_index(results_root, "calibration-index.json")
 
     current = index.get("entries") if isinstance(index.get("entries"), list) else []
     def cache_key(item: dict[str, Any]) -> tuple[str, str]:
@@ -355,7 +344,7 @@ def update_index(results_root: Path, entries: list[dict[str, Any]]) -> dict[str,
         "entries": merged,
         "preferred": preferred,
     })
-    _write_json(index_path, index)
+    write_index(results_root, "calibration-index.json", index)
 
     provenance_entries = []
     for item in merged:
@@ -370,8 +359,8 @@ def update_index(results_root: Path, entries: list[dict[str, Any]]) -> dict[str,
             "parameter_provenance_path": path,
             "build": item.get("build"),
         })
-    _write_json(
-        canonical_index_path(results_root, "parameter-provenance-index.json"),
+    write_index(
+        results_root, "parameter-provenance-index.json",
         {
             "schema_version": "1.0",
             "updated_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),

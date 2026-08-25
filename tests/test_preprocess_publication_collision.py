@@ -27,7 +27,7 @@ class PreprocessPublicationCollisionTests(unittest.TestCase):
         self.assertIn("reports/preprocess-summary.json", block)
         self.assertNotIn("results-repo/reports results-repo/analysis", block)
         self.assertIn("calibration intelligence were preserved", block)
-        self.assertIn("git -C results-repo add -A --", block)
+        self.assertIn("hth_results_stage results-repo", block)
         self.assertNotIn("git -C results-repo add --all", block)
 
     def test_production_owned_paths_are_materialized_by_sparse_checkout(self):

@@ -150,7 +150,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload detector review build
-        uses: actions/upload-artifact@v6
+        uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
         with:
           name: hth-document-review-${{ inputs.detector }}-${{ github.run_number }}
           path: production-build

@@ -17,7 +17,7 @@ else
 fi
 
 effective_strategy="$STRATEGY"
-if [[ -n "${effective_limit:-}" ]]; then
+if [[ -n "${effective_limit:-}" && "${HTH_BOUNDED_WORKLOAD:-0}" != "1" ]]; then
   effective_strategy="exhaustive"
 fi
 

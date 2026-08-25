@@ -315,7 +315,7 @@ jobs:
         id: source_release
         shell: bash
         env:
-          HTH_SOURCE_TOKEN: ${{ secrets.HTH_SOURCE_TOKEN }}
+          HTH_SOURCE_TOKEN: ${{ secrets.HTH_SOURCE_TOKEN || github.token }}
         run: |
           set -euo pipefail
           rm -rf source-repo
@@ -1069,9 +1069,9 @@ jobs:
               results-repo/BUILD-INFO.yaml results-repo/README.md \
               results-repo/reports/preprocess-summary.json
             tar -C results-repo -xf "$publication_payload"
-            git -C results-repo rm -f --ignore-unmatch -- calibration-index.json parameter-provenance-index.json runtime-index.json parallelism-index.json optimizer-index.json multidetector-index.json orli-evidence-index.json
+            hth_results_remove_legacy_indexes results-repo
 
-            git -C results-repo add -A -- \
+            hth_results_stage results-repo \
               metadata analysis ocr transcriptions translations indexes \
               docs BUILD-INFO.yaml README.md \
               reports/preprocess-summary.json
@@ -1268,9 +1268,9 @@ jobs:
                 results-repo/test/history/
             fi
 
-            git -C results-repo rm -f --ignore-unmatch -- calibration-index.json parameter-provenance-index.json runtime-index.json parallelism-index.json optimizer-index.json multidetector-index.json orli-evidence-index.json
+            hth_results_remove_legacy_indexes results-repo
 
-            git -C results-repo add -A -- \
+            hth_results_stage results-repo \
               test/latest "test/history/run-${GITHUB_RUN_NUMBER}"
           }
 
@@ -1377,7 +1377,7 @@ jobs:
 
       - name: Upload generated build artifact
         if: ${{ success() && inputs.upload_full_artifact }}
-        uses: actions/upload-artifact@v6
+        uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
         with:
           name: hth-${{ inputs.mode }}-${{ github.run_number }}-${{ steps.build.outputs.source_short_commit }}
           path: ${{ env.OUTPUT_DIRECTORY }}
@@ -1500,7 +1500,7 @@ jobs:
                 --run-url "$HTH_RUN_URL"
               mkdir -p results-repo/reports
               cp generated-report/detector-calibration-manifest.md results-repo/reports/detector-calibration-manifest.md
-              git -C results-repo add -A -- reports/detector-calibration-manifest.md
+              hth_results_stage results-repo reports/detector-calibration-manifest.md
             else
               python -m hth.report_generator execution-optimizer \
                 --results-root results-repo \
@@ -1510,7 +1510,7 @@ jobs:
               mkdir -p "results-repo/execution-optimizer/${{ inputs.report_algorithm }}"
               cp -a "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/." \
                 "results-repo/execution-optimizer/${{ inputs.report_algorithm }}/"
-              git -C results-repo add -A -- "execution-optimizer/${{ inputs.report_algorithm }}"
+              hth_results_stage results-repo "execution-optimizer/${{ inputs.report_algorithm }}"
             fi
           }
 
@@ -1589,7 +1589,7 @@ jobs:
 
       - name: Upload report research artifact
         if: ${{ success() }}
-        uses: actions/upload-artifact@v6
+        uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
         with:
           name: hth-report-${{ inputs.report_type }}-${{ github.run_number }}
           path: report-research-artifact

@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -32,20 +33,43 @@ def _request(url: str, *, token: str = "", accept: str = "application/vnd.github
     return urllib.request.Request(url, headers=headers)
 
 
+def _urlopen_with_retry(req: urllib.request.Request, *, timeout: int, attempts: int = 4):
+    """Open a GitHub request with bounded retries for transient service/network failures."""
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return urllib.request.urlopen(req, timeout=timeout)
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            retryable = exc.code in {429, 500, 502, 503, 504} or (exc.code == 403 and not req.headers.get("Authorization"))
+            if not retryable or attempt == attempts:
+                raise
+        except urllib.error.URLError as exc:
+            last_error = exc
+            if attempt == attempts:
+                raise
+        time.sleep(min(8, 2 ** (attempt - 1)))
+    assert last_error is not None
+    raise last_error
+
+
 def _read_json(url: str, *, token: str = "") -> dict[str, Any]:
     try:
-        with urllib.request.urlopen(_request(url, token=token), timeout=60) as response:
+        with _urlopen_with_retry(_request(url, token=token), timeout=60) as response:
             return json.load(response)
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"GitHub API request failed ({exc.code}) for {url}: {detail}") from exc
+        auth = "authenticated" if token else "unauthenticated"
+        raise RuntimeError(f"GitHub API request failed ({exc.code}, {auth}) for {url}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"GitHub API network request failed for {url}: {exc}") from exc
 
 
 def _download_asset(asset: dict[str, Any], destination: Path, *, token: str = "") -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     req = _request(str(asset["url"]), token=token, accept="application/octet-stream")
     try:
-        with urllib.request.urlopen(req, timeout=300) as response, destination.open("wb") as out:
+        with _urlopen_with_retry(req, timeout=300) as response, destination.open("wb") as out:
             while True:
                 chunk = response.read(1024 * 1024)
                 if not chunk:
@@ -54,6 +78,8 @@ def _download_asset(asset: dict[str, Any], destination: Path, *, token: str = ""
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"Release asset download failed ({exc.code}) for {asset.get('name')}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Release asset network download failed for {asset.get('name')}: {exc}") from exc
 
 
 def _validate_manifest(manifest: dict[str, Any], *, repository: str, tag: str) -> list[dict[str, Any]]:
@@ -141,7 +167,7 @@ def main() -> int:
     parser.add_argument("--repository", required=True, help="owner/repository containing the source release")
     parser.add_argument("--tag", required=True, help="immutable source release tag")
     parser.add_argument("--destination", required=True, type=Path)
-    parser.add_argument("--token", default=os.environ.get("HTH_SOURCE_TOKEN", ""))
+    parser.add_argument("--token", default=os.environ.get("HTH_SOURCE_TOKEN") or os.environ.get("GITHUB_TOKEN", ""))
     parser.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT", ""))
     args = parser.parse_args()
 

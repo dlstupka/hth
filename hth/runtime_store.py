@@ -9,9 +9,9 @@ import math
 from datetime import datetime, timezone
 from pathlib import Path
 
-from hth.results_layout import resolve_index_relative_path
+from hth.persistence import resolve_index_relative_path
 
-from hth.results_layout import canonical_index_path, readable_index_path
+from hth.persistence import canonical_index_path, readable_index_path, read_json as _read_json, atomic_write_json as _write_json, load_index, write_index
 from typing import Any, Iterable
 
 from hth.contracts import (
@@ -21,17 +21,6 @@ from hth.contracts import (
 )
 MAX_OBSERVATIONS_PER_DETECTOR = 200
 
-
-def _read_json(path: Path) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError(f"Expected a JSON object in {path}")
-    return payload
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _sha256(path: Path) -> str:
@@ -60,7 +49,10 @@ def _detector_name(config: Path) -> str:
 def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, Any]:
     info = _read_json(run_dir / "RUN-INFO.json")
     params = _read_json(run_dir / "parameters.json")
-    summary = _read_json(run_dir / "reports" / "summary.json")
+    summary_path = run_dir / "reports" / "summary.json"
+    if not summary_path.is_file():
+        summary_path = run_dir / "summary.json"
+    summary = _read_json(summary_path)
 
     detector = str(info.get("detector") or params.get("detector") or summary.get("detector") or "unknown")
     parameter_space = summary.get("parameter_space") if isinstance(summary.get("parameter_space"), dict) else {}
@@ -137,11 +129,7 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
 
 def update_runtime_index(results_root: Path, observations: Iterable[dict[str, Any]]) -> dict[str, Any]:
     path = canonical_index_path(results_root, "runtime-index.json")
-    read_path = readable_index_path(results_root, "runtime-index.json")
-    if read_path.is_file():
-        index = adapt_runtime_index(_read_json(read_path))
-    else:
-        index = {"schema_version": RUNTIME_INDEX_SCHEMA_VERSION, "observations": [], "latest": {}}
+    index = load_index(results_root, "runtime-index.json")
 
     by_id = {
         str(item.get("observation_id")): item
@@ -178,7 +166,7 @@ def update_runtime_index(results_root: Path, observations: Iterable[dict[str, An
         "observations": trimmed,
         "latest": latest,
     })
-    _write_json(path, index)
+    write_index(results_root, "runtime-index.json", index)
     return index
 
 

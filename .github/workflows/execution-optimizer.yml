@@ -169,6 +169,11 @@ on:
           - moderate+
           - important+
           - critical
+      benchmark_parameter_sets:
+        description: Canonical bounded parameter-set workload evaluated at each execution shape
+        required: true
+        default: "256"
+        type: string
       debug_level:
         description: Debug image detail
         required: true
@@ -277,7 +282,9 @@ jobs:
       IMAGE_ROOT: ${{ inputs.image_root }}
       REGRESSION_MODE: full
       STRATEGY: ${{ inputs.strategy }}
-      LIMIT: ""
+      LIMIT: ${{ inputs.benchmark_parameter_sets }}
+      HTH_BOUNDED_WORKLOAD: "1"
+      HTH_OPTIMIZER_BENCHMARK_PARAMETER_SETS: ${{ inputs.benchmark_parameter_sets }}
       MAX_DIMENSION: ${{ inputs.max_dimension }}
       TOP_COUNT: "20"
       THREADS: auto
@@ -943,6 +950,8 @@ jobs:
           else
             echo "Model                : sharding=${{ inputs.sharding }}; threads = min(thread max, floor(runner budget / pipelines))"
           fi
+          echo "Benchmark workload   : ${{ inputs.benchmark_parameter_sets }} parameter sets/shape (baseline + historic best retained)"
+          echo "Benchmark domain     : ${{ inputs.strategy }}"
           echo "Early stop           : ${{ inputs.early_stop }} (3 consecutive completed shapes <=2% improvement from perceived max)"
 
       - name: Optimize detector execution shapes
@@ -1019,7 +1028,7 @@ jobs:
           shape_number="$resumed_shapes"
           stop_reason="shape_range_complete"
 
-          python - "$run_metadata" "$GITHUB_RUN_ID" "$DETECTOR_ALGORITHM" "$HTH_RUNNER_LABEL" "$RUNNER_BUDGET" "$THREAD_MIN" "$THREAD_MAX" "$ENUMERATION" "${{ inputs.sharding }}" "$EARLY_STOP" "$PIPELINE_MIN" "$PIPELINE_MAX" "$resumed_from" "$resumed_shapes" "$ALLOW_THREAD_OVERSUBSCRIPTION" "$optimization_started_epoch" <<'PYMETA'
+          python - "$run_metadata" "$GITHUB_RUN_ID" "$DETECTOR_ALGORITHM" "$HTH_RUNNER_LABEL" "$RUNNER_BUDGET" "$THREAD_MIN" "$THREAD_MAX" "$ENUMERATION" "${{ inputs.sharding }}" "$EARLY_STOP" "$PIPELINE_MIN" "$PIPELINE_MAX" "$resumed_from" "$resumed_shapes" "$ALLOW_THREAD_OVERSUBSCRIPTION" "${{ inputs.benchmark_parameter_sets }}" "${{ inputs.strategy }}" "$optimization_started_epoch" <<'PYMETA'
           import json, sys
           from pathlib import Path
           path = Path(sys.argv[1])
@@ -1038,7 +1047,9 @@ jobs:
               "resumed_from_optimizer_run_id": sys.argv[13] or None,
               "resumed_shape_count": int(sys.argv[14]),
               "allow_thread_oversubscription": sys.argv[15].lower() == "true",
-              "optimization_started_epoch": int(sys.argv[16]),
+              "benchmark_parameter_sets": int(sys.argv[16]),
+              "benchmark_strategy": sys.argv[17],
+              "optimization_started_epoch": int(sys.argv[18]),
               "early_stop": {"threshold_pct": 2.0, "required_consecutive_shapes": 3},
               "completed_shapes": int(sys.argv[14]),
               "stop_reason": None,
@@ -1295,7 +1306,7 @@ jobs:
           run_metadata="$GITHUB_WORKSPACE/optimizer-work/run-metadata.json"
 
           apply_optimizer_intelligence() {
-            git -C results-repo clean -fd -- \
+            hth_results_clean_owned results-repo \
               indexes/optimizer-index.json optimizer-predictions.json execution-optimizer/
             if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
               python -m hth.regression.learned_evidence rebuild-orli-index --results-root results-repo
@@ -1313,21 +1324,21 @@ jobs:
               --observation-log "$observation_log" \
               --shard-log "$shard_log"
 
-            git -C results-repo rm -f --ignore-unmatch -- calibration-index.json parameter-provenance-index.json runtime-index.json parallelism-index.json optimizer-index.json multidetector-index.json orli-evidence-index.json
+            hth_results_remove_legacy_indexes results-repo
 
-            git -C results-repo add -A -- \
+            hth_results_stage results-repo \
               indexes/parallelism-index.json indexes/optimizer-index.json \
               "execution-optimizer/$DETECTOR_ALGORITHM/summary.md" \
               "execution-optimizer/$DETECTOR_ALGORITHM/heatmap.svg" \
               "execution-optimizer/$DETECTOR_ALGORITHM/runs/"
             if [[ -d results-repo/models ]]; then
-              git -C results-repo add -A -- models/
+              hth_results_stage results-repo models/
             fi
             if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
-              git -C results-repo add -A -- learned-evidence/orli_page_mask indexes/orli-evidence-index.json
+              hth_results_stage results-repo learned-evidence/orli_page_mask indexes/orli-evidence-index.json
             fi
             if [[ -f results-repo/optimizer-predictions.json ]]; then
-              git -C results-repo add -A -- optimizer-predictions.json
+              hth_results_stage results-repo optimizer-predictions.json
             fi
           }
 
