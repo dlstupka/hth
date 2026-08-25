@@ -31,6 +31,8 @@ class DocumentDetectorEntrypointTests(unittest.TestCase):
         self.assertIn("document_detector: preferred", test)
         self.assertIn("Run approved detector over production collection", core)
         self.assertIn("hth-pipeline/hth/run_document_detector.py", core)
+        runner = (ROOT / "hth" / "run_document_detector.py").read_text(encoding="utf-8")
+        self.assertIn('"--fail-on", "detector-error"', runner)
 
 
 if __name__ == "__main__":

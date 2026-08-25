@@ -141,6 +141,14 @@ def _hydrate_from_generated_json(args: argparse.Namespace) -> None:
         0 if preprocess or analysis else None,
     )
 
+    page_analysis = _read_json(args.page_analysis_json)
+    geometry_summary = page_analysis.get("geometry_candidate_summary", {})
+    if isinstance(geometry_summary, dict):
+        args.detector_error_count = _first_int(
+            getattr(args, "detector_error_count", None),
+            geometry_summary.get("detector_error_count"),
+        )
+
 
 def _read_detector_performance(path: str) -> list[dict[str, Any]]:
     payload = _read_json(path)
@@ -256,7 +264,8 @@ def build_summary(args: argparse.Namespace) -> str:
         f"| DOCX masters | {args.docx_count if args.docx_count is not None else 'unknown'} |",
         f"| Pages discovered | {args.page_count if args.page_count is not None else 'unknown'} |",
         f"| Pages processed | {args.processed_count if args.processed_count is not None else 'unknown'} |",
-        f"| Page errors | {args.error_count if args.error_count is not None else 'unknown'} |",
+        f"| Page processing errors | {args.error_count if args.error_count is not None else 'unknown'} |",
+        f"| Detector errors | {getattr(args, 'detector_error_count', None) if getattr(args, 'detector_error_count', None) is not None else 'unknown'} |",
     ]
 
     stage_timings = _read_stage_timings(args.stage_timings_jsonl)
@@ -362,6 +371,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--page-count", type=int)
     p.add_argument("--processed-count", type=int)
     p.add_argument("--error-count", type=int)
+    p.add_argument("--detector-error-count", type=int)
     p.add_argument("--summary-json", default="")
     p.add_argument("--analysis-summary-json", default="")
     p.add_argument(

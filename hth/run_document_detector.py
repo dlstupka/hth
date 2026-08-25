@@ -50,6 +50,7 @@ def main() -> int:
                 "--output", str(a.output),
                 "--detector", detector,
                 "--parameters-json", str(params),
+                "--fail-on", "detector-error",
                 "--overwrite",
             ]
             subprocess.run(cmd, check=True)

@@ -26,6 +26,7 @@ class RunSummaryTests(unittest.TestCase):
             page_count=None,
             processed_count=None,
             error_count=None,
+            detector_error_count=None,
             summary_json="",
             analysis_summary_json="",
             page_analysis_json="",
@@ -41,6 +42,7 @@ class RunSummaryTests(unittest.TestCase):
             root = Path(tmp)
             summary = root / "summary.json"
             analysis = root / "analysis-summary.json"
+            page_analysis = root / "page-analysis.json"
             summary.write_text(json.dumps({
                 "collection_id": "HTH-0001",
                 "source_docx_count": 1,
@@ -50,10 +52,14 @@ class RunSummaryTests(unittest.TestCase):
                 "page_count": 10,
                 "quality_status_counts": {"pass": 9, "error": 1},
             }), encoding="utf-8")
+            page_analysis.write_text(json.dumps({
+                "geometry_candidate_summary": {"detector_error_count": 2},
+            }), encoding="utf-8")
 
             args = self.make_args(
                 summary_json=str(summary),
                 analysis_summary_json=str(analysis),
+                page_analysis_json=str(page_analysis),
             )
             _hydrate_from_generated_json(args)
 
@@ -62,6 +68,7 @@ class RunSummaryTests(unittest.TestCase):
             self.assertEqual(args.page_count, 10)
             self.assertEqual(args.processed_count, 10)
             self.assertEqual(args.error_count, 1)
+            self.assertEqual(args.detector_error_count, 2)
 
     def test_explicit_values_override_generated_json(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -98,6 +105,8 @@ class RunSummaryTests(unittest.TestCase):
         self.assertIn("HTH-0001", text)
         self.assertIn("| DOCX masters | 1 |", text)
         self.assertIn("| Pages discovered | 10 |", text)
+        self.assertIn("| Page processing errors | 0 |", text)
+        self.assertIn("| Detector errors | unknown |", text)
 
     def test_summary_includes_detector_performance_and_provenance(self):
         with tempfile.TemporaryDirectory() as tmp:
