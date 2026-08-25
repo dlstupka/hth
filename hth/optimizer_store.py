@@ -454,7 +454,11 @@ def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
                 allocated=best.get("allocated_threads") or "?",
                 rate=f"{rate:.2f}" if rate is not None else "unknown",
                 wall=_duration(best.get("fastest_wall_clock_seconds")),
-                observations=best.get("observation_count") or 1,
+                observations=sum(
+                    int(shape.get("observation_count") or 1)
+                    for shape in runner.get("shapes", [])
+                    if isinstance(shape, dict)
+                ),
             )
         )
     lines.extend([

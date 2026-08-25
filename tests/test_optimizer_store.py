@@ -162,6 +162,18 @@ class OptimizerStoreTests(unittest.TestCase):
         self.assertEqual([shape["pipelines"] for shape in shapes], [2, 3, 4, 5, 6, 7, 8])
         self.assertEqual(index["runners"][0]["best_shape"]["pipelines"], 8)
 
+    def test_preferred_configuration_observations_counts_all_compatible_measurements(self) -> None:
+        rows = [
+            _row("r1-p1", "e7k", 1, 192, 1200, optimizer_run_id="100"),
+            _row("r1-p2", "e7k", 2, 96, 700, optimizer_run_id="100"),
+            _row("r2-p2", "e7k", 2, 96, 680, optimizer_run_id="101"),
+            _row("r2-p3", "e7k", 3, 64, 650, optimizer_run_id="101"),
+        ]
+        index = build_optimizer_index({"observations": rows}, "adaptive_radial_edge", optimizer_run_ids={"100", "101"})
+        markdown = render_markdown(index, preferred_index=index)
+        preferred = markdown.split("<summary><strong>1. Preferred Detector Run Configuration</strong></summary>", 1)[1].split("</details>", 1)[0]
+        self.assertIn("| 4 |", preferred)
+
     def test_historical_optimizer_profile_keeps_all_repeated_shape_observations(self) -> None:
         first = _row("r1-p4", "e7k", 4, 48, 700, optimizer_run_id="100")
         second = _row("r2-p4", "e7k", 4, 48, 680, optimizer_run_id="101")
