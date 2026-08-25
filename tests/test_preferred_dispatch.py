@@ -222,6 +222,42 @@ class PreferredDispatchTests(unittest.TestCase):
             self.assertEqual(result["runs_on"], ["ubuntu-latest"])
             self.assertEqual(result["source"], "requested-runner-no-compatible-preferred-history")
 
+    def test_optimizer_benchmark_rows_are_usable_preferred_shape_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            detector_root = root / "detectors"
+            detector = detector_root / "doc_ufcn_page_mask.json"
+            golden = root / "golden.json"
+            _write_json(detector, {"detector": "doc_ufcn_page_mask"})
+            _write_json(golden, {"pages": []})
+            row = {
+                "source": "execution-optimizer", "detector_id": "doc_ufcn_page_mask",
+                "mode": "full", "strategy": "exhaustive",
+                "detector_config_sha256": _sha(detector), "golden_set_sha256": _sha(golden),
+                "possible_parameter_sets": 2000, "actual_parameter_sets": 256,
+                "optimizer_benchmark_parameter_sets": 256, "max_dimension": 1800,
+                "wall_clock_seconds": 8.0, "parameter_sets_per_second": 32.0,
+                "active_pipelines": 5, "shards": 5, "threads_per_pipeline": 76,
+                "allocated_threads": 380,
+                "runner": {"runner_label": "192t", "runner_name": "rh8-al321",
+                           "runner_labels": ["self-hosted", "Linux", "X64", "192t"],
+                           "cpu_model": "AMD EPYC 9655 96-Core Processor",
+                           "physical_core_count": 192, "logical_cpu_count": 192},
+            }
+            index = root / "parallelism-index.json"
+            _write_json(index, {"observations": [row]})
+            result = resolve_workflow_shape(
+                shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
+                detector="doc_ufcn_page_mask", manual_shape="", parallelism_index=index,
+                predictions_index=None, detector_config_root=detector_root, golden_set=golden,
+                max_dimension=1800,
+                profile=RunnerProfile("rh8-al321", "192t", "AMD EPYC 9655 96-Core Processor", 192, 192),
+                prediction_out=None, runner_budget=384,
+            )
+            self.assertTrue(result["exact"])
+            self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (5, 76))
+            self.assertEqual(result["source"], "preferred-exact-runner")
+
     def test_nonpreferred_dispatch_preserves_requested_runner(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

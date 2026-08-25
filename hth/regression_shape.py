@@ -242,9 +242,10 @@ def compatible_optimizer_rows(
             and str(row.get("strategy") or "") == "exhaustive"
             and str(row.get("golden_set_sha256") or "") == golden_sha256
             and (_as_int(row.get("max_dimension")) in (None, max_dimension))
-            and _as_int(row.get("possible_parameter_sets")) is not None
-            and _as_int(row.get("actual_parameter_sets")) == _as_int(row.get("possible_parameter_sets"))
-            and (_as_float(row.get("wall_clock_seconds")) or 0.0) > 0.0
+            and optimizer_row_matches_workload(
+                row, detector=detector, detector_sha256=str(row.get("detector_config_sha256") or ""),
+                golden_sha256=golden_sha256, max_dimension=max_dimension,
+            )
         ]
     return detector, rows
 

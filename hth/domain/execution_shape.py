@@ -69,7 +69,9 @@ def optimizer_row_matches_workload(
         return False
     possible = as_int(row.get("possible_parameter_sets"))
     actual = as_int(row.get("actual_parameter_sets"))
-    return possible is not None and actual == possible and (as_float(row.get("wall_clock_seconds")) or 0.0) > 0.0
+    benchmark = as_int(row.get("optimizer_benchmark_parameter_sets"))
+    expected = min(possible, benchmark) if possible is not None and benchmark is not None and benchmark > 0 else possible
+    return expected is not None and actual == expected and (as_float(row.get("wall_clock_seconds")) or 0.0) > 0.0
 
 
 def runner_match_tier(row: dict[str, Any], *, name: str, cpu_model: str,
