@@ -185,22 +185,69 @@ class OptimizerCaptureTests(unittest.TestCase):
             payload = json.loads((fresh / "indexes" / "parallelism-index.json").read_text(encoding="utf-8"))
             self.assertEqual(payload["observations"][0]["wall_clock_seconds"], 100.0)
 
-    def test_early_stop_requires_three_consecutive_sub_one_percent_shapes(self) -> None:
+    def _write_optimizer_rates(self, log: Path, rates: list[tuple[int, float]]) -> None:
+        with log.open("w", encoding="utf-8") as stream:
+            for sequence, (pipelines, rate) in enumerate(rates, 1):
+                stream.write(json.dumps({
+                    "optimizer_shape_sequence": sequence,
+                    "active_pipelines": pipelines,
+                    "execution_shape": f"{pipelines}p/{pipelines}s/1t",
+                    "parameter_sets_per_second": rate,
+                }) + "\n")
+
+    def test_early_stop_requires_more_than_two_percent_degradation_on_both_sides(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / "observations.jsonl"
-            rates = [10.0, 20.0, 20.1, 19.9, 19.8]
-            with log.open("w", encoding="utf-8") as stream:
-                for sequence, rate in enumerate(rates, 1):
-                    stream.write(json.dumps({
-                        "optimizer_shape_sequence": sequence,
-                        "execution_shape": f"{sequence}p/{sequence}s/1t",
-                        "parameter_sets_per_second": rate,
-                    }) + "\n")
-            assessment = assess_early_stop(log, threshold_pct=1.0, consecutive=3)
+            self._write_optimizer_rates(log, [(1, 90.0), (2, 100.0), (3, 99.0), (4, 97.9)])
+            assessment = assess_early_stop(log, threshold_pct=2.0, pipeline_min=1, pipeline_max=5)
             self.assertTrue(assessment["should_stop"])
-            self.assertEqual(assessment["stop_reason"], "throughput_plateau")
-            self.assertEqual(assessment["non_improving_streak"], 3)
-            self.assertEqual(assessment["best_parameter_sets_per_second"], 20.1)
+            self.assertTrue(assessment["left_boundary_confirmed"])
+            self.assertTrue(assessment["right_boundary_confirmed"])
+            # 3p remains part of the peak region, so 4p brackets its right edge;
+            # the unmeasured legal 5p does not matter once the peak has departed.
+            self.assertEqual(assessment["peak_region_pipeline_min"], 2)
+            self.assertEqual(assessment["peak_region_pipeline_max"], 3)
+
+    def test_early_stop_does_not_accept_exactly_two_percent_degradation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "observations.jsonl"
+            self._write_optimizer_rates(log, [(1, 97.9), (2, 100.0), (3, 98.0)])
+            assessment = assess_early_stop(log, threshold_pct=2.0, pipeline_min=1, pipeline_max=4)
+            self.assertFalse(assessment["should_stop"])
+            self.assertEqual(assessment["peak_region_pipeline_max"], 3)
+            self.assertFalse(assessment["right_boundary_confirmed"])
+
+    def test_early_stop_treats_plateau_as_peak_region_until_both_outer_sides_are_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "observations.jsonl"
+            self._write_optimizer_rates(log, [(1, 95.0), (2, 100.0), (3, 99.7), (4, 99.1), (5, 97.8)])
+            assessment = assess_early_stop(log, threshold_pct=2.0, pipeline_min=1, pipeline_max=8)
+            self.assertTrue(assessment["should_stop"])
+            self.assertEqual(assessment["stop_reason"], "throughput_peak_bracketed")
+            self.assertEqual(assessment["peak_region_pipeline_min"], 2)
+            self.assertEqual(assessment["peak_region_pipeline_max"], 4)
+            self.assertTrue(assessment["left_boundary_confirmed"])
+            self.assertTrue(assessment["right_boundary_confirmed"])
+
+    def test_early_stop_allows_one_sided_boundary_peak(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "observations.jsonl"
+            self._write_optimizer_rates(log, [(1, 100.0), (2, 99.5), (3, 97.0)])
+            assessment = assess_early_stop(log, threshold_pct=2.0, pipeline_min=1, pipeline_max=8)
+            self.assertTrue(assessment["should_stop"])
+            self.assertFalse(assessment["left_boundary_required"])
+            self.assertTrue(assessment["right_boundary_required"])
+            self.assertTrue(assessment["right_boundary_confirmed"])
+
+    def test_early_stop_does_not_invent_peak_when_full_range_is_flat(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "observations.jsonl"
+            self._write_optimizer_rates(log, [(1, 100.0), (2, 99.8), (3, 99.5), (4, 99.0)])
+            assessment = assess_early_stop(log, threshold_pct=2.0, pipeline_min=1, pipeline_max=4)
+            self.assertFalse(assessment["should_stop"])
+            self.assertFalse(assessment["left_boundary_required"])
+            self.assertFalse(assessment["right_boundary_required"])
+
 
 
 if __name__ == "__main__":

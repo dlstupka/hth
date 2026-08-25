@@ -181,7 +181,40 @@ def replay_shard_observations(*, results_root: Path, shard_log: Path) -> int:
     return len(rows)
 
 
-def assess_early_stop(observation_log: Path, *, threshold_pct: float = 1.0, consecutive: int = 3) -> dict[str, Any]:
+def _pipeline_from_observation(row: dict[str, Any]) -> int | None:
+    for key in ("active_pipelines", "pipelines", "shards"):
+        try:
+            value = int(row.get(key))
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    shape = str(row.get("execution_shape") or "")
+    if "p/" in shape:
+        try:
+            value = int(shape.split("p/", 1)[0])
+        except ValueError:
+            return None
+        return value if value > 0 else None
+    return None
+
+
+def assess_early_stop(
+    observation_log: Path,
+    *,
+    threshold_pct: float = 2.0,
+    pipeline_min: int | None = None,
+    pipeline_max: int | None = None,
+) -> dict[str, Any]:
+    """Return whether the perceived throughput peak is sufficiently bracketed.
+
+    A peak may be a plateau.  Measurements within ``threshold_pct`` of the
+    best observed throughput belong to the perceived peak region.  Early stop
+    is allowed only after a completed shape is *strictly more than* that
+    threshold below the peak on both sides of the entire region.  When the
+    peak region reaches a configured pipeline boundary, that side is
+    necessarily one-sided and is waived.
+    """
     rows: list[dict[str, Any]] = []
     if observation_log.is_file():
         for line in observation_log.read_text(encoding="utf-8").splitlines():
@@ -190,46 +223,100 @@ def assess_early_stop(observation_log: Path, *, threshold_pct: float = 1.0, cons
                 if isinstance(payload, dict):
                     rows.append(payload)
     rows.sort(key=lambda row: int(row.get("optimizer_shape_sequence") or 0))
-    threshold = threshold_pct / 100.0
-    best_rate: float | None = None
-    best_shape: str | None = None
-    streak = 0
-    assessments: list[dict[str, Any]] = []
+
+    observations: list[dict[str, Any]] = []
     for row in rows:
         rate_value = row.get("parameter_sets_per_second")
-        if not isinstance(rate_value, (int, float)) or float(rate_value) <= 0:
+        pipeline = _pipeline_from_observation(row)
+        if pipeline is None or not isinstance(rate_value, (int, float)) or float(rate_value) <= 0:
             continue
-        rate = float(rate_value)
-        previous_best = best_rate
-        meaningful = previous_best is None or rate > previous_best * (1.0 + threshold)
-        improved = previous_best is None or rate > previous_best
-        improvement_pct = None if previous_best is None else ((rate - previous_best) / previous_best) * 100.0
-        if meaningful:
-            streak = 0
-        else:
-            streak += 1
-        if improved:
-            best_rate = rate
-            best_shape = str(row.get("execution_shape") or "unknown")
-        assessments.append({
+        observations.append({
             "shape_sequence": row.get("optimizer_shape_sequence"),
             "execution_shape": row.get("execution_shape"),
-            "parameter_sets_per_second": rate,
-            "previous_best_parameter_sets_per_second": previous_best,
-            "improvement_pct_vs_perceived_max": improvement_pct,
-            "meaningful_improvement": meaningful,
-            "non_improving_streak": streak,
+            "pipelines": pipeline,
+            "parameter_sets_per_second": float(rate_value),
         })
-    should_stop = streak >= consecutive and len(assessments) >= consecutive + 1
+
+    if not observations:
+        return {
+            "should_stop": False,
+            "stop_reason": None,
+            "threshold_pct": threshold_pct,
+            "best_parameter_sets_per_second": None,
+            "best_execution_shape": None,
+            "completed_shapes": 0,
+            "peak_region_pipeline_min": None,
+            "peak_region_pipeline_max": None,
+            "left_boundary_required": False,
+            "right_boundary_required": False,
+            "left_boundary_confirmed": False,
+            "right_boundary_confirmed": False,
+            "assessments": [],
+        }
+
+    best = max(observations, key=lambda item: item["parameter_sets_per_second"])
+    best_rate = float(best["parameter_sets_per_second"])
+    threshold_fraction = threshold_pct / 100.0
+    peak_floor = best_rate * (1.0 - threshold_fraction)
+
+    # Equality belongs to the peak region: a boundary is confirmed only when
+    # throughput is strictly more than threshold_pct below the perceived peak.
+    peak_rows = [row for row in observations if row["parameter_sets_per_second"] >= peak_floor]
+    peak_low = min(row["pipelines"] for row in peak_rows)
+    peak_high = max(row["pipelines"] for row in peak_rows)
+
+    observed_pipelines = [row["pipelines"] for row in observations]
+    legal_low = pipeline_min if pipeline_min is not None else min(observed_pipelines)
+    legal_high = pipeline_max if pipeline_max is not None else max(observed_pipelines)
+    if legal_low > legal_high:
+        legal_low, legal_high = legal_high, legal_low
+
+    left_required = peak_low > legal_low
+    right_required = peak_high < legal_high
+    left_witnesses = [
+        row for row in observations
+        if row["pipelines"] < peak_low and row["parameter_sets_per_second"] < peak_floor
+    ]
+    right_witnesses = [
+        row for row in observations
+        if row["pipelines"] > peak_high and row["parameter_sets_per_second"] < peak_floor
+    ]
+    left_confirmed = (not left_required) or bool(left_witnesses)
+    right_confirmed = (not right_required) or bool(right_witnesses)
+
+    # Do not call a completely flat, fully bounded search an early stop: no
+    # side ever departed the peak by >threshold_pct, so the range itself must
+    # finish normally.  Boundary peaks need only the available opposite side.
+    has_degradation_witness = bool(left_witnesses or right_witnesses)
+    should_stop = left_confirmed and right_confirmed and has_degradation_witness
+
+    assessments: list[dict[str, Any]] = []
+    for row in observations:
+        delta_pct = ((row["parameter_sets_per_second"] - best_rate) / best_rate) * 100.0
+        assessments.append({
+            **row,
+            "delta_pct_vs_perceived_peak": delta_pct,
+            "within_peak_region": row["parameter_sets_per_second"] >= peak_floor,
+            "more_than_threshold_below_peak": row["parameter_sets_per_second"] < peak_floor,
+        })
+
     return {
         "should_stop": should_stop,
-        "stop_reason": "throughput_plateau" if should_stop else None,
+        "stop_reason": "throughput_peak_bracketed" if should_stop else None,
         "threshold_pct": threshold_pct,
-        "required_consecutive_shapes": consecutive,
-        "non_improving_streak": streak,
         "best_parameter_sets_per_second": best_rate,
-        "best_execution_shape": best_shape,
-        "completed_shapes": len(assessments),
+        "best_execution_shape": best["execution_shape"] or "unknown",
+        "completed_shapes": len(observations),
+        "configured_pipeline_min": legal_low,
+        "configured_pipeline_max": legal_high,
+        "peak_region_pipeline_min": peak_low,
+        "peak_region_pipeline_max": peak_high,
+        "left_boundary_required": left_required,
+        "right_boundary_required": right_required,
+        "left_boundary_confirmed": left_confirmed,
+        "right_boundary_confirmed": right_confirmed,
+        "left_boundary_execution_shape": left_witnesses[-1]["execution_shape"] if left_witnesses else None,
+        "right_boundary_execution_shape": right_witnesses[0]["execution_shape"] if right_witnesses else None,
         "assessments": assessments,
     }
 
@@ -256,12 +343,13 @@ def main() -> int:
     parser.add_argument("--replay-log", type=Path)
     parser.add_argument("--replay-shard-log", type=Path)
     parser.add_argument("--assess-log", type=Path)
-    parser.add_argument("--threshold-pct", type=float, default=1.0)
-    parser.add_argument("--consecutive", type=int, default=3)
+    parser.add_argument("--threshold-pct", type=float, default=2.0)
+    parser.add_argument("--pipeline-min", type=int)
+    parser.add_argument("--pipeline-max", type=int)
     args = parser.parse_args()
 
     if args.assess_log is not None:
-        print(json.dumps(assess_early_stop(args.assess_log, threshold_pct=args.threshold_pct, consecutive=args.consecutive), sort_keys=True))
+        print(json.dumps(assess_early_stop(args.assess_log, threshold_pct=args.threshold_pct, pipeline_min=args.pipeline_min, pipeline_max=args.pipeline_max), sort_keys=True))
         return 0
     if args.replay_log is not None or args.replay_shard_log is not None:
         count = 0

@@ -605,11 +605,10 @@ def render_markdown(index: dict[str, Any], run_metadata: dict[str, Any] | None =
     lines.extend(_render_shape_table(index))
     if run_metadata:
         early = run_metadata.get("early_stop") if isinstance(run_metadata.get("early_stop"), dict) else {}
-        if early.get("stop_reason") == "throughput_plateau":
+        if early.get("stop_reason") in {"throughput_peak_bracketed", "throughput_plateau"}:
             lines.extend([
-                "**Early stop:** throughput plateau detected after "
-                f"{early.get('required_consecutive_shapes', 3)} consecutive completed shapes improved by less than "
-                f"{early.get('threshold_pct', 2.0)}% from the perceived maximum.",
+                "**Early stop:** perceived throughput peak/plateau bracketed by completed shapes "
+                f"more than {early.get('threshold_pct', 2.0)}% below the peak on both available sides.",
                 "",
             ])
         elif run_metadata.get("stop_reason"):

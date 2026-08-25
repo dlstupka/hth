@@ -122,7 +122,7 @@ on:
         default: false
         type: boolean
       early_stop:
-        description: Stop after 3 consecutive shapes improve sets/s by no more than 2% from the perceived maximum
+        description: Stop once the perceived peak/plateau is bracketed by >2% throughput degradation on both available sides
         required: true
         default: true
         type: boolean
@@ -952,7 +952,7 @@ jobs:
           fi
           echo "Benchmark workload   : ${{ inputs.benchmark_parameter_sets }} parameter sets/shape (baseline + historic best retained)"
           echo "Benchmark domain     : ${{ inputs.strategy }}"
-          echo "Early stop           : ${{ inputs.early_stop }} (3 consecutive completed shapes <=2% improvement from perceived max)"
+          echo "Early stop           : ${{ inputs.early_stop }} (>2% degradation required beyond both available sides of the perceived peak/plateau)"
 
       - name: Optimize detector execution shapes
         id: optimizer
@@ -1050,7 +1050,7 @@ jobs:
               "benchmark_parameter_sets": int(sys.argv[16]),
               "benchmark_strategy": sys.argv[17],
               "optimization_started_epoch": int(sys.argv[18]),
-              "early_stop": {"threshold_pct": 2.0, "required_consecutive_shapes": 3},
+              "early_stop": {"threshold_pct": 2.0, "rule": "bracket_peak_region"},
               "completed_shapes": int(sys.argv[14]),
               "stop_reason": None,
           }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -1193,11 +1193,17 @@ jobs:
               --shard-log "$shard_log" \
               --observation-json optimizer-work/latest-shape.json
 
+            assessment_pipeline_max="$PIPELINE_MAX"
+            if [[ "$ALLOW_THREAD_OVERSUBSCRIPTION" != "true" ]]; then
+              feasible_pipeline_max=$((RUNNER_BUDGET / THREAD_MIN))
+              (( assessment_pipeline_max > feasible_pipeline_max )) && assessment_pipeline_max="$feasible_pipeline_max"
+            fi
             assessment="$(python -m hth.optimizer_capture \
               --results-root results-repo \
               --assess-log "$observation_log" \
               --threshold-pct 2.0 \
-              --consecutive 3)"
+              --pipeline-min "$PIPELINE_MIN" \
+              --pipeline-max "$assessment_pipeline_max")"
             python - "$run_metadata" "$assessment" "$shape_number" <<'PYMETA'
           import json, sys
           from pathlib import Path
@@ -1225,11 +1231,11 @@ jobs:
           PYSTOP
             )"
             if [[ "$ENUMERATION" != "adaptive" && "$EARLY_STOP" == "true" && "$should_stop" == "true" ]]; then
-              stop_reason="throughput_plateau"
-              echo "Optimizer early stop: 3 consecutive completed shapes improved throughput by <=2% from the perceived maximum."
+              stop_reason="throughput_peak_bracketed"
+              echo "Optimizer early stop: perceived peak/plateau bracketed by >2% throughput degradation on both available sides."
               break
             elif [[ "$ENUMERATION" == "adaptive" && "$EARLY_STOP" == "true" && "$should_stop" == "true" ]]; then
-              echo "Adaptive optimizer: generic <=2% plateau stop deferred until the <=2% preferred-shape boundaries are resolved."
+              echo "Adaptive optimizer: peak bracketing is resolved by adaptive local refinement before search completion."
             fi
           done
 

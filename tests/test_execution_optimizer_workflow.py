@@ -203,14 +203,16 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn("sleep 60", text)
         self.assertIn("Stop execution optimizer heartbeat", text)
 
-    def test_execution_optimizer_has_default_three_shape_two_percent_early_stop(self) -> None:
+    def test_execution_optimizer_brackets_peak_by_more_than_two_percent_on_both_available_sides(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("--threshold-pct 2.0", text)
-        self.assertIn("--consecutive 3", text)
-        self.assertIn("throughput_plateau", text)
-        self.assertIn("3 consecutive completed shapes improved throughput by <=2%", text)
+        self.assertIn('--pipeline-min "$PIPELINE_MIN"', text)
+        self.assertIn('--pipeline-max "$assessment_pipeline_max"', text)
+        self.assertIn("throughput_peak_bracketed", text)
+        self.assertIn(">2% throughput degradation on both available sides", text)
+        self.assertNotIn("--consecutive 3", text)
         self.assertIn('ENUMERATION" != "adaptive"', text)
-        self.assertIn("generic <=2% plateau stop deferred until the <=2% preferred-shape boundaries are resolved", text)
+        self.assertIn("adaptive local refinement", text)
         self.assertIn('"optimization_wall_seconds"', text)
         self.assertIn('"pipeline_enumeration"', text)
 
