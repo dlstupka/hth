@@ -18,7 +18,7 @@ from hth.domain.execution_shape import (
     runner_match_tier,
     select_preferred_shape,
 )
-from hth.shape_prediction import merge_prediction, predict_shape
+from hth.shape_prediction import merge_prediction, predict_shape, resolve_shape
 from hth.regression.sharding import runner_max_threads
 
 
@@ -301,49 +301,38 @@ def resolve_preferred_shape(
     max_dimension: int,
     profile: RunnerProfile,
 ) -> dict[str, Any] | None:
-    detector, compatible_rows = compatible_optimizer_rows(
+    """Compatibility wrapper for measured/equivalent preferred-shape callers."""
+    detector, rows = compatible_optimizer_rows(
         parallelism_index=parallelism_index,
         detector_config=detector_config,
         golden_set=golden_set,
         max_dimension=max_dimension,
     )
-    if not compatible_rows:
-        return None
-
-    candidates_by_tier: dict[int, list[dict[str, Any]]] = {0: [], 1: []}
-    for row in compatible_rows:
-        tier = _match_tier(row, profile)
-        if tier is not None:
-            candidates_by_tier[tier].append(row)
-
-    selected_tier = next((tier for tier in (0, 1) if candidates_by_tier[tier]), None)
-    if selected_tier is None:
-        return None
-    rows = candidates_by_tier[selected_tier]
-    best = select_preferred_shape(_shape_from_row(row) for row in rows)
-    if not best:
-        return None
-
-    source_names = {0: "exact-runner", 1: "hardware-profile"}
-    legacy_workload = any(
-        not str(row.get("detector_config_sha256") or "").strip()
-        or _as_int(row.get("max_dimension")) is None
-        for row in rows
+    result = resolve_shape(
+        detector=detector,
+        rows=rows,
+        target_runner_name=profile.name,
+        target_runner_label=profile.label,
+        target_cpu_model=profile.cpu_model,
+        target_physical_cores=profile.physical_cores,
+        target_logical_cpus=profile.logical_cpus,
     )
-    source = source_names[selected_tier] + ("-legacy-workload" if legacy_workload else "")
+    if result is None or result.get("relation") == "scaled-vcpu":
+        return None
+    predicted = result["predicted_shape"]
     return {
         "detector": detector,
-        "pipelines": int(best["pipelines"]),
-        "threads_per_pipeline": int(best["threads_per_pipeline"]),
-        "allocated_threads": int(best.get("allocated_threads") or int(best["pipelines"]) * int(best["threads_per_pipeline"])),
-        "parameter_sets_per_second": best.get("parameter_sets_per_second"),
-        "source": source,
+        "pipelines": int(predicted["pipelines"]),
+        "threads_per_pipeline": int(predicted["threads_per_pipeline"]),
+        "allocated_threads": int(predicted["allocated_threads"]),
+        "source": str(result["relation"]),
         "matched_observations": len(rows),
         "runner_name": profile.name,
         "runner_label": profile.label,
         "logical_cpus": profile.logical_cpus,
         "cpu_model": profile.cpu_model,
     }
+
 
 
 def _print_shell(result: dict[str, Any]) -> None:
@@ -543,28 +532,43 @@ def resolve_workflow_shape(
         return {"exact": False, "source": "auto-fallback-all-full-exhaustive", "runner_budget": budget}
 
     detector_config = detector_config_root / f"{detector}.json"
-    preferred = resolve_preferred_shape(
-        parallelism_index=parallelism_index, detector_config=detector_config,
-        golden_set=golden_set, max_dimension=max_dimension, profile=profile,
+    detector_id, optimizer_rows = compatible_optimizer_rows(
+        parallelism_index=parallelism_index,
+        detector_config=detector_config,
+        golden_set=golden_set,
+        max_dimension=max_dimension,
     )
-    if preferred:
-        return exact(
-            int(preferred["pipelines"]), int(preferred["threads_per_pipeline"]),
-            f"preferred-{preferred['source']}",
-        )
-
-    predicted = resolve_predicted_shape(
-        parallelism_index=parallelism_index, predictions_index=predictions_index,
-        detector_config=detector_config, golden_set=golden_set,
-        max_dimension=max_dimension, profile=profile,
+    resolved = resolve_shape(
+        detector=detector_id,
+        rows=optimizer_rows,
+        target_runner_name=profile.name,
+        target_runner_label=profile.label,
+        target_cpu_model=profile.cpu_model,
+        target_physical_cores=profile.physical_cores,
+        target_logical_cpus=profile.logical_cpus,
+        predictions_index=predictions_index,
     )
-    if predicted:
-        if prediction_out:
-            prediction_out.parent.mkdir(parents=True, exist_ok=True)
-            prediction_out.write_text(json.dumps(predicted, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if resolved:
+        predicted = resolved["predicted_shape"]
+        relation = str(resolved.get("relation") or "unknown")
+        source = f"preferred-{relation}" if relation != "scaled-vcpu" else f"predicted-{resolved.get('confidence', 'low')}-linear-vcpu"
+        prediction_file = None
+        if relation == "scaled-vcpu":
+            resolved["workload"] = {
+                "detector_config_sha256": _sha256(detector_config),
+                "golden_set_sha256": _sha256(golden_set),
+                "max_dimension": max_dimension,
+                "mode": "full",
+                "strategy": "exhaustive",
+            }
+            resolved["source"] = source
+            if prediction_out:
+                prediction_out.parent.mkdir(parents=True, exist_ok=True)
+                prediction_out.write_text(json.dumps(resolved, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                prediction_file = prediction_out
         return exact(
             int(predicted["pipelines"]), int(predicted["threads_per_pipeline"]),
-            str(predicted.get("source") or "predicted"), prediction_out,
+            source, prediction_file,
         )
     return {"exact": False, "source": "auto-fallback-no-shape-history", "runner_budget": budget}
 

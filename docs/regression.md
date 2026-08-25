@@ -85,6 +85,7 @@ Timeout policy is mode- and runner-specific:
 
 - Automatic and manually dispatched smoke regressions: 30 minutes.
 - GitHub-hosted full regressions: 360 minutes (6 hours).
+- Full exhaustive regressions with runtime history are automatically bounded toward a 20-minute wall-time target by default; set `full_runtime_target_minutes` to `0` to request an unbounded exhaustive run. Bounded runs remain provisional and do not replace an authoritative complete exhaustive calibration.
 - Self-hosted full regressions: 7200 minutes (5 days).
 
 Progress telemetry reports the metrics for the most recently completed parameter set alongside the best value seen so far for each metric:
@@ -398,14 +399,14 @@ The manual detector-regression selector places `all-without-exhaustive` first. T
 Normal full/exhaustive regression resolves execution shape in this order:
 
 1. **Measured preferred** — use the canonical optimizer preference for the exact runner, or a hardware-equivalent runner profile.
-2. **Predicted** — when no compatible measured preference exists, estimate detector pipelines from that detector's observed preferred pipeline counts versus runner vCPU, estimate useful allocated-thread fraction from the same evidence, and derive threads/pipeline from the detected runner thread budget.
+2. **Predicted** — when no compatible measured preference exists, take the nearest available detector vCPU anchor and linearly scale its preferred pipeline count by target-vCPU/source-vCPU while preserving its useful allocated-thread fraction, and derive threads/pipeline from the detected runner thread budget.
 3. **Auto** — if there is not enough compatible optimizer history to make a responsible detector-specific prediction, use the generic regression planner.
 
 Predicted shapes are explicit execution contracts, just like measured preferred shapes. The run log identifies the source as `predicted-low`, `predicted-moderate`, or `predicted-high`.
 
 Every prediction is saved in `optimizer-predictions.json` with the target runner, predicted shape, evidence vCPU anchors, confidence, and workload hashes. When later optimizer data arrives for the predicted detector/runner profile, optimizer publication verifies the saved prediction against the new canonical preferred shape and records pipeline/thread error. Verified pipeline error is then used as a bounded detector-specific correction for later predictions.
 
-The execution-optimizer report includes shape-prediction coverage for each detector: observed vCPU anchors, readiness, prediction verification counts, and the desired/missing optimizer evidence needed to improve confidence.
+The execution-optimizer report includes shape-prediction coverage for each detector: observed vCPU anchors, readiness, prediction verification counts, and the desired/missing optimizer evidence needed to improve confidence. Cross-runner guesses deliberately use one braindead-simple rule everywhere: pipelines scale directly with vCPU count; exact-runner measurements always supersede the guess.
 
 ### Preferred-shape replay and optimizer startup overhead
 

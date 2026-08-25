@@ -13,7 +13,7 @@ from typing import Any, Iterable
 from hth.optimizer_store import select_preferred_shape
 
 PREDICTION_SCHEMA_VERSION = "1.0"
-PREDICTION_METHOD = "vcpu-shape-interpolation-v1"
+PREDICTION_METHOD = "vcpu-linear-shape-scale-v2"
 
 
 def _as_int(value: Any) -> int | None:
@@ -102,6 +102,13 @@ def preferred_evidence(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _aggregate_by_vcpu(evidence: list[dict[str, Any]]) -> list[dict[str, float]]:
+    """Collapse runner-local winners into simple vCPU anchors.
+
+    Shape prediction deliberately has one scaling rule: pipeline count scales
+    linearly with logical CPU count. Multiple runners at the same vCPU size are
+    reduced to the median pipeline fraction and allocation fraction before the
+    same scaler is applied.
+    """
     grouped: dict[int, list[dict[str, Any]]] = {}
     for item in evidence:
         grouped.setdefault(int(item["logical_cpus"]), []).append(item)
@@ -109,58 +116,159 @@ def _aggregate_by_vcpu(evidence: list[dict[str, Any]]) -> list[dict[str, float]]
     for logical, items in sorted(grouped.items()):
         anchors.append({
             "logical_cpus": float(logical),
-            "pipelines": float(statistics.median(float(item["pipelines"]) for item in items)),
+            "pipeline_fraction": float(statistics.median(float(item["pipelines"]) / logical for item in items)),
             "allocation_fraction": float(statistics.median(float(item["allocation_fraction"]) for item in items)),
+            "runner_count": float(len(items)),
         })
     return anchors
 
 
-def _power_interpolate(x: float, a: dict[str, float], b: dict[str, float], key: str) -> float:
-    """Interpolate/extrapolate in log space; clamp scaling exponent to [0, 1]."""
-    x1, x2 = a["logical_cpus"], b["logical_cpus"]
-    y1, y2 = max(1e-9, a[key]), max(1e-9, b[key])
-    if x1 == x2:
-        return y1
-    exponent = math.log(y2 / y1) / math.log(x2 / x1)
-    exponent = min(1.0, max(0.0, exponent))
-    if x <= x1:
-        return y1 * ((x / x1) ** exponent)
-    if x >= x2:
-        return y2 * ((x / x2) ** exponent)
-    fraction = math.log(x / x1) / math.log(x2 / x1)
-    return math.exp(math.log(y1) + fraction * (math.log(y2) - math.log(y1)))
+def scale_shape_from_anchor(
+    *,
+    source_logical_cpus: int,
+    source_pipelines: float,
+    source_allocation_fraction: float,
+    target_logical_cpus: int,
+) -> dict[str, int]:
+    """Canonical HTH cross-runner shape scaler.
+
+    A shape occupies the same fraction of the target machine as it did on the
+    measured machine. For example 32 pipelines on 192 logical CPUs predicts
+    round(32 * 32 / 192) == 5 pipelines on 32 logical CPUs. Boundary shapes stay
+    boundaries: 1 pipeline remains at least 1 and a max-width shape scales to the
+    target max. Thread allocation preserves the measured allocation fraction.
+    """
+    source_logical = max(1, int(source_logical_cpus))
+    target_logical = max(1, int(target_logical_cpus))
+    target_budget = target_logical * 2
+    pipelines = max(1, int(round(float(source_pipelines) * target_logical / source_logical)))
+    pipelines = min(pipelines, target_logical)
+
+    allocation_fraction = min(1.0, max(0.05, float(source_allocation_fraction)))
+    target_allocated = max(1, min(target_budget, int(round(target_budget * allocation_fraction))))
+    threads = max(1, int(round(target_allocated / pipelines)))
+    if pipelines * threads > target_budget:
+        threads = max(1, target_budget // pipelines)
+    allocated = pipelines * threads
+    return {
+        "pipelines": pipelines,
+        "threads_per_pipeline": threads,
+        "allocated_threads": allocated,
+    }
 
 
-def _linear_interpolate(x: float, a: dict[str, float], b: dict[str, float], key: str) -> float:
-    x1, x2 = a["logical_cpus"], b["logical_cpus"]
-    if x1 == x2:
-        return a[key]
-    fraction = (x - x1) / (x2 - x1)
-    return a[key] + fraction * (b[key] - a[key])
+def _nearest_anchor(anchors: list[dict[str, float]], target_logical_cpus: int) -> dict[str, float]:
+    target = float(max(1, target_logical_cpus))
+    return min(
+        anchors,
+        key=lambda anchor: (
+            abs(math.log(max(1.0, float(anchor["logical_cpus"])) / target)),
+            abs(float(anchor["logical_cpus"]) - target),
+            float(anchor["logical_cpus"]),
+        ),
+    )
 
 
-def _verified_correction(predictions_index: Path | None, detector: str) -> float:
-    if predictions_index is None or not predictions_index.is_file():
-        return 1.0
-    payload = _read_json(predictions_index)
-    ratios: list[float] = []
-    for row in payload.get("predictions", []):
-        if not isinstance(row, dict) or str(row.get("detector_id") or "") != detector:
-            continue
-        verification = row.get("verification")
-        predicted = row.get("predicted_shape")
-        if not isinstance(verification, dict) or not isinstance(predicted, dict):
-            continue
-        actual = verification.get("actual_shape")
-        if not isinstance(actual, dict):
-            continue
-        pp = _as_int(predicted.get("pipelines"))
-        ap = _as_int(actual.get("pipelines"))
-        if pp and ap:
-            ratios.append(ap / pp)
-    if not ratios:
-        return 1.0
-    return min(1.25, max(0.75, float(statistics.median(ratios))))
+def resolve_shape(
+    *,
+    detector: str,
+    rows: Iterable[dict[str, Any]],
+    target_runner_name: str,
+    target_runner_label: str,
+    target_cpu_model: str,
+    target_physical_cores: int | None,
+    target_logical_cpus: int,
+    predictions_index: Path | None = None,
+) -> dict[str, Any] | None:
+    """Resolve one detector shape through the single canonical shape path.
+
+    Exact-runner evidence wins. Hardware-equivalent evidence at the same vCPU
+    size comes next. If neither exists, any collected detector optimizer evidence
+    becomes a simple linearly scaled vCPU anchor. No interpolation curve,
+    verified-correction multiplier, or second scaling policy is applied.
+    """
+    rows = [row for row in rows if isinstance(row, dict)]
+    if not rows:
+        return None
+
+    evidence = preferred_evidence(rows)
+    if not evidence:
+        return None
+
+    normalized_target_model = " ".join(str(target_cpu_model or "").lower().split())
+    exact = [item for item in evidence if str(item.get("runner_name") or "") == str(target_runner_name or "")]
+    if exact:
+        chosen = exact[0]
+        shape = {
+            "pipelines": int(chosen["pipelines"]),
+            "threads_per_pipeline": int(chosen["threads_per_pipeline"]),
+            "allocated_threads": int(chosen["allocated_threads"]),
+        }
+        relation = "exact-runner"
+        confidence = "high"
+        scaled = False
+        anchor = {
+            "logical_cpus": float(chosen["logical_cpus"]),
+            "pipeline_fraction": float(chosen["pipelines"]) / max(1, int(chosen["logical_cpus"])),
+            "allocation_fraction": float(chosen["allocation_fraction"]),
+        }
+    else:
+        hardware = [
+            item for item in evidence
+            if normalized_target_model
+            and str(item.get("cpu_model") or "") == normalized_target_model
+            and int(item.get("logical_cpus") or 0) == int(target_logical_cpus)
+            and (
+                target_physical_cores is None
+                or item.get("physical_cores") is None
+                or int(item.get("physical_cores")) == int(target_physical_cores)
+            )
+        ]
+        pool = hardware if hardware else evidence
+        anchors = _aggregate_by_vcpu(pool)
+        if not anchors:
+            return None
+        anchor = _nearest_anchor(anchors, target_logical_cpus)
+        source_logical = int(anchor["logical_cpus"])
+        source_pipelines = float(anchor["pipeline_fraction"]) * source_logical
+        shape = scale_shape_from_anchor(
+            source_logical_cpus=source_logical,
+            source_pipelines=source_pipelines,
+            source_allocation_fraction=float(anchor["allocation_fraction"]),
+            target_logical_cpus=target_logical_cpus,
+        )
+        relation = "hardware-profile" if hardware else "scaled-vcpu"
+        confidence = "moderate" if hardware or len(anchors) >= 2 else "low"
+        scaled = not bool(hardware)
+
+    created = _now()
+    identity = (
+        f"{detector}|{target_runner_name}|{target_logical_cpus}|"
+        f"{shape['pipelines']}|{shape['threads_per_pipeline']}|{created}"
+    )
+    result = {
+        "prediction_id": hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20],
+        "created_at_utc": created,
+        "detector_id": detector,
+        "method": PREDICTION_METHOD,
+        "relation": relation,
+        "confidence": confidence,
+        "verified_pipeline_correction": 1.0,
+        "target_runner": {
+            "runner_name": target_runner_name,
+            "runner_label": target_runner_label,
+            "cpu_model": target_cpu_model,
+            "physical_core_count": target_physical_cores,
+            "logical_cpu_count": target_logical_cpus,
+            "thread_budget": max(1, target_logical_cpus * 2),
+        },
+        "predicted_shape": shape,
+        "evidence_vcpu_anchors": sorted({int(item["logical_cpus"]) for item in evidence}),
+        "evidence": evidence,
+        "anchor_logical_cpus": int(anchor["logical_cpus"]),
+        "status": "pending" if scaled else "measured-equivalent",
+    }
+    return result
 
 
 def predict_shape(
@@ -174,85 +282,20 @@ def predict_shape(
     target_logical_cpus: int,
     predictions_index: Path | None = None,
 ) -> dict[str, Any] | None:
-    evidence = preferred_evidence(rows)
-    anchors = _aggregate_by_vcpu(evidence)
-    if not anchors:
+    """Backward-compatible prediction API; all math delegates to resolve_shape."""
+    result = resolve_shape(
+        detector=detector,
+        rows=rows,
+        target_runner_name=target_runner_name,
+        target_runner_label=target_runner_label,
+        target_cpu_model=target_cpu_model,
+        target_physical_cores=target_physical_cores,
+        target_logical_cpus=target_logical_cpus,
+        predictions_index=predictions_index,
+    )
+    if result is None or result.get("relation") in {"exact-runner", "hardware-profile"}:
         return None
-
-    target = float(max(1, target_logical_cpus))
-    if len(anchors) == 1:
-        anchor = anchors[0]
-        pipeline_estimate = anchor["pipelines"] * target / anchor["logical_cpus"]
-        allocation_fraction = anchor["allocation_fraction"]
-        relation = "single-anchor-linear-scale"
-    else:
-        lower = max((a for a in anchors if a["logical_cpus"] <= target), key=lambda a: a["logical_cpus"], default=None)
-        upper = min((a for a in anchors if a["logical_cpus"] >= target), key=lambda a: a["logical_cpus"], default=None)
-        if lower is not None and upper is not None and lower is not upper:
-            pipeline_estimate = _power_interpolate(target, lower, upper, "pipelines")
-            allocation_fraction = _linear_interpolate(target, lower, upper, "allocation_fraction")
-            relation = "interpolated"
-        elif lower is None:
-            pipeline_estimate = _power_interpolate(target, anchors[0], anchors[1], "pipelines")
-            allocation_fraction = anchors[0]["allocation_fraction"]
-            relation = "extrapolated-below"
-        elif upper is None:
-            pipeline_estimate = _power_interpolate(target, anchors[-2], anchors[-1], "pipelines")
-            allocation_fraction = anchors[-1]["allocation_fraction"]
-            relation = "extrapolated-above"
-        else:
-            pipeline_estimate = lower["pipelines"]
-            allocation_fraction = lower["allocation_fraction"]
-            relation = "same-vcpu-anchor"
-
-    correction = _verified_correction(predictions_index, detector)
-    pipeline_estimate *= correction
-    pipelines = max(1, int(round(pipeline_estimate)))
-    runner_budget = max(1, target_logical_cpus * 2)
-    target_allocated = max(1, min(runner_budget, int(round(runner_budget * min(1.0, max(0.05, allocation_fraction))))))
-    threads = max(1, int(round(target_allocated / pipelines)))
-    if pipelines * threads > runner_budget:
-        threads = max(1, runner_budget // pipelines)
-    pipelines = min(pipelines, runner_budget)
-    allocated = pipelines * threads
-
-    unique_vcpus = len(anchors)
-    inside_span = anchors[0]["logical_cpus"] <= target <= anchors[-1]["logical_cpus"]
-    if unique_vcpus >= 3 and inside_span:
-        confidence = "high"
-    elif unique_vcpus >= 2:
-        confidence = "moderate"
-    else:
-        confidence = "low"
-
-    created = _now()
-    identity = f"{detector}|{target_runner_name}|{target_logical_cpus}|{pipelines}|{threads}|{created}"
-    prediction_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
-    return {
-        "prediction_id": prediction_id,
-        "created_at_utc": created,
-        "detector_id": detector,
-        "method": PREDICTION_METHOD,
-        "relation": relation,
-        "confidence": confidence,
-        "verified_pipeline_correction": round(correction, 6),
-        "target_runner": {
-            "runner_name": target_runner_name,
-            "runner_label": target_runner_label,
-            "cpu_model": target_cpu_model,
-            "physical_core_count": target_physical_cores,
-            "logical_cpu_count": target_logical_cpus,
-            "thread_budget": runner_budget,
-        },
-        "predicted_shape": {
-            "pipelines": pipelines,
-            "threads_per_pipeline": threads,
-            "allocated_threads": allocated,
-        },
-        "evidence_vcpu_anchors": [int(anchor["logical_cpus"]) for anchor in anchors],
-        "evidence": evidence,
-        "status": "pending",
-    }
+    return result
 
 
 def merge_prediction(predictions_index: Path, prediction: dict[str, Any]) -> dict[str, Any]:

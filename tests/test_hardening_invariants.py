@@ -54,6 +54,55 @@ class HardeningInvariantTests(unittest.TestCase):
             self.assertNotIn("SHARDS", env)
             self.assertEqual(env["HTH_EXACT_EXECUTION_SHAPE"], "1")
 
+    def test_preferred_shape_scales_one_collected_shape_linearly_across_vcpu_sizes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            detector_root = root / "detectors"
+            detector_root.mkdir()
+            detector = detector_root / "example.json"
+            golden = root / "golden.json"
+            detector.write_text(json.dumps({"detector": "example"}), encoding="utf-8")
+            golden.write_text(json.dumps({"pages": []}), encoding="utf-8")
+            detector_sha = __import__("hashlib").sha256(detector.read_bytes()).hexdigest()
+            golden_sha = __import__("hashlib").sha256(golden.read_bytes()).hexdigest()
+            index = root / "parallelism-index.json"
+            index.write_text(json.dumps({"observations": [{
+                "source": "execution-optimizer",
+                "detector_id": "example",
+                "mode": "full",
+                "strategy": "exhaustive",
+                "detector_config_sha256": detector_sha,
+                "golden_set_sha256": golden_sha,
+                "possible_parameter_sets": 100,
+                "actual_parameter_sets": 100,
+                "max_dimension": 1800,
+                "wall_clock_seconds": 10.0,
+                "parameter_sets_per_second": 10.0,
+                "active_pipelines": 32,
+                "shards": 32,
+                "threads_per_pipeline": 12,
+                "allocated_threads": 384,
+                "runner": {
+                    "runner_name": "source-192",
+                    "runner_label": "192t",
+                    "cpu_model": "source cpu",
+                    "physical_core_count": 192,
+                    "logical_cpu_count": 192,
+                },
+            }]}), encoding="utf-8")
+            result = resolve_workflow_shape(
+                shape_mode="preferred", regression_mode="full", strategy="exhaustive",
+                limit="", detector="example", manual_shape="",
+                parallelism_index=index, predictions_index=root/"optimizer-predictions.json",
+                detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
+                profile=RunnerProfile("target-32", "32t", "different cpu", 32, 32),
+                prediction_out=root/"prediction.json", runner_budget=64,
+            )
+            self.assertTrue(result["exact"])
+            self.assertEqual(result["pipelines"], 5)
+            self.assertEqual(result["threads_per_pipeline"], 12)
+            self.assertEqual(result["source"], "predicted-low-linear-vcpu")
+
     def test_authoritative_full_provenance_gates_higher_scoring_smoke(self):
         records = [
             {"status": "authoritative", "search_type": "exhaustive", "created_at_utc": "2026-08-10T01:00:00Z", "mean_iou": 0.5},
