@@ -172,6 +172,17 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn("execution-optimizer/$DETECTOR_ALGORITHM/heatmap.svg", text)
         self.assertNotIn("upload-artifact", text)
 
+
+    def test_optimizer_summary_plot_is_pinned_to_published_results_commit(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        persist = text.index("hth_hardened_persist")
+        commit = text.index('results_commit="$(git -C results-repo rev-parse HEAD)"')
+        summary = text.index('python - "$GITHUB_STEP_SUMMARY"', commit)
+        self.assertLess(persist, commit)
+        self.assertLess(commit, summary)
+        self.assertIn('https://raw.githubusercontent.com/{repository}/{results_commit}/execution-optimizer/{detector}/heatmap.svg', text)
+        self.assertNotIn('raw.githubusercontent.com/{repository}/main/execution-optimizer/{detector}/heatmap.svg?run=', text)
+
     def test_execution_optimizer_resume_reuses_only_completed_compatible_shapes(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("python -m hth.optimizer_resume prepare", text)
