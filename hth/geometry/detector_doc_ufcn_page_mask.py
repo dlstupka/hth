@@ -76,7 +76,9 @@ def _load_model():
             return _MODEL
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
         from doc_ufcn.main import DocUFCN
+        from hth.doc_ufcn_compat import use_modern_torch_autocast
 
+        use_modern_torch_autocast()
         provenance = _provenance()
         classes = list(provenance.get("classes") or ["background", "page"])
         input_size = int(provenance.get("input_size") or 768)
