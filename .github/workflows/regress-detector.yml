@@ -358,6 +358,7 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             indexes/parallelism-index.json
+            execution-optimizer/*/summary.md
           sparse-checkout-cone-mode: false
           persist-credentials: false
           token: ${{ github.event_name != 'pull_request' && secrets.HTH_RESULTS_TOKEN || github.token }}
@@ -489,6 +490,7 @@ jobs:
             runtime-index.json
             indexes/parallelism-index.json
             parallelism-index.json
+            execution-optimizer/*/summary.md
             indexes/multidetector-index.json
             multidetector-index.json
             optimizer-predictions.json

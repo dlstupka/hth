@@ -15,6 +15,7 @@ from hth.optimizer_history import completed_run_records
 from typing import Any
 
 from hth.optimizer_store import build_optimizer_index, render_all_markdown, render_heatmap_svg, render_markdown, select_preferred_shape
+from hth.optimizer_intelligence import legacy_published_optimizer_index
 from hth.write_regression_summary import build_combined_summary
 from hth.domain.calibration import authoritative_record
 from hth.calibration_store import load_index_with_persisted_backfill
@@ -249,86 +250,7 @@ def _completed_run_payload(index: dict[str, Any], detector: str, run_id: str) ->
 
 
 
-def _legacy_completed_index_from_summary(path: Path, detector: str) -> dict[str, Any] | None:
-    """Recover one completed execution profile from a pre-run-id published summary.
 
-    Legacy optimizer reports are completion artifacts but may predate run tagging.
-    Their table can contain historical compatibility rows. Recover only the
-    concrete runner profile with the most measured shapes; never import rows
-    whose runner identity is unknown. The legacy table schema changed over time,
-    so resolve fields by column heading rather than fixed position.
-    """
-    if not path.is_file():
-        return None
-
-    def key(text: str) -> str:
-        return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
-
-    def seconds(text: str) -> float:
-        total = 0.0
-        for value, unit in re.findall(r"(\d+(?:\.\d+)?)\s*([hms])", text):
-            total += float(value) * {"h": 3600.0, "m": 60.0, "s": 1.0}[unit]
-        return total
-
-    header: dict[str, int] | None = None
-    groups: dict[str, list[dict[str, Any]]] = {}
-    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if not raw.startswith("|") or raw.startswith("|---"):
-            continue
-        cells = [cell.strip() for cell in raw.strip().strip("|").split("|")]
-        normalized = [key(cell.replace("**", "")) for cell in cells]
-        if "runner" in normalized and "pipelines" in normalized:
-            header = {name: idx for idx, name in enumerate(normalized)}
-            continue
-        if header is None:
-            continue
-
-        def field(*names: str) -> str:
-            for name in names:
-                idx = header.get(key(name))
-                if idx is not None and idx < len(cells):
-                    return cells[idx].replace("**", "").strip()
-            return ""
-
-        runner = field("runner")
-        if not runner or runner.lower().startswith("unknown"):
-            continue
-        try:
-            pipelines = int(field("pipelines"))
-            shards = int(field("shards"))
-            threads = int(field("threads / pipeline", "threads per pipeline"))
-            allocated = int(field("allocated threads", "allocated"))
-            rate = float(field("sets/s", "parameter sets / second"))
-        except (TypeError, ValueError):
-            continue
-        wall = seconds(field("fastest wall", "wall"))
-        if wall <= 0.0 or rate <= 0.0:
-            continue
-        speedup = None
-        try:
-            speedup = float(field("speedup vs 1 pipeline", "speedup").rstrip("×x"))
-        except ValueError:
-            pass
-        groups.setdefault(runner, []).append({
-            "pipelines": pipelines, "shards": shards,
-            "threads_per_pipeline": threads, "allocated_threads": allocated,
-            "fastest_wall_clock_seconds": wall,
-            "parameter_sets_per_second": rate,
-            "observed_speedup_vs_one_pipeline": speedup,
-            "execution_shape": f"{pipelines}p/{shards}s/{threads}t",
-            "optimizer_shape_sequence": pipelines,
-        })
-    if not groups:
-        return None
-    runner_title, shapes = max(groups.items(), key=lambda item: (len(item[1]), max((x["pipelines"] for x in item[1]), default=0)))
-    shapes.sort(key=lambda shape: shape["pipelines"])
-    best = select_preferred_shape(shapes)
-    return {
-        "schema_version": 1, "detector_id": detector,
-        "optimizer_run_id": "legacy-published", "runner_count": 1,
-        "observation_count": len(shapes), "best_across_runners": best,
-        "runners": [{"runner_title": runner_title, "shapes": shapes, "best_shape": best}],
-    }
 
 def _attach_optimizer_run_metadata(index: dict[str, Any], optimizer: dict[str, Any], detector: str) -> dict[str, Any]:
     runs = optimizer.get("runs") if isinstance(optimizer.get("runs"), dict) else {}
@@ -406,7 +328,7 @@ def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dic
     # published shape table as the final recovery source.  Do not require the
     # SVG: report publication can legitimately replace/regenerate that derived
     # presentation artifact independently of the completion summary.
-    published_current = _legacy_completed_index_from_summary(persisted_summary, detector)
+    published_current = legacy_published_optimizer_index(persisted_summary, detector)
     if published_current is not None and run_id is not None:
         published_current["optimizer_run_id"] = str(run_id)
     if run_id is None and published_current is None:

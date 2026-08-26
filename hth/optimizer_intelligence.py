@@ -95,6 +95,118 @@ def shape_from_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+
+def legacy_published_optimizer_index(path: Path, detector: str) -> dict[str, Any] | None:
+    """Recover completed optimizer evidence from a pre-index published summary."""
+    if not path.is_file():
+        return None
+
+    def key(text: str) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+    def seconds(text: str) -> float:
+        total = 0.0
+        for value, unit in re.findall(r"(\d+(?:\.\d+)?)\s*([hms])", text):
+            total += float(value) * {"h": 3600.0, "m": 60.0, "s": 1.0}[unit]
+        return total
+
+    header: dict[str, int] | None = None
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not raw.startswith("|") or raw.startswith("|---"):
+            continue
+        cells = [cell.strip() for cell in raw.strip().strip("|").split("|")]
+        normalized = [key(cell.replace("**", "")) for cell in cells]
+        if "runner" in normalized and "pipelines" in normalized:
+            header = {name: idx for idx, name in enumerate(normalized)}
+            continue
+        if header is None:
+            continue
+
+        def field(*names: str) -> str:
+            for name in names:
+                idx = header.get(key(name))
+                if idx is not None and idx < len(cells):
+                    return cells[idx].replace("**", "").strip()
+            return ""
+
+        runner = field("runner")
+        if not runner or runner.lower().startswith("unknown"):
+            continue
+        try:
+            pipelines = int(field("pipelines"))
+            shards = int(field("shards") or pipelines)
+            threads = int(field("threads / pipeline", "threads per pipeline"))
+            allocated = int(field("allocated threads", "allocated"))
+            rate = float(field("sets/s", "parameter sets / second"))
+        except (TypeError, ValueError):
+            continue
+        wall = seconds(field("fastest wall", "wall", "shape time"))
+        if wall <= 0.0 or rate <= 0.0:
+            continue
+        speedup = None
+        try:
+            speedup = float(field("speedup vs 1 pipeline", "speedup").rstrip("×x"))
+        except ValueError:
+            pass
+        groups.setdefault(runner, []).append({
+            "pipelines": pipelines, "shards": shards,
+            "threads_per_pipeline": threads, "allocated_threads": allocated,
+            "fastest_wall_clock_seconds": wall, "parameter_sets_per_second": rate,
+            "observed_speedup_vs_one_pipeline": speedup,
+            "execution_shape": f"{pipelines}p/{shards}s/{threads}t",
+            "optimizer_shape_sequence": pipelines,
+        })
+    if not groups:
+        return None
+    runner_title, shapes = max(groups.items(), key=lambda item: (len(item[1]), max((x["pipelines"] for x in item[1]), default=0)))
+    shapes.sort(key=lambda shape: shape["pipelines"])
+    best = select_preferred_shape(shapes)
+    return {
+        "schema_version": 1, "detector_id": detector, "optimizer_run_id": "legacy-published",
+        "runner_count": 1, "observation_count": len(shapes), "best_across_runners": best,
+        "runners": [{"runner_title": runner_title, "shapes": shapes, "best_shape": best}],
+    }
+
+
+def _legacy_summary_optimizer_rows(
+    *, parallelism_index: Path, detector: str, golden_sha256: str, max_dimension: int,
+) -> list[dict[str, Any]]:
+    """Adapt the shared legacy-summary recovery result into intelligence rows."""
+    summary = parallelism_index.parent.parent / "execution-optimizer" / detector / "summary.md"
+    recovered = legacy_published_optimizer_index(summary, detector)
+    if not recovered:
+        return []
+    rows: list[dict[str, Any]] = []
+    for runner_group in recovered.get("runners", []):
+        runner_title = str(runner_group.get("runner_title") or "")
+        capacity = re.match(r"\s*(\d+)t\b", runner_title.lower())
+        logical = int(capacity.group(1)) if capacity else None
+        name_match = re.search(r"—\s*([^()]+?)(?:\s*\(|$)", runner_title)
+        runner_name = name_match.group(1).strip() if name_match else "legacy-published"
+        runner_label = f"{logical}t" if logical else "unknown"
+        for shape in runner_group.get("shapes", []):
+            pipelines = _as_int(shape.get("pipelines")); threads = _as_int(shape.get("threads_per_pipeline"))
+            if not pipelines or not threads:
+                continue
+            rows.append({
+                "source": "execution-optimizer", "detector_id": detector, "mode": "full",
+                "strategy": "exhaustive", "golden_set_sha256": golden_sha256,
+                "possible_parameter_sets": 1, "actual_parameter_sets": 1, "max_dimension": max_dimension,
+                "wall_clock_seconds": shape.get("fastest_wall_clock_seconds"),
+                "parameter_sets_per_second": shape.get("parameter_sets_per_second"),
+                "active_pipelines": pipelines, "shards": _as_int(shape.get("shards")) or pipelines,
+                "threads_per_pipeline": threads,
+                "allocated_threads": _as_int(shape.get("allocated_threads")) or pipelines * threads,
+                "execution_shape": shape.get("execution_shape"), "optimizer_run_id": "legacy-published",
+                "runner": {"runner_label": runner_label,
+                           "runner_labels": (["self-hosted", runner_label] if logical else ["self-hosted"]),
+                           "runner_name": runner_name, "logical_cpu_count": logical},
+                "optimizer_intelligence_recovery": "published-summary",
+            })
+    return rows
+
+
 def compatible_optimizer_rows(
     *,
     parallelism_index: Path,
@@ -140,6 +252,11 @@ def compatible_optimizer_rows(
             and (_as_int(row.get("max_dimension")) in (None, max_dimension))
             and matches(row, str(row.get("detector_config_sha256") or ""))
         ]
+    if not rows:
+        rows = _legacy_summary_optimizer_rows(
+            parallelism_index=parallelism_index, detector=detector,
+            golden_sha256=golden_sha256, max_dimension=max_dimension,
+        )
     return detector, rows
 
 

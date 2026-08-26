@@ -215,5 +215,62 @@ class OptimizerIntelligenceTests(unittest.TestCase):
             self.assertEqual(payload["anchor_logical_cpus"], 32)
 
 
+    def test_dispatch_recovers_legacy_published_summary_when_index_has_no_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            detector_root = root / "detectors"
+            detector = detector_root / "adaptive_radial_edge.json"
+            golden = root / "golden.json"
+            _write_json(detector, {"detector": "adaptive_radial_edge", "optimizer_shape_compatibility": "detector-implementation"})
+            _write_json(golden, {"pages": []})
+            index = root / "indexes" / "parallelism-index.json"
+            _write_json(index, {"observations": []})
+            summary = root / "execution-optimizer" / "adaptive_radial_edge" / "summary.md"
+            summary.parent.mkdir(parents=True)
+            summary.write_text(
+                "| Runner | Pipelines | Threads / pipeline | Allocated | Sets/s | Shape time |\n"
+                "|---|---:|---:|---:|---:|---:|\n"
+                "| 32t — rh8-s32 (32 vCPU) | 22 | 2 | 44 | 74.57 | 1m 28s |\n",
+                encoding="utf-8",
+            )
+            result = resolve_preferred_dispatch(
+                shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
+                detector="adaptive_radial_edge", parallelism_index=index,
+                detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
+                requested_runner="github-hosted", specific_runner="custom", custom_runner_label="192t",
+            )
+            self.assertTrue(result["exact"])
+            self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (132, 2))
+            self.assertEqual(result["source"], "predicted-low-linear-vcpu-dispatch")
+
+    def test_dispatch_uses_same_capacity_legacy_published_summary_as_measured(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            detector_root = root / "detectors"
+            detector = detector_root / "adaptive_multi_scale_radial_edge.json"
+            golden = root / "golden.json"
+            _write_json(detector, {"detector": "adaptive_multi_scale_radial_edge", "optimizer_shape_compatibility": "detector-implementation"})
+            _write_json(golden, {"pages": []})
+            index = root / "indexes" / "parallelism-index.json"
+            _write_json(index, {"observations": []})
+            summary = root / "execution-optimizer" / "adaptive_multi_scale_radial_edge" / "summary.md"
+            summary.parent.mkdir(parents=True)
+            summary.write_text(
+                "| Runner | Pipelines | Threads / pipeline | Allocated | Sets/s | Shape time |\n"
+                "|---|---:|---:|---:|---:|---:|\n"
+                "| 192t — rh8-al319 (192 vCPU) | 48 | 8 | 384 | 24.94 | 6m 41s |\n",
+                encoding="utf-8",
+            )
+            result = resolve_preferred_dispatch(
+                shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
+                detector="adaptive_multi_scale_radial_edge", parallelism_index=index,
+                detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
+                requested_runner="github-hosted", specific_runner="custom", custom_runner_label="192t",
+            )
+            self.assertTrue(result["exact"])
+            self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (48, 8))
+            self.assertEqual(result["source"], "preferred-dispatch-optimizer")
+
+
 if __name__ == "__main__":
     unittest.main()
