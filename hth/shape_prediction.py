@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from hth.optimizer_store import select_preferred_shape
+from hth.domain.execution_shape import select_preferred_shape
 
 PREDICTION_SCHEMA_VERSION = "1.0"
 PREDICTION_METHOD = "vcpu-linear-shape-scale-v2"

@@ -13,12 +13,14 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from hth.domain.multidetector_schedule import preferred_short_schedule, workload_class
-from hth.domain.execution_shape import (
-    optimizer_row_matches_workload,
-    runner_match_tier,
-    select_preferred_shape,
+from hth.optimizer_intelligence import (
+    compatible_optimizer_rows as intelligence_compatible_optimizer_rows,
+    logical_cpus_from_capacity_label,
+    resolve_optimizer_intelligence,
+    resolve_selector_intelligence,
+    runner_from_row as intelligence_runner_from_row,
 )
-from hth.shape_prediction import merge_prediction, predict_shape, resolve_shape
+from hth.shape_prediction import merge_prediction
 from hth.regression.sharding import runner_max_threads
 
 
@@ -105,21 +107,6 @@ _RUNNER_TARGETS: dict[str, list[str]] = {
 }
 
 
-def _runner_labels_from_row(row: dict[str, Any]) -> list[str]:
-    runner = _runner_from_row(row)
-    labels = runner.get("runner_labels")
-    if isinstance(labels, list):
-        clean = [str(value).strip() for value in labels if str(value).strip()]
-        if clean:
-            return clean
-    label = str(runner.get("runner_label") or "").strip()
-    if label in _RUNNER_TARGETS:
-        return list(_RUNNER_TARGETS[label])
-    if label and label not in {"unknown", "github-hosted"}:
-        return ["self-hosted", label]
-    return ["ubuntu-latest"]
-
-
 def _requested_runner_target(
     *, runner: str, specific_runner: str, custom_runner_label: str | None,
 ) -> tuple[list[str], str]:
@@ -137,19 +124,6 @@ def _requested_runner_target(
     labels, label = mapping.get(runner, mapping["github-hosted"])
     return list(labels), label
 
-
-def _row_matches_requested_runner(row: dict[str, Any], requested_labels: list[str]) -> bool:
-    """Reuse optimizer evidence from the requested runner target.
-
-    GitHub accepts partial self-hosted label selectors such as
-    ``["self-hosted", "192t"]`` while persisted optimizer observations record
-    the runner's complete label set (for example Linux/X64 as well).  Treat the
-    dispatch selector as a required subset rather than requiring byte-for-byte
-    label-list equality.
-    """
-    observed = set(_runner_labels_from_row(row))
-    required = {str(value).strip() for value in requested_labels if str(value).strip()}
-    return bool(required) and required.issubset(observed)
 
 def parse_manual_shape(value: str) -> tuple[int, int]:
     text = value.strip().lower().replace(" ", "")
@@ -169,95 +143,21 @@ def parse_manual_shape(value: str) -> tuple[int, int]:
 
 
 def _runner_from_row(row: dict[str, Any]) -> dict[str, Any]:
-    runner = row.get("runner")
-    return runner if isinstance(runner, dict) else {}
+    return intelligence_runner_from_row(row)
 
 
 def _normalize_model(value: Any) -> str:
     return " ".join(str(value or "").lower().split())
 
 
-def _row_matches_workload(
-    row: dict[str, Any], *, detector: str, detector_sha256: str,
-    golden_sha256: str, max_dimension: int,
-) -> bool:
-    return optimizer_row_matches_workload(
-        row, detector=detector, detector_sha256=detector_sha256,
-        golden_sha256=golden_sha256, max_dimension=max_dimension,
-    )
-
-
-def _match_tier(row: dict[str, Any], profile: RunnerProfile) -> int | None:
-    return runner_match_tier(
-        row, name=profile.name, cpu_model=profile.cpu_model,
-        physical_cores=profile.physical_cores, logical_cpus=profile.logical_cpus,
-    )
-
-
-def _shape_from_row(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "execution_shape": row.get("execution_shape"),
-        "pipelines": _as_int(row.get("active_pipelines")),
-        "shards": _as_int(row.get("shards")),
-        "threads_per_pipeline": _as_int(row.get("threads_per_pipeline")),
-        "allocated_threads": _as_int(row.get("allocated_threads")),
-        "fastest_wall_clock_seconds": _as_float(row.get("wall_clock_seconds")),
-        "parameter_sets_per_second": _as_float(row.get("parameter_sets_per_second")),
-        "optimizer_shape_sequence": _as_int(row.get("optimizer_shape_sequence")),
-        "optimizer_run_id": row.get("optimizer_run_id"),
-    }
-
-
-
 def compatible_optimizer_rows(
-    *,
-    parallelism_index: Path,
-    detector_config: Path,
-    golden_set: Path,
-    max_dimension: int,
+    *, parallelism_index: Path, detector_config: Path, golden_set: Path, max_dimension: int,
 ) -> tuple[str, list[dict[str, Any]]]:
-    detector_config_payload = _read_json(detector_config)
-    detector = str(detector_config_payload.get("detector") or detector_config.stem)
-    detector_sha256 = _sha256(detector_config)
-    golden_sha256 = _sha256(golden_set)
-    if not parallelism_index.is_file():
-        return detector, []
-    index = _read_json(parallelism_index)
-    observations = [row for row in index.get("observations", []) if isinstance(row, dict)]
-    rows = [
-        row for row in observations
-        if _row_matches_workload(
-            row,
-            detector=detector,
-            detector_sha256=detector_sha256,
-            golden_sha256=golden_sha256,
-            max_dimension=max_dimension,
-        )
-    ]
-    if rows:
-        return detector, rows
-
-    # Some detector configs explicitly declare that calibration-grid edits do not
-    # change their execution characteristics. This lets preferred execution reuse
-    # optimizer evidence after a parameter-space expansion without weakening the
-    # default config-SHA compatibility rule for other detectors.
-    compatibility = str(detector_config_payload.get("optimizer_shape_compatibility") or "").strip().lower()
-    if compatibility == "detector-implementation":
-        rows = [
-            row for row in observations
-            if row.get("source") == "execution-optimizer"
-            and str(row.get("detector_id") or "") == detector
-            and str(row.get("mode") or "") == "full"
-            and str(row.get("strategy") or "") == "exhaustive"
-            and str(row.get("golden_set_sha256") or "") == golden_sha256
-            and (_as_int(row.get("max_dimension")) in (None, max_dimension))
-            and optimizer_row_matches_workload(
-                row, detector=detector, detector_sha256=str(row.get("detector_config_sha256") or ""),
-                golden_sha256=golden_sha256, max_dimension=max_dimension,
-            )
-        ]
-    return detector, rows
-
+    """Backward-compatible wrapper around shared optimizer intelligence."""
+    return intelligence_compatible_optimizer_rows(
+        parallelism_index=parallelism_index, detector_config=detector_config,
+        golden_set=golden_set, max_dimension=max_dimension,
+    )
 
 def resolve_predicted_shape(
     *,
@@ -276,17 +176,13 @@ def resolve_predicted_shape(
     )
     if not rows:
         return None
-    result = predict_shape(
-        detector=detector,
-        rows=rows,
-        target_runner_name=profile.name,
-        target_runner_label=profile.label,
-        target_cpu_model=profile.cpu_model,
-        target_physical_cores=profile.physical_cores,
-        target_logical_cpus=profile.logical_cpus,
+    result = resolve_optimizer_intelligence(
+        detector=detector, rows=rows, target_runner_name=profile.name,
+        target_runner_label=profile.label, target_cpu_model=profile.cpu_model,
+        target_physical_cores=profile.physical_cores, target_logical_cpus=profile.logical_cpus,
         predictions_index=predictions_index,
     )
-    if result is None:
+    if result is None or result.get("relation") != "scaled-vcpu":
         return None
     predicted = result.get("predicted_shape") if isinstance(result.get("predicted_shape"), dict) else {}
     result["pipelines"] = int(predicted["pipelines"])
@@ -318,14 +214,10 @@ def resolve_preferred_shape(
         golden_set=golden_set,
         max_dimension=max_dimension,
     )
-    result = resolve_shape(
-        detector=detector,
-        rows=rows,
-        target_runner_name=profile.name,
-        target_runner_label=profile.label,
-        target_cpu_model=profile.cpu_model,
-        target_physical_cores=profile.physical_cores,
-        target_logical_cpus=profile.logical_cpus,
+    result = resolve_optimizer_intelligence(
+        detector=detector, rows=rows, target_runner_name=profile.name,
+        target_runner_label=profile.label, target_cpu_model=profile.cpu_model,
+        target_physical_cores=profile.physical_cores, target_logical_cpus=profile.logical_cpus,
     )
     if result is None or result.get("relation") == "scaled-vcpu":
         return None
@@ -409,49 +301,71 @@ def resolve_preferred_dispatch(
         fallback["source"] = "requested-runner-no-preferred-history"
         return fallback
 
-    rows = [row for row in rows if _row_matches_requested_runner(row, requested_labels)]
-    if not rows:
+    target_logical = logical_cpus_from_capacity_label(requested_label)
+    intelligence = resolve_selector_intelligence(
+        detector=detector_id,
+        rows=rows,
+        required_labels=requested_labels,
+        target_runner_label=requested_label,
+        target_logical_cpus=target_logical,
+    )
+    if not intelligence:
         fallback["source"] = "requested-runner-no-compatible-preferred-history"
         return fallback
 
-    best = select_preferred_shape(_shape_from_row(row) for row in rows)
-    if not best:
+    shape = intelligence.get("predicted_shape") if isinstance(intelligence.get("predicted_shape"), dict) else {}
+    pipelines = _as_int(shape.get("pipelines"))
+    threads = _as_int(shape.get("threads_per_pipeline"))
+    allocated = _as_int(shape.get("allocated_threads"))
+    if not pipelines or not threads:
         fallback["source"] = "requested-runner-no-preferred-shape"
         return fallback
-    pipelines = int(best["pipelines"])
-    threads = int(best["threads_per_pipeline"])
-    rate = _as_float(best.get("parameter_sets_per_second"))
-    matching = [
-        row for row in rows
-        if _as_int(row.get("active_pipelines")) == pipelines
-        and _as_int(row.get("threads_per_pipeline")) == threads
-        and (rate is None or _as_float(row.get("parameter_sets_per_second")) == rate)
-    ]
-    if not matching:
-        matching = [
-            row for row in rows
-            if _as_int(row.get("active_pipelines")) == pipelines
-            and _as_int(row.get("threads_per_pipeline")) == threads
-        ]
-    row = matching[0] if matching else rows[0]
-    runner = _runner_from_row(row)
-    runner_label = str(runner.get("runner_label") or "unknown").strip() or "unknown"
-    allocated = int(best.get("allocated_threads") or pipelines * threads)
-    policy_budget = runner_max_threads(runner_label, _as_int(runner.get("logical_cpu_count")))
-    # The optimizer is authoritative evidence that this exact allocation ran on
-    # this runner profile. Preserve at least that measured budget for the replay.
-    budget = max(policy_budget, allocated)
+    allocated = allocated or pipelines * threads
+
+    if intelligence.get("provenance") == "measured":
+        row = intelligence.get("evidence_row") if isinstance(intelligence.get("evidence_row"), dict) else {}
+        runner = _runner_from_row(row)
+        observed_logical = _as_int(runner.get("logical_cpu_count"))
+        policy_budget = runner_max_threads(requested_label, observed_logical)
+        return {
+            "runs_on": requested_labels,
+            "runner_label": requested_label,
+            "runner_name": str(runner.get("runner_name") or runner.get("name") or "preferred"),
+            "exact": True,
+            "pipelines": pipelines,
+            "threads_per_pipeline": threads,
+            "allocated_threads": allocated,
+            "runner_budget": max(policy_budget, allocated),
+            "source": "preferred-dispatch-optimizer",
+            "detector": detector_id,
+            "provenance": "measured",
+        }
+
+    # Before GitHub assigns a concrete machine, capacity labels such as 192t are
+    # enough to make the same linear vCPU projection used inside the job.  Keep
+    # the requested runner target; this is a prediction, not authority to reroute
+    # the job onto the historical source runner.
+    if not target_logical:
+        fallback["source"] = "requested-runner-no-compatible-preferred-history"
+        return fallback
+    budget = runner_max_threads(requested_label, target_logical)
+    if allocated > budget:
+        fallback["source"] = "requested-runner-prediction-exceeds-budget"
+        return fallback
+    confidence = str(intelligence.get("confidence") or "low")
     return {
-        "runs_on": _runner_labels_from_row(row),
-        "runner_label": runner_label,
-        "runner_name": str(runner.get("runner_name") or runner.get("name") or "preferred"),
+        "runs_on": requested_labels,
+        "runner_label": requested_label,
+        "runner_name": "requested",
         "exact": True,
         "pipelines": pipelines,
         "threads_per_pipeline": threads,
         "allocated_threads": allocated,
         "runner_budget": budget,
-        "source": "preferred-dispatch-optimizer",
+        "source": f"predicted-{confidence}-linear-vcpu-dispatch",
         "detector": detector_id,
+        "provenance": "predicted",
+        "anchor_logical_cpus": intelligence.get("anchor_logical_cpus"),
     }
 
 
@@ -500,7 +414,7 @@ def resolve_workflow_shape(
         return result
 
     mode = (shape_mode or "auto").strip().lower()
-    if pre_resolved_pipelines and pre_resolved_threads:
+    if pre_resolved_pipelines and pre_resolved_threads and not str(pre_resolved_source or "").startswith("predicted-"):
         return exact(
             int(pre_resolved_pipelines), int(pre_resolved_threads),
             str(pre_resolved_source or "preferred-dispatch"),
@@ -548,14 +462,10 @@ def resolve_workflow_shape(
         golden_set=golden_set,
         max_dimension=max_dimension,
     )
-    resolved = resolve_shape(
-        detector=detector_id,
-        rows=optimizer_rows,
-        target_runner_name=profile.name,
-        target_runner_label=profile.label,
-        target_cpu_model=profile.cpu_model,
-        target_physical_cores=profile.physical_cores,
-        target_logical_cpus=profile.logical_cpus,
+    resolved = resolve_optimizer_intelligence(
+        detector=detector_id, rows=optimizer_rows, target_runner_name=profile.name,
+        target_runner_label=profile.label, target_cpu_model=profile.cpu_model,
+        target_physical_cores=profile.physical_cores, target_logical_cpus=profile.logical_cpus,
         predictions_index=predictions_index,
     )
     if resolved:
