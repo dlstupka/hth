@@ -63,6 +63,26 @@ class OptimizerSearchTests(unittest.TestCase):
         observations.append(row(10, 97.0))
         self.assertIsNone(adaptive_next_pipeline(1, 64, 64, 1, observations))
 
+
+    def test_adaptive_uses_optimizer_intelligence_seed_before_exploring_bounds(self) -> None:
+        self.assertEqual(
+            adaptive_next_pipeline(1, 192, 384, 1, [], start_pipeline=132),
+            132,
+        )
+        # Once the seed is measured, adaptive is free to expand away from it;
+        # the seed is not treated as a lower or upper search bound.
+        candidate = adaptive_next_pipeline(1, 192, 384, 1, [row(132, 10.0)], start_pipeline=132)
+        self.assertIsNotNone(candidate)
+        self.assertNotEqual(candidate, 132)
+        self.assertGreaterEqual(candidate, 1)
+        self.assertLessEqual(candidate, 192)
+
+    def test_adaptive_clamps_seed_to_manual_override_range(self) -> None:
+        self.assertEqual(
+            adaptive_next_pipeline(50, 100, 384, 1, [], start_pipeline=132),
+            100,
+        )
+
     def test_manual_oversubscription_keeps_shapes_beyond_runner_budget(self) -> None:
         self.assertEqual(
             powers_of_two_pipelines(49, 49, 192, 4, allow_oversubscription=True),

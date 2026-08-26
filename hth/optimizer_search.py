@@ -95,13 +95,14 @@ def adaptive_next_pipeline(
     *,
     near_best_fraction: float = 0.98,
     allow_oversubscription: bool = False,
+    start_pipeline: int | None = None,
 ) -> int | None:
     """Return the next pipeline count for a sparse peak/plateau search.
 
-    The search starts at the lowest and highest cleanly divisible/common shapes
-    when available, then repeatedly refines the interval around the best known
-    throughput.  It is intentionally heuristic: the optimizer's product is a
-    preferred near-best execution region, not a complete curve.
+    When optimizer intelligence supplies a starting pipeline count, adaptive
+    begins there and expands/refines outward across the full legal range.  With
+    no starting hint it preserves the historical common-shape probing behavior.
+    The product is a preferred near-best execution region, not a complete curve.
     """
     legal = legal_pipelines(low, high, budget, thread_min, allow_oversubscription=allow_oversubscription)
     if not legal:
@@ -118,13 +119,21 @@ def adaptive_next_pipeline(
     if not untested:
         return None
 
-    common = _common_shapes(legal, budget)
-    low_probe = common[0] if common else legal[0]
-    high_probe = common[-1] if common else legal[-1]
-    if low_probe in untested:
-        return low_probe
-    if high_probe in untested:
-        return high_probe
+    if start_pipeline is not None:
+        # A persisted measured/predicted shape is only a seed, never a bound.
+        # Clamp it to the legal search domain and measure it first; subsequent
+        # adaptive probes are free to move all the way to either legal edge.
+        start = min(legal, key=lambda value: (abs(value - int(start_pipeline)), value))
+        if start in untested:
+            return start
+    else:
+        common = _common_shapes(legal, budget)
+        low_probe = common[0] if common else legal[0]
+        high_probe = common[-1] if common else legal[-1]
+        if low_probe in untested:
+            return low_probe
+        if high_probe in untested:
+            return high_probe
 
     if not measured:
         return min(untested)
@@ -247,6 +256,7 @@ def _main() -> int:
     parser.add_argument("--runner-budget", type=int, required=True)
     parser.add_argument("--thread-min", type=int, required=True)
     parser.add_argument("--observation-log", type=Path)
+    parser.add_argument("--start-pipeline", type=int)
     parser.add_argument("--allow-oversubscription", action="store_true")
     args = parser.parse_args()
 
@@ -264,6 +274,7 @@ def _main() -> int:
         args.thread_min,
         _read_observations(args.observation_log),
         allow_oversubscription=args.allow_oversubscription,
+        start_pipeline=args.start_pipeline,
     )
     print("" if candidate is None else candidate)
     return 0

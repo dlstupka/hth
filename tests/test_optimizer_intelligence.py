@@ -9,6 +9,7 @@ from pathlib import Path
 from hth.optimizer_intelligence import (
     compatible_optimizer_rows,
     resolve_optimizer_intelligence,
+    resolve_optimizer_start_hint,
     resolve_selector_intelligence,
 )
 from hth.regression_shape import RunnerProfile, resolve_preferred_dispatch, resolve_workflow_shape
@@ -214,6 +215,30 @@ class OptimizerIntelligenceTests(unittest.TestCase):
             self.assertEqual(payload["relation"], "scaled-vcpu")
             self.assertEqual(payload["anchor_logical_cpus"], 32)
 
+
+
+    def test_adaptive_optimizer_start_hint_reuses_shared_cross_vcpu_intelligence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            detector = root / "detectors" / "adaptive_radial_edge.json"
+            golden = root / "golden.json"
+            _write_json(detector, {"detector": "adaptive_radial_edge", "optimizer_shape_compatibility": "detector-implementation"})
+            _write_json(golden, {"pages": []})
+            index = root / "indexes" / "parallelism-index.json"
+            _write_json(index, {"observations": [_row(
+                detector="adaptive_radial_edge", detector_sha=_sha(detector), golden_sha=_sha(golden),
+                runner_name="rh8-s32", runner_label="32t", logical=32, pipelines=22, threads=2, rate=74.57,
+                strategy="critical",
+            )]})
+            hint = resolve_optimizer_start_hint(
+                parallelism_index=index, detector_config=detector, golden_set=golden, max_dimension=1800,
+                target_runner_name="rh8-al321", target_runner_label="192t", target_cpu_model="AMD EPYC",
+                target_physical_cores=192, target_logical_cpus=192,
+            )
+            self.assertIsNotNone(hint)
+            self.assertEqual(hint["pipelines"], 132)
+            self.assertEqual(hint["threads_per_pipeline"], 2)
+            self.assertEqual(hint["provenance"], "predicted")
 
     def test_dispatch_recovers_legacy_published_summary_when_index_has_no_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

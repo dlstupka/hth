@@ -355,3 +355,55 @@ def resolve_selector_intelligence(
         target_physical_cores=None,
         target_logical_cpus=target_logical_cpus,
     )
+
+
+def resolve_optimizer_start_hint(
+    *,
+    parallelism_index: Path,
+    detector_config: Path,
+    golden_set: Path,
+    max_dimension: int,
+    target_runner_name: str,
+    target_runner_label: str,
+    target_cpu_model: str,
+    target_physical_cores: int | None,
+    target_logical_cpus: int,
+) -> dict[str, Any] | None:
+    """Return the best shared-intelligence seed for an adaptive optimizer run.
+
+    The hint is deliberately only a starting point.  Adaptive search remains
+    responsible for exploring the full legal pipeline range and proving the
+    peak/plateau with measured evidence.
+    """
+    detector, rows = compatible_optimizer_rows(
+        parallelism_index=parallelism_index,
+        detector_config=detector_config,
+        golden_set=golden_set,
+        max_dimension=max_dimension,
+    )
+    if not rows:
+        return None
+    result = resolve_optimizer_intelligence(
+        detector=detector,
+        rows=rows,
+        target_runner_name=target_runner_name,
+        target_runner_label=target_runner_label,
+        target_cpu_model=target_cpu_model,
+        target_physical_cores=target_physical_cores,
+        target_logical_cpus=target_logical_cpus,
+    )
+    if not result:
+        return None
+    shape = result.get("predicted_shape") if isinstance(result.get("predicted_shape"), dict) else {}
+    pipelines = _as_int(shape.get("pipelines"))
+    threads = _as_int(shape.get("threads_per_pipeline"))
+    if not pipelines or not threads:
+        return None
+    return {
+        "detector_id": detector,
+        "pipelines": pipelines,
+        "threads_per_pipeline": threads,
+        "relation": str(result.get("relation") or "unknown"),
+        "provenance": str(result.get("provenance") or "unknown"),
+        "confidence": str(result.get("confidence") or "unknown"),
+    }

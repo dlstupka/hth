@@ -32,6 +32,24 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn("allow_thread_oversubscription:", text)
         self.assertIn("Manual exception — allow requested shapes to exceed the detected runner thread budget", text)
 
+
+    def test_adaptive_optimizer_owns_default_bounds_and_uses_intelligence_seed(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('description: "Optional minimum detector pipelines; blank lets adaptive use the legal minimum (1)"', text)
+        self.assertIn('description: "Optional maximum detector pipelines; blank lets adaptive use runner vCPU"', text)
+        self.assertIn('description: "Optional maximum threads per active pipeline; blank lets optimizer use 2× runner vCPU"', text)
+        self.assertIn('[[ -n "$PIPELINE_MIN" ]] || PIPELINE_MIN="1"', text)
+        self.assertIn('[[ -n "$PIPELINE_MAX" ]] || PIPELINE_MAX="$logical_cpus"', text)
+        self.assertIn('[[ -n "$THREAD_MAX" ]] || THREAD_MAX="$((logical_cpus * 2))"', text)
+        self.assertIn('resolve_optimizer_start_hint', text)
+        self.assertIn('--start-pipeline "$ADAPTIVE_START_PIPELINE"', text)
+        self.assertIn('Adaptive start', text)
+
+    def test_execution_optimizer_defaults_benchmark_domain_to_critical(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        strategy = text.split("      strategy:", 1)[1].split("      benchmark_parameter_sets:", 1)[0]
+        self.assertIn("default: critical", strategy)
+
     def test_execution_optimizer_supports_single_or_dispatcher_target_modes(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("- all", text)

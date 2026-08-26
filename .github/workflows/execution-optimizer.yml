@@ -97,14 +97,14 @@ on:
           - powers-of-2
           - adaptive
       pipeline_min:
-        description: Minimum detector pipelines, inclusive
-        required: true
-        default: "1"
+        description: "Optional minimum detector pipelines; blank lets adaptive use the legal minimum (1)"
+        required: false
+        default: ""
         type: string
       pipeline_max:
-        description: Maximum detector pipelines, inclusive
-        required: true
-        default: "192"
+        description: "Optional maximum detector pipelines; blank lets adaptive use runner vCPU"
+        required: false
+        default: ""
         type: string
       thread_min:
         description: Minimum threads per active pipeline
@@ -112,9 +112,9 @@ on:
         default: "1"
         type: string
       thread_max:
-        description: Maximum threads per active pipeline
-        required: true
-        default: "96"
+        description: "Optional maximum threads per active pipeline; blank lets optimizer use 2× runner vCPU"
+        required: false
+        default: ""
         type: string
       allow_thread_oversubscription:
         description: Manual exception — allow requested shapes to exceed the detected runner thread budget
@@ -159,7 +159,7 @@ on:
       strategy:
         description: Regression search strategy
         required: true
-        default: exhaustive
+        default: critical
         type: choice
         options:
           - exhaustive
@@ -887,6 +887,15 @@ jobs:
             )"
           fi
 
+          logical_cpus="$(nproc)"
+          pipeline_min_override="$PIPELINE_MIN"
+          pipeline_max_override="$PIPELINE_MAX"
+          thread_max_override="$THREAD_MAX"
+
+          [[ -n "$PIPELINE_MIN" ]] || PIPELINE_MIN="1"
+          [[ -n "$PIPELINE_MAX" ]] || PIPELINE_MAX="$logical_cpus"
+          [[ -n "$THREAD_MAX" ]] || THREAD_MAX="$((logical_cpus * 2))"
+
           for name in PIPELINE_MIN PIPELINE_MAX THREAD_MIN THREAD_MAX; do
             value="${!name}"
             if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
@@ -905,6 +914,56 @@ jobs:
           if (( THREAD_MAX > 1024 )); then
             echo "::error::Thread maximum cannot exceed detector CLI maximum 1024"
             exit 1
+          fi
+
+          adaptive_start_pipeline=""
+          adaptive_start_source="none"
+          if [[ "$ENUMERATION" == "adaptive" ]]; then
+            start_json="$(PYTHONPATH=hth-pipeline python - "$DETECTOR_ALGORITHM" "$GOLDEN_SET" "$MAX_DIMENSION" <<'PYSTART'
+          import json, os, sys
+          from pathlib import Path
+          from hth.optimizer_intelligence import resolve_optimizer_start_hint
+          from hth.regression_shape import current_runner_profile
+
+          detector = sys.argv[1]
+          golden_set = Path("hth-pipeline") / sys.argv[2]
+          max_dimension = int(sys.argv[3])
+          parallelism = Path("results-repo/indexes/parallelism-index.json")
+          if not parallelism.is_file():
+              parallelism = Path("results-repo/parallelism-index.json")
+          profile = current_runner_profile()
+          try:
+              hint = resolve_optimizer_start_hint(
+                  parallelism_index=parallelism,
+                  detector_config=Path("hth-pipeline/config/detectors") / f"{detector}.json",
+                  golden_set=golden_set,
+                  max_dimension=max_dimension,
+                  target_runner_name=profile.name,
+                  target_runner_label=profile.label,
+                  target_cpu_model=profile.cpu_model,
+                  target_physical_cores=profile.physical_cores,
+                  target_logical_cpus=profile.logical_cpus,
+              )
+          except (OSError, ValueError, json.JSONDecodeError):
+              hint = None
+          print(json.dumps(hint or {}))
+          PYSTART
+            )"
+            adaptive_start_pipeline="$(python - "$start_json" <<'PYSTARTVAL'
+          import json, sys
+          payload = json.loads(sys.argv[1])
+          print(payload.get("pipelines") or "")
+          PYSTARTVAL
+            )"
+            adaptive_start_source="$(python - "$start_json" <<'PYSTARTSRC'
+          import json, sys
+          payload = json.loads(sys.argv[1])
+          relation = payload.get("relation") or "none"
+          provenance = payload.get("provenance") or "none"
+          confidence = payload.get("confidence") or "none"
+          print(f"{provenance}:{relation}:{confidence}" if payload else "none")
+          PYSTARTSRC
+            )"
           fi
 
           if [[ "$ALLOW_THREAD_OVERSUBSCRIPTION" != "true" ]]; then
@@ -934,6 +993,8 @@ jobs:
           echo "pipelines=$pipelines" >> "$GITHUB_OUTPUT"
           echo "thread_min=$THREAD_MIN" >> "$GITHUB_OUTPUT"
           echo "thread_max=$THREAD_MAX" >> "$GITHUB_OUTPUT"
+          echo "adaptive_start_pipeline=$adaptive_start_pipeline" >> "$GITHUB_OUTPUT"
+          echo "adaptive_start_source=$adaptive_start_source" >> "$GITHUB_OUTPUT"
           echo "allow_thread_oversubscription=$ALLOW_THREAD_OVERSUBSCRIPTION" >> "$GITHUB_OUTPUT"
           echo "Execution Optimizer"
           echo "==================="
@@ -941,8 +1002,11 @@ jobs:
           echo "Runner               : $HTH_RUNNER_LABEL"
           echo "Runner thread budget : $budget"
           echo "Pipeline enumeration : $ENUMERATION"
-          echo "Pipeline range       : $PIPELINE_MIN-$PIPELINE_MAX requested"
-          echo "Thread range         : $THREAD_MIN-$THREAD_MAX per pipeline requested"
+          echo "Pipeline range       : $PIPELINE_MIN-$PIPELINE_MAX ($([[ -n "$pipeline_min_override$pipeline_max_override" ]] && echo manual/derived || echo optimizer-owned))"
+          echo "Thread range         : $THREAD_MIN-$THREAD_MAX per pipeline ($([[ -n "$thread_max_override" ]] && echo manual max || echo optimizer-owned max))"
+          if [[ "$ENUMERATION" == "adaptive" ]]; then
+            echo "Adaptive start       : ${adaptive_start_pipeline:-none} (${adaptive_start_source})"
+          fi
           echo "Shapes               : $pipelines"
           echo "Oversubscription     : $ALLOW_THREAD_OVERSUBSCRIPTION"
           if [[ "$ALLOW_THREAD_OVERSUBSCRIPTION" == "true" ]]; then
@@ -965,6 +1029,8 @@ jobs:
           RUNNER_BUDGET: ${{ steps.plan.outputs.runner_budget }}
           THREAD_MIN: ${{ steps.plan.outputs.thread_min }}
           THREAD_MAX: ${{ steps.plan.outputs.thread_max }}
+          ADAPTIVE_START_PIPELINE: ${{ steps.plan.outputs.adaptive_start_pipeline }}
+          ADAPTIVE_START_SOURCE: ${{ steps.plan.outputs.adaptive_start_source }}
           EARLY_STOP: ${{ inputs.early_stop }}
           ENUMERATION: ${{ inputs.pipeline_enumeration }}
           RESUME: ${{ inputs.resume }}
@@ -1029,7 +1095,7 @@ jobs:
           stop_reason="shape_range_complete"
 
           python - "$run_metadata" "$GITHUB_RUN_ID" "$DETECTOR_ALGORITHM" "$HTH_RUNNER_LABEL" "$RUNNER_BUDGET" "$THREAD_MIN" "$THREAD_MAX" "$ENUMERATION" "${{ inputs.sharding }}" "$EARLY_STOP" "$PIPELINE_MIN" "$PIPELINE_MAX" "$resumed_from" "$resumed_shapes" "$ALLOW_THREAD_OVERSUBSCRIPTION" "${{ inputs.benchmark_parameter_sets }}" "${{ inputs.strategy }}" "$optimization_started_epoch" <<'PYMETA'
-          import json, sys
+          import json, os, sys
           from pathlib import Path
           path = Path(sys.argv[1])
           path.write_text(json.dumps({
@@ -1044,6 +1110,8 @@ jobs:
               "early_stop_enabled": sys.argv[10].lower() == "true",
               "pipeline_min": int(sys.argv[11]),
               "pipeline_max": int(sys.argv[12]),
+              "adaptive_start_pipeline": int(os.environ["ADAPTIVE_START_PIPELINE"]) if os.environ.get("ADAPTIVE_START_PIPELINE") else None,
+              "adaptive_start_source": os.environ.get("ADAPTIVE_START_SOURCE") or None,
               "resumed_from_optimizer_run_id": sys.argv[13] or None,
               "resumed_shape_count": int(sys.argv[14]),
               "allow_thread_oversubscription": sys.argv[15].lower() == "true",
@@ -1059,6 +1127,8 @@ jobs:
           candidate_index=0
           while true; do
             if [[ "$ENUMERATION" == "adaptive" ]]; then
+              start_args=()
+              [[ -z "${ADAPTIVE_START_PIPELINE:-}" ]] || start_args+=(--start-pipeline "$ADAPTIVE_START_PIPELINE")
               pipelines="$(python -m hth.optimizer_search \
                 --mode adaptive \
                 --pipeline-min "$PIPELINE_MIN" \
@@ -1066,6 +1136,7 @@ jobs:
                 --runner-budget "$RUNNER_BUDGET" \
                 --thread-min "$THREAD_MIN" \
                 --observation-log "$observation_log" \
+                "${start_args[@]}" \
                 $([[ "$ALLOW_THREAD_OVERSUBSCRIPTION" == "true" ]] && printf '%s' '--allow-oversubscription'))"
               if [[ -z "$pipelines" ]]; then
                 stop_reason="adaptive_search_complete"
