@@ -135,10 +135,9 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn('Exact shape requested ${THREADS} threads/pipeline but regression executor resolved', text)
         self.assertIn('effective_pipelines="$requested_pipelines"', text)
         self.assertIn('planned_shards="$effective_pipelines"', text)
-        self.assertIn('exhaustive_shardable=0', text)
-        self.assertIn('planned_shards=1', text)
-        self.assertIn('non-exhaustive-single-shard', text)
-        self.assertIn('Full unlimited exhaustive work may replay an exact optimizer/preferred', text)
+        self.assertIn('auto-one-shard-per-pipeline', text)
+        self.assertIn('binary-refine-single-shard', text)
+        self.assertIn('multi-detector-single-shard', text)
         self.assertIn('Exact execution shape requested ${requested_pipelines} pipelines but executor resolved', text)
 
 

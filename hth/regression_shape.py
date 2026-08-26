@@ -139,8 +139,17 @@ def _requested_runner_target(
 
 
 def _row_matches_requested_runner(row: dict[str, Any], requested_labels: list[str]) -> bool:
-    """Reuse optimizer evidence only from the runner target requested for this run."""
-    return _runner_labels_from_row(row) == requested_labels
+    """Reuse optimizer evidence from the requested runner target.
+
+    GitHub accepts partial self-hosted label selectors such as
+    ``["self-hosted", "192t"]`` while persisted optimizer observations record
+    the runner's complete label set (for example Linux/X64 as well).  Treat the
+    dispatch selector as a required subset rather than requiring byte-for-byte
+    label-list equality.
+    """
+    observed = set(_runner_labels_from_row(row))
+    required = {str(value).strip() for value in requested_labels if str(value).strip()}
+    return bool(required) and required.issubset(observed)
 
 def parse_manual_shape(value: str) -> tuple[int, int]:
     text = value.strip().lower().replace(" ", "")

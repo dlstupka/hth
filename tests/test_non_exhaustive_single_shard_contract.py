@@ -5,21 +5,21 @@ ROOT = Path(__file__).resolve().parents[1]
 DRIVER = (ROOT / "tools" / "run-detector-regressions.sh").read_text(encoding="utf-8")
 
 
-class NonExhaustiveSingleShardContractTests(unittest.TestCase):
-    def test_auto_sharding_forces_non_exhaustive_detector_work_to_one_shard(self):
-        self.assertIn('exhaustive_shardable=0', DRIVER)
-        self.assertIn('[[ "$REGRESSION_MODE" == "full" ]]', DRIVER)
-        self.assertIn('[[ -z "${effective_limit:-}" ]]', DRIVER)
-        self.assertIn('[[ "$effective_strategy" == "exhaustive-with-zombies" ]]', DRIVER)
-        self.assertIn('if (( exhaustive_shardable == 0 )); then', DRIVER)
-        self.assertIn('planned_shards=1', DRIVER)
-        self.assertIn('plan_source="non-exhaustive-single-shard"', DRIVER)
+class AutomaticShardTopologyContractTests(unittest.TestCase):
+    def test_single_detector_auto_sharding_tracks_active_pipelines(self):
+        self.assertIn('elif (( detector_count == 1 )); then', DRIVER)
+        self.assertIn('planned_shards="$effective_pipelines"', DRIVER)
+        self.assertIn('plan_source="auto-one-shard-per-pipeline"', DRIVER)
+        self.assertIn('auto-one-shard-per-pipeline-capped-to-parameter-space', DRIVER)
 
-    def test_exact_shape_shard_fanout_is_limited_to_full_unlimited_exhaustive(self):
-        non_exhaustive = DRIVER.index('if (( exhaustive_shardable == 0 )); then')
-        exact = DRIVER.index('elif [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]', non_exhaustive)
-        self.assertLess(non_exhaustive, exact)
-        self.assertIn('&& "${exhaustive_shardable:-0}" == "1"', DRIVER)
+    def test_manual_override_remains_shards_per_pipeline(self):
+        self.assertIn('planned_shards=$((shard_pipeline_count * sharding_policy))', DRIVER)
+        self.assertIn('explicit-${sharding_policy}-shards-per-pipeline', DRIVER)
+
+    def test_unshardable_and_multidetector_work_keep_safe_exceptions(self):
+        self.assertIn('[[ "$effective_strategy" == "binary-refine" ]]', DRIVER)
+        self.assertIn('plan_source="binary-refine-single-shard"', DRIVER)
+        self.assertIn('plan_source="multi-detector-single-shard"', DRIVER)
 
 
 if __name__ == "__main__":

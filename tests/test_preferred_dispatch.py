@@ -77,6 +77,57 @@ class PreferredDispatchTests(unittest.TestCase):
             self.assertEqual(result["source"], "requested-runner-no-compatible-preferred-history")
 
 
+
+    def test_custom_capacity_label_matches_persisted_full_runner_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            detector_root = root / "detectors"
+            detector = detector_root / "adaptive_multi_scale_radial_edge.json"
+            golden = root / "golden.json"
+            _write_json(detector, {
+                "detector": "adaptive_multi_scale_radial_edge",
+                "optimizer_shape_compatibility": "detector-implementation",
+            })
+            _write_json(golden, {"pages": []})
+            row = {
+                "source": "execution-optimizer",
+                "detector_id": "adaptive_multi_scale_radial_edge",
+                "mode": "full",
+                "strategy": "exhaustive",
+                "detector_config_sha256": _sha(detector),
+                "golden_set_sha256": _sha(golden),
+                "possible_parameter_sets": 25001,
+                "actual_parameter_sets": 25001,
+                "max_dimension": 1800,
+                "wall_clock_seconds": 401.0,
+                "parameter_sets_per_second": 24.94,
+                "active_pipelines": 48,
+                "shards": 48,
+                "threads_per_pipeline": 8,
+                "allocated_threads": 384,
+                "runner": {
+                    "runner_label": "192t",
+                    "runner_name": "rh8-al319",
+                    "runner_labels": ["self-hosted", "Linux", "X64", "192t"],
+                    "logical_cpu_count": 192,
+                },
+            }
+            index = root / "parallelism-index.json"
+            _write_json(index, {"observations": [row]})
+
+            result = resolve_preferred_dispatch(
+                shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
+                detector="adaptive_multi_scale_radial_edge", parallelism_index=index,
+                detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
+                requested_runner="self-hosted-rhel8", specific_runner="custom",
+                custom_runner_label="192t",
+            )
+
+            self.assertTrue(result["exact"])
+            self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (48, 8))
+            self.assertEqual(result["runner_label"], "192t")
+            self.assertEqual(result["source"], "preferred-dispatch-optimizer")
+
     def test_capacity_runner_budget_preserves_free_threads_for_preferred_shape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

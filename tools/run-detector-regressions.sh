@@ -258,27 +258,41 @@ PYPLAN
   fi
 
   if [[ "$sharding_policy" == "auto" ]]; then
-    exhaustive_shardable=0
-    if [[ "$REGRESSION_MODE" == "full" ]] \
-      && [[ -z "${effective_limit:-}" ]] \
-      && { [[ "$effective_strategy" == "exhaustive" ]] || [[ "$effective_strategy" == "exhaustive-with-zombies" ]]; }; then
-      exhaustive_shardable=1
-    fi
-
-    if (( exhaustive_shardable == 0 )); then
-      # Non-exhaustive work is deliberately one shard per detector. Detector
-      # pipelines are workers that consume independent detector tasks; they are
-      # not a reason to replicate a smoke/contracted search across N shards.
+    if [[ "$effective_strategy" == "binary-refine" ]]; then
+      # Binary refinement is sequential by definition and cannot be partitioned
+      # into independent shards.
       planned_shards=1
-      plan_source="non-exhaustive-single-shard"
-    elif [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
-      # Full unlimited exhaustive work may replay an exact optimizer/preferred
-      # shape with one shard per requested active pipeline.
+      plan_source="binary-refine-single-shard"
+    elif (( detector_count == 1 )); then
+      # A single-detector run uses one work shard per active pipeline by
+      # default.  This keeps the work topology aligned with the execution
+      # shape chosen by the optimizer/planner instead of deriving an unrelated
+      # shard count from a coarse runtime estimate.
       planned_shards="$effective_pipelines"
-      serial_estimate="unknown"
-      plan_source="${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-optimizer}-one-shard-per-pipeline"
+      possible_shards="$(python - "$detector_config" <<'PYSHARDCAP'
+import json, sys
+from pathlib import Path
+from hth.regression.strategies.cartesian import generate
+config = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(max(1, len(generate(config))))
+PYSHARDCAP
+      )"
+      if (( planned_shards > possible_shards )); then
+        planned_shards="$possible_shards"
+        plan_source="auto-one-shard-per-pipeline-capped-to-parameter-space"
+      else
+        plan_source="auto-one-shard-per-pipeline"
+      fi
+      if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
+        serial_estimate="unknown"
+        plan_source="${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-optimizer}-${plan_source}"
+      fi
     else
-      planned_shards="$auto_planned_shards"
+      # In multi-detector runs the active pipelines are detector workers, so
+      # each detector remains one task; multiplying every detector by the full
+      # worker count would overshard the aggregate queue.
+      planned_shards=1
+      plan_source="multi-detector-single-shard"
     fi
   else
     shard_pipeline_count="$effective_pipelines"

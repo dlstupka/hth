@@ -146,7 +146,7 @@ on:
         default: ""
         type: string
       sharding:
-        description: "Sharding: auto uses runtime-based planning; a positive integer assigns that many shards per active pipeline"
+        description: "Sharding: auto uses one shard per active pipeline for single-detector runs; a positive integer explicitly assigns that many shards per active pipeline"
         required: true
         default: auto
         type: string
