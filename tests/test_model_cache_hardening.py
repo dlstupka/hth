@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from hth.detector_lifecycle import (
     ORLI_MODEL_ID,
+    ORLI_MODEL_SOURCES,
     ORLI_PACKAGE_VERSION,
     _download,
     _prepare_orli_page_mask_hook,
@@ -112,6 +113,33 @@ class ModelCacheHardeningTests(unittest.TestCase):
             self.assertIn("Model cache invalid", log)
             self.assertIn("action=refetch-artifact", log)
             self.assertIn("orli_page_mask", log)
+
+    def test_orli_download_falls_back_and_records_selected_source(self):
+        with tempfile.TemporaryDirectory() as temp:
+            results_root = Path(temp) / "results"
+            calls = []
+
+            def fake_download(url, target, *, validator=None):
+                calls.append(url)
+                if url == ORLI_MODEL_SOURCES[0].url:
+                    raise OSError("synthetic primary outage")
+                _write_safetensors(Path(target), b"fallback")
+                if validator is not None:
+                    validator(target)
+
+            with (
+                patch("hth.detector_lifecycle.importlib.util.find_spec", return_value=object()),
+                patch("hth.detector_lifecycle.importlib.metadata.version", return_value=ORLI_PACKAGE_VERSION),
+                patch("hth.detector_lifecycle._download", side_effect=fake_download),
+            ):
+                payload = _prepare_orli_page_mask_hook(
+                    results_root=results_root, policy="refresh", env_file=None
+                )
+
+            self.assertEqual(calls, [ORLI_MODEL_SOURCES[0].url, ORLI_MODEL_SOURCES[1].url])
+            self.assertEqual(payload["model_source_site"], ORLI_MODEL_SOURCES[1].site)
+            self.assertEqual(payload["model_url"], ORLI_MODEL_SOURCES[1].url)
+            self.assertEqual(len(payload["registered_model_sources"]), 3)
 
 
 if __name__ == "__main__":

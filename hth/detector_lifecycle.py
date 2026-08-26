@@ -29,6 +29,23 @@ ORLI_PACKAGE_VERSION="0.0.2"
 ORLI_MODEL_ID="orli-base-2026"
 ORLI_MODEL_URL="https://zenodo.org/records/20558179/files/orli_base.safetensors?download=1"
 ORLI_MODEL_DOI="10.5281/zenodo.20558179"
+ORLI_MODEL_SOURCES=(
+    ModelSource(
+        site="Zenodo record download",
+        url=ORLI_MODEL_URL,
+        reference=ORLI_MODEL_DOI,
+    ),
+    ModelSource(
+        site="Zenodo API content",
+        url="https://zenodo.org/api/records/20558179/files/orli_base.safetensors/content",
+        reference=ORLI_MODEL_DOI,
+    ),
+    ModelSource(
+        site="Zenodo legacy record download",
+        url="https://zenodo.org/record/20558179/files/orli_base.safetensors?download=1",
+        reference=ORLI_MODEL_DOI,
+    ),
+)
 
 DOC_UFCN_REPOSITORY="https://github.com/johnlockejrr/doc-ufcn"
 DOC_UFCN_LICENSE="BSD-3-Clause"
@@ -186,8 +203,15 @@ def _log_cache_repair(*,detector,artifact,path,reason):
     )
 
 
+MODEL_DOWNLOAD_SOURCE_LIMIT=3
+
 def _download_from_sources(sources, target, *, artifact, variant, validator=None):
     sources=tuple(sources or ())
+    if len(sources) > MODEL_DOWNLOAD_SOURCE_LIMIT:
+        raise ValueError(
+            f"{variant} registered {len(sources)} {artifact} download sources; "
+            f"maximum is {MODEL_DOWNLOAD_SOURCE_LIMIT}"
+        )
     if not sources:
         raise RuntimeError(f"{variant} has no registered {artifact} download sources")
     failures=[]
@@ -678,12 +702,21 @@ def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
     complete=model.is_file() and provenance.is_file() and model_problem is None
     if policy=="refresh" or not complete:
         root.mkdir(parents=True,exist_ok=True)
-        _download(ORLI_MODEL_URL,model)
+        model_source=_download_from_sources(
+            ORLI_MODEL_SOURCES, model, artifact="model", variant="orli_page_mask",
+            validator=_validate_safetensors_file,
+        )
         payload={
-            "schema_version":"1.0", "model_id":ORLI_MODEL_ID, "model_family":"Orli",
+            "schema_version":"1.1", "model_id":ORLI_MODEL_ID, "model_family":"Orli",
             "variant":"2026 high-resolution historical-document base model",
             "orli_version":installed_version, "upstream_repository":ORLI_REPOSITORY,
             "model_doi":ORLI_MODEL_DOI, "license":ORLI_LICENSE,
+            "model_url":model_source["url"], "model_source_site":model_source["site"],
+            "model_source_reference":model_source.get("reference"),
+            "registered_model_sources":[
+                {"site":source.site,"url":source.url,"reference":source.reference}
+                for source in ORLI_MODEL_SOURCES
+            ],
             "model_filename":model.name, "model_sha256":_sha256(model),
             "prepared_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),
             "inference_backend":"orli.pred.segment", "serving_contract":"PIL image -> ordered baseline segmentation",

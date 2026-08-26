@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from hth.detector_lifecycle import _download_from_sources
+from hth.detector_lifecycle import MODEL_DOWNLOAD_SOURCE_LIMIT, _download_from_sources
 from hth.model_variants import ModelSource
 
 
@@ -68,6 +68,17 @@ class ModelDownloadFallbackTests(unittest.TestCase):
 
         self.assertIn("site=one", stdout.getvalue())
         self.assertEqual(stderr.getvalue(), "")
+
+    def test_source_count_is_bounded_to_three(self):
+        sources = tuple(
+            ModelSource(f"site-{index}", f"https://site-{index}.invalid/model")
+            for index in range(MODEL_DOWNLOAD_SOURCE_LIMIT + 1)
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(ValueError, "maximum is 3"):
+                _download_from_sources(
+                    sources, Path(temp) / "model.pth", artifact="model", variant="too_many"
+                )
 
 
 if __name__ == "__main__":
