@@ -4,6 +4,15 @@ import math
 from typing import Any, Iterable
 
 PREFERRED_SHAPE_RATE_DECIMALS = 2
+DETERMINISTIC_OPTIMIZER_STRATEGIES = frozenset({
+    "exhaustive",
+    "exhaustive-with-zombies",
+    "non-dormant",
+    "low+",
+    "moderate+",
+    "important+",
+    "critical",
+})
 
 
 def as_int(value: Any) -> int | None:
@@ -57,7 +66,9 @@ def optimizer_row_matches_workload(
         return False
     if str(row.get("detector_id") or "") != detector:
         return False
-    if str(row.get("mode") or "") != "full" or str(row.get("strategy") or "") != "exhaustive":
+    if str(row.get("mode") or "") != "full":
+        return False
+    if str(row.get("strategy") or "") not in DETERMINISTIC_OPTIMIZER_STRATEGIES:
         return False
     row_detector_sha = str(row.get("detector_config_sha256") or "").strip()
     if row_detector_sha and row_detector_sha != detector_sha256:

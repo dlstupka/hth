@@ -24,12 +24,13 @@ def _write_json(path: Path, payload: dict) -> None:
 
 
 def _row(*, detector: str, detector_sha: str, golden_sha: str, runner_name: str,
-         runner_label: str, logical: int, pipelines: int, threads: int, rate: float) -> dict:
+         runner_label: str, logical: int, pipelines: int, threads: int, rate: float,
+         strategy: str = "exhaustive") -> dict:
     return {
         "source": "execution-optimizer",
         "detector_id": detector,
         "mode": "full",
-        "strategy": "exhaustive",
+        "strategy": strategy,
         "detector_config_sha256": detector_sha,
         "golden_set_sha256": golden_sha,
         "possible_parameter_sets": 100,
@@ -119,6 +120,65 @@ class OptimizerIntelligenceTests(unittest.TestCase):
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (132, 2))
             self.assertEqual(result["runner_budget"], 384)
             self.assertEqual(result["source"], "predicted-low-linear-vcpu-dispatch")
+
+
+    def test_dispatch_accepts_completed_deterministic_optimizer_strategy_for_exact_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            detector_root = root / "detectors"
+            detector = detector_root / "adaptive_multi_scale_radial_edge.json"
+            golden = root / "golden.json"
+            _write_json(detector, {
+                "detector": "adaptive_multi_scale_radial_edge",
+                "optimizer_shape_compatibility": "detector-implementation",
+            })
+            _write_json(golden, {"pages": []})
+            row = _row(
+                detector="adaptive_multi_scale_radial_edge", detector_sha="older-grid",
+                golden_sha=_sha(golden), runner_name="rh8-al319", runner_label="192t",
+                logical=192, pipelines=48, threads=8, rate=24.94, strategy="critical",
+            )
+            index = root / "parallelism-index.json"
+            _write_json(index, {"observations": [row]})
+
+            result = resolve_preferred_dispatch(
+                shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
+                detector="adaptive_multi_scale_radial_edge", parallelism_index=index,
+                detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
+                requested_runner="github-hosted", specific_runner="custom", custom_runner_label="192t",
+            )
+            self.assertTrue(result["exact"])
+            self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (48, 8))
+            self.assertEqual(result["provenance"], "measured")
+
+    def test_dispatch_projects_completed_deterministic_strategy_across_vcpu(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            detector_root = root / "detectors"
+            detector = detector_root / "adaptive_radial_edge.json"
+            golden = root / "golden.json"
+            _write_json(detector, {
+                "detector": "adaptive_radial_edge",
+                "optimizer_shape_compatibility": "detector-implementation",
+            })
+            _write_json(golden, {"pages": []})
+            row = _row(
+                detector="adaptive_radial_edge", detector_sha="older-grid",
+                golden_sha=_sha(golden), runner_name="rh8-s32", runner_label="32t", logical=32,
+                pipelines=22, threads=2, rate=74.57, strategy="important+",
+            )
+            index = root / "parallelism-index.json"
+            _write_json(index, {"observations": [row]})
+
+            result = resolve_preferred_dispatch(
+                shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
+                detector="adaptive_radial_edge", parallelism_index=index,
+                detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
+                requested_runner="github-hosted", specific_runner="custom", custom_runner_label="192t",
+            )
+            self.assertTrue(result["exact"])
+            self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (132, 2))
+            self.assertEqual(result["provenance"], "predicted")
 
     def test_predicted_dispatch_is_re_resolved_on_concrete_runner_and_writes_prediction(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

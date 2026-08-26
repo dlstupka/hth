@@ -17,7 +17,7 @@ from hth.optimizer_history import completed_run_records, persist_completed_run
 from typing import Any, Iterable
 
 from hth.contracts import OPTIMIZER_INDEX_SCHEMA_VERSION, adapt_optimizer_index
-from hth.domain.execution_shape import select_preferred_shape
+from hth.domain.execution_shape import DETERMINISTIC_OPTIMIZER_STRATEGIES, select_preferred_shape
 
 
 
@@ -126,16 +126,7 @@ def _comparable(rows: Iterable[dict[str, Any]], detector_id: str, optimizer_run_
         if row.get("mode") != "full":
             continue
         strategy = str(row.get("strategy") or "")
-        deterministic_strategies = {
-            "exhaustive",
-            "exhaustive-with-zombies",
-            "non-dormant",
-            "low+",
-            "moderate+",
-            "important+",
-            "critical",
-        }
-        if strategy not in deterministic_strategies:
+        if strategy not in DETERMINISTIC_OPTIMIZER_STRATEGIES:
             continue
         actual_sets = _as_int(row.get("actual_parameter_sets"))
         possible_sets = _as_int(row.get("possible_parameter_sets"))

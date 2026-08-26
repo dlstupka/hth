@@ -14,7 +14,11 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
-from hth.domain.execution_shape import optimizer_row_matches_workload, select_preferred_shape
+from hth.domain.execution_shape import (
+    DETERMINISTIC_OPTIMIZER_STRATEGIES,
+    optimizer_row_matches_workload,
+    select_preferred_shape,
+)
 from hth.shape_prediction import resolve_shape
 
 
@@ -131,7 +135,7 @@ def compatible_optimizer_rows(
             if row.get("source") == "execution-optimizer"
             and str(row.get("detector_id") or "") == detector
             and str(row.get("mode") or "") == "full"
-            and str(row.get("strategy") or "") == "exhaustive"
+            and str(row.get("strategy") or "") in DETERMINISTIC_OPTIMIZER_STRATEGIES
             and str(row.get("golden_set_sha256") or "") == golden_sha256
             and (_as_int(row.get("max_dimension")) in (None, max_dimension))
             and matches(row, str(row.get("detector_config_sha256") or ""))
