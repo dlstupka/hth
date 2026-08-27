@@ -342,6 +342,52 @@ class OptimizerIntelligenceTests(unittest.TestCase):
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (48, 8))
             self.assertEqual(result["source"], "preferred-dispatch-optimizer")
 
+    def test_selector_does_not_let_host_incomplete_legacy_row_outrank_characterized_runner(self) -> None:
+        complete = _row(
+            detector="signed_polar_boundary_vote", detector_sha="sha", golden_sha="gold",
+            runner_name="rh8-a1328", runner_label="192t", logical=192,
+            pipelines=11, threads=34, rate=64.0, strategy="critical",
+        )
+        legacy = _row(
+            detector="signed_polar_boundary_vote", detector_sha="sha", golden_sha="gold",
+            runner_name="rh8-a1319", runner_label="192t", logical=192,
+            pipelines=40, threads=9, rate=87.48, strategy="exhaustive",
+        )
+        legacy["runner"].pop("cpu_model")
+        legacy["runner"].pop("physical_core_count")
+        result = resolve_selector_intelligence(
+            detector="signed_polar_boundary_vote", rows=[legacy, complete],
+            required_labels=["self-hosted", "192t"],
+            target_runner_label="192t", target_logical_cpus=192,
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(result["predicted_shape"]["pipelines"], 11)
+        self.assertEqual(result["predicted_shape"]["threads_per_pipeline"], 34)
+        self.assertEqual(result["matched_observations"], 1)
+
+    def test_incomplete_same_vcpu_history_is_not_hardware_equivalent(self) -> None:
+        complete = _row(
+            detector="signed_polar_boundary_vote", detector_sha="sha", golden_sha="gold",
+            runner_name="rh8-a1328", runner_label="192t", logical=192,
+            pipelines=11, threads=34, rate=64.0, strategy="critical",
+        )
+        legacy = _row(
+            detector="signed_polar_boundary_vote", detector_sha="sha", golden_sha="gold",
+            runner_name="rh8-a1319", runner_label="192t", logical=192,
+            pipelines=40, threads=9, rate=87.48, strategy="exhaustive",
+        )
+        legacy["runner"].pop("cpu_model")
+        legacy["runner"].pop("physical_core_count")
+        result = resolve_optimizer_intelligence(
+            detector="signed_polar_boundary_vote", rows=[legacy, complete],
+            target_runner_name="rh8-new", target_runner_label="192t",
+            target_cpu_model="AMD EPYC", target_physical_cores=192, target_logical_cpus=192,
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(result["relation"], "hardware-profile")
+        self.assertEqual(result["predicted_shape"]["pipelines"], 11)
+        self.assertEqual(result["predicted_shape"]["threads_per_pipeline"], 34)
+
 
 if __name__ == "__main__":
     unittest.main()

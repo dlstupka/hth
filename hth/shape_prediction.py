@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from hth.domain.execution_shape import select_preferred_shape
+from hth.persistence import load_index_path, write_index, index_results_root
 
 PREDICTION_SCHEMA_VERSION = "1.0"
 PREDICTION_METHOD = "vcpu-linear-shape-scale-v2"
@@ -57,11 +58,18 @@ def _legacy_prediction_path(path: Path) -> Path | None:
 
 
 def _read_prediction_payload(path: Path) -> dict[str, Any]:
-    payload = _read_json(path)
-    if payload:
-        return payload
-    legacy = _legacy_prediction_path(path)
-    return _read_json(legacy) if legacy is not None else {}
+    path = Path(path)
+    if path.name == "optimizer-predictions.json":
+        return load_index_path(path, "optimizer-predictions.json")
+    return _read_json(path)
+
+
+def _write_prediction_payload(path: Path, payload: dict[str, Any]) -> None:
+    path = Path(path)
+    if path.name == "optimizer-predictions.json":
+        write_index(index_results_root(path), "optimizer-predictions.json", payload)
+        return
+    _write_json(path, payload)
 
 
 def _shape_from_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -86,8 +94,23 @@ def _runner_key(row: dict[str, Any]) -> tuple[str, str, int, int | None]:
     )
 
 
+def _runner_profile_complete(row: dict[str, Any]) -> bool:
+    runner = row.get("runner") if isinstance(row.get("runner"), dict) else {}
+    model = " ".join(str(runner.get("cpu_model") or "").lower().split())
+    return (
+        model not in {"", "unknown", "--"}
+        and (_as_int(runner.get("logical_cpu_count")) or 0) > 0
+        and (_as_int(runner.get("physical_core_count")) or 0) > 0
+    )
+
+
 def preferred_evidence(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Collapse compatible observations to one preferred shape per concrete runner."""
+    """Collapse compatible observations to one preferred shape per concrete runner.
+
+    Host-incomplete legacy rows remain visible as historical evidence, but they
+    are explicitly marked so they cannot masquerade as hardware-equivalent
+    measurements when richer provenance exists.
+    """
     groups: dict[tuple[str, str, int, int | None], list[dict[str, Any]]] = {}
     for row in rows:
         if not isinstance(row, dict):
@@ -115,6 +138,7 @@ def preferred_evidence(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
             "threads_per_pipeline": threads,
             "allocated_threads": allocated or pipelines * threads,
             "allocation_fraction": min(1.0, (allocated or pipelines * threads) / budget),
+            "runner_profile_complete": all(_runner_profile_complete(row) for row in group),
         })
     return sorted(evidence, key=lambda row: (int(row["logical_cpus"]), str(row["runner_name"])))
 
@@ -237,16 +261,17 @@ def resolve_shape(
     else:
         hardware = [
             item for item in evidence
-            if normalized_target_model
+            if bool(item.get("runner_profile_complete"))
+            and normalized_target_model
             and str(item.get("cpu_model") or "") == normalized_target_model
             and int(item.get("logical_cpus") or 0) == int(target_logical_cpus)
             and (
                 target_physical_cores is None
-                or item.get("physical_cores") is None
-                or int(item.get("physical_cores")) == int(target_physical_cores)
+                or int(item.get("physical_cores") or 0) == int(target_physical_cores)
             )
         ]
-        pool = hardware if hardware else evidence
+        characterized = [item for item in evidence if bool(item.get("runner_profile_complete"))]
+        pool = hardware if hardware else (characterized if characterized else evidence)
         anchors = _aggregate_by_vcpu(pool)
         if not anchors:
             return None
@@ -260,7 +285,7 @@ def resolve_shape(
             target_logical_cpus=target_logical_cpus,
         )
         relation = "hardware-profile" if hardware else "scaled-vcpu"
-        confidence = "moderate" if hardware or len(anchors) >= 2 else "low"
+        confidence = "moderate" if hardware or (characterized and len(anchors) >= 2) else "low"
         scaled = not bool(hardware)
 
     created = _now()
@@ -331,7 +356,7 @@ def merge_prediction(predictions_index: Path, prediction: dict[str, Any]) -> dic
         "updated_at_utc": _now(),
         "predictions": rows[-2000:],
     })
-    _write_json(predictions_index, payload)
+    _write_prediction_payload(predictions_index, payload)
     return payload
 
 
@@ -399,5 +424,5 @@ def verify_predictions(
     if changed:
         payload["updated_at_utc"] = _now()
         payload["predictions"] = rows
-        _write_json(predictions_index, payload)
+        _write_prediction_payload(predictions_index, payload)
     return payload

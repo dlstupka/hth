@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from hth.persistence import INDEX_FILENAMES, canonical_index_path, load_index, write_index
+from hth.shape_prediction import merge_prediction
 from hth.persistence_rebuild import rebuild_all
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,6 +75,22 @@ class PersistenceArchitectureTests(unittest.TestCase):
         self.assertIn("::warning::Artifact service failed after three attempts", action)
         regression = (WORKFLOWS / "regress-detector.yml").read_text(encoding="utf-8")
         self.assertIn("durable-persistence-confirmed: ${{ steps.persistence.outcome == 'success' }}", regression)
+
+    def test_optimizer_prediction_writer_migrates_through_canonical_index_boundary(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            legacy = root / "optimizer-predictions.json"
+            legacy.write_text(json.dumps({"schema_version": "1.0", "predictions": [{"prediction_id": "old"}]}), encoding="utf-8")
+            canonical = root / "indexes" / "optimizer-predictions.json"
+            payload = merge_prediction(canonical, {"prediction_id": "new"})
+            self.assertTrue(canonical.is_file())
+            self.assertEqual([row["prediction_id"] for row in payload["predictions"]], ["old", "new"])
+            self.assertEqual(load_index(root, "optimizer-predictions.json")["predictions"], payload["predictions"])
+
+    def test_shape_prediction_has_no_ad_hoc_canonical_prediction_write(self):
+        text = (ROOT / "hth/shape_prediction.py").read_text(encoding="utf-8")
+        self.assertIn('write_index(index_results_root(path), "optimizer-predictions.json", payload)', text)
+        self.assertNotIn('_write_json(predictions_index, payload)', text)
 
     def test_source_acquisition_uses_authenticated_github_token_fallback(self):
         core = (WORKFLOWS / "_core-hth.yml").read_text(encoding="utf-8")

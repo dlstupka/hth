@@ -52,6 +52,16 @@ def runner_from_row(row: dict[str, Any]) -> dict[str, Any]:
     return runner if isinstance(runner, dict) else {}
 
 
+
+def runner_profile_complete(row: dict[str, Any]) -> bool:
+    runner = runner_from_row(row)
+    model = " ".join(str(runner.get("cpu_model") or "").lower().split())
+    return (
+        model not in {"", "unknown", "--"}
+        and (_as_int(runner.get("logical_cpu_count")) or 0) > 0
+        and (_as_int(runner.get("physical_core_count")) or 0) > 0
+    )
+
 def runner_labels_from_row(row: dict[str, Any]) -> list[str]:
     """Return the concrete persisted runner label set when available."""
     runner = runner_from_row(row)
@@ -316,6 +326,9 @@ def resolve_selector_intelligence(
     """
     compatible = [row for row in rows if isinstance(row, dict)]
     measured_rows = [row for row in compatible if row_matches_required_labels(row, required_labels)]
+    characterized_rows = [row for row in measured_rows if runner_profile_complete(row)]
+    if characterized_rows:
+        measured_rows = characterized_rows
     if measured_rows:
         best = select_preferred_shape(shape_from_row(row) for row in measured_rows)
         if not best:
