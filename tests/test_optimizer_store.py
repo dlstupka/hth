@@ -103,6 +103,23 @@ class OptimizerStoreTests(unittest.TestCase):
         self.assertIsNotNone(best)
         self.assertEqual(best["pipelines"], 5)
 
+    def test_canonical_preferred_shape_uses_newest_run_before_resources_on_exact_rate_tie(self) -> None:
+        shapes = [
+            {"pipelines": 11, "threads_per_pipeline": 34, "allocated_threads": 374, "parameter_sets_per_second": 64.0, "optimizer_run_id": "100"},
+            {"pipelines": 15, "threads_per_pipeline": 25, "allocated_threads": 375, "parameter_sets_per_second": 64.0, "optimizer_run_id": "101"},
+        ]
+        best = select_preferred_shape(shapes)
+        self.assertIsNotNone(best)
+        self.assertEqual(best["pipelines"], 15)
+
+    def test_canonical_preferred_shape_keeps_resource_tiebreak_within_same_run(self) -> None:
+        shapes = [
+            {"pipelines": 11, "threads_per_pipeline": 34, "allocated_threads": 374, "parameter_sets_per_second": 64.0, "optimizer_run_id": "101"},
+            {"pipelines": 15, "threads_per_pipeline": 25, "allocated_threads": 375, "parameter_sets_per_second": 64.0, "optimizer_run_id": "101"},
+        ]
+        best = select_preferred_shape(shapes)
+        self.assertEqual(best["pipelines"], 11)
+
     def test_canonical_preferred_shape_never_trades_visible_throughput_for_resources(self) -> None:
         shapes = [
             {"execution_shape": "6p/6s/64t", "pipelines": 6, "threads_per_pipeline": 64, "allocated_threads": 384, "fastest_wall_clock_seconds": 9.0, "parameter_sets_per_second": 27.01},

@@ -131,3 +131,45 @@ def preferred_short_schedule(
         "evidence_final_tail_seconds": best.get("final_tail_seconds"),
         "evidence_makespan_seconds": best.get("makespan_seconds"),
     }
+
+def recommended_schedule(
+    *,
+    index_path: Path | None,
+    detector_count: int,
+    runner_thread_budget: int,
+    runner_label: str,
+    golden_set_sha256: str | None,
+    mode: str,
+    strategy: str,
+    limit: str | None,
+) -> dict[str, Any]:
+    """Return the canonical multi-detector schedule recommendation.
+
+    Short workloads reuse measured multidetector occupation when compatible
+    evidence exists.  Every other case falls back to the same deterministic
+    LPT worker planner used by the regression launcher.  Reports and dispatch
+    therefore describe one scheduling policy instead of maintaining a static
+    recommendation beside the executable planner.
+    """
+    detectors = max(1, int(detector_count))
+    budget = max(1, int(runner_thread_budget))
+    if workload_class(mode, strategy, limit) == "short":
+        measured = preferred_short_schedule(
+            index_path=index_path,
+            detector_count=detectors,
+            runner_thread_budget=budget,
+            runner_label=runner_label,
+            golden_set_sha256=golden_set_sha256,
+        )
+        if measured:
+            return measured
+    pipelines = plan_lpt_workers(detectors, budget)
+    threads = max(1, budget // pipelines)
+    return {
+        "pipelines": pipelines,
+        "threads_per_pipeline": threads,
+        "allocated_threads": pipelines * threads,
+        "runner_budget": budget,
+        "source": "canonical-lpt-planner",
+    }
+

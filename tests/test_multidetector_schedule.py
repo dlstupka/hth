@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.domain.multidetector_schedule import plan_lpt_workers, preferred_short_schedule, workload_class
+from hth.domain.multidetector_schedule import plan_lpt_workers, preferred_short_schedule, recommended_schedule, workload_class
 
 
 class MultiDetectorScheduleTests(unittest.TestCase):
@@ -45,6 +45,26 @@ class MultiDetectorScheduleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             result = preferred_short_schedule(index_path=self._index(Path(td), worker_utilization=0.94, final_tail_seconds=40.0), detector_count=39, runner_thread_budget=384, runner_label="384t", golden_set_sha256="gold")
             self.assertEqual(result["pipelines"], 7)
+
+    def test_recommended_schedule_uses_persisted_short_occupation_for_smoke(self):
+        with tempfile.TemporaryDirectory() as td:
+            result = recommended_schedule(
+                index_path=self._index(Path(td)), detector_count=39,
+                runner_thread_budget=384, runner_label="384t", golden_set_sha256="gold",
+                mode="smoke", strategy="exhaustive", limit="10",
+            )
+            self.assertEqual(result["source"], "multidetector-short-occupancy")
+            self.assertEqual(result["pipelines"], 6)
+
+    def test_recommended_schedule_uses_same_canonical_lpt_fallback_as_launcher(self):
+        result = recommended_schedule(
+            index_path=None, detector_count=39, runner_thread_budget=384,
+            runner_label="384t", golden_set_sha256="gold",
+            mode="full", strategy="exhaustive", limit="",
+        )
+        self.assertEqual(result["source"], "canonical-lpt-planner")
+        self.assertEqual(result["pipelines"], plan_lpt_workers(39, 384))
+        self.assertEqual(result["threads_per_pipeline"], 64)
 
     def test_long_tail_returns_one_workers_budget_to_long_work(self):
         with tempfile.TemporaryDirectory() as td:

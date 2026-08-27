@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from datetime import datetime, timezone
 from typing import Any, Iterable
 
 PREFERRED_SHAPE_RATE_DECIMALS = 2
@@ -33,13 +34,32 @@ def normalize_cpu_model(value: Any) -> str:
     return " ".join(str(value or "").lower().split())
 
 
+def _freshness_epoch(shape: dict[str, Any]) -> float:
+    run_id = str(shape.get("optimizer_run_id") or "").strip()
+    if run_id.isdigit():
+        return float(run_id)
+    stamp = str(shape.get("observed_at_utc") or "").strip()
+    if stamp:
+        try:
+            return datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone(timezone.utc).timestamp()
+        except ValueError:
+            pass
+    return 0.0
+
+
 def select_preferred_shape(shapes: Iterable[dict[str, Any]]) -> dict[str, Any] | None:
-    """Canonical optimizer preference: throughput, then lower resource use."""
+    """Canonical optimizer preference: throughput, freshness, then resources.
+
+    Throughput is compared at the report's visible precision.  When compatible
+    characterized optimizer runs are indistinguishable at that precision, the
+    newest run supersedes stale evidence.  Resource use remains the tie-break
+    within one optimizer run (or when freshness provenance is unavailable).
+    """
     candidates = [shape for shape in shapes if isinstance(shape, dict)]
     if not candidates:
         return None
 
-    def rank(shape: dict[str, Any]) -> tuple[float, int, int, int, float, int]:
+    def rank(shape: dict[str, Any]) -> tuple[float, float, int, int, int, float, int]:
         rate = as_float(shape.get("parameter_sets_per_second"))
         displayed_rate = round(rate, PREFERRED_SHAPE_RATE_DECIMALS) if rate is not None else -math.inf
         allocated = as_int(shape.get("allocated_threads"))
@@ -47,8 +67,10 @@ def select_preferred_shape(shapes: Iterable[dict[str, Any]]) -> dict[str, Any] |
         threads = as_int(shape.get("threads_per_pipeline"))
         wall = as_float(shape.get("fastest_wall_clock_seconds"))
         sequence = as_int(shape.get("optimizer_shape_sequence"))
+        freshness = _freshness_epoch(shape)
         return (
             -displayed_rate,
+            -freshness,
             allocated if allocated is not None else math.inf,
             pipelines if pipelines is not None else math.inf,
             threads if threads is not None else math.inf,

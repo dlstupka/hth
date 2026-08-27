@@ -169,6 +169,7 @@ def _shape_from_row(row: dict[str, Any], *, baseline_wall: float | None, observa
         "observed_speedup_vs_one_pipeline": (baseline_wall / wall) if baseline_wall and wall > 0 else None,
         "optimizer_shape_sequence": _as_int(row.get("optimizer_shape_sequence")),
         "optimizer_run_id": str(row.get("optimizer_run_id")) if row.get("optimizer_run_id") is not None else None,
+        "observed_at_utc": row.get("observed_at_utc"),
         "runner_metrics": metrics,
     }
 
@@ -452,7 +453,7 @@ def _render_shape_prediction_coverage(index: dict[str, Any]) -> list[str]:
 
 def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
     lines = [
-        "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is selected canonically by throughput, then lower resource use for throughput-equivalent shapes.",
+        "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is selected canonically by throughput, then newest compatible optimizer run, then lower resource use within a run.",
         "",
         "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Search method | Optimization time | Allocated | Sets/s | Shape time | Observations |",
         "|---|---|---|---:|---:|---:|---:|---:|---|---|---:|---:|---:|---:|---:|",
@@ -665,7 +666,7 @@ def render_all_markdown(indices: list[dict[str, Any]]) -> str:
         "<details open>",
         "<summary><strong>1. Preferred Detector Run Configuration</strong></summary>",
         "",
-        "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is selected canonically by throughput, then lower resource use for throughput-equivalent shapes.",
+        "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is selected canonically by throughput, then newest compatible optimizer run, then lower resource use within a run.",
         "",
         "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Search method | Optimization time | Allocated | Sets/s | Shape time | Observations |",
         "|---|---|---|---:|---:|---:|---:|---:|---|---|---:|---:|---:|---:|---:|",

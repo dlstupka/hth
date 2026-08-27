@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from hth.domain.multidetector_schedule import preferred_short_schedule, workload_class
+from hth.domain.multidetector_schedule import recommended_schedule, workload_class
 from hth.optimizer_intelligence import (
     compatible_optimizer_rows as intelligence_compatible_optimizer_rows,
     logical_cpus_from_capacity_label,
@@ -435,20 +435,19 @@ def resolve_workflow_shape(
     if is_multidetector and workload_class(regression_mode, strategy, limit) == "short":
         golden_sha = hashlib.sha256(golden_set.read_bytes()).hexdigest() if golden_set.is_file() else None
         detector_count = len(list(detector_config_root.glob("*.json")))
-        preferred_multi = preferred_short_schedule(
+        preferred_multi = recommended_schedule(
             index_path=multidetector_index, detector_count=detector_count,
             runner_thread_budget=budget, runner_label=profile.label,
-            golden_set_sha256=golden_sha,
+            golden_set_sha256=golden_sha, mode=regression_mode,
+            strategy=strategy, limit=limit,
         )
-        if preferred_multi:
-            result = exact(
-                int(preferred_multi["pipelines"]), int(preferred_multi["threads_per_pipeline"]),
-                f"preferred-{preferred_multi['source']}",
-            )
-            result["multidetector"] = True
-            result["evidence_observation_id"] = preferred_multi.get("evidence_observation_id")
-            return result
-        return {"exact": False, "source": "auto-fallback-no-multidetector-history", "runner_budget": budget}
+        result = exact(
+            int(preferred_multi["pipelines"]), int(preferred_multi["threads_per_pipeline"]),
+            f"preferred-{preferred_multi['source']}",
+        )
+        result["multidetector"] = True
+        result["evidence_observation_id"] = preferred_multi.get("evidence_observation_id")
+        return result
 
     if regression_mode != "full" or strategy != "exhaustive" or str(limit or "").strip():
         return {"exact": False, "source": "auto-fallback-incompatible-workload", "runner_budget": budget}

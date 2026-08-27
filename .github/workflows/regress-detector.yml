@@ -1100,6 +1100,7 @@ jobs:
             --results-commit "${{ steps.persistence.outputs.results_commit }}" \
             --calibration-index results-repo/indexes/calibration-index.json \
             --runtime-index results-repo/indexes/runtime-index.json \
+            --multidetector-index results-repo/indexes/multidetector-index.json \
             --output regression-summary.md
 
           python hth-pipeline/hth/write_action_summary.py regression-summary.md "$GITHUB_STEP_SUMMARY"

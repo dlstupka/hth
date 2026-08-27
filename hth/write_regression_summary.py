@@ -15,6 +15,7 @@ from hth.regression.result_metrics import normalize_summary_metrics
 from hth.regression.authoritative_record import authoritative_record
 from hth.regression.calibration_intelligence import detector_characterization
 from hth.domain.result_metrics import baseline_surpassed, calibration_metric_view, result_metric_view
+from hth.domain.multidetector_schedule import recommended_schedule
 from hth.runtime_store import coherent_execution_profile, select_runtime_observation
 from hth.regression.parameter_provenance import parameter_identity_sha256, resolve_parameter_set
 from hth.regression.parameter_space import parameter_set_equivalence_family_id
@@ -2428,6 +2429,52 @@ def _combined_ranking_key(row: dict[str, Any]) -> tuple[float, float, int, float
     )
 
 
+def _capacity_runner_label(info: dict[str, Any]) -> str:
+    labels = info.get("github_runner_labels") if isinstance(info.get("github_runner_labels"), list) else []
+    capacity = [str(label) for label in labels if re.fullmatch(r"\d+t", str(label).strip().lower())]
+    if capacity:
+        return capacity[-1]
+    return str(info.get("runner_name") or "unknown")
+
+
+def _next_run_schedule_recommendation(
+    run_dirs: list[Path], *, multidetector_index: Path | None
+) -> dict[str, Any]:
+    infos = [_read_json(run_dir / "RUN-INFO.json") for run_dir in run_dirs]
+    contexts = [_pipeline_context(run_dir) for run_dir in run_dirs]
+    budgets = []
+    for context in contexts:
+        try:
+            value = int(context.get("execution_thread_budget") or 0)
+        except (TypeError, ValueError):
+            value = 0
+        if value > 0:
+            budgets.append(value)
+    if budgets:
+        budget = max(budgets)
+    else:
+        logical = [int(info.get("logical_cpu_count") or 0) for info in infos if int(info.get("logical_cpu_count") or 0) > 0]
+        budget = (max(logical) * 2) if logical else max(1, int(_common_value([info.get("threads") for info in infos], 1) or 1))
+    runner_label = _common_value([_capacity_runner_label(info) for info in infos], "unknown")
+    short = any(
+        int(info.get("actual_parameter_sets") or 0) < int(info.get("possible_parameter_sets") or 0)
+        for info in infos
+        if int(info.get("possible_parameter_sets") or 0) > 0
+    )
+    strategies = [str(_read_json(run_dir / "manifest.json").get("strategy") or "exhaustive") for run_dir in run_dirs]
+    strategy = str(_common_value(strategies, "exhaustive"))
+    return recommended_schedule(
+        index_path=multidetector_index,
+        detector_count=len(run_dirs),
+        runner_thread_budget=budget,
+        runner_label=str(runner_label),
+        golden_set_sha256=_combined_golden_sha(run_dirs) or None,
+        mode="smoke" if short else "full",
+        strategy=strategy,
+        limit="bounded" if short else "",
+    )
+
+
 def build_combined_summary(
     run_dirs: list[Path],
     run_url: str = "",
@@ -2437,6 +2484,7 @@ def build_combined_summary(
     results_commit: str = "",
     calibration_index: Path | None = None,
     runtime_index: Path | None = None,
+    multidetector_index: Path | None = None,
 ) -> str:
     if not run_dirs:
         raise ValueError("At least one regression run directory is required")
@@ -2546,6 +2594,7 @@ def build_combined_summary(
     )
     aggregate_elapsed = sum(float(row.get("elapsed_seconds", 0.0) or 0.0) for row in combined_rows)
     execution = _regression_execution_metadata(run_dirs, runtime_index_path=runtime_index)
+    next_schedule = _next_run_schedule_recommendation(run_dirs, multidetector_index=multidetector_index)
     pipeline_count = int(execution.get("pipeline_count", 1) or 1) if str(execution.get("pipeline_count", 1)).isdigit() else 1
     regression_span = execution.get("span_seconds")
     concurrency = (
@@ -2663,10 +2712,10 @@ def build_combined_summary(
         "",
         "| Setting | Recommended | Basis |",
         "|---|---|---|",
-        "| Detector pipelines | 4 | Current HTH default for multi-detector regressions. |",
-        "| Detector loading | LPT (Longest Processing Time first) | Reduces the slow-detector tail by loading historically longest regressions first. |",
-        f"| Threads per detector regression | {execution.get('threads', 'Auto')} | Preserve the current measured setting until runtime history supports a different thread recommendation. |",
-        "| Startup stagger | 0m | Avoids idle startup time unless runner contention requires a stagger. |",
+        f"| Detector pipelines | {next_schedule['pipelines']} | Shared multi-detector scheduler (`{next_schedule['source']}`). |",
+        "| Detector loading | LPT (Longest Processing Time first) | Canonical shared-queue loading policy. |",
+        f"| Threads per detector regression | {next_schedule['threads_per_pipeline']} | Recomputed from the recommended worker count and current runner thread budget ({next_schedule['runner_budget']}). |",
+        "| Startup stagger | 0m | Shared scheduler starts the initial LPT wave without an artificial stagger. |",
         "",
         "#### Estimated Runtime",
         "",
@@ -2723,6 +2772,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--results-commit", default=os.environ.get("HTH_RESULTS_COMMIT", ""))
     p.add_argument("--calibration-index", type=Path)
     p.add_argument("--runtime-index", type=Path)
+    p.add_argument("--multidetector-index", type=Path)
     return p
 
 
@@ -2736,6 +2786,7 @@ def main(argv: list[str] | None = None) -> int:
         results_commit=args.results_commit,
         calibration_index=args.calibration_index,
         runtime_index=args.runtime_index,
+        multidetector_index=args.multidetector_index,
     )
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

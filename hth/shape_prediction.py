@@ -81,6 +81,7 @@ def _shape_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "fastest_wall_clock_seconds": _as_float(row.get("wall_clock_seconds")),
         "optimizer_shape_sequence": _as_int(row.get("optimizer_shape_sequence")),
         "optimizer_run_id": row.get("optimizer_run_id"),
+        "observed_at_utc": row.get("observed_at_utc"),
     }
 
 
