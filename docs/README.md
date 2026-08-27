@@ -318,7 +318,7 @@ Normal full/exhaustive regression resolves execution shape in this order:
 
 Predicted shapes are explicit execution contracts, just like measured preferred shapes. The run log identifies the source as `predicted-low`, `predicted-moderate`, or `predicted-high`.
 
-Every prediction is saved in `optimizer-predictions.json` with the target runner, predicted shape, evidence vCPU anchors, confidence, and workload hashes. When later optimizer data arrives for the predicted detector/runner profile, optimizer publication verifies the saved prediction against the new canonical preferred shape and records pipeline/thread error. Verified pipeline error is then used as a bounded detector-specific correction for later predictions.
+Every prediction is saved in `indexes/optimizer-predictions.json` with the target runner, predicted shape, evidence vCPU anchors, confidence, and workload hashes. When later optimizer data arrives for the predicted detector/runner profile, optimizer publication verifies the saved prediction against the new canonical preferred shape and records pipeline/thread error. Verified pipeline error is then used as a bounded detector-specific correction for later predictions.
 
 The execution-optimizer report includes shape-prediction coverage for each detector: observed vCPU anchors, readiness, prediction verification counts, and the desired/missing optimizer evidence needed to improve confidence. Cross-runner guesses deliberately use one braindead-simple rule everywhere: pipelines scale directly with vCPU count; exact-runner measurements always supersede the guess.
 

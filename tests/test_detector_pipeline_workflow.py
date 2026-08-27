@@ -58,8 +58,8 @@ def test_loading_strategies_runtime_index_and_announcements_are_wired() -> None:
     assert "parallelism-index.json" in workflow
     assert "source-documents/" in workflow
     assert "git -C results-repo add models/" not in workflow
-    assert "if [[ -f results-repo/optimizer-predictions.json ]]; then" in workflow
-    assert "git -C results-repo add optimizer-predictions.json" in workflow
+    assert "if [[ -f results-repo/indexes/optimizer-predictions.json ]]; then" in workflow
+    assert "git -C results-repo add indexes/optimizer-predictions.json" in workflow
 
 
 def test_intelligence_publisher_uses_shared_hardened_persistence() -> None:

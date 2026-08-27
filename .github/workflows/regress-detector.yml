@@ -493,6 +493,7 @@ jobs:
             execution-optimizer/*/summary.md
             indexes/multidetector-index.json
             multidetector-index.json
+            indexes/optimizer-predictions.json
             optimizer-predictions.json
             indexes/orli-evidence-index.json
             orli-evidence-index.json
@@ -960,7 +961,7 @@ jobs:
             --detector "$DETECTOR_ALGORITHM" \
             --manual-shape "${MANUAL_EXECUTION_SHAPE:-}" \
             --parallelism-index results-repo/indexes/parallelism-index.json \
-            --predictions-index results-repo/optimizer-predictions.json \
+            --predictions-index results-repo/indexes/optimizer-predictions.json \
             --multidetector-index results-repo/indexes/multidetector-index.json \
             --detector-config-root hth-pipeline/config/detectors \
             --golden-set "hth-pipeline/$GOLDEN_SET" \
@@ -1017,7 +1018,7 @@ jobs:
           apply_calibration_intelligence() {
             hth_results_clean_owned results-repo \
               indexes/calibration-index.json indexes/parameter-provenance-index.json indexes/runtime-index.json \
-              indexes/parallelism-index.json indexes/multidetector-index.json optimizer-predictions.json \
+              indexes/parallelism-index.json indexes/multidetector-index.json indexes/optimizer-predictions.json \
               source-documents/
             if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
               python -m hth.regression.learned_evidence rebuild-orli-index --results-root results-repo
@@ -1026,7 +1027,7 @@ jobs:
             if [[ -n "${HTH_SHAPE_PREDICTION_FILE:-}" && -f "${HTH_SHAPE_PREDICTION_FILE}" ]]; then
               python -m hth.regression_shape record-prediction \
                 --prediction-file "${HTH_SHAPE_PREDICTION_FILE}" \
-                --predictions-index results-repo/optimizer-predictions.json
+                --predictions-index results-repo/indexes/optimizer-predictions.json
             fi
 
             python -m hth.calibration_store publish \
@@ -1055,8 +1056,8 @@ jobs:
             hth_results_stage results-repo \
               indexes/calibration-index.json indexes/parameter-provenance-index.json indexes/runtime-index.json \
               indexes/parallelism-index.json indexes/multidetector-index.json source-documents/
-            if [[ -f results-repo/optimizer-predictions.json ]]; then
-              hth_results_stage results-repo optimizer-predictions.json
+            if [[ -f results-repo/indexes/optimizer-predictions.json ]]; then
+              hth_results_stage results-repo indexes/optimizer-predictions.json
             fi
             if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
               hth_results_stage results-repo learned-evidence/orli_page_mask indexes/orli-evidence-index.json

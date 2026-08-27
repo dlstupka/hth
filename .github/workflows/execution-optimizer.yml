@@ -362,6 +362,7 @@ jobs:
             /parallelism-index.json
             /indexes/optimizer-index.json
             /optimizer-index.json
+            /indexes/optimizer-predictions.json
             /optimizer-predictions.json
             /indexes/multidetector-index.json
             /multidetector-index.json
@@ -1371,7 +1372,7 @@ jobs:
 
           apply_optimizer_intelligence() {
             hth_results_clean_owned results-repo \
-              indexes/optimizer-index.json optimizer-predictions.json execution-optimizer/
+              indexes/optimizer-index.json indexes/optimizer-predictions.json execution-optimizer/
             if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
               python -m hth.regression.learned_evidence rebuild-orli-index --results-root results-repo
             fi
@@ -1401,8 +1402,8 @@ jobs:
             if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
               hth_results_stage results-repo learned-evidence/orli_page_mask indexes/orli-evidence-index.json
             fi
-            if [[ -f results-repo/optimizer-predictions.json ]]; then
-              hth_results_stage results-repo optimizer-predictions.json
+            if [[ -f results-repo/indexes/optimizer-predictions.json ]]; then
+              hth_results_stage results-repo indexes/optimizer-predictions.json
             fi
           }
 

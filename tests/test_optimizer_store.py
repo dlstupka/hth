@@ -385,7 +385,8 @@ class OptimizerStoreTests(unittest.TestCase):
             root = Path(temp)
             row = _row("p8", "e7k", 8, 24, 100.0, optimizer_run_id="321")
             (root / "parallelism-index.json").write_text(json.dumps({"observations": [row], "shard_observations": []}), encoding="utf-8")
-            (root / "optimizer-predictions.json").write_text(json.dumps({"predictions": [{
+            (root / "indexes").mkdir(exist_ok=True)
+            (root / "indexes" / "optimizer-predictions.json").write_text(json.dumps({"predictions": [{
                 "prediction_id": "pred1",
                 "detector_id": "adaptive_radial_edge",
                 "status": "pending",
@@ -396,7 +397,7 @@ class OptimizerStoreTests(unittest.TestCase):
             metadata = root / "run-metadata.json"
             metadata.write_text(json.dumps({"pipeline_enumeration": "adaptive"}), encoding="utf-8")
             update_optimizer_artifacts(root, "adaptive_radial_edge", optimizer_run_id="321", run_metadata_path=metadata)
-            predictions = json.loads((root / "optimizer-predictions.json").read_text(encoding="utf-8"))
+            predictions = json.loads((root / "indexes" / "optimizer-predictions.json").read_text(encoding="utf-8"))
             self.assertEqual(predictions["predictions"][0]["status"], "verified")
             self.assertEqual(predictions["predictions"][0]["verification"]["actual_shape"]["pipelines"], 8)
             summary = (root / "execution-optimizer" / "adaptive_radial_edge" / "summary.md").read_text(encoding="utf-8")

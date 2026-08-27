@@ -102,6 +102,7 @@ HTH_RESULTS_INDEXES=(
   calibration-index.json
   multidetector-index.json
   optimizer-index.json
+  optimizer-predictions.json
   orli-evidence-index.json
   parallelism-index.json
   parameter-provenance-index.json

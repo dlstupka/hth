@@ -59,11 +59,16 @@ def _empty_observations() -> dict[str, Any]:
     return {"schema_version": 1, "observations": []}
 
 
+def _empty_predictions() -> dict[str, Any]:
+    return {"schema_version": "1.0", "predictions": []}
+
+
 INDEX_CONTRACTS: dict[str, IndexContract] = {
     "calibration-index.json": IndexContract("calibration-index.json", CALIBRATION_INDEX_SCHEMA_VERSION, adapt_calibration_index, _empty_calibration),
     "runtime-index.json": IndexContract("runtime-index.json", RUNTIME_INDEX_SCHEMA_VERSION, adapt_runtime_index, _empty_runtime),
     "parallelism-index.json": IndexContract("parallelism-index.json", PARALLELISM_INDEX_SCHEMA_VERSION, adapt_parallelism_index, _empty_parallelism),
     "optimizer-index.json": IndexContract("optimizer-index.json", OPTIMIZER_INDEX_SCHEMA_VERSION, adapt_optimizer_index, _empty_optimizer),
+    "optimizer-predictions.json": IndexContract("optimizer-predictions.json", "1.0", _identity, _empty_predictions),
     "multidetector-index.json": IndexContract("multidetector-index.json", "1", _identity, _empty_observations),
     "parameter-provenance-index.json": IndexContract("parameter-provenance-index.json", "1", _identity, _empty_observations),
     "orli-evidence-index.json": IndexContract("orli-evidence-index.json", "1", _identity, _empty_observations),

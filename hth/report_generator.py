@@ -267,7 +267,7 @@ def _attach_optimizer_run_metadata(index: dict[str, Any], optimizer: dict[str, A
 
 
 def _attach_prediction_history(results_root: Path, index: dict[str, Any], detector: str) -> dict[str, Any]:
-    path = results_root / "optimizer-predictions.json"
+    path = readable_index_path(results_root, "optimizer-predictions.json")
     if not path.is_file():
         return index
     payload = _read_json(path)

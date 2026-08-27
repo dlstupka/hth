@@ -974,7 +974,7 @@ def update_optimizer_artifacts(
     historical["run_metadata_by_id"] = metadata_by_id
     current["run_metadata_by_id"] = metadata_by_id
 
-    predictions_path = results_root / "optimizer-predictions.json"
+    predictions_path = canonical_index_path(results_root, "optimizer-predictions.json")
     try:
         from hth.shape_prediction import verify_predictions
         compatible_rows = _comparable(

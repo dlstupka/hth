@@ -46,6 +46,24 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+
+
+def _legacy_prediction_path(path: Path) -> Path | None:
+    path = Path(path)
+    if path.parent.name != "indexes":
+        return None
+    legacy = path.parent.parent / path.name
+    return legacy if legacy.is_file() else None
+
+
+def _read_prediction_payload(path: Path) -> dict[str, Any]:
+    payload = _read_json(path)
+    if payload:
+        return payload
+    legacy = _legacy_prediction_path(path)
+    return _read_json(legacy) if legacy is not None else {}
+
+
 def _shape_from_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "pipelines": _as_int(row.get("active_pipelines")),
@@ -303,7 +321,7 @@ def predict_shape(
 
 
 def merge_prediction(predictions_index: Path, prediction: dict[str, Any]) -> dict[str, Any]:
-    payload = _read_json(predictions_index)
+    payload = _read_prediction_payload(predictions_index)
     rows = [row for row in payload.get("predictions", []) if isinstance(row, dict)]
     prediction_id = str(prediction.get("prediction_id") or "")
     if prediction_id and not any(str(row.get("prediction_id") or "") == prediction_id for row in rows):
@@ -323,9 +341,9 @@ def verify_predictions(
     detector: str,
     workload_rows: Iterable[dict[str, Any]],
 ) -> dict[str, Any] | None:
-    if not predictions_index.is_file():
+    if not predictions_index.is_file() and _legacy_prediction_path(predictions_index) is None:
         return None
-    payload = _read_json(predictions_index)
+    payload = _read_prediction_payload(predictions_index)
     rows = [row for row in payload.get("predictions", []) if isinstance(row, dict)]
     candidates = [row for row in workload_rows if isinstance(row, dict)]
     changed = False

@@ -350,6 +350,7 @@ jobs:
             /parallelism-index.json
             /indexes/optimizer-index.json
             /optimizer-index.json
+            /indexes/optimizer-predictions.json
             /optimizer-predictions.json
             /indexes/multidetector-index.json
             /multidetector-index.json
@@ -1716,7 +1717,7 @@ jobs:
           for index in results-repo/*-index.json; do
             cp "$index" report-research-artifact/intelligence/
           done
-          for file in results-repo/optimizer-predictions.json; do
+          for file in results-repo/indexes/optimizer-predictions.json; do
             [[ -f "$file" ]] && cp "$file" report-research-artifact/intelligence/
           done
           for directory in reports execution-optimizer source-documents; do

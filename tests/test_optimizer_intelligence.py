@@ -246,7 +246,7 @@ class OptimizerIntelligenceTests(unittest.TestCase):
             result = resolve_workflow_shape(
                 shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
                 detector="adaptive_radial_edge", manual_shape="", parallelism_index=index,
-                predictions_index=root / "optimizer-predictions.json", detector_config_root=detector_root,
+                predictions_index=root / "indexes" / "optimizer-predictions.json", detector_config_root=detector_root,
                 golden_set=golden, max_dimension=1800,
                 profile=RunnerProfile("rh8-al330", "192t", "AMD EPYC", 192, 192),
                 prediction_out=prediction_out, runner_budget=384,

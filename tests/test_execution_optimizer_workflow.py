@@ -308,5 +308,5 @@ if __name__ == "__main__":
 def test_optimizer_publish_verifies_and_persists_shape_predictions() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     assert "optimizer-predictions.json" in workflow
-    assert "if [[ -f results-repo/optimizer-predictions.json ]]; then" in workflow
+    assert "if [[ -f results-repo/indexes/optimizer-predictions.json ]]; then" in workflow
     assert "python -m hth.optimizer_store" in workflow

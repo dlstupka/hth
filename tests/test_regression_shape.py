@@ -155,7 +155,8 @@ def test_prediction_history_correction_is_applied_to_future_guesses(tmp_path: Pa
     _write_json(index, {"observations": [
         _row(detector="adaptive_radial_edge", detector_sha=detector_sha, golden_sha=golden_sha, runner_name="rh8-s32", cpu_model="AMD", logical=32, physical=16, pipelines=20, threads=2, rate=70),
     ]})
-    predictions = tmp_path / "optimizer-predictions.json"
+    predictions = tmp_path / "indexes" / "optimizer-predictions.json"
+    predictions.parent.mkdir(parents=True, exist_ok=True)
     _write_json(predictions, {"predictions": [{
         "detector_id": "adaptive_radial_edge",
         "status": "verified",

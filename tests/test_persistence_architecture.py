@@ -14,6 +14,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
     def test_all_derived_indexes_have_one_canonical_registry(self):
         self.assertEqual(INDEX_FILENAMES, frozenset({
             "calibration-index.json", "multidetector-index.json", "optimizer-index.json",
+            "optimizer-predictions.json",
             "orli-evidence-index.json", "parallelism-index.json",
             "parameter-provenance-index.json", "runtime-index.json",
         }))
