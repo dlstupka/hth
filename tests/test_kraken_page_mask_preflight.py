@@ -20,12 +20,11 @@ class KrakenPageMaskPreflightTests(unittest.TestCase):
         self.assertLess(source_pos, preflight_pos)
         self.assertLess(preflight_pos, worker_pos)
 
-    def test_missing_shard_directory_does_not_emit_secondary_find_error(self):
+    def test_completed_shards_use_worker_published_run_directories(self):
         text = Path("tools/run-detector-regressions.sh").read_text(encoding="utf-8")
-        self.assertIn(
-            'find "$shard_root" -mindepth 1 -maxdepth 1 -type d -name \'run-*\' 2>/dev/null',
-            text,
-        )
+        self.assertIn('completed_run_file="$queue_dir/run-dirs/', text)
+        self.assertIn('shard_run_dir="$(cat "$completed_run_file")"', text)
+        self.assertNotIn('find "$shard_root" -mindepth 1 -maxdepth 1 -type d -name \'run-*\'', text)
 
 
 if __name__ == "__main__":

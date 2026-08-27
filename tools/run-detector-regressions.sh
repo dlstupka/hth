@@ -897,14 +897,28 @@ for detector_name in "${unique_detectors[@]}"; do
   first_detector_task_index="${detector_task_indexes[0]}"
   expected_detector_shards="${task_shard_counts[$first_detector_task_index]}"
   detector_shard_dirs=()
-  for ((shard_index = 0; shard_index < expected_detector_shards; shard_index++)); do
-    shard_root="$OUTPUT_DIR/.shards/$detector_name/shard-$(printf '%04d' "$shard_index")/$detector_name"
-    shard_run_dir="$(find "$shard_root" -mindepth 1 -maxdepth 1 -type d -name 'run-*' 2>/dev/null | sort | tail -n 1 || true)"
-    if [[ -z "$shard_run_dir" ]]; then
+  # Workers publish the exact canonical run directory for every completed task.
+  # Consume that execution evidence here instead of rediscovering run-* trees;
+  # filesystem ordering is not a completion contract and became especially
+  # fragile once static LPT schedules allowed detectors to finish out of order.
+  for task_index in "${detector_task_indexes[@]}"; do
+    shard_index="${task_shard_indexes[$task_index]}"
+    completed_run_file="$queue_dir/run-dirs/$(printf '%04d' "$task_index")"
+    shard_run_dir=""
+    if [[ -f "$completed_run_file" ]]; then
+      shard_run_dir="$(cat "$completed_run_file")"
+    fi
+    if [[ -z "$shard_run_dir" || ! -d "$shard_run_dir" ]]; then
       echo "::error::Missing completed shard $((shard_index + 1))/$expected_detector_shards for $detector_name"
       exit 1
     fi
-    detector_shard_dirs+=("$shard_run_dir")
+    detector_shard_dirs[$shard_index]="$shard_run_dir"
+  done
+  for ((shard_index = 0; shard_index < expected_detector_shards; shard_index++)); do
+    if [[ -z "${detector_shard_dirs[$shard_index]:-}" ]]; then
+      echo "::error::Missing completed shard $((shard_index + 1))/$expected_detector_shards for $detector_name"
+      exit 1
+    fi
   done
   detector_config="hth-pipeline/config/detectors/$detector_name.json"
   finalization_root="$OUTPUT_DIR/.finalize/$detector_name"
