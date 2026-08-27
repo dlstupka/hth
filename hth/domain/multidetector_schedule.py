@@ -17,6 +17,41 @@ def plan_lpt_workers(detector_count: int, runner_thread_budget: int) -> int:
     return min(detectors, queue_target, budget_cap)
 
 
+def plan_static_lpt_tasks(
+    estimates: list[float | int | None],
+    pipeline_count: int,
+    *,
+    estimate_floor_seconds: float = 0.1,
+) -> list[dict[str, Any]]:
+    """Build one deterministic, fixed LPT schedule before workers start.
+
+    Tasks are sorted by estimated duration descending, then greedily placed on
+    the pipeline with the least assigned estimated work.  The returned task
+    indexes refer to the caller's original sequence.  Unknown/invalid estimates
+    use a small scheduling floor so every task participates deterministically.
+    """
+    workers = max(1, int(pipeline_count))
+    floor = max(0.001, float(estimate_floor_seconds))
+    normalized: list[tuple[int, float]] = []
+    for index, raw in enumerate(estimates):
+        value = _as_float(raw)
+        normalized.append((index, max(floor, value if value is not None else floor)))
+    normalized.sort(key=lambda item: (-item[1], item[0]))
+
+    schedules = [
+        {"pipeline": pipeline + 1, "task_indexes": [], "estimated_seconds": 0.0}
+        for pipeline in range(workers)
+    ]
+    for task_index, seconds in normalized:
+        target = min(
+            range(workers),
+            key=lambda idx: (float(schedules[idx]["estimated_seconds"]), idx),
+        )
+        schedules[target]["task_indexes"].append(task_index)
+        schedules[target]["estimated_seconds"] = float(schedules[target]["estimated_seconds"]) + seconds
+    return [row for row in schedules if row["task_indexes"]]
+
+
 def workload_class(mode: str, strategy: str, limit: str | None) -> str:
     if str(mode or "").strip().lower() != "full":
         return "short"

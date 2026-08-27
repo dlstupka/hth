@@ -15,7 +15,7 @@ from hth.regression.result_metrics import normalize_summary_metrics
 from hth.regression.authoritative_record import authoritative_record
 from hth.regression.calibration_intelligence import detector_characterization
 from hth.domain.result_metrics import baseline_surpassed, calibration_metric_view, result_metric_view
-from hth.domain.multidetector_schedule import recommended_schedule
+from hth.domain.multidetector_schedule import plan_static_lpt_tasks, recommended_schedule
 from hth.runtime_store import coherent_execution_profile, select_runtime_observation
 from hth.regression.parameter_provenance import parameter_identity_sha256, resolve_parameter_set
 from hth.regression.parameter_space import parameter_set_equivalence_family_id
@@ -2278,39 +2278,20 @@ def _queue_rows(
     return rows
 
 
-def _next_claim_optimization(queue_rows: list[dict[str, Any]], execution: dict[str, Any]) -> dict[str, Any]:
-    pipelines=int(execution.get("pipeline_count",1) or 1)
-    loading=str(execution.get("loading_strategy","")).strip().lower()
-    seed_count=min(pipelines,len(queue_rows)) if queue_rows else 0
-    if pipelines>1 and loading=="lpt" and queue_rows:
-        return {"strategy":"10s LPT claim batches","seed_count":seed_count,
-                "target_seconds":10.0,"estimate_floor_seconds":0.1,
-                "initial_lock":"parent pre-batched",
-                "refill":"one serialized claim per >=10s LPT batch",
-                "claim_wait":"amortized per batch",
-                "basis":"current LPT runtime intelligence + persisted short-run occupation"}
-    return {"strategy":"dynamic queue claims","seed_count":0,
-            "target_seconds":None,"estimate_floor_seconds":0.1,
-            "initial_lock":"serialized","refill":"serialized dynamic claims",
-            "claim_wait":"minimal","basis":"current execution profile"}
-
-
-def _initial_claim_batches(queue_rows: list[dict[str, Any]], pipeline_count: int,
-                           *, target_seconds: float=10.0,
-                           estimate_floor_seconds: float=0.1) -> list[dict[str, Any]]:
-    batches=[]; cursor=0
-    for pipeline in range(1,max(1,pipeline_count)+1):
-        tasks=[]; total=0.0
-        while cursor<len(queue_rows):
-            row=queue_rows[cursor]; cursor+=1
-            try: seconds=float(row.get("estimate_seconds"))
-            except (TypeError,ValueError): seconds=estimate_floor_seconds
-            seconds=max(estimate_floor_seconds,seconds)
-            tasks.append(row); total+=seconds
-            if total>=target_seconds: break
-        if not tasks: break
-        batches.append({"pipeline":pipeline,"tasks":tasks,"estimated_seconds":total})
-    return batches
+def _static_pipeline_schedule(queue_rows: list[dict[str, Any]], pipeline_count: int) -> list[dict[str, Any]]:
+    plans = plan_static_lpt_tasks(
+        [row.get("estimate_seconds") for row in queue_rows],
+        pipeline_count,
+        estimate_floor_seconds=0.1,
+    )
+    result=[]
+    for plan in plans:
+        result.append({
+            "pipeline": plan["pipeline"],
+            "tasks": [queue_rows[index] for index in plan["task_indexes"]],
+            "estimated_seconds": plan["estimated_seconds"],
+        })
+    return result
 
 
 def _github_url(repository: str) -> str:
@@ -2595,7 +2576,7 @@ def build_combined_summary(
     aggregate_elapsed = sum(float(row.get("elapsed_seconds", 0.0) or 0.0) for row in combined_rows)
     execution = _regression_execution_metadata(run_dirs, runtime_index_path=runtime_index)
     next_schedule = _next_run_schedule_recommendation(run_dirs, multidetector_index=multidetector_index)
-    pipeline_count = int(execution.get("pipeline_count", 1) or 1) if str(execution.get("pipeline_count", 1)).isdigit() else 1
+    pipeline_count = int(next_schedule.get("pipelines", 1) or 1)
     regression_span = execution.get("span_seconds")
     concurrency = (
         aggregate_elapsed / float(regression_span)
@@ -2635,89 +2616,44 @@ def build_combined_summary(
         f"| Regression wall-clock span | {_duration(regression_span)} | Earliest detector start through latest detector finish. |",
         f"| Effective detector concurrency | {f'{concurrency:.2f}×' if concurrency is not None else 'unknown'} | Aggregate detector runtime divided by regression wall-clock span. |",
         f"| Detector pipelines | {execution.get('pipeline_count', 'unknown')} | Maximum concurrent detector regressions used by this build. |",
-        f"| Loading strategy | {('LPT (Longest Processing Time first)' if str(execution.get('loading_strategy', '')).lower() == 'lpt' else str(execution.get('loading_strategy', 'unknown')).upper())} | Strategy used to order the shared detector queue. |",
-        f"| Pipeline stagger | {execution.get('stagger_minutes', 'unknown')}m | Delay between initial pipeline starts; replacement loads begin immediately. |",
+        f"| Loading strategy | {('LPT (Longest Processing Time first)' if str(execution.get('loading_strategy', '')).lower() == 'lpt' else str(execution.get('loading_strategy', 'unknown')).upper())} | Strategy used to construct the fixed detector schedules before fan-out. |",
+        f"| Pipeline stagger | {execution.get('stagger_minutes', 'unknown')}m | Delay between initial pipeline starts; each pipeline then follows its fixed schedule. |",
         f"| Source-document images | {source_document.get('image_count', 'unknown')} | Total images recorded for the source document. |",
         "",
-        "### Regression Execution and Detector Queueing",
+        "### Regression Execution Schedule",
         "",
-        "| Setting | Value |",
-        "|---|---|",
-        f"| Detector pipelines | {execution.get('pipeline_count', 'unknown')} |",
-        f"| Detector loading strategy | {('LPT (Longest Processing Time first)' if str(execution.get('loading_strategy', '')).lower() == 'lpt' else str(execution.get('loading_strategy', 'unknown')).upper())} |",
-        f"| Threads per detector regression | {execution.get('threads', 'unknown')} |",
-        f"| Execution recommendation basis | {execution.get('source', 'unknown')} |",
-        f"| Pipeline start stagger | {execution.get('stagger_minutes', 'unknown')}m |",
-        f"| Runtime intelligence | `runtime-index.json` |",
-        f"| Parallelism intelligence | `parallelism-index.json` |",
-        f"| Calibration intelligence | `calibration-index.json` |",
-        "",
-        "Detector pipelines pull continuously from one shared queue. Once a detector finishes, that pipeline immediately loads the next queued detector until the queue is empty.",
-        "",
-        "| Queue | Detector | Pipeline | Estimated Runtime | Scheduling Basis |",
-        "|---:|---|---|---:|---|",
-    ])
-    for queue_index, row in enumerate(queue_rows, start=1):
-        position = row.get("queue_position")
-        queue_number = int(position) if str(position or "").isdigit() else queue_index
-        estimate_seconds = row.get("estimate_seconds")
-        estimate = "no history" if estimate_seconds is None else _duration(estimate_seconds)
-        source = str(row.get("estimate_source") or "no-history")
-        lines.append(
-            f"| {queue_number} | {_detector_friendly_name(str(row['detector']))} (`{row['detector']}`) | "
-            f"{row.get('pipeline_number', 'unknown')} | {estimate} | {source} |"
-        )
-
-    claim_optimization = _next_claim_optimization(queue_rows, execution)
-    lines.extend([
-        "",
-        "#### Execution Optimization — Next Run Claim Strategy",
+        "The next multi-detector run is planned once, before workers start. Detector runtimes are ordered by Longest Processing Time (LPT), then greedily assigned to the least-loaded pipeline so the longest jobs gate the build and projected pipeline finish times converge. Pipelines execute their fixed schedules without dynamic stealing or refill claims.",
         "",
         "| Setting | Preferred next run |",
         "|---|---|",
-        f"| Claim strategy | {claim_optimization['strategy']} |",
-        f"| Batch target | {claim_optimization['target_seconds'] or 'n/a'}s estimated work |",
-        f"| Scheduling estimate floor | {claim_optimization['estimate_floor_seconds']}s |",
-        f"| Initial-wave claims | {claim_optimization['initial_lock']} |",
-        f"| Refill strategy | {claim_optimization['refill']} |",
-        f"| Claim-wait objective | {claim_optimization['claim_wait']} |",
-        f"| Optimization basis | {claim_optimization['basis']} |",
+        f"| Detector pipelines | {next_schedule['pipelines']} |",
+        "| Loading / balancing | Static LPT makespan balancing |",
+        f"| Threads per detector regression | {next_schedule['threads_per_pipeline']} |",
+        f"| Scheduling intelligence | `{next_schedule['source']}` |",
+        "| Pipeline start stagger | 0m |",
+        "| Runtime intelligence | `runtime-index.json` |",
+        "| Parallelism intelligence | `parallelism-index.json` |",
+        "| Calibration intelligence | `calibration-index.json` |",
+        "| Persistence | Results are accumulated during execution and published as one post-run calibration/index transaction. |",
+        "",
+        "| Pipeline | Schedule | Total Est Work | Threads |",
+        "|---:|---|---:|---:|",
     ])
-    if claim_optimization["target_seconds"] is not None:
-        initial_batches=_initial_claim_batches(
-            queue_rows,int(execution.get("pipeline_count",1) or 1),
-            target_seconds=float(claim_optimization["target_seconds"]),
-            estimate_floor_seconds=float(claim_optimization["estimate_floor_seconds"]),
+    static_schedule = _static_pipeline_schedule(queue_rows, int(next_schedule["pipelines"]))
+    for plan in static_schedule:
+        names = ", ".join(
+            f"{_detector_friendly_name(str(row['detector']))} (`{row['detector']}`)"
+            for row in plan["tasks"]
         )
-        lines.extend(["","| Pipeline | Initial LPT claim batch | Estimated Work | Threads |",
-                      "|---:|---|---:|---:|"])
-        for batch in initial_batches:
-            names="<br>".join(
-                f"{_detector_friendly_name(str(row['detector']))} (`{row['detector']}`)"
-                for row in batch["tasks"]
-            )
-            lines.append(
-                f"| {batch['pipeline']} | {names} | {_duration(batch['estimated_seconds'])} | "
-                f"{execution.get('threads','unknown')} |"
-            )
+        lines.append(
+            f"| {plan['pipeline']} | {names} | {_duration(plan['estimated_seconds'])} | "
+            f"{next_schedule['threads_per_pipeline']} |"
+        )
     lines.extend([
         "",
-        "Each short-run claim atomically removes consecutive work from the LPT queue until the batch contains at least 10 seconds of estimated work, using a 0.1-second scheduling floor. The parent constructs the initial batches before workers start; refill batches use one serialized queue transaction each. The final claimant drains whatever work remains—there is no special tail-mode reversion.",
+        "The schedule is fixed for the run. A pipeline does not pull replacement work from another pipeline after startup; the balancing decision is made entirely from persisted runtime intelligence before fan-out.",
         "",
-        "Queue order reflects the selected loading strategy. LPT (Longest Processing Time first) schedules the longest estimated detector work first, FIFO preserves configured detector order, and Ranked uses historical detector quality.",
-        "",
-        "### Regression Recommendations Summary",
-        "",
-        "#### Execution Configuration",
-        "",
-        "| Setting | Recommended | Basis |",
-        "|---|---|---|",
-        f"| Detector pipelines | {next_schedule['pipelines']} | Shared multi-detector scheduler (`{next_schedule['source']}`). |",
-        "| Detector loading | LPT (Longest Processing Time first) | Canonical shared-queue loading policy. |",
-        f"| Threads per detector regression | {next_schedule['threads_per_pipeline']} | Recomputed from the recommended worker count and current runner thread budget ({next_schedule['runner_budget']}). |",
-        "| Startup stagger | 0m | Shared scheduler starts the initial LPT wave without an artificial stagger. |",
-        "",
-        "#### Estimated Runtime",
+        "#### Estimated Runtime by Search Scope",
         "",
         "| All-Detector Regression Scope | Estimated Wall Time* |",
         "|---|---:|",
@@ -2725,7 +2661,7 @@ def build_combined_summary(
         f"| Non-dormant | {_duration(non_dormant_estimate)} |",
         f"| Critical only | {_duration(critical_estimate)} |",
         "",
-        r"\* Estimates scale each detector's measured runtime to the selected effect-size domain, apply the normal bounded shard plan, and simulate shard-level LPT placement across the recommended detector pipelines. Effect-group fallback remains active when a detector has no parameter sets in the requested group.",
+        r"\* Estimates scale each detector's measured runtime to the selected effect-size domain, apply the normal bounded shard plan, and simulate static LPT placement across the recommended detector pipelines. Effect-group fallback remains active when a detector has no parameter sets in the requested group.",
         "",
         "The reports below preserve the complete manifest, winner, baseline, calibration statistics, page analysis, and output inventory for each detector run.",
         "",

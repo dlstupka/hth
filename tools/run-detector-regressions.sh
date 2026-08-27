@@ -431,18 +431,14 @@ PY
     "${detector_quality[$queue_index]:-unknown}"
 done
 
-CLAIM_BATCH_TARGET_DECISECONDS=100
-CLAIM_ESTIMATE_FLOOR_DECISECONDS=1
-initial_claim_strategy="dynamic-lpt"
-batch_claims_enabled=0
+SCHEDULE_ESTIMATE_FLOOR_DECISECONDS=1
+initial_claim_strategy="static-schedule"
 if [[ "${DETECTOR_ALGORITHM,,}" == "all" ]] \
   && [[ "${DETECTOR_LOADING_STRATEGY,,}" == "lpt" ]] \
-  && { [[ "$REGRESSION_MODE" != "full" ]] || [[ -n "${effective_limit:-}" ]] || [[ "$effective_strategy" != "exhaustive" ]]; } \
   && (( effective_pipelines > 1 )); then
-  initial_claim_strategy="lpt-batches-10s"
-  batch_claims_enabled=1
+  initial_claim_strategy="static-lpt-plan"
 fi
-echo "Claim strategy     : $initial_claim_strategy"
+echo "Scheduling strategy: $initial_claim_strategy"
 
 queue_dir="$OUTPUT_DIR/.detector-queue"
 rm -rf "$queue_dir"
@@ -725,141 +721,53 @@ PYLEASE
   lifecycle_time="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   echo "======================================================================"
   echo "[pipeline $pipeline_number] UNLOAD detector=$detector_name shard=$((shard_index + 1))/$shard_count status=complete wall=${detector_wall_seconds}s time=$lifecycle_time"
-  echo "[pipeline $pipeline_number] Completed; pipeline is taking the next queued detector."
+  echo "[pipeline $pipeline_number] Completed scheduled detector; continuing its fixed pipeline schedule."
   echo "======================================================================"
 }
 
-claim_batch_from_queue() {
-  claimed_batch=()
-  claimed_batch_units=0
-  local task_index claim_dir units
-  for ((task_index=0; task_index<${#detector_configs[@]}; task_index++)); do
-    [[ -f "$queue_dir/done/$task_index" ]] && continue
-    [[ -f "$queue_dir/failed/$task_index" ]] && continue
-    claim_dir="$queue_dir/claims/$task_index"
-    if mkdir "$claim_dir" 2>/dev/null; then
-      claimed_batch+=("$task_index")
-      units="${task_claim_units[$task_index]:-$CLAIM_ESTIMATE_FLOOR_DECISECONDS}"
-      claimed_batch_units=$((claimed_batch_units + units))
-      if (( batch_claims_enabled == 0 || claimed_batch_units >= CLAIM_BATCH_TARGET_DECISECONDS )); then
-        break
-      fi
-    fi
-  done
-}
-
-reclaim_expired_task() {
-  claimed_batch=()
-  claimed_batch_units=0
-  local task_index claim_dir
-  for ((task_index=0; task_index<${#detector_configs[@]}; task_index++)); do
-    [[ -f "$queue_dir/done/$task_index" ]] && continue
-    [[ -f "$queue_dir/failed/$task_index" ]] && continue
-    claim_dir="$queue_dir/claims/$task_index"
-    [[ -f "$claim_dir/lease.json" ]] || continue
-    if python - "$claim_dir/lease.json" <<'PYLEASE'
-from pathlib import Path
-import sys
-from hth.regression.sharding import lease_expired
-raise SystemExit(0 if lease_expired(Path(sys.argv[1])) else 1)
-PYLEASE
-    then
-      echo "[pipeline recovery] Reclaiming expired shard lease $task_index."
-      rm -rf "$claim_dir"
-      if mkdir "$claim_dir" 2>/dev/null; then
-        claimed_batch=("$task_index")
-        claimed_batch_units="${task_claim_units[$task_index]:-$CLAIM_ESTIMATE_FLOOR_DECISECONDS}"
-        break
-      fi
-    fi
-  done
-}
-
-write_claim_batch_telemetry() {
-  local pipeline_number="$1" batch_sequence="$2" claimed_at="$3"
-  shift 3
-  local -a batch_tasks=("$@")
-  local batch_id task_csv first_task
-  batch_id="$(printf 'p%03d-b%05d' "$pipeline_number" "$batch_sequence")"
-  task_csv="$(IFS=,; echo "${batch_tasks[*]}")"
-  first_task="${batch_tasks[0]}"
-  printf 'claim_batch\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$claimed_at" "$pipeline_number" "${task_threads[$first_task]}" \
-    "$((claimed_batch_units/10)).$((claimed_batch_units%10))" "$task_csv" "$batch_id" \
-    > "$telemetry_root/claim-batches/$batch_id.tsv"
-  printf '%s\n' "$batch_id"
-}
-
 detector_worker() {
-  local pipeline_index="$1" seeded_batch_csv="${2:-}"
+  local pipeline_index="$1" scheduled_tasks_csv="${2:-}"
   local pipeline_number=$((pipeline_index+1))
   local delay_seconds=$((pipeline_index*PIPELINE_STAGGER_MINUTES*60))
-  local task_index task_start_delay claim_batch_id claimed_at
-  local batch_sequence=0
-  local claim_lock_fd="" claim_lock_dir="$queue_dir/.claim-lock"
-  local -a claimed_batch=()
-  local claimed_batch_units=0
+  local task_index task_start_delay schedule_batch_id
+  local -a scheduled_tasks=()
+  local scheduled_units=0
 
-  # Every background worker opens the lock independently so flock owns a
-  # distinct open-file description per process. Only batch assignment is
-  # serialized; detector loading and execution remain fully parallel.
-  if command -v flock >/dev/null 2>&1; then
-    exec {claim_lock_fd}>"$queue_dir/claim.lock"
+  IFS=',' read -r -a scheduled_tasks <<< "$scheduled_tasks_csv"
+  if (( ${#scheduled_tasks[@]} == 0 )); then
+    return 0
   fi
+  for task_index in "${scheduled_tasks[@]}"; do
+    scheduled_units=$((scheduled_units + ${task_claim_units[$task_index]:-$SCHEDULE_ESTIMATE_FLOOR_DECISECONDS}))
+  done
 
-  acquire_claim_lock() {
-    if [[ -n "$claim_lock_fd" ]]; then flock -x "$claim_lock_fd"; return; fi
-    while ! mkdir "$claim_lock_dir" 2>/dev/null; do sleep 0.01; done
-  }
-  release_claim_lock() {
-    if [[ -n "$claim_lock_fd" ]]; then flock -u "$claim_lock_fd"; else rmdir "$claim_lock_dir"; fi
-  }
+  schedule_batch_id="$(printf 'p%03d-static' "$pipeline_number")"
+  printf 'claim_batch\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$(date +%s.%N)" "$pipeline_number" "${task_threads[${scheduled_tasks[0]}]}" \
+    "$((scheduled_units/10)).$((scheduled_units%10))" \
+    "$(IFS=,; echo "${scheduled_tasks[*]}")" "$schedule_batch_id" \
+    > "$telemetry_root/claim-batches/$schedule_batch_id.tsv"
+
+  printf 'start\t%s\n' "$(date +%s.%N)" > "$telemetry_root/workers/$pipeline_number.tsv"
+  echo "[pipeline $pipeline_number] Started fixed schedule: tasks=$(IFS=,; echo "${scheduled_tasks[*]}") estimate=$((scheduled_units/10)).$((scheduled_units%10))s"
 
   local first_task=1
-  printf 'start\t%s\n' "$(date +%s.%N)" > "$telemetry_root/workers/$pipeline_number.tsv"
-  echo "[pipeline $pipeline_number] Started."
-
-  while true; do
-    claimed_batch=()
-    claimed_batch_units=0
-    if [[ -n "$seeded_batch_csv" ]]; then
-      IFS=',' read -r -a claimed_batch <<< "$seeded_batch_csv"
-      seeded_batch_csv=""
-      for task_index in "${claimed_batch[@]}"; do
-        claimed_batch_units=$((claimed_batch_units + ${task_claim_units[$task_index]:-$CLAIM_ESTIMATE_FLOOR_DECISECONDS}))
-      done
-      echo "[pipeline $pipeline_number] Seeded initial LPT batch tasks=$(IFS=,; echo "${claimed_batch[*]}")"
+  for task_index in "${scheduled_tasks[@]}"; do
+    mkdir -p "$queue_dir/claims/$task_index"
+    task_start_delay=0
+    if (( first_task == 1 )); then task_start_delay="$delay_seconds"; first_task=0; fi
+    if run_detector_config "$task_index" "$pipeline_number" "$task_start_delay" "$schedule_batch_id"; then
+      : > "$queue_dir/done/$task_index"
     else
-      acquire_claim_lock
-      claim_batch_from_queue
-      (( ${#claimed_batch[@]} == 0 )) && reclaim_expired_task
-      release_claim_lock
-    fi
-
-    if (( ${#claimed_batch[@]} == 0 )); then
+      : > "$queue_dir/failed/$task_index"
       printf 'end\t%s\n' "$(date +%s.%N)" >> "$telemetry_root/workers/$pipeline_number.tsv"
-      echo "[pipeline $pipeline_number] Detector queue empty."
-      return 0
+      echo "::error::Pipeline $pipeline_number failed detector config ${detector_configs[$task_index]}"
+      return 1
     fi
-
-    batch_sequence=$((batch_sequence+1))
-    claimed_at="$(date +%s.%N)"
-    claim_batch_id="$(write_claim_batch_telemetry "$pipeline_number" "$batch_sequence" "$claimed_at" "${claimed_batch[@]}")"
-    echo "[pipeline $pipeline_number] CLAIM-BATCH id=$claim_batch_id tasks=${#claimed_batch[@]} estimate=$((claimed_batch_units/10)).$((claimed_batch_units%10))s"
-
-    for task_index in "${claimed_batch[@]}"; do
-      task_start_delay=0
-      if (( first_task == 1 )); then task_start_delay="$delay_seconds"; first_task=0; fi
-      if run_detector_config "$task_index" "$pipeline_number" "$task_start_delay" "$claim_batch_id"; then
-        : > "$queue_dir/done/$task_index"
-      else
-        : > "$queue_dir/failed/$task_index"
-        printf 'end\t%s\n' "$(date +%s.%N)" >> "$telemetry_root/workers/$pipeline_number.tsv"
-        echo "::error::Pipeline $pipeline_number failed detector config ${detector_configs[$task_index]}"
-        return 1
-      fi
-    done
   done
+
+  printf 'end\t%s\n' "$(date +%s.%N)" >> "$telemetry_root/workers/$pipeline_number.tsv"
+  echo "[pipeline $pipeline_number] Fixed schedule complete; persistence remains batched for post-run publication."
 }
 
 # Learned inference evidence is parameter-invariant. When a learned detector
@@ -908,16 +816,29 @@ for learned_detector in kraken_page_mask orli_page_mask dhsegment_page_mask doc_
 done
 
 worker_pids=()
-declare -a initial_seed_batches=()
-if (( batch_claims_enabled == 1 )); then
-  echo "Initial LPT claim batches"
-  echo "========================="
-  for ((pipeline_index=0; pipeline_index<effective_pipelines; pipeline_index++)); do
-    claim_batch_from_queue
-    (( ${#claimed_batch[@]} == 0 )) && break
-    initial_seed_batches[$pipeline_index]="$(IFS=,; echo "${claimed_batch[*]}")"
-    echo "pipeline=$((pipeline_index+1)) tasks=${initial_seed_batches[$pipeline_index]} estimate=$((claimed_batch_units/10)).$((claimed_batch_units%10))s"
-  done
+declare -a static_pipeline_tasks=()
+if [[ "${DETECTOR_ALGORITHM,,}" == "all" ]] && (( effective_pipelines > 1 )); then
+  while IFS=$'\t' read -r pipeline_number task_csv estimated_seconds; do
+    [[ -n "$pipeline_number" ]] || continue
+    static_pipeline_tasks[$((pipeline_number-1))]="$task_csv"
+    echo "Static schedule pipeline=$pipeline_number tasks=$task_csv estimate=${estimated_seconds}s"
+  done < <(python - "$effective_pipelines" "${detector_estimates[@]}" <<'PYSTATICLPT'
+import sys
+from hth.domain.multidetector_schedule import plan_static_lpt_tasks
+pipelines=int(sys.argv[1])
+estimates=[]
+for raw in sys.argv[2:]:
+    try:
+        estimates.append(float(raw))
+    except (TypeError, ValueError):
+        estimates.append(None)
+for row in plan_static_lpt_tasks(estimates, pipelines):
+    print(f"{row['pipeline']}\t{','.join(str(i) for i in row['task_indexes'])}\t{row['estimated_seconds']:.1f}")
+PYSTATICLPT
+  )
+else
+  # Single-pipeline/single-detector execution is already deterministic.
+  static_pipeline_tasks[0]="$(seq -s, 0 $((${#detector_configs[@]}-1)))"
 fi
 
 startup_complete_epoch="$(date +%s.%N)"
@@ -931,7 +852,7 @@ printf '{"executor_startup_overhead_seconds": %s, "definition": "run-detector-re
 echo "Executor startup overhead: ${startup_overhead_seconds}s (included in optimizer shape wall time; shard timings start after fan-out)"
 
 for ((pipeline_index=0; pipeline_index<effective_pipelines; pipeline_index++)); do
-  detector_worker "$pipeline_index" "${initial_seed_batches[$pipeline_index]:-}" &
+  detector_worker "$pipeline_index" "${static_pipeline_tasks[$pipeline_index]:-}" &
   worker_pids+=("$!")
 done
 
