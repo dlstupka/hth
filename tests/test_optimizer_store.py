@@ -278,6 +278,34 @@ class OptimizerStoreTests(unittest.TestCase):
 
 
 
+    def test_profile_plot_keeps_compatible_concrete_runners_as_separate_series(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rows = [
+                _row("old-a", "192t", 7, 54, 22, optimizer_run_id="100"),
+                _row("old-b", "192t", 9, 42, 20, optimizer_run_id="100"),
+                _row("new-a", "192t", 36, 10, 16, optimizer_run_id="101"),
+                _row("new-b", "192t", 37, 10, 15, optimizer_run_id="101"),
+            ]
+            for row in rows:
+                row["compatibility_key"] = "same-compatible-profile"
+            rows[0]["runner"]["runner_name"] = "rh8-a1316"
+            rows[1]["runner"]["runner_name"] = "rh8-a1316"
+            rows[2]["runner"]["runner_name"] = "rh8-a1318"
+            rows[3]["runner"]["runner_name"] = "rh8-a1318"
+
+            index = build_optimizer_index({"observations": rows}, "adaptive_radial_edge")
+
+            # Preferred-shape selection intentionally remains compatibility scoped.
+            self.assertEqual(index["runner_count"], 1)
+            # Plotting preserves the two concrete machines instead of connecting
+            # their measurements into one fabricated curve.
+            self.assertEqual(len(index["plot_series"]), 2)
+            svg = render_heatmap_svg(index)
+            self.assertIn("rh8-a1316", svg)
+            self.assertIn("rh8-a1318", svg)
+            self.assertEqual(svg.count('<path d="'), 2)
+
     def test_shape_report_preserves_and_labels_startup_overhead(self) -> None:
         row = _row("startup", "e7k", 8, 48, 240.0, optimizer_run_id="555")
         row["startup_overhead_seconds"] = 180.0

@@ -190,6 +190,47 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, o
         group_key = str(row.get("compatibility_key") or _runner_key(row))
         runner_groups.setdefault(group_key, []).append(row)
 
+    # Selection remains compatibility-scoped, but visualization must preserve
+    # concrete runner identity.  A compatibility group can legitimately contain
+    # observations from multiple hosts/runs; joining those points into one line
+    # fabricates a processing curve that was never measured on any one runner.
+    plot_groups: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        plot_groups.setdefault(_runner_key(row), []).append(row)
+
+    plot_series: list[dict[str, Any]] = []
+    for concrete_key, concrete_rows in plot_groups.items():
+        one_pipeline = [row for row in concrete_rows if _as_int(row.get("active_pipelines")) == 1]
+        baseline_wall = min(
+            (_as_float(row.get("wall_clock_seconds")) for row in one_pipeline if _as_float(row.get("wall_clock_seconds")) is not None),
+            default=None,
+        )
+        shape_groups: dict[str, list[dict[str, Any]]] = {}
+        for row in concrete_rows:
+            shape_groups.setdefault(str(row.get("execution_shape") or "unknown"), []).append(row)
+        plot_shapes: list[dict[str, Any]] = []
+        for shape_rows in shape_groups.values():
+            walls = sorted(float(row["wall_clock_seconds"]) for row in shape_rows)
+            fastest = min(shape_rows, key=lambda row: float(row["wall_clock_seconds"]))
+            plot_shapes.append(
+                _shape_from_row(
+                    fastest,
+                    baseline_wall=baseline_wall,
+                    observation_count=len(shape_rows),
+                    median_wall=statistics.median(walls),
+                )
+            )
+        plot_shapes.sort(key=lambda shape: (int(shape.get("pipelines") or 0), int(shape.get("threads_per_pipeline") or 0)))
+        sample = concrete_rows[0]
+        plot_series.append({
+            "runner_key": concrete_key,
+            "compatibility_key": sample.get("compatibility_key"),
+            "runner_title": _runner_title(sample),
+            "best_shape": select_preferred_shape(plot_shapes),
+            "shapes": plot_shapes,
+        })
+    plot_series.sort(key=lambda series: str(series.get("runner_title") or ""))
+
     runners: list[dict[str, Any]] = []
     for runner_key, runner_rows in runner_groups.items():
         one_pipeline = [row for row in runner_rows if _as_int(row.get("active_pipelines")) == 1]
@@ -241,6 +282,7 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, o
         "observation_count": len(rows),
         "best_across_runners": best_across_runners,
         "runners": runners,
+        "plot_series": plot_series,
     }
 
 
@@ -710,7 +752,9 @@ def render_all_markdown(indices: list[dict[str, Any]]) -> str:
 
 def render_heatmap_svg(index: dict[str, Any]) -> str:
     """Render the execution processing profile: pipelines on X, sets/s on Y."""
-    runners = [runner for runner in index.get("runners", []) if runner.get("shapes")]
+    # Prefer concrete-runner visualization series when available. Selection and
+    # preferred-shape tables remain compatibility-scoped in ``runners``.
+    runners = [runner for runner in index.get("plot_series", index.get("runners", [])) if runner.get("shapes")]
     width, height = 980, 560
     left, top, right, bottom = 92, 112, 40, 90
     plot_w = width - left - right
