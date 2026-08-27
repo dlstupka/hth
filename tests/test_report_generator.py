@@ -329,6 +329,36 @@ class ReportGeneratorTests(unittest.TestCase):
             self.assertTrue((root / "out" / "profiles" / "adaptive_radial_edge.svg").is_file())
 
 
+    def test_optimizer_report_all_profile_always_includes_latest_completed_runner_series(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            detector = "signed_polar_boundary_vote"
+            optimizer = {"runs": {
+                "100": {"detector_id": detector, "updated_at_utc": "2026-08-26T00:00:00Z", "run_metadata": {"pipeline_enumeration": "adaptive", "stop_reason": "range_complete"}},
+                "101": {"detector_id": detector, "updated_at_utc": "2026-08-27T00:00:00Z", "run_metadata": {"pipeline_enumeration": "adaptive", "stop_reason": "range_complete"}},
+            }}
+            old = {"detector_id": detector, "optimizer_run_id": "100", "source": "execution-optimizer",
+                   "mode": "full", "strategy": "exhaustive", "actual_parameter_sets": 256, "possible_parameter_sets": 256,
+                   "optimizer_benchmark_parameter_sets": 256, "active_pipelines": 40, "shards": 40,
+                   "threads_per_pipeline": 9, "allocated_threads": 360, "wall_clock_seconds": 3,
+                   "parameter_sets_per_second": 87.48, "execution_shape": "40p/40s/9t", "optimizer_shape_sequence": 1,
+                   "compatibility_key": "compatible",
+                   "runner": {"runner_label": "192t", "runner_name": "rh8-a1319", "logical_cpu_count": 192}}
+            new = dict(old)
+            new.update({"optimizer_run_id": "101", "active_pipelines": 11, "shards": 11, "threads_per_pipeline": 34,
+                        "allocated_threads": 374, "wall_clock_seconds": 4, "parameter_sets_per_second": 64.0,
+                        "execution_shape": "11p/11s/34t", "optimizer_shape_sequence": 1})
+            new["runner"] = {"runner_label": "192t", "runner_name": "rh8-a1328", "logical_cpu_count": 192}
+            (root / "optimizer-index.json").write_text(json.dumps(optimizer), encoding="utf-8")
+            (root / "parallelism-index.json").write_text(json.dumps({"observations": [old, new]}), encoding="utf-8")
+            self._write_completed_optimizer_summary(root, detector, "101")
+
+            paths = generate_optimizer_report_all(root, root / "out")
+            svg = (paths["profiles"] / f"{detector}.svg").read_text(encoding="utf-8")
+            self.assertIn("rh8-a1319", svg)
+            self.assertIn("rh8-a1328", svg)
+            self.assertIn("34t", svg)
+
     def test_optimizer_report_all_coalesces_completed_detectors(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

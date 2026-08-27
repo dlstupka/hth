@@ -385,6 +385,55 @@ def _completed_optimizer_detectors(results_root: Path) -> list[str]:
     return completed
 
 
+def _optimizer_profile_index(current: dict[str, Any], preferred: dict[str, Any]) -> dict[str, Any]:
+    """Return the profile view used by aggregate Report Writer output.
+
+    Preferred-shape selection remains compatibility scoped in ``preferred``.
+    The visualization, however, must never omit the latest completed run just
+    because aggregate completion metadata is stale or being reconstructed.
+    Merge concrete-runner plot series from the latest completed run into the
+    preferred/coalesced profile without changing any selection data.
+    """
+    profile = dict(preferred)
+    merged: dict[str, dict[str, Any]] = {}
+    for source in (preferred, current):
+        for series in source.get("plot_series", []):
+            if not isinstance(series, dict):
+                continue
+            key = str(series.get("runner_key") or series.get("runner_title") or "unknown")
+            existing = merged.get(key)
+            if existing is None:
+                merged[key] = dict(series)
+                continue
+            # Merge individual measured shapes by run+shape identity so a
+            # repeated shape from a newly completed run remains visible rather
+            # than being silently collapsed into older aggregate evidence.
+            shapes: dict[tuple[str, str, int], dict[str, Any]] = {}
+            for candidate in list(existing.get("shapes", [])) + list(series.get("shapes", [])):
+                if not isinstance(candidate, dict):
+                    continue
+                shape_key = (
+                    str(candidate.get("optimizer_run_id") or ""),
+                    str(candidate.get("execution_shape") or ""),
+                    int(candidate.get("optimizer_shape_sequence") or 0),
+                )
+                shapes[shape_key] = candidate
+            merged_series = dict(existing)
+            merged_series["shapes"] = sorted(
+                shapes.values(),
+                key=lambda shape: (
+                    int(shape.get("pipelines") or 0),
+                    int(shape.get("threads_per_pipeline") or 0),
+                    str(shape.get("optimizer_run_id") or ""),
+                    int(shape.get("optimizer_shape_sequence") or 0),
+                ),
+            )
+            merged_series["best_shape"] = select_preferred_shape(merged_series["shapes"])
+            merged[key] = merged_series
+    profile["plot_series"] = sorted(merged.values(), key=lambda row: str(row.get("runner_title") or ""))
+    return profile
+
+
 def generate_optimizer_report_all(
     results_root: Path,
     output_dir: Path,
@@ -396,9 +445,10 @@ def generate_optimizer_report_all(
     profiles_dir = output_dir / "profiles"
     profiles_dir.mkdir(parents=True, exist_ok=True)
     for detector in detectors:
-        _, preferred, _ = _optimizer_report_components(results_root, detector)
+        current, preferred, _ = _optimizer_report_components(results_root, detector)
         preferred_indices.append(preferred)
-        (profiles_dir / f"{detector}.svg").write_text(render_heatmap_svg(preferred), encoding="utf-8")
+        profile_index = _optimizer_profile_index(current, preferred)
+        (profiles_dir / f"{detector}.svg").write_text(render_heatmap_svg(profile_index), encoding="utf-8")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     summary = output_dir / "summary.md"
