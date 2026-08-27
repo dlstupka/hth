@@ -2245,7 +2245,10 @@ def _queue_rows(
                 golden_set_sha256=_combined_golden_sha(run_dirs),
                 runner_label=str(execution_profile.get("runner_label") or ""),
             )
-            estimate = observation.get("wall_clock_seconds") if observation else None
+            estimate = (
+                observation.get("scheduler_wall_clock_seconds", observation.get("wall_clock_seconds"))
+                if observation else None
+            )
         rows.append({
             "detector": detector,
             "queue_position": context.get("queue_position"),
@@ -2292,6 +2295,124 @@ def _static_pipeline_schedule(queue_rows: list[dict[str, Any]], pipeline_count: 
             "estimated_seconds": plan["estimated_seconds"],
         })
     return result
+
+
+def _current_pipeline_schedule(run_dirs: list[Path], pipeline_count: int) -> list[dict[str, Any]]:
+    """Recover the fixed detector schedule that this build actually executed."""
+    plans = [
+        {"pipeline": number, "tasks": [], "estimated_seconds": 0.0}
+        for number in range(1, max(1, int(pipeline_count)) + 1)
+    ]
+    by_pipeline = {row["pipeline"]: row for row in plans}
+    for run_dir in run_dirs:
+        manifest = _read_json(run_dir / "manifest.json")
+        context = _pipeline_context(run_dir)
+        detector = str(manifest.get("detector", run_dir.parent.name))
+        try:
+            pipeline = int(context.get("pipeline_number") or 1)
+        except (TypeError, ValueError):
+            pipeline = 1
+        if pipeline not in by_pipeline:
+            by_pipeline[pipeline] = {"pipeline": pipeline, "tasks": [], "estimated_seconds": 0.0}
+        try:
+            estimate = float(context.get("runtime_estimate_seconds"))
+        except (TypeError, ValueError):
+            estimate = 0.0
+        try:
+            position = int(context.get("queue_position") or 10**9)
+        except (TypeError, ValueError):
+            position = 10**9
+        by_pipeline[pipeline]["tasks"].append({
+            "detector": detector,
+            "queue_position": position,
+            "estimate_seconds": estimate,
+        })
+        by_pipeline[pipeline]["estimated_seconds"] += max(0.0, estimate)
+    result = []
+    for pipeline in sorted(by_pipeline):
+        plan = by_pipeline[pipeline]
+        plan["tasks"].sort(key=lambda row: (int(row.get("queue_position") or 10**9), str(row.get("detector") or "")))
+        if plan["tasks"]:
+            result.append(plan)
+    return result
+
+
+def _current_multidetector_observation(
+    index_path: Path | None, *, build_id: str | None, golden_set_sha256: str
+) -> dict[str, Any] | None:
+    if index_path is None or not index_path.is_file():
+        return None
+    payload = _read_json(index_path)
+    candidates = []
+    for row in payload.get("observations", []):
+        if not isinstance(row, dict):
+            continue
+        if build_id and str(row.get("github_run_id") or row.get("github_run_number") or "") != str(build_id):
+            continue
+        if golden_set_sha256 and str(row.get("golden_set_sha256") or "") != golden_set_sha256:
+            continue
+        candidates.append(row)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda row: str(row.get("observed_at_utc") or ""), reverse=True)
+    return candidates[0]
+
+
+def _scheduler_feedback_schedule(
+    current_schedule: list[dict[str, Any]],
+    observation: dict[str, Any] | None,
+    pipeline_count: int,
+) -> tuple[list[dict[str, Any]], dict[int, float]]:
+    """Build the next fixed LPT schedule from this run's measured task slots.
+
+    Task busy time is the scheduler-facing detector cost.  It deliberately
+    includes detector wrapper/load/unload overhead captured by the executor,
+    rather than using only the detector core RUN-INFO elapsed time.
+    """
+    actual_pipeline_seconds: dict[int, float] = {}
+    measured_by_detector: dict[str, float] = {}
+    if observation:
+        for worker in observation.get("workers", []):
+            if not isinstance(worker, dict):
+                continue
+            try:
+                actual_pipeline_seconds[int(worker.get("pipeline"))] = float(worker.get("span_seconds"))
+            except (TypeError, ValueError):
+                pass
+        for task in observation.get("tasks", []):
+            if not isinstance(task, dict) or str(task.get("status") or "") != "complete":
+                continue
+            detector = str(task.get("detector") or "")
+            try:
+                seconds = float(task.get("busy_seconds"))
+            except (TypeError, ValueError):
+                continue
+            if detector and seconds >= 0:
+                measured_by_detector[detector] = measured_by_detector.get(detector, 0.0) + seconds
+
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for plan in current_schedule:
+        for task in plan.get("tasks", []):
+            detector = str(task.get("detector") or "")
+            if not detector or detector in seen:
+                continue
+            seen.add(detector)
+            prior = float(task.get("estimate_seconds") or 0.0)
+            rows.append({
+                "detector": detector,
+                "estimate_seconds": measured_by_detector.get(detector, prior),
+            })
+    return _static_pipeline_schedule(rows, pipeline_count), actual_pipeline_seconds
+
+
+def _schedule_delta(current: dict[str, Any], next_plan: dict[str, Any]) -> str:
+    current_ids = [str(row.get("detector") or "") for row in current.get("tasks", [])]
+    next_ids = [str(row.get("detector") or "") for row in next_plan.get("tasks", [])]
+    removed = [detector for detector in current_ids if detector not in next_ids]
+    added = [detector for detector in next_ids if detector not in current_ids]
+    changes = [*(f"-`{detector}`" for detector in removed), *(f"+`{detector}`" for detector in added)]
+    return " ".join(changes) if changes else "="
 
 
 def _github_url(repository: str) -> str:
@@ -2636,22 +2757,47 @@ def build_combined_summary(
         "| Calibration intelligence | `calibration-index.json` |",
         "| Persistence | Results are accumulated during execution and published as one post-run calibration/index transaction. |",
         "",
-        "| Pipeline | Schedule | Total Est Work | Threads |",
-        "|---:|---|---:|---:|",
     ])
-    static_schedule = _static_pipeline_schedule(queue_rows, int(next_schedule["pipelines"]))
-    for plan in static_schedule:
-        names = ", ".join(
-            f"{_detector_friendly_name(str(row['detector']))} (`{row['detector']}`)"
-            for row in plan["tasks"]
-        )
+    current_schedule = _current_pipeline_schedule(run_dirs, int(next_schedule["pipelines"]))
+    current_observation = _current_multidetector_observation(
+        multidetector_index,
+        build_id=str(execution.get("profile", {}).get("build_id") or "") if execution.get("profile") else None,
+        golden_set_sha256=_combined_golden_sha(run_dirs),
+    )
+    feedback_schedule, actual_pipeline_seconds = _scheduler_feedback_schedule(
+        current_schedule, current_observation, int(next_schedule["pipelines"])
+    )
+    current_by_pipeline = {int(plan["pipeline"]): plan for plan in current_schedule}
+    next_by_pipeline = {int(plan["pipeline"]): plan for plan in feedback_schedule}
+    lines.extend([
+        "| Pipeline | Schedule | Reshuffle | Est Work | Actual Work Time | Next Run | Next Est | Threads |",
+        "|---:|---|---|---:|---:|---|---:|---:|",
+    ])
+    for pipeline in sorted(set(current_by_pipeline) | set(next_by_pipeline)):
+        current = current_by_pipeline.get(pipeline, {"pipeline": pipeline, "tasks": [], "estimated_seconds": 0.0})
+        next_plan = next_by_pipeline.get(pipeline, {"pipeline": pipeline, "tasks": [], "estimated_seconds": 0.0})
+        schedule_ids = ", ".join(f"`{row['detector']}`" for row in current["tasks"]) or "—"
+        next_ids = ", ".join(f"`{row['detector']}`" for row in next_plan["tasks"]) or "—"
+        actual = actual_pipeline_seconds.get(pipeline)
         lines.append(
-            f"| {plan['pipeline']} | {names} | {_duration(plan['estimated_seconds'])} | "
-            f"{next_schedule['threads_per_pipeline']} |"
+            f"| {pipeline} | {schedule_ids} | {_schedule_delta(current, next_plan)} | "
+            f"{_duration(current['estimated_seconds'])} | {_duration(actual) if actual is not None else '—'} | "
+            f"{next_ids} | {_duration(next_plan['estimated_seconds'])} | {next_schedule['threads_per_pipeline']} |"
         )
+    if actual_pipeline_seconds:
+        actual_values = list(actual_pipeline_seconds.values())
+        next_values = [float(plan.get("estimated_seconds") or 0.0) for plan in feedback_schedule]
+        actual_spread = max(actual_values) - min(actual_values) if len(actual_values) > 1 else 0.0
+        next_spread = max(next_values) - min(next_values) if len(next_values) > 1 else 0.0
+        lines.extend([
+            "",
+            f"**Pipeline balance feedback:** actual work-time spread {_duration(actual_spread)}; projected next-run spread {_duration(next_spread)}.",
+        ])
     lines.extend([
         "",
-        "The schedule is fixed for the run. A pipeline does not pull replacement work from another pipeline after startup; the balancing decision is made entirely from persisted runtime intelligence before fan-out.",
+        "`Schedule` is the fixed detector-ID order executed by this build. `Est Work` is the estimate used before fan-out. `Actual Work Time` is the measured fixed-pipeline span. `Reshuffle`, `Next Run`, and `Next Est` are derived after the run by re-running static LPT with the newly measured scheduler-facing detector costs.",
+        "",
+        "Scheduler-facing detector cost includes the executor's per-detector load/run/unload wrapper time; pipeline scheduling therefore learns orchestration overhead instead of modeling detector-core RUN-INFO time alone. The next schedule is still fixed before the following run starts—there is no dynamic stealing.",
         "",
         "#### Estimated Runtime by Search Scope",
         "",

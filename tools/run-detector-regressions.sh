@@ -586,22 +586,21 @@ PY
 
   local detector_loaded_epoch detector_started_epoch detector_finished_epoch detector_wall_seconds
   local lifecycle_time
+  if (( start_delay_seconds > 0 )); then
+    echo "[pipeline $pipeline_number] WAIT detector=$detector_name shard=$((shard_index + 1))/$shard_count stagger=${start_delay_seconds}s"
+    sleep "$start_delay_seconds"
+  fi
   detector_loaded_epoch="$(date +%s)"
+  detector_started_epoch="$detector_loaded_epoch"
+  printf 'start\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$(date +%s.%N)" "$pipeline_number" "$detector_name" "$shard_index" "$shard_count" "$detector_threads" "$claim_batch_id" \
+    >> "$telemetry_root/tasks/$task_index.tsv"
   lifecycle_time="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   echo
   echo "======================================================================"
   echo "[pipeline $pipeline_number] LOAD detector=$detector_name shard=$((shard_index + 1))/$shard_count threads=$detector_threads time=$lifecycle_time"
   echo "[pipeline $pipeline_number] estimate=${detector_estimate}s source=${detector_estimate_source}"
   echo "[pipeline $pipeline_number] ranked_quality=${detector_ranked_quality}"
-  if (( start_delay_seconds > 0 )); then
-    echo "[pipeline $pipeline_number] WAIT detector=$detector_name shard=$((shard_index + 1))/$shard_count stagger=${start_delay_seconds}s"
-    sleep "$start_delay_seconds"
-  fi
-  detector_started_epoch="$(date +%s)"
-  printf 'start\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$(date +%s.%N)" "$pipeline_number" "$detector_name" "$shard_index" "$shard_count" "$detector_threads" "$claim_batch_id" \
-    >> "$telemetry_root/tasks/$task_index.tsv"
-  lifecycle_time="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   echo "[pipeline $pipeline_number] START detector=$detector_name shard=$((shard_index + 1))/$shard_count threads=$detector_threads time=$lifecycle_time"
   echo "======================================================================"
   echo "[pipeline $pipeline_number][$detector_name] Regression command:"
@@ -671,10 +670,10 @@ PYLEASE
     kill "$lease_pid" 2>/dev/null || true
     wait "$lease_pid" 2>/dev/null || true
     detector_finished_epoch="$(date +%s)"
-    printf 'finish\t%s\tfailed\n' "$(date +%s.%N)" >> "$telemetry_root/tasks/$task_index.tsv"
     detector_wall_seconds="$((detector_finished_epoch - detector_started_epoch))"
     lifecycle_time="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
     echo "[pipeline $pipeline_number] UNLOAD detector=$detector_name shard=$((shard_index + 1))/$shard_count status=failed wall=${detector_wall_seconds}s time=$lifecycle_time"
+    printf 'finish\t%s\tfailed\n' "$(date +%s.%N)" >> "$telemetry_root/tasks/$task_index.tsv"
     echo "::error::$detector_name regression command failed in pipeline $pipeline_number"
     return 1
   fi
@@ -695,7 +694,6 @@ PYLEASE
 
   printf '%s\n' "$run_dir" > "$queue_dir/run-dirs/$(printf '%04d' "$task_index")"
   detector_finished_epoch="$(date +%s)"
-  printf 'finish\t%s\tcomplete\n' "$(date +%s.%N)" >> "$telemetry_root/tasks/$task_index.tsv"
   detector_wall_seconds="$((detector_finished_epoch - detector_started_epoch))"
 
   if [[ -n "${HTH_OPTIMIZER_SHARD_LOG:-}" && -n "${HTH_OPTIMIZER_RUN_ID:-}" && -n "${HTH_OPTIMIZER_SHAPE_SEQUENCE:-}" ]]; then
@@ -721,6 +719,7 @@ PYLEASE
   lifecycle_time="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   echo "======================================================================"
   echo "[pipeline $pipeline_number] UNLOAD detector=$detector_name shard=$((shard_index + 1))/$shard_count status=complete wall=${detector_wall_seconds}s time=$lifecycle_time"
+  printf 'finish\t%s\tcomplete\n' "$(date +%s.%N)" >> "$telemetry_root/tasks/$task_index.tsv"
   echo "[pipeline $pipeline_number] Completed scheduled detector; continuing its fixed pipeline schedule."
   echo "======================================================================"
 }

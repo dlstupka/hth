@@ -137,6 +137,51 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
     _write_json(args.output,observation); return observation
 
 
+def _publish_scheduler_costs(results_root: Path, observation: dict[str, Any]) -> None:
+    """Feed measured fixed-schedule detector slot costs back into runtime intelligence.
+
+    The scheduler needs executor-facing cost, not only detector-core RUN-INFO
+    elapsed time.  For unsharded detector tasks, the multidetector telemetry
+    measures the whole scheduled LOAD/run/UNLOAD slot.  Store that as an
+    additive runtime observation field so the next static LPT plan uses the
+    exact same canonical runtime index rather than inventing a second scheduler
+    persistence path.
+    """
+    runtime = load_index(results_root, "runtime-index.json")
+    run_id = str(observation.get("github_run_id") or "").strip()
+    if not run_id:
+        return
+    costs: dict[str, float] = {}
+    for task in observation.get("tasks", []):
+        if not isinstance(task, dict) or str(task.get("status") or "") != "complete":
+            continue
+        try:
+            shard_count = int(task.get("shard_count") or 1)
+            seconds = float(task.get("busy_seconds"))
+        except (TypeError, ValueError):
+            continue
+        detector = str(task.get("detector") or "")
+        if detector and shard_count == 1 and seconds >= 0:
+            costs[detector] = seconds
+    if not costs:
+        return
+    changed = False
+    for row in runtime.get("observations", []):
+        if not isinstance(row, dict):
+            continue
+        build = row.get("build") if isinstance(row.get("build"), dict) else {}
+        if str(build.get("github_run_id") or "") != run_id:
+            continue
+        detector = str(row.get("detector_id") or "")
+        if detector in costs:
+            row["scheduler_wall_clock_seconds"] = costs[detector]
+            row["scheduler_cost_source"] = "multidetector-fixed-slot"
+            changed = True
+    if changed:
+        runtime["updated_at_utc"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        write_index(results_root, "runtime-index.json", runtime)
+
+
 def publish(metadata: Path, results_root: Path) -> dict[str, Any]:
     observation=_read_json(metadata); path=canonical_index_path(results_root, "multidetector-index.json")
     durable_dir = Path(results_root) / "execution-history" / "multidetector"
@@ -148,7 +193,9 @@ def publish(metadata: Path, results_root: Path) -> dict[str, Any]:
     by_id[str(observation["observation_id"])]=observation
     rows=sorted(by_id.values(),key=lambda r:str(r.get("observed_at_utc") or ""),reverse=True)[:MAX_OBSERVATIONS]
     index.update({"schema_version":INDEX_SCHEMA_VERSION,"updated_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),"observations":rows})
-    write_index(results_root, "multidetector-index.json", index); return index
+    write_index(results_root, "multidetector-index.json", index)
+    _publish_scheduler_costs(results_root, observation)
+    return index
 
 
 def parser() -> argparse.ArgumentParser:

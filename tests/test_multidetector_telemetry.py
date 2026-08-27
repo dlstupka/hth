@@ -39,9 +39,22 @@ class MultiDetectorTelemetryTests(unittest.TestCase):
             self.assertEqual(obs["tasks"][0]["allocated_threads"], 48)
 
             results = root / "results"
+            (results / "indexes").mkdir(parents=True)
+            (results / "indexes" / "runtime-index.json").write_text(json.dumps({
+                "schema_version": 1,
+                "observations": [
+                    {"observation_id": "ra", "detector_id": "a", "wall_clock_seconds": 9.0, "build": {"github_run_id": "1"}},
+                    {"observation_id": "rb", "detector_id": "b", "wall_clock_seconds": 5.0, "build": {"github_run_id": "1"}},
+                ],
+            }), encoding="utf-8")
             publish(out, results)
             index = json.loads((results / "indexes" / "multidetector-index.json").read_text(encoding="utf-8"))
             self.assertEqual(index["observations"][0]["observation_id"], "x")
+            runtime = json.loads((results / "indexes" / "runtime-index.json").read_text(encoding="utf-8"))
+            by_detector = {row["detector_id"]: row for row in runtime["observations"]}
+            self.assertEqual(by_detector["a"]["scheduler_wall_clock_seconds"], 10.0)
+            self.assertEqual(by_detector["b"]["scheduler_wall_clock_seconds"], 6.0)
+            self.assertEqual(by_detector["a"]["scheduler_cost_source"], "multidetector-fixed-slot")
 
 
 if __name__ == "__main__":

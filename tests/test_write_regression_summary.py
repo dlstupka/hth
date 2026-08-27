@@ -499,7 +499,7 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("### Regression Execution Schedule", text)
             self.assertIn("| Detector pipelines | 4 |", text)
             self.assertIn("| Loading / balancing | Static LPT makespan balancing |", text)
-            self.assertIn("| Pipeline | Schedule | Total Est Work | Threads |", text)
+            self.assertIn("| Pipeline | Schedule | Reshuffle | Est Work | Actual Work Time | Next Run | Next Est | Threads |", text)
             self.assertNotIn("Initial LPT claim batch", text)
             self.assertNotIn("Regression Recommendations Summary", text)
             self.assertNotIn("Execution Configuration", text)

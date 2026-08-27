@@ -235,7 +235,12 @@ def estimate_runtime(
         max_dimension=max_dimension, golden_set_sha256=golden_set_sha256,
         runner_label=runner_label,
     )
-    return (_as_float(best.get("wall_clock_seconds")) if best else None), source
+    if not best:
+        return None, source
+    scheduler_cost = _as_float(best.get("scheduler_wall_clock_seconds"))
+    if scheduler_cost is not None:
+        return scheduler_cost, f"{source}+scheduler-slot"
+    return _as_float(best.get("wall_clock_seconds")), source
 
 
 def coherent_execution_profile(
