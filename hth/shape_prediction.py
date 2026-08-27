@@ -132,11 +132,13 @@ def scale_shape_from_anchor(
 ) -> dict[str, int]:
     """Canonical HTH cross-runner shape scaler.
 
-    A shape occupies the same fraction of the target machine as it did on the
-    measured machine. For example 32 pipelines on 192 logical CPUs predicts
+    Pipeline count occupies the same fraction of the target machine as it did on
+    the measured machine. For example 32 pipelines on 192 logical CPUs predicts
     round(32 * 32 / 192) == 5 pipelines on 32 logical CPUs. Boundary shapes stay
     boundaries: 1 pipeline remains at least 1 and a max-width shape scales to the
-    target max. Thread allocation preserves the measured allocation fraction.
+    target max. Once the target pipeline count is selected, threads/pipeline is
+    recomputed from the target runner budget (2x target vCPU), matching normal
+    execution-shape planning rather than carrying source-runner allocation forward.
     """
     source_logical = max(1, int(source_logical_cpus))
     target_logical = max(1, int(target_logical_cpus))
@@ -144,11 +146,13 @@ def scale_shape_from_anchor(
     pipelines = max(1, int(round(float(source_pipelines) * target_logical / source_logical)))
     pipelines = min(pipelines, target_logical)
 
-    allocation_fraction = min(1.0, max(0.05, float(source_allocation_fraction)))
-    target_allocated = max(1, min(target_budget, int(round(target_budget * allocation_fraction))))
-    threads = max(1, int(round(target_allocated / pipelines)))
-    if pipelines * threads > target_budget:
-        threads = max(1, target_budget // pipelines)
+    # Cross-vCPU intelligence predicts concurrency, not a source-runner thread
+    # allocation.  After selecting the target pipeline count, derive the local
+    # threads/pipeline exactly as the execution planner does for that runner.
+    # ``source_allocation_fraction`` remains in the signature for persisted
+    # prediction-schema compatibility but is intentionally not used here.
+    _ = source_allocation_fraction
+    threads = max(1, target_budget // pipelines)
     allocated = pipelines * threads
     return {
         "pipelines": pipelines,

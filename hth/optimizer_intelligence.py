@@ -276,8 +276,8 @@ def resolve_optimizer_intelligence(
     Cross-vCPU scaling intentionally uses the current HTH rule:
     ``new_pipelines = round(old_pipelines / old_vcpu * new_vcpu)`` with
     ``max pipelines = new_vcpu`` and ``max thread budget = new_vcpu * 2``.
-    The lower-level predictor preserves the measured allocation fraction, which
-    keeps threads/pipeline unchanged when the linear pipeline scaling is exact.
+    After pipeline scaling, threads/pipeline is recomputed from the target runner
+    budget, so the destination machine owns the local thread allocation.
     """
     compatible = [row for row in rows if isinstance(row, dict)]
     if not compatible:

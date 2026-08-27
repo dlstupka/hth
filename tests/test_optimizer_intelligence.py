@@ -75,6 +75,24 @@ class OptimizerIntelligenceTests(unittest.TestCase):
         self.assertEqual(result["predicted_shape"]["threads_per_pipeline"], 2)
         self.assertEqual(result["predicted_shape"]["allocated_threads"], 264)
 
+    def test_cross_vcpu_projection_recomputes_threads_from_target_budget(self) -> None:
+        rows = [_row(
+            detector="dhsegment_page_mask", detector_sha="sha", golden_sha="gold",
+            runner_name="rh8-al316", runner_label="192t", logical=192,
+            pipelines=7, threads=54, rate=19.69,
+        )]
+        result = resolve_optimizer_intelligence(
+            detector="dhsegment_page_mask", rows=rows,
+            target_runner_name="rh8-s32", target_runner_label="32t",
+            target_cpu_model="different", target_physical_cores=32,
+            target_logical_cpus=32,
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(result["relation"], "scaled-vcpu")
+        self.assertEqual(result["predicted_shape"]["pipelines"], 1)
+        self.assertEqual(result["predicted_shape"]["threads_per_pipeline"], 64)
+        self.assertEqual(result["predicted_shape"]["allocated_threads"], 64)
+
     def test_requested_runner_measured_evidence_beats_cross_vcpu_prediction(self) -> None:
         rows = [
             _row(detector="example", detector_sha="sha", golden_sha="gold",
@@ -122,6 +140,34 @@ class OptimizerIntelligenceTests(unittest.TestCase):
             self.assertEqual(result["runner_budget"], 384)
             self.assertEqual(result["source"], "predicted-low-linear-vcpu-dispatch")
 
+
+    def test_dhsegment_dispatch_projects_pipeline_then_uses_target_thread_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            detector_root = root / "detectors"
+            detector = detector_root / "dhsegment_page_mask.json"
+            golden = root / "golden.json"
+            _write_json(detector, {"detector": "dhsegment_page_mask"})
+            _write_json(golden, {"pages": []})
+            row = _row(
+                detector="dhsegment_page_mask", detector_sha=_sha(detector), golden_sha=_sha(golden),
+                runner_name="rh8-al316", runner_label="192t", logical=192,
+                pipelines=7, threads=54, rate=19.69,
+            )
+            index = root / "parallelism-index.json"
+            _write_json(index, {"observations": [row]})
+
+            result = resolve_preferred_dispatch(
+                shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
+                detector="dhsegment_page_mask", parallelism_index=index,
+                detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
+                requested_runner="github-hosted", specific_runner="custom", custom_runner_label="32t",
+            )
+            self.assertTrue(result["exact"])
+            self.assertEqual(result["runs_on"], ["self-hosted", "32t"])
+            self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (1, 64))
+            self.assertEqual(result["runner_budget"], 64)
+            self.assertEqual(result["source"], "predicted-low-linear-vcpu-dispatch")
 
     def test_dispatch_accepts_completed_deterministic_optimizer_strategy_for_exact_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
