@@ -53,8 +53,31 @@ class MultiDetectorTelemetryTests(unittest.TestCase):
             runtime = json.loads((results / "indexes" / "runtime-index.json").read_text(encoding="utf-8"))
             by_detector = {row["detector_id"]: row for row in runtime["observations"]}
             self.assertEqual(by_detector["a"]["scheduler_wall_clock_seconds"], 10.0)
-            self.assertEqual(by_detector["b"]["scheduler_wall_clock_seconds"], 6.0)
-            self.assertEqual(by_detector["a"]["scheduler_cost_source"], "multidetector-fixed-slot")
+            self.assertEqual(by_detector["b"]["scheduler_wall_clock_seconds"], 10.0)
+            self.assertEqual(by_detector["a"]["scheduler_cost_source"], "multidetector-fixed-pipeline-slot")
+
+    def test_scheduler_slots_include_inter_detector_wrapper_overhead(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            telemetry = root / "telemetry"
+            (telemetry / "workers").mkdir(parents=True)
+            (telemetry / "tasks").mkdir()
+            (telemetry / "batch.tsv").write_text("start\t0\nend\t30\n", encoding="utf-8")
+            (telemetry / "workers/1.tsv").write_text("start\t0\nend\t30\n", encoding="utf-8")
+            (telemetry / "tasks/0.tsv").write_text("claim\t0\t1\ta\t0\t1\t48\nstart\t1\nfinish\t10\tcomplete\n", encoding="utf-8")
+            (telemetry / "tasks/1.tsv").write_text("claim\t0\t1\tb\t0\t1\t48\nstart\t15\nfinish\t25\tcomplete\n", encoding="utf-8")
+            out = root / "execution.json"
+            obs = finalize(Namespace(
+                telemetry_root=telemetry, output=out, observation_id="slots", github_run_id="1", github_run_number="2",
+                mode="smoke", strategy="exhaustive", limit="10", detector_count=2, golden_set_sha256="gold",
+                runner_label="192t", runner_name="e9k", runner_thread_budget=96, threads_per_worker=48, allocated_threads=48,
+                loading_strategy="lpt", scheduler_source="auto",
+            ))
+            self.assertAlmostEqual(obs["tasks"][0]["busy_seconds"], 9.0)
+            self.assertAlmostEqual(obs["tasks"][1]["busy_seconds"], 10.0)
+            self.assertAlmostEqual(obs["tasks"][0]["scheduler_slot_seconds"], 15.0)
+            self.assertAlmostEqual(obs["tasks"][1]["scheduler_slot_seconds"], 15.0)
+            self.assertAlmostEqual(sum(t["scheduler_slot_seconds"] for t in obs["tasks"]), 30.0)
 
 
 if __name__ == "__main__":

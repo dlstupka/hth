@@ -112,6 +112,29 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
             task["claim_wait_seconds"]=max(0.0,task["started_epoch"]-batch_row["claimed_epoch"])
         else:
             task.setdefault("claim_wait_seconds",0.0)
+    # Attribute the complete fixed-pipeline occupancy to its scheduled tasks.
+    # Command busy time ends when the detector process exits, but the pipeline
+    # remains occupied while the wrapper finalizes/unloads that detector and
+    # prepares the next one.  A scheduler slot therefore runs from the prior
+    # pipeline boundary to the next task start (or worker end for the last
+    # task).  Slot costs sum exactly to the worker span and are the appropriate
+    # feedback signal for the next static LPT plan.
+    workers_by_pipeline={int(w["pipeline"]):w for w in workers}
+    tasks_by_pipeline: dict[int,list[dict[str,Any]]]={}
+    for task in tasks:
+        tasks_by_pipeline.setdefault(int(task["pipeline"]),[]).append(task)
+    for pipeline,pipeline_tasks in tasks_by_pipeline.items():
+        pipeline_tasks.sort(key=lambda row:(float(row["started_epoch"]),int(row["task_index"])))
+        worker=workers_by_pipeline.get(pipeline)
+        if worker is None:
+            continue
+        boundary=float(worker["started_epoch"])
+        worker_end=float(worker["final_idle_epoch"])
+        for index,task in enumerate(pipeline_tasks):
+            next_boundary=(float(pipeline_tasks[index+1]["started_epoch"]) if index+1<len(pipeline_tasks) else worker_end)
+            task["scheduler_slot_seconds"]=max(0.0,next_boundary-boundary)
+            boundary=next_boundary
+
     busy_by_worker={w["pipeline"]:0.0 for w in workers}
     for task in tasks: busy_by_worker[task["pipeline"]]=busy_by_worker.get(task["pipeline"],0.0)+task["busy_seconds"]
     for worker in workers:
@@ -157,7 +180,7 @@ def _publish_scheduler_costs(results_root: Path, observation: dict[str, Any]) ->
             continue
         try:
             shard_count = int(task.get("shard_count") or 1)
-            seconds = float(task.get("busy_seconds"))
+            seconds = float(task.get("scheduler_slot_seconds", task.get("busy_seconds")))
         except (TypeError, ValueError):
             continue
         detector = str(task.get("detector") or "")
@@ -175,7 +198,7 @@ def _publish_scheduler_costs(results_root: Path, observation: dict[str, Any]) ->
         detector = str(row.get("detector_id") or "")
         if detector in costs:
             row["scheduler_wall_clock_seconds"] = costs[detector]
-            row["scheduler_cost_source"] = "multidetector-fixed-slot"
+            row["scheduler_cost_source"] = "multidetector-fixed-pipeline-slot"
             changed = True
     if changed:
         runtime["updated_at_utc"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")

@@ -2384,7 +2384,7 @@ def _scheduler_feedback_schedule(
                 continue
             detector = str(task.get("detector") or "")
             try:
-                seconds = float(task.get("busy_seconds"))
+                seconds = float(task.get("scheduler_slot_seconds", task.get("busy_seconds")))
             except (TypeError, ValueError):
                 continue
             if detector and seconds >= 0:
@@ -2403,7 +2403,30 @@ def _scheduler_feedback_schedule(
                 "detector": detector,
                 "estimate_seconds": measured_by_detector.get(detector, prior),
             })
-    return _static_pipeline_schedule(rows, pipeline_count), actual_pipeline_seconds
+    candidate = _static_pipeline_schedule(rows, pipeline_count)
+
+    # Prefer schedule stability when fresh telemetry cannot materially shorten
+    # the critical path.  Re-estimate the schedule that just ran with the same
+    # fresh costs, then accept a reshuffle only for >2% projected makespan gain.
+    measured = {str(row["detector"]): float(row["estimate_seconds"]) for row in rows}
+    retained: list[dict[str, Any]] = []
+    for plan in current_schedule:
+        tasks = []
+        total = 0.0
+        for task in plan.get("tasks", []):
+            detector = str(task.get("detector") or "")
+            seconds = measured.get(detector, float(task.get("estimate_seconds") or 0.0))
+            copied = dict(task)
+            copied["estimate_seconds"] = seconds
+            tasks.append(copied)
+            total += seconds
+        if tasks:
+            retained.append({"pipeline": int(plan["pipeline"]), "tasks": tasks, "estimated_seconds": total})
+    retained_makespan = max((float(plan["estimated_seconds"]) for plan in retained), default=0.0)
+    candidate_makespan = max((float(plan["estimated_seconds"]) for plan in candidate), default=0.0)
+    if retained_makespan > 0 and candidate_makespan >= retained_makespan * 0.98:
+        return retained, actual_pipeline_seconds
+    return candidate, actual_pipeline_seconds
 
 
 def _schedule_delta(current: dict[str, Any], next_plan: dict[str, Any]) -> str:

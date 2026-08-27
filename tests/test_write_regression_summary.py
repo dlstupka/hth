@@ -3,11 +3,27 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.write_regression_summary import _best_known_calibrations, _calibration_record_from_payload, _combined_result_row, _estimate_scope_makespan, _render_best_known_calibrations, _render_detector_calibration, build_combined_summary, build_summary
+from hth.write_regression_summary import _scheduler_feedback_schedule, _best_known_calibrations, _calibration_record_from_payload, _combined_result_row, _estimate_scope_makespan, _render_best_known_calibrations, _render_detector_calibration, build_combined_summary, build_summary
 from hth.regression.parameter_space import parameter_set_equivalence_family_id
 
 
 class RegressionSummaryTests(unittest.TestCase):
+    def test_scheduler_feedback_preserves_schedule_without_material_makespan_gain(self):
+        current = [
+            {"pipeline": 1, "tasks": [{"detector": "a", "estimate_seconds": 10.0}, {"detector": "b", "estimate_seconds": 10.0}], "estimated_seconds": 20.0},
+            {"pipeline": 2, "tasks": [{"detector": "c", "estimate_seconds": 19.8}], "estimated_seconds": 19.8},
+        ]
+        observation = {
+            "workers": [{"pipeline": 1, "span_seconds": 20.0}, {"pipeline": 2, "span_seconds": 19.8}],
+            "tasks": [
+                {"detector": "a", "status": "complete", "scheduler_slot_seconds": 10.0},
+                {"detector": "b", "status": "complete", "scheduler_slot_seconds": 10.0},
+                {"detector": "c", "status": "complete", "scheduler_slot_seconds": 19.8},
+            ],
+        }
+        next_schedule, _ = _scheduler_feedback_schedule(current, observation, 2)
+        self.assertEqual([[t["detector"] for t in p["tasks"]] for p in next_schedule], [["a", "b"], ["c"]])
+
     def test_builds_manifest_with_winner_baseline_and_outputs(self):
         with tempfile.TemporaryDirectory() as temporary:
             run = Path(temporary) / "run-1"
