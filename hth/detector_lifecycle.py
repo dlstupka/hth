@@ -12,11 +12,20 @@ PAGENET_LICENSE="BSD-3-Clause"
 PAGENET_MODEL_ID="pagenet-ohio"
 PAGENET_PROTOTXT_URL="https://raw.githubusercontent.com/ctensmeyer/pagenet/master/models/ohio_train_val.prototxt"
 PAGENET_WEIGHTS_URL="https://raw.githubusercontent.com/ctensmeyer/pagenet/master/models/ohio_weights.caffemodel"
+PAGENET_PROTOTXT_SOURCES=(
+    ModelSource("GitHub / PageNet", PAGENET_PROTOTXT_URL, "master"),
+)
+PAGENET_WEIGHTS_SOURCES=(
+    ModelSource("GitHub / PageNet", PAGENET_WEIGHTS_URL, "master"),
+)
 
 DHSEGMENT_REPOSITORY="https://github.com/dhlab-epfl/dhSegment"
 DHSEGMENT_LICENSE="GPL-3.0"
 DHSEGMENT_MODEL_ID="dhsegment-page-v0.2"
 DHSEGMENT_MODEL_URL="https://github.com/dhlab-epfl/dhSegment/releases/download/v0.2/model.zip"
+DHSEGMENT_MODEL_SOURCES=(
+    ModelSource("GitHub Releases / dhSegment", DHSEGMENT_MODEL_URL, "v0.2"),
+)
 
 KRAKEN_REPOSITORY="https://github.com/mittagessen/kraken"
 KRAKEN_LICENSE="Apache-2.0"
@@ -54,6 +63,15 @@ DOC_UFCN_MODEL_ID="doc-ufcn-generic-page"
 DOC_UFCN_MODEL_URL="https://huggingface.co/Teklia/doc-ufcn-generic-page/resolve/main/model.pth?download=true"
 DOC_UFCN_PARAMETERS_URL="https://huggingface.co/Teklia/doc-ufcn-generic-page/resolve/main/parameters.yml?download=true"
 DOC_UFCN_MODEL_REPOSITORY="https://huggingface.co/Teklia/doc-ufcn-generic-page"
+DOC_UFCN_RELEASE_REF="65c3ab34b56f68e2fe7214cc54d3b8c23a672185"
+DOC_UFCN_MODEL_SOURCES=(
+    ModelSource("Hugging Face / Teklia", DOC_UFCN_MODEL_URL, "main"),
+    ModelSource("Hugging Face / Teklia pinned release", f"https://huggingface.co/Teklia/doc-ufcn-generic-page/resolve/{DOC_UFCN_RELEASE_REF}/model.pth?download=true", DOC_UFCN_RELEASE_REF),
+)
+DOC_UFCN_PARAMETERS_SOURCES=(
+    ModelSource("Hugging Face / Teklia", DOC_UFCN_PARAMETERS_URL, "main"),
+    ModelSource("Hugging Face / Teklia pinned release", f"https://huggingface.co/Teklia/doc-ufcn-generic-page/resolve/{DOC_UFCN_RELEASE_REF}/parameters.yml?download=true", DOC_UFCN_RELEASE_REF),
+)
 
 MASK_RCNN_REPOSITORY="https://github.com/Layout-Parser/layout-parser"
 MASK_RCNN_LICENSE="Apache-2.0"
@@ -76,6 +94,13 @@ DOCEXTRACTOR_MODEL_ID="docextractor-default-icfhr2020"
 DOCEXTRACTOR_SOURCE_URL="https://codeload.github.com/monniert/docExtractor/zip/refs/heads/master"
 DOCEXTRACTOR_MODEL_URL="https://imagine.enpc.fr/~monniert/docExtractor/resrc/models.zip"
 DOCEXTRACTOR_GDRIVE_ID="13kHXW2vq30dJ10rGubDJBtrspZ_UyrkT"
+DOCEXTRACTOR_SOURCE_SOURCES=(
+    ModelSource("GitHub / docExtractor", DOCEXTRACTOR_SOURCE_URL, "master"),
+)
+DOCEXTRACTOR_MODEL_SOURCES=(
+    ModelSource("ENPC / docExtractor", DOCEXTRACTOR_MODEL_URL, "ICFHR2020"),
+    ModelSource("Google Drive / docExtractor", f"gdrive://{DOCEXTRACTOR_GDRIVE_ID}", DOCEXTRACTOR_GDRIVE_ID),
+)
 
 def _sha256(path):
     h=hashlib.sha256()
@@ -205,6 +230,33 @@ def _log_cache_repair(*,detector,artifact,path,reason):
 
 MODEL_DOWNLOAD_SOURCE_LIMIT=3
 
+def _download_model_source(source, target, *, validator=None):
+    url=source.url if isinstance(source,ModelSource) else str(source)
+    if url.startswith("gdrive://"):
+        file_id=url.removeprefix("gdrive://")
+        try:
+            import gdown
+        except Exception as exc:
+            raise RuntimeError("Google Drive model fallback requires gdown") from exc
+        target=Path(target); target.parent.mkdir(parents=True,exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=target.parent,delete=False) as handle:
+            tmp=Path(handle.name)
+        try:
+            result=gdown.download(id=file_id,output=str(tmp),quiet=False)
+            if not result or not tmp.is_file():
+                raise RuntimeError("gdown did not produce the requested artifact")
+            check=validator or _validator_for_path(target)
+            if check is not None:
+                check(tmp)
+            tmp.replace(target)
+        finally:
+            tmp.unlink(missing_ok=True)
+        return
+    if validator is None:
+        _download(url,target)
+    else:
+        _download(url,target,validator=validator)
+
 def _download_from_sources(sources, target, *, artifact, variant, validator=None):
     sources=tuple(sources or ())
     if len(sources) > MODEL_DOWNLOAD_SOURCE_LIMIT:
@@ -223,10 +275,7 @@ def _download_from_sources(sources, target, *, artifact, variant, validator=None
         ref=f" reference={reference}" if reference else ""
         print(f"Model download: variant={variant} artifact={artifact} attempt={attempt}/{len(sources)} site={site}{ref}")
         try:
-            if validator is None:
-                _download(url,target)
-            else:
-                _download(url,target,validator=validator)
+            _download_model_source(source,target,validator=validator)
         except Exception as exc:
             detail=f"{type(exc).__name__}: {exc}"
             failures.append(f"{site}: {detail}")
@@ -297,13 +346,19 @@ def prepare_detector_legacy(detector,*,results_root,policy="reuse",github_env=No
     complete=deploy.is_file() and weights.is_file() and provenance.is_file()
     if policy=="refresh" or not complete:
         root.mkdir(parents=True,exist_ok=True)
-        if policy=="refresh" or not train.is_file(): _download(PAGENET_PROTOTXT_URL,train)
-        if policy=="refresh" or not weights.is_file(): _download(PAGENET_WEIGHTS_URL,weights)
+        prototxt_source=None; weights_source=None
+        if policy=="refresh" or not train.is_file():
+            prototxt_source=_download_from_sources(PAGENET_PROTOTXT_SOURCES,train,artifact="prototxt",variant="learned_page_mask")
+        if policy=="refresh" or not weights.is_file():
+            weights_source=_download_from_sources(PAGENET_WEIGHTS_SOURCES,weights,artifact="weights",variant="learned_page_mask")
         deploy.write_text(build_pagenet_deploy_prototxt(train.read_text(encoding="utf-8")),encoding="utf-8")
         payload={
             "schema_version":"1.0","model_id":PAGENET_MODEL_ID,"model_family":"PageNet",
             "training_domain":"Ohio Death Records","upstream_repository":PAGENET_REPOSITORY,
             "license":PAGENET_LICENSE,"prototxt_url":PAGENET_PROTOTXT_URL,"weights_url":PAGENET_WEIGHTS_URL,
+            "prototxt_source":prototxt_source,"weights_source":weights_source,
+            "registered_prototxt_sources":[{"site":x.site,"url":x.url,"reference":x.reference} for x in PAGENET_PROTOTXT_SOURCES],
+            "registered_weights_sources":[{"site":x.site,"url":x.url,"reference":x.reference} for x in PAGENET_WEIGHTS_SOURCES],
             "prepared_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),
             "train_prototxt_sha256":_sha256(train),"deploy_prototxt_sha256":_sha256(deploy),
             "weights_sha256":_sha256(weights),"inference_backend":"opencv-dnn-caffe",
@@ -388,8 +443,9 @@ def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
     complete=provenance.is_file() and extracted.is_dir()
     if policy=="refresh" or not complete:
         root.mkdir(parents=True,exist_ok=True)
+        model_source=None
         if policy=="refresh" or not archive.is_file():
-            _download(DHSEGMENT_MODEL_URL,archive)
+            model_source=_download_from_sources(DHSEGMENT_MODEL_SOURCES,archive,artifact="model.zip",variant="dhsegment_page_mask")
         if extracted.exists():
             shutil.rmtree(extracted)
         _safe_extract_zip(archive,extracted)
@@ -402,6 +458,8 @@ def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
             "upstream_repository":DHSEGMENT_REPOSITORY,
             "license":DHSEGMENT_LICENSE,
             "model_url":DHSEGMENT_MODEL_URL,
+            "model_source":model_source,
+            "registered_model_sources":[{"site":x.site,"url":x.url,"reference":x.reference} for x in DHSEGMENT_MODEL_SOURCES],
             "archive_sha256":_sha256(archive),
             "saved_model_relative_path":model_dir.relative_to(root).as_posix(),
             "prepared_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),
@@ -612,8 +670,8 @@ def _prepare_doc_ufcn_page_mask_hook(*,results_root,policy,env_file):
     complete=model.is_file() and parameters.is_file() and provenance.is_file()
     if policy=="refresh" or not complete:
         root.mkdir(parents=True,exist_ok=True)
-        _download(DOC_UFCN_MODEL_URL,model)
-        _download(DOC_UFCN_PARAMETERS_URL,parameters)
+        model_source=_download_from_sources(DOC_UFCN_MODEL_SOURCES,model,artifact="model",variant="doc_ufcn_page_mask")
+        parameters_source=_download_from_sources(DOC_UFCN_PARAMETERS_SOURCES,parameters,artifact="parameters",variant="doc_ufcn_page_mask")
         payload={
             "schema_version":"1.0",
             "model_id":DOC_UFCN_MODEL_ID,
@@ -623,8 +681,11 @@ def _prepare_doc_ufcn_page_mask_hook(*,results_root,policy,env_file):
             "upstream_repository":DOC_UFCN_REPOSITORY,
             "model_repository":DOC_UFCN_MODEL_REPOSITORY,
             "license":DOC_UFCN_LICENSE,
-            "model_url":DOC_UFCN_MODEL_URL,
-            "parameters_url":DOC_UFCN_PARAMETERS_URL,
+            "model_url":model_source["url"],
+            "parameters_url":parameters_source["url"],
+            "model_source":model_source,"parameters_source":parameters_source,
+            "registered_model_sources":[{"site":x.site,"url":x.url,"reference":x.reference} for x in DOC_UFCN_MODEL_SOURCES],
+            "registered_parameters_sources":[{"site":x.site,"url":x.url,"reference":x.reference} for x in DOC_UFCN_PARAMETERS_SOURCES],
             "model_filename":model.name,
             "model_sha256":_sha256(model),
             "parameters_sha256":_sha256(parameters),
@@ -817,23 +878,10 @@ def _prepare_docextractor_page_mask_hook(*,results_root,policy,env_file):
     complete=provenance.is_file() and source_root.is_dir() and model_path is not None and model_path.is_file()
     if policy=="refresh" or not complete:
         root.mkdir(parents=True,exist_ok=True)
-        _download(DOCEXTRACTOR_SOURCE_URL,source_archive)
+        source_source=_download_from_sources(DOCEXTRACTOR_SOURCE_SOURCES,source_archive,artifact="source.zip",variant="docextractor_page_mask",validator=_validate_zip_file)
         if source_root.exists(): shutil.rmtree(source_root)
         _safe_extract_zip(source_archive,source_root)
-        try:
-            _download(DOCEXTRACTOR_MODEL_URL,model_archive)
-            model_source={"site":"ENPC / docExtractor","url":DOCEXTRACTOR_MODEL_URL}
-        except Exception as first:
-            print(f"Model download failed: variant=docextractor_page_mask artifact=models.zip site=ENPC / docExtractor error={type(first).__name__}: {first}")
-            try:
-                import gdown
-                print(f"Model download: variant=docextractor_page_mask artifact=models.zip attempt=2/2 site=Google Drive / docExtractor reference={DOCEXTRACTOR_GDRIVE_ID}")
-                result=gdown.download(id=DOCEXTRACTOR_GDRIVE_ID,output=str(model_archive),quiet=False)
-                if not result or not model_archive.is_file(): raise RuntimeError("gdown did not produce models.zip")
-                _validate_zip_file(model_archive)
-                model_source={"site":"Google Drive / docExtractor","reference":DOCEXTRACTOR_GDRIVE_ID}
-            except Exception as second:
-                raise RuntimeError(f"All docExtractor model download sources failed: ENPC: {first}; Google Drive: {second}") from second
+        model_source=_download_from_sources(DOCEXTRACTOR_MODEL_SOURCES,model_archive,artifact="models.zip",variant="docextractor_page_mask",validator=_validate_zip_file)
         for child in list(root.glob("models")):
             if child.is_dir(): shutil.rmtree(child)
         _safe_extract_zip(model_archive,root)
@@ -843,7 +891,7 @@ def _prepare_docextractor_page_mask_hook(*,results_root,policy,env_file):
         extracted_dirs=sorted(p for p in source_root.iterdir() if p.is_dir())
         if not extracted_dirs: raise RuntimeError("docExtractor source archive is empty")
         repo_dir=extracted_dirs[0]
-        payload={"schema_version":"1.0","model_id":DOCEXTRACTOR_MODEL_ID,"model_family":"docExtractor ResUNet","upstream_repository":DOCEXTRACTOR_REPOSITORY,"license":DOCEXTRACTOR_LICENSE,"source_archive_sha256":_sha256(source_archive),"model_archive_sha256":_sha256(model_archive),"model_sha256":_sha256(model_path),"model_relative_path":model_path.relative_to(root).as_posix(),"source_relative_path":repo_dir.relative_to(root).as_posix(),"model_source":model_source,"prepared_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),"inference_backend":"pytorch-cpu"}
+        payload={"schema_version":"1.1","model_id":DOCEXTRACTOR_MODEL_ID,"model_family":"docExtractor ResUNet","upstream_repository":DOCEXTRACTOR_REPOSITORY,"license":DOCEXTRACTOR_LICENSE,"source_archive_sha256":_sha256(source_archive),"model_archive_sha256":_sha256(model_archive),"model_sha256":_sha256(model_path),"model_relative_path":model_path.relative_to(root).as_posix(),"source_relative_path":repo_dir.relative_to(root).as_posix(),"source_source":source_source,"model_source":model_source,"registered_source_sources":[{"site":x.site,"url":x.url,"reference":x.reference} for x in DOCEXTRACTOR_SOURCE_SOURCES],"registered_model_sources":[{"site":x.site,"url":x.url,"reference":x.reference} for x in DOCEXTRACTOR_MODEL_SOURCES],"prepared_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),"inference_backend":"pytorch-cpu"}
         provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
     payload=json.loads(provenance.read_text(encoding="utf-8")); model_path=root/payload["model_relative_path"]; repo_dir=root/payload["source_relative_path"]
     if _sha256(model_path)!=payload.get("model_sha256"): raise RuntimeError("docExtractor model SHA mismatch")
