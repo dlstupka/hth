@@ -172,10 +172,21 @@ def legacy_published_optimizer_index(path: Path, detector: str) -> dict[str, Any
     runner_title, shapes = max(groups.items(), key=lambda item: (len(item[1]), max((x["pipelines"] for x in item[1]), default=0)))
     shapes.sort(key=lambda shape: shape["pipelines"])
     best = select_preferred_shape(shapes)
+    runner = {
+        "runner_key": f"legacy-published:{runner_title}",
+        "runner_title": runner_title,
+        "shapes": shapes,
+        "best_shape": best,
+    }
     return {
         "schema_version": 1, "detector_id": detector, "optimizer_run_id": "legacy-published",
         "runner_count": 1, "observation_count": len(shapes), "best_across_runners": best,
-        "runners": [{"runner_title": runner_title, "shapes": shapes, "best_shape": best}],
+        "runners": [runner],
+        # Published legacy summaries are durable optimizer evidence just like
+        # reconstructed parallelism rows.  Expose the recovered runner through
+        # the canonical visualization series too so aggregate ``all`` reports
+        # plot the same historical measurements their tables already consume.
+        "plot_series": [dict(runner)],
     }
 
 
