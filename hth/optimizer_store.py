@@ -14,6 +14,7 @@ from pathlib import Path
 
 from hth.persistence import canonical_index_path, readable_index_path, read_json as _read_json, atomic_write_json as _write_json, load_index, write_index
 from hth.optimizer_history import completed_run_records, persist_completed_run
+from hth.optimizer_validity import migrate_optimizer_evidence, optimizer_evidence_is_valid
 from typing import Any, Iterable
 
 from hth.contracts import OPTIMIZER_INDEX_SCHEMA_VERSION, adapt_optimizer_index
@@ -114,7 +115,10 @@ def _runner_labels(row: dict[str, Any]) -> str:
 
 def _comparable(rows: Iterable[dict[str, Any]], detector_id: str, optimizer_run_id: str | None = None, optimizer_run_ids: set[str] | None = None) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
-    for row in rows:
+    for raw_row in rows:
+        row = migrate_optimizer_evidence(raw_row)
+        if not optimizer_evidence_is_valid(row):
+            continue
         if str(row.get("detector_id")) != detector_id:
             continue
         if row.get("source") != "execution-optimizer":
@@ -945,6 +949,8 @@ def update_optimizer_artifacts(
             "optimizer_run_id": durable_run_id,
             "detector_id": detector_id,
             "run_metadata": manifest.get("run_metadata") if isinstance(manifest.get("run_metadata"), dict) else {},
+            "valid": manifest.get("valid", True),
+            **({"invalid_reason": manifest.get("invalid_reason")} if manifest.get("valid") is False else {}),
         })
     if optimizer_run_id is not None:
         shard_rows = [
@@ -962,6 +968,7 @@ def update_optimizer_artifacts(
             "run_metadata": run_metadata,
             "runner_metrics_samples": runner_samples,
             "current_execution": current,
+            "valid": True,
         }
     metadata_by_id: dict[str, dict[str, Any]] = {}
     for run_id, run_record in runs.items():

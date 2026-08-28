@@ -16,6 +16,7 @@ from typing import Any
 
 from hth.optimizer_store import build_optimizer_index, render_all_markdown, render_heatmap_svg, render_markdown, select_preferred_shape
 from hth.optimizer_intelligence import legacy_published_optimizer_index
+from hth.optimizer_validity import migrate_optimizer_run, optimizer_evidence_is_valid
 from hth.write_regression_summary import build_combined_summary
 from hth.domain.calibration import authoritative_record
 from hth.calibration_store import load_index_with_persisted_backfill
@@ -171,7 +172,15 @@ def _completed_optimizer_run_id(results_root: Path, detector: str) -> str | None
         return None
     text = summary_path.read_text(encoding="utf-8", errors="replace")
     match = re.search(r"Optimizer run:\s*\*\*([^*]+)\*\*", text)
-    return match.group(1).strip() if match else None
+    if not match:
+        return None
+    run_id = match.group(1).strip()
+    manifest_path = results_root / "execution-optimizer" / detector / "runs" / run_id / "run.json"
+    if manifest_path.is_file():
+        manifest = migrate_optimizer_run(_read_json(manifest_path))
+        if not optimizer_evidence_is_valid(manifest):
+            return None
+    return run_id
 
 
 def _latest_completed_run_from_index(index: dict[str, Any], detector: str) -> str | None:
@@ -180,6 +189,8 @@ def _latest_completed_run_from_index(index: dict[str, Any], detector: str) -> st
     matches: list[tuple[str, str]] = []
     for run_id, payload in runs.items():
         if not isinstance(payload, dict) or str(payload.get("detector_id")) != detector:
+            continue
+        if not optimizer_evidence_is_valid(migrate_optimizer_run(payload)):
             continue
         metadata = payload.get("run_metadata") if isinstance(payload.get("run_metadata"), dict) else {}
         # stop_reason is written only after the shape loop exits normally (range
@@ -210,6 +221,8 @@ def _latest_legacy_published_run_from_parallelism(parallelism: dict[str, Any], d
             continue
         if str(row.get("detector_id")) != detector or row.get("source") != "execution-optimizer":
             continue
+        if not optimizer_evidence_is_valid(row):
+            continue
         run_id = str(row.get("optimizer_run_id") or "").strip()
         if not run_id:
             continue
@@ -228,6 +241,8 @@ def _completed_optimizer_run_ids(index: dict[str, Any], detector: str) -> set[st
     completed: set[str] = set()
     for run_id, payload in runs.items():
         if not isinstance(payload, dict) or str(payload.get("detector_id")) != detector:
+            continue
+        if not optimizer_evidence_is_valid(migrate_optimizer_run(payload)):
             continue
         metadata = payload.get("run_metadata") if isinstance(payload.get("run_metadata"), dict) else {}
         if str(metadata.get("stop_reason") or "").strip():

@@ -20,6 +20,8 @@ from hth.domain.execution_shape import (
     select_preferred_shape,
 )
 from hth.shape_prediction import resolve_shape
+from hth.contracts import adapt_parallelism_index
+from hth.optimizer_validity import migrate_optimizer_evidence, optimizer_evidence_is_valid
 
 
 def _as_int(value: Any) -> int | None:
@@ -245,8 +247,11 @@ def compatible_optimizer_rows(
     detector = str(detector_config_payload.get("detector") or detector_config.stem)
     detector_sha256 = _sha256(detector_config)
     golden_sha256 = _sha256(golden_set)
-    index = _read_json(parallelism_index)
-    observations = [row for row in index.get("observations", []) if isinstance(row, dict)]
+    index = adapt_parallelism_index(_read_json(parallelism_index))
+    observations = [
+        row for row in index.get("observations", [])
+        if isinstance(row, dict) and optimizer_evidence_is_valid(row)
+    ]
 
     def matches(row: dict[str, Any], detector_sha: str) -> bool:
         return optimizer_row_matches_workload(
@@ -300,7 +305,10 @@ def resolve_optimizer_intelligence(
     After pipeline scaling, threads/pipeline is recomputed from the target runner
     budget, so the destination machine owns the local thread allocation.
     """
-    compatible = [row for row in rows if isinstance(row, dict)]
+    compatible = [
+        migrate_optimizer_evidence(row) for row in rows
+        if isinstance(row, dict) and optimizer_evidence_is_valid(migrate_optimizer_evidence(row))
+    ]
     if not compatible:
         return None
     resolved = resolve_shape(
@@ -335,7 +343,10 @@ def resolve_selector_intelligence(
     exist and the target's vCPU capacity is known, fall back to the same linear
     cross-vCPU predictor used after job start.
     """
-    compatible = [row for row in rows if isinstance(row, dict)]
+    compatible = [
+        migrate_optimizer_evidence(row) for row in rows
+        if isinstance(row, dict) and optimizer_evidence_is_valid(migrate_optimizer_evidence(row))
+    ]
     measured_rows = [row for row in compatible if row_matches_required_labels(row, required_labels)]
     characterized_rows = [row for row in measured_rows if runner_profile_complete(row)]
     if characterized_rows:

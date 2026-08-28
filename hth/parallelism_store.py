@@ -14,6 +14,8 @@ import os
 import time
 from contextlib import contextmanager
 
+from hth.optimizer_validity import optimizer_evidence_is_valid
+
 from hth.contracts import (
     OPTIMIZER_OBSERVATION_SCHEMA_VERSION,
     PARALLELISM_INDEX_SCHEMA_VERSION,
@@ -213,6 +215,8 @@ def observation_from_run(
 
 
 def _is_comparable(row: dict[str, Any]) -> bool:
+    if not optimizer_evidence_is_valid(row):
+        return False
     if row.get("mode") != "full" or (_as_float(row.get("wall_clock_seconds")) or 0) <= 0:
         return False
     actual = _as_int(row.get("actual_parameter_sets"))

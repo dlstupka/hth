@@ -1102,6 +1102,8 @@ jobs:
           path.write_text(json.dumps({
               "optimizer_run_id": sys.argv[2],
               "detector_id": sys.argv[3],
+              "pipeline_commit": os.environ.get("GITHUB_SHA"),
+              "valid": True,
               "runner_label": sys.argv[4],
               "runner_thread_budget": int(sys.argv[5]),
               "thread_min": int(sys.argv[6]),

@@ -58,12 +58,14 @@ def capture_observation(
         "optimizer_shape_sequence": shape_sequence,
         "source": "execution-optimizer",
         "optimizer_benchmark_parameter_sets": int(benchmark_limit) if benchmark_limit.isdigit() else None,
+        "pipeline_commit": os.environ.get("GITHUB_SHA"),
     }
     observation = observation_from_run(run_dir, build=build, wall_clock_seconds=wall_clock_seconds)
     observation["observation_id"] = f"optimizer:{github_run_id}:{shape_sequence}:{observation['run_id']}"
     observation["optimizer_run_id"] = str(github_run_id)
     observation["optimizer_shape_sequence"] = shape_sequence
     observation["source"] = "execution-optimizer"
+    observation["valid"] = True
     if startup_overhead_seconds is not None:
         observation["startup_overhead_seconds"] = max(0.0, float(startup_overhead_seconds))
         observation["startup_overhead_included_in_wall_clock"] = True
@@ -113,6 +115,8 @@ def capture_shard_observation(
         "observation_id": f"optimizer-shard:{github_run_id}:{shape_sequence}:{shard_index}:{info.get('run_id', run_dir.name)}",
         "record_type": "optimizer-shard",
         "source": "execution-optimizer",
+        "valid": True,
+        "pipeline_commit": os.environ.get("GITHUB_SHA"),
         "optimizer_run_id": str(github_run_id),
         "shape_sequence": shape_sequence,
         "observed_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),

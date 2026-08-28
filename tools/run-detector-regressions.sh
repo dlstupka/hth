@@ -816,42 +816,32 @@ done
 
 worker_pids=()
 declare -a static_pipeline_tasks=()
-if [[ "${DETECTOR_ALGORITHM,,}" == "all" ]] && (( effective_pipelines > 1 )); then
-  while IFS=$'\t' read -r pipeline_number task_csv estimated_seconds; do
-    [[ -n "$pipeline_number" ]] || continue
-    static_pipeline_tasks[$((pipeline_number-1))]="$task_csv"
-    echo "Static schedule pipeline=$pipeline_number tasks=$task_csv estimate=${estimated_seconds}s"
-  done < <(python - "$effective_pipelines" "${detector_estimates[@]}" <<'PYSTATICLPT'
+while IFS=$'\t' read -r pipeline_number task_csv estimated_seconds; do
+  [[ -n "$pipeline_number" ]] || continue
+  static_pipeline_tasks[$((pipeline_number-1))]="$task_csv"
+  echo "Static schedule pipeline=$pipeline_number tasks=$task_csv estimate=${estimated_seconds}s"
+done < <(python - "$effective_pipelines" "${DETECTOR_ALGORITHM,,}" "${#detector_configs[@]}" "${detector_estimates[@]}" <<'PYSTATICDISPATCH'
 import sys
-from hth.domain.multidetector_schedule import plan_static_lpt_tasks
-pipelines=int(sys.argv[1])
-estimates=[]
-for raw in sys.argv[2:]:
+from hth.domain.execution_dispatch import plan_static_dispatch
+
+pipelines = int(sys.argv[1])
+multidetector = sys.argv[2] == "all"
+task_count = int(sys.argv[3])
+estimates = []
+for raw in sys.argv[4:]:
     try:
         estimates.append(float(raw))
     except (TypeError, ValueError):
         estimates.append(None)
-for row in plan_static_lpt_tasks(estimates, pipelines):
+for row in plan_static_dispatch(
+    task_count=task_count,
+    pipeline_count=pipelines,
+    multidetector=multidetector,
+    estimates=estimates,
+):
     print(f"{row['pipeline']}\t{','.join(str(i) for i in row['task_indexes'])}\t{row['estimated_seconds']:.1f}")
-PYSTATICLPT
-  )
-elif (( effective_pipelines > 1 )); then
-  # A sharded single-detector run already has one task per intended worker
-  # (normally one shard per active pipeline).  Preserve that topology instead
-  # of collapsing every shard onto pipeline 1; optimizer shape measurements
-  # depend on the requested pipelines actually running concurrently.
-  for ((task_index=0; task_index<${#detector_configs[@]}; task_index++)); do
-    pipeline_index=$((task_index % effective_pipelines))
-    if [[ -n "${static_pipeline_tasks[$pipeline_index]:-}" ]]; then
-      static_pipeline_tasks[$pipeline_index]+=",$task_index"
-    else
-      static_pipeline_tasks[$pipeline_index]="$task_index"
-    fi
-  done
-else
-  # A true single-pipeline execution is already deterministic.
-  static_pipeline_tasks[0]="$(seq -s, 0 $((${#detector_configs[@]}-1)))"
-fi
+PYSTATICDISPATCH
+)
 
 startup_complete_epoch="$(date +%s.%N)"
 startup_overhead_seconds="$(python - "$executor_started_epoch" "$startup_complete_epoch" <<'PYSTARTUP'

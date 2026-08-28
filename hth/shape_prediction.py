@@ -12,6 +12,7 @@ from typing import Any, Iterable
 
 from hth.domain.execution_shape import select_preferred_shape
 from hth.persistence import load_index_path, write_index, index_results_root
+from hth.optimizer_validity import optimizer_evidence_is_valid
 
 PREDICTION_SCHEMA_VERSION = "1.0"
 PREDICTION_METHOD = "vcpu-linear-shape-scale-v2"
@@ -114,7 +115,7 @@ def preferred_evidence(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     groups: dict[tuple[str, str, int, int | None], list[dict[str, Any]]] = {}
     for row in rows:
-        if not isinstance(row, dict):
+        if not isinstance(row, dict) or not optimizer_evidence_is_valid(row):
             continue
         groups.setdefault(_runner_key(row), []).append(row)
 
@@ -234,7 +235,7 @@ def resolve_shape(
     becomes a simple linearly scaled vCPU anchor. No interpolation curve,
     verified-correction multiplier, or second scaling policy is applied.
     """
-    rows = [row for row in rows if isinstance(row, dict)]
+    rows = [row for row in rows if isinstance(row, dict) and optimizer_evidence_is_valid(row)]
     if not rows:
         return None
 
@@ -371,7 +372,7 @@ def verify_predictions(
         return None
     payload = _read_prediction_payload(predictions_index)
     rows = [row for row in payload.get("predictions", []) if isinstance(row, dict)]
-    candidates = [row for row in workload_rows if isinstance(row, dict)]
+    candidates = [row for row in workload_rows if isinstance(row, dict) and optimizer_evidence_is_valid(row)]
     changed = False
 
     for prediction in rows:

@@ -15,7 +15,8 @@ from hth.regression.result_metrics import normalize_summary_metrics
 from hth.regression.authoritative_record import authoritative_record
 from hth.regression.calibration_intelligence import detector_characterization
 from hth.domain.result_metrics import baseline_surpassed, calibration_metric_view, result_metric_view
-from hth.domain.multidetector_schedule import plan_static_lpt_tasks, recommended_schedule
+from hth.domain.multidetector_schedule import recommended_schedule
+from hth.domain.execution_dispatch import plan_static_dispatch
 from hth.runtime_store import coherent_execution_profile, select_runtime_observation
 from hth.regression.parameter_provenance import parameter_identity_sha256, resolve_parameter_set
 from hth.regression.parameter_space import parameter_set_equivalence_family_id
@@ -2282,9 +2283,11 @@ def _queue_rows(
 
 
 def _static_pipeline_schedule(queue_rows: list[dict[str, Any]], pipeline_count: int) -> list[dict[str, Any]]:
-    plans = plan_static_lpt_tasks(
-        [row.get("estimate_seconds") for row in queue_rows],
-        pipeline_count,
+    plans = plan_static_dispatch(
+        task_count=len(queue_rows),
+        pipeline_count=pipeline_count,
+        multidetector=True,
+        estimates=[row.get("estimate_seconds") for row in queue_rows],
         estimate_floor_seconds=0.1,
     )
     result=[]

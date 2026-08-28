@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from hth.domain.result_metrics import normalize_summary_metrics
+from hth.optimizer_validity import migrate_optimizer_evidence, migrate_optimizer_run
 
 CALIBRATION_INDEX_SCHEMA_VERSION = "1.0"
 RUNTIME_INDEX_SCHEMA_VERSION = "1.0"
@@ -46,8 +47,14 @@ def adapt_runtime_index(payload: dict[str, Any]) -> dict[str, Any]:
 def adapt_parallelism_index(payload: dict[str, Any]) -> dict[str, Any]:
     data = dict(_object(payload, "parallelism-index"))
     data.setdefault("schema_version", "legacy")
-    data["observations"] = [row for row in data.get("observations", []) if isinstance(row, dict)]
-    data["shard_observations"] = [row for row in data.get("shard_observations", []) if isinstance(row, dict)]
+    data["observations"] = [
+        migrate_optimizer_evidence(row) if row.get("source") == "execution-optimizer" else row
+        for row in data.get("observations", []) if isinstance(row, dict)
+    ]
+    data["shard_observations"] = [
+        migrate_optimizer_evidence(row) if row.get("source") == "execution-optimizer" else row
+        for row in data.get("shard_observations", []) if isinstance(row, dict)
+    ]
     return data
 
 
@@ -55,7 +62,11 @@ def adapt_optimizer_index(payload: dict[str, Any]) -> dict[str, Any]:
     data = dict(_object(payload, "optimizer-index"))
     data.setdefault("schema_version", "legacy")
     data["detectors"] = data.get("detectors") if isinstance(data.get("detectors"), dict) else {}
-    data["runs"] = data.get("runs") if isinstance(data.get("runs"), dict) else {}
+    runs = data.get("runs") if isinstance(data.get("runs"), dict) else {}
+    data["runs"] = {
+        str(run_id): migrate_optimizer_run(run) if isinstance(run, dict) else run
+        for run_id, run in runs.items()
+    }
     return data
 
 

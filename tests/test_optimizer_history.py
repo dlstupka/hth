@@ -22,7 +22,26 @@ class OptimizerHistoryTests(unittest.TestCase):
             records = completed_run_records(root, "det")
             self.assertEqual(len(records), 1)
             self.assertEqual(records[0]["manifest"]["optimizer_run_id"], "42")
+            self.assertTrue(records[0]["manifest"]["valid"])
             self.assertEqual(records[0]["observations"][0]["observation_id"], "o1")
+
+            bad = destination.parent / "43"
+            bad.mkdir()
+            (bad / "run.json").write_text(json.dumps({
+                "schema_version": 1, "record_type": "execution-optimizer-run",
+                "optimizer_run_id": "43", "detector_id": "det", "complete": True,
+                "run_metadata": {"stop_reason": "range_complete", "optimization_started_epoch": 1787947200},
+            }), encoding="utf-8")
+            (bad / "observations.jsonl").write_text(json.dumps({
+                "observation_id": "bad", "source": "execution-optimizer",
+                "optimizer_run_id": "43", "detector_id": "det",
+                "observed_at_utc": "2026-08-28T18:00:00Z",
+            }) + "\n", encoding="utf-8")
+            self.assertEqual(len(completed_run_records(root, "det")), 1)
+            invalid = completed_run_records(root, "det", include_invalid=True)
+            migrated = next(row for row in invalid if row["manifest"]["optimizer_run_id"] == "43")
+            self.assertFalse(migrated["manifest"]["valid"])
+            self.assertEqual(migrated["manifest"]["invalid_reason"], "single-detector pipeline fan-out bug")
 
     def test_incomplete_run_is_not_materialized(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

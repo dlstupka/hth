@@ -12,6 +12,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from hth.optimizer_validity import migrate_optimizer_evidence, migrate_optimizer_run, optimizer_evidence_is_valid
+
 
 def run_history_dir(results_root: Path, detector: str, run_id: str) -> Path:
     return Path(results_root) / "execution-optimizer" / detector / "runs" / str(run_id)
@@ -31,6 +33,7 @@ def persist_completed_run(*, results_root: Path, detector: str, run_id: str,
         "optimizer_run_id": str(run_id),
         "detector_id": detector,
         "complete": True,
+        "valid": True,
         "run_metadata": run_metadata,
     }
     (destination / "run.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -41,7 +44,7 @@ def persist_completed_run(*, results_root: Path, detector: str, run_id: str,
     return destination
 
 
-def completed_run_records(results_root: Path, detector: str) -> list[dict[str, Any]]:
+def completed_run_records(results_root: Path, detector: str, *, include_invalid: bool = False) -> list[dict[str, Any]]:
     base = Path(results_root) / "execution-optimizer" / detector / "runs"
     records: list[dict[str, Any]] = []
     if not base.is_dir():
@@ -73,10 +76,32 @@ def completed_run_records(results_root: Path, detector: str) -> list[dict[str, A
                 if isinstance(row, dict):
                     rows.append(row)
             return rows
+        observations = read_jsonl("observations.jsonl")
+        migrated_manifest = migrate_optimizer_run(manifest, observations)
+        if migrated_manifest != manifest:
+            manifest_path.write_text(json.dumps(migrated_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        manifest = migrated_manifest
+        if not include_invalid and not optimizer_evidence_is_valid(manifest):
+            continue
+        inherited_valid = optimizer_evidence_is_valid(manifest)
+        migrated_observations = []
+        for row in observations:
+            migrated = migrate_optimizer_evidence(row)
+            if not inherited_valid:
+                migrated["valid"] = False
+                migrated["invalid_reason"] = manifest.get("invalid_reason")
+            migrated_observations.append(migrated)
+        shard_observations = []
+        for row in read_jsonl("shards.jsonl"):
+            migrated = migrate_optimizer_evidence(row)
+            if not inherited_valid:
+                migrated["valid"] = False
+                migrated["invalid_reason"] = manifest.get("invalid_reason")
+            shard_observations.append(migrated)
         records.append({
             "manifest": manifest,
-            "observations": read_jsonl("observations.jsonl"),
-            "shard_observations": read_jsonl("shards.jsonl"),
+            "observations": migrated_observations,
+            "shard_observations": shard_observations,
             "runner_metrics": read_jsonl("runner-metrics.jsonl"),
             "path": run_dir,
         })

@@ -150,10 +150,13 @@ class OptimizerStoreTests(unittest.TestCase):
             _row("a", "e7k", 1, 64, 2600, optimizer_run_id="100"),
             _row("b", "e7k", 8, 8, 420, optimizer_run_id="100"),
             _row("old", "e7k", 64, 1, 90, optimizer_run_id="99"),
+            {**_row("invalid", "e7k", 16, 4, 100, optimizer_run_id="100"),
+             "valid": False, "invalid_reason": "single-detector pipeline fan-out bug"},
         ]}
         index = build_optimizer_index(parallelism, "adaptive_radial_edge", "100")
         self.assertEqual(index["observation_count"], 2)
-        self.assertTrue(all(shape["pipelines"] != 64 for runner in index["runners"] for shape in runner["shapes"]))
+        self.assertTrue(all(shape["pipelines"] not in {16, 64} for runner in index["runners"] for shape in runner["shapes"]))
+        self.assertNotIn(">4t<", render_heatmap_svg(index))
 
     def test_optimizer_index_keeps_detector_specific_historical_preferences(self) -> None:
         parallelism = {"schema_version": "2.2", "observations": [
