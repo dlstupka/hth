@@ -257,7 +257,7 @@ def _download_model_source(source, target, *, validator=None):
     else:
         _download(url,target,validator=validator)
 
-def _download_from_sources(sources, target, *, artifact, variant, validator=None):
+def _download_from_sources(sources, target, *, artifact, variant, validator=None, reuse_existing=False):
     sources=tuple(sources or ())
     if len(sources) > MODEL_DOWNLOAD_SOURCE_LIMIT:
         raise ValueError(
@@ -266,6 +266,13 @@ def _download_from_sources(sources, target, *, artifact, variant, validator=None
         )
     if not sources:
         raise RuntimeError(f"{variant} has no registered {artifact} download sources")
+    target=Path(target)
+    if reuse_existing and target.is_file():
+        check=validator or _validator_for_path(target)
+        if check is not None:
+            check(target)
+        print(f"Model cache hit: variant={variant} artifact={artifact} path={target}")
+        return {"site":"cache","url":None,"reference":None,"attempt":0}
     failures=[]
     for attempt,source in enumerate(sources,1):
         if isinstance(source,ModelSource):
@@ -348,9 +355,9 @@ def prepare_detector_legacy(detector,*,results_root,policy="reuse",github_env=No
         root.mkdir(parents=True,exist_ok=True)
         prototxt_source=None; weights_source=None
         if policy=="refresh" or not train.is_file():
-            prototxt_source=_download_from_sources(PAGENET_PROTOTXT_SOURCES,train,artifact="prototxt",variant="learned_page_mask")
+            prototxt_source=_download_from_sources(PAGENET_PROTOTXT_SOURCES,train,artifact="prototxt",variant="learned_page_mask",reuse_existing=(policy!="refresh"))
         if policy=="refresh" or not weights.is_file():
-            weights_source=_download_from_sources(PAGENET_WEIGHTS_SOURCES,weights,artifact="weights",variant="learned_page_mask")
+            weights_source=_download_from_sources(PAGENET_WEIGHTS_SOURCES,weights,artifact="weights",variant="learned_page_mask",reuse_existing=(policy!="refresh"))
         deploy.write_text(build_pagenet_deploy_prototxt(train.read_text(encoding="utf-8")),encoding="utf-8")
         payload={
             "schema_version":"1.0","model_id":PAGENET_MODEL_ID,"model_family":"PageNet",
@@ -445,7 +452,7 @@ def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
         root.mkdir(parents=True,exist_ok=True)
         model_source=None
         if policy=="refresh" or not archive.is_file():
-            model_source=_download_from_sources(DHSEGMENT_MODEL_SOURCES,archive,artifact="model.zip",variant="dhsegment_page_mask")
+            model_source=_download_from_sources(DHSEGMENT_MODEL_SOURCES,archive,artifact="model.zip",variant="dhsegment_page_mask",reuse_existing=(policy!="refresh"))
         if extracted.exists():
             shutil.rmtree(extracted)
         _safe_extract_zip(archive,extracted)
@@ -600,10 +607,12 @@ def _prepare_mask_rcnn_page_mask_hook(*,results_root,policy,env_file):
     if policy=="refresh" or not complete:
         root.mkdir(parents=True,exist_ok=True)
         model_source=_download_from_sources(
-            variant.model_sources,model,artifact="model",variant=variant.key
+            variant.model_sources,model,artifact="model",variant=variant.key,
+            reuse_existing=(policy!="refresh"),
         )
         config_source=_download_from_sources(
-            variant.config_sources,config,artifact="config",variant=variant.key
+            variant.config_sources,config,artifact="config",variant=variant.key,
+            reuse_existing=(policy!="refresh"),
         )
         payload={
             "schema_version":"1.2","model_id":variant.model_id,"model_family":"Mask R-CNN",
@@ -670,8 +679,8 @@ def _prepare_doc_ufcn_page_mask_hook(*,results_root,policy,env_file):
     complete=model.is_file() and parameters.is_file() and provenance.is_file()
     if policy=="refresh" or not complete:
         root.mkdir(parents=True,exist_ok=True)
-        model_source=_download_from_sources(DOC_UFCN_MODEL_SOURCES,model,artifact="model",variant="doc_ufcn_page_mask")
-        parameters_source=_download_from_sources(DOC_UFCN_PARAMETERS_SOURCES,parameters,artifact="parameters",variant="doc_ufcn_page_mask")
+        model_source=_download_from_sources(DOC_UFCN_MODEL_SOURCES,model,artifact="model",variant="doc_ufcn_page_mask",reuse_existing=(policy!="refresh"))
+        parameters_source=_download_from_sources(DOC_UFCN_PARAMETERS_SOURCES,parameters,artifact="parameters",variant="doc_ufcn_page_mask",reuse_existing=(policy!="refresh"))
         payload={
             "schema_version":"1.0",
             "model_id":DOC_UFCN_MODEL_ID,
@@ -765,7 +774,7 @@ def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
         root.mkdir(parents=True,exist_ok=True)
         model_source=_download_from_sources(
             ORLI_MODEL_SOURCES, model, artifact="model", variant="orli_page_mask",
-            validator=_validate_safetensors_file,
+            validator=_validate_safetensors_file, reuse_existing=(policy!="refresh"),
         )
         payload={
             "schema_version":"1.1", "model_id":ORLI_MODEL_ID, "model_family":"Orli",
@@ -844,10 +853,10 @@ def _prepare_eynollah_page_mask_hook(*,results_root,policy,env_file):
     complete=provenance.is_file() and all((model_dir/f).is_file() for f in files)
     used={}
     if policy=="refresh" or not complete:
-        if model_dir.exists(): shutil.rmtree(model_dir)
+        if policy=="refresh" and model_dir.exists(): shutil.rmtree(model_dir)
         for rel in files:
             target=model_dir/rel
-            used[rel]=_download_from_sources(_eynollah_sources(rel),target,artifact=rel,variant="eynollah_page_mask")
+            used[rel]=_download_from_sources(_eynollah_sources(rel),target,artifact=rel,variant="eynollah_page_mask",reuse_existing=(policy!="refresh"))
         saved_model_sha256=_sha256(model_dir/"saved_model.pb")
         if saved_model_sha256 != EYNOLLAH_SAVED_MODEL_SHA256:
             raise RuntimeError(
@@ -878,10 +887,10 @@ def _prepare_docextractor_page_mask_hook(*,results_root,policy,env_file):
     complete=provenance.is_file() and source_root.is_dir() and model_path is not None and model_path.is_file()
     if policy=="refresh" or not complete:
         root.mkdir(parents=True,exist_ok=True)
-        source_source=_download_from_sources(DOCEXTRACTOR_SOURCE_SOURCES,source_archive,artifact="source.zip",variant="docextractor_page_mask",validator=_validate_zip_file)
+        source_source=_download_from_sources(DOCEXTRACTOR_SOURCE_SOURCES,source_archive,artifact="source.zip",variant="docextractor_page_mask",validator=_validate_zip_file,reuse_existing=(policy!="refresh"))
         if source_root.exists(): shutil.rmtree(source_root)
         _safe_extract_zip(source_archive,source_root)
-        model_source=_download_from_sources(DOCEXTRACTOR_MODEL_SOURCES,model_archive,artifact="models.zip",variant="docextractor_page_mask",validator=_validate_zip_file)
+        model_source=_download_from_sources(DOCEXTRACTOR_MODEL_SOURCES,model_archive,artifact="models.zip",variant="docextractor_page_mask",validator=_validate_zip_file,reuse_existing=(policy!="refresh"))
         for child in list(root.glob("models")):
             if child.is_dir(): shutil.rmtree(child)
         _safe_extract_zip(model_archive,root)
