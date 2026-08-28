@@ -835,8 +835,21 @@ for row in plan_static_lpt_tasks(estimates, pipelines):
     print(f"{row['pipeline']}\t{','.join(str(i) for i in row['task_indexes'])}\t{row['estimated_seconds']:.1f}")
 PYSTATICLPT
   )
+elif (( effective_pipelines > 1 )); then
+  # A sharded single-detector run already has one task per intended worker
+  # (normally one shard per active pipeline).  Preserve that topology instead
+  # of collapsing every shard onto pipeline 1; optimizer shape measurements
+  # depend on the requested pipelines actually running concurrently.
+  for ((task_index=0; task_index<${#detector_configs[@]}; task_index++)); do
+    pipeline_index=$((task_index % effective_pipelines))
+    if [[ -n "${static_pipeline_tasks[$pipeline_index]:-}" ]]; then
+      static_pipeline_tasks[$pipeline_index]+=",$task_index"
+    else
+      static_pipeline_tasks[$pipeline_index]="$task_index"
+    fi
+  done
 else
-  # Single-pipeline/single-detector execution is already deterministic.
+  # A true single-pipeline execution is already deterministic.
   static_pipeline_tasks[0]="$(seq -s, 0 $((${#detector_configs[@]}-1)))"
 fi
 
