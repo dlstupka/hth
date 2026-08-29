@@ -50,12 +50,16 @@ class DhSegmentRuntimeQuietingTests(unittest.TestCase):
         manager = Path("tools/ensure-managed-runtime.sh").read_text(encoding="utf-8")
         self.assertIn('tensorflow-cpu>=2.18,<2.21', manager)
         self.assertNotIn('pip install "tensorflow>=2.18,<2.21"', manager)
+        action = Path(".github/actions/setup-hth-managed-runtime/action.yml").read_text(encoding="utf-8")
+        self.assertIn('HTH_NEED_DHSEGMENT: ${{ inputs.need-dhsegment }}', action)
+        self.assertIn('tools/ensure-managed-runtime.sh', action)
         for rel in (
             ".github/workflows/regress-detector.yml",
             ".github/workflows/execution-optimizer.yml",
         ):
             text = Path(rel).read_text(encoding="utf-8")
-            self.assertIn("hth-pipeline/tools/ensure-managed-runtime.sh", text, rel)
+            self.assertIn("uses: ./hth-pipeline/.github/actions/setup-hth-managed-runtime", text, rel)
+            self.assertIn("need-dhsegment:", text, rel)
 
     def test_legacy_loader_suppresses_python_warning_chatter_locally(self):
         text = Path("hth/geometry/detector_dhsegment_page_mask.py").read_text(encoding="utf-8")

@@ -1,0 +1,190 @@
+name: Set up HTH Python runtime
+description: Canonical HTH Python 3.12 bootstrap and reusable virtual-environment setup.
+
+inputs:
+  pipeline-path:
+    description: Checkout path containing the HTH repository.
+    required: false
+    default: hth-pipeline
+  runner-label:
+    description: Logical HTH runner label recorded for reporting.
+    required: false
+    default: unknown
+  diagnostics:
+    description: Emit runner diagnostics and export runner metadata.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Runner diagnostics
+      if: ${{ inputs.diagnostics == 'true' }}
+      shell: bash
+      env:
+        HTH_ACTION_RUNNER_LABEL: ${{ inputs.runner-label }}
+      run: |
+        set -euo pipefail
+
+        echo "runner.os=${{ runner.os }}"
+        echo "runner.arch=${{ runner.arch }}"
+        echo "runner.environment=${{ runner.environment }}"
+        echo "runner.name=${{ runner.name }}"
+
+        echo "HTH_EXECUTION_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
+        echo "HTH_RUNNER_NAME=${{ runner.name }}" >> "$GITHUB_ENV"
+        echo "HTH_RUNNER_LABEL=${HTH_ACTION_RUNNER_LABEL}" >> "$GITHUB_ENV"
+
+    - name: Set up Python — GitHub-hosted Linux
+      if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' }}
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: pip
+        cache-dependency-path: ${{ inputs.pipeline-path }}/requirements.txt
+
+    - name: Use repaired Python tool cache — Windows
+      if: ${{ runner.os == 'Windows' }}
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+
+        $pythonVersion = "3.12.10"
+        $pythonRoot = Join-Path `
+          $env:RUNNER_TOOL_CACHE `
+          "Python\$pythonVersion\x64"
+        $pythonExe = Join-Path $pythonRoot "python.exe"
+        $completeMarker = "$pythonRoot.complete"
+        $scriptsDir = Join-Path $pythonRoot "Scripts"
+
+        if (-not (Test-Path -LiteralPath $completeMarker)) {
+          throw "Python tool-cache marker is missing: $completeMarker"
+        }
+
+        if (-not (Test-Path -LiteralPath $pythonExe)) {
+          throw "Python executable is missing: $pythonExe"
+        }
+
+        $env:PATH = "$pythonRoot;$scriptsDir;$env:PATH"
+        $pythonRoot | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        $scriptsDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+        $actualVersion = & $pythonExe -c `
+          "import sys; print('.'.join(map(str, sys.version_info[:3])))"
+
+        if ($LASTEXITCODE -ne 0) {
+          throw "Unable to execute $pythonExe"
+        }
+
+        if ($actualVersion.Trim() -ne $pythonVersion) {
+          throw "Expected Python $pythonVersion; found $actualVersion"
+        }
+
+        & $pythonExe -m pip --version
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "pip is missing; bootstrapping with ensurepip"
+          & $pythonExe -m ensurepip --upgrade
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to bootstrap pip"
+          }
+        }
+
+        Write-Host "Using Python: $pythonExe"
+        & $pythonExe --version
+        & $pythonExe -m pip --version
+
+    - name: Verify / Create reusable Python environment
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        bootstrap_python="$(command -v python)"
+        echo "Bootstrap Python: $bootstrap_python"
+        "$bootstrap_python" --version
+        if ! "$bootstrap_python" -m pip --version; then
+          echo "Bootstrap pip is missing; repairing with ensurepip."
+          "$bootstrap_python" -m ensurepip --upgrade
+          "$bootstrap_python" -m pip --version
+        fi
+        "$bootstrap_python" - <<'PY'
+        import sys
+        if sys.version_info[:2] != (3, 12):
+            raise SystemExit(
+                f"Expected bootstrap Python 3.12, got {sys.version} "
+                f"from {sys.executable}"
+            )
+        print(f"Bootstrap Python executable: {sys.executable}")
+        PY
+
+        if [[ "${{ runner.environment }}" == "self-hosted" ]]; then
+          runtime_root="/tmp/.ar/.hth-runtime"
+          venv_dir="$runtime_root/python-3.12-${RUNNER_OS:-unknown}-${RUNNER_ARCH:-unknown}"
+        else
+          venv_dir="$RUNNER_TEMP/hth-python-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$venv_dir"
+        fi
+
+        if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
+          venv_bin="$venv_dir/Scripts"
+          venv_python="$venv_bin/python.exe"
+          github_path_entry="$(cygpath -w "$venv_bin")"
+        else
+          venv_bin="$venv_dir/bin"
+          venv_python="$venv_bin/python"
+          github_path_entry="$venv_bin"
+        fi
+
+        reuse=0
+        if [[ -x "$venv_python" ]]; then
+          if "$venv_python" - <<'PY'
+        import site
+        import sys
+        if sys.version_info[:2] != (3, 12):
+            raise SystemExit(1)
+        if sys.prefix == sys.base_prefix:
+            raise SystemExit(1)
+        if site.ENABLE_USER_SITE:
+            raise SystemExit(1)
+        PY
+          then
+            reuse=1
+          else
+            echo "Existing reusable environment failed verification; rebuilding."
+            rm -rf "$venv_dir"
+          fi
+        fi
+
+        if (( reuse == 0 )); then
+          echo "Creating Python environment: $venv_dir"
+          mkdir -p "$(dirname "$venv_dir")"
+          "$bootstrap_python" -m venv "$venv_dir"
+        else
+          echo "Reusing verified Python environment: $venv_dir"
+        fi
+
+        if [[ ! -x "$venv_python" ]]; then
+          echo "::error::Virtual-environment Python is missing: $venv_python"
+          exit 1
+        fi
+
+        echo "$github_path_entry" >> "$GITHUB_PATH"
+        echo "HTH_VENV=$venv_dir" >> "$GITHUB_ENV"
+        echo "HTH_BOOTSTRAP_PYTHON=$bootstrap_python" >> "$GITHUB_ENV"
+        echo "HTH_VENV_REUSED=$reuse" >> "$GITHUB_ENV"
+        echo "PIP_DISABLE_PIP_VERSION_CHECK=1" >> "$GITHUB_ENV"
+
+        "$venv_python" - <<'PY'
+        import site
+        import sys
+        print(f"Venv executable : {sys.executable}")
+        print(f"sys.prefix      : {sys.prefix}")
+        print(f"sys.base_prefix : {sys.base_prefix}")
+        print(f"User site       : {site.USER_SITE}")
+        print(f"User site active: {site.ENABLE_USER_SITE}")
+        if sys.version_info[:2] != (3, 12):
+            raise SystemExit(f"Expected Python 3.12, got {sys.version}")
+        if sys.prefix == sys.base_prefix:
+            raise SystemExit("Virtual environment is not active")
+        if site.ENABLE_USER_SITE:
+            raise SystemExit("User site-packages unexpectedly enabled")
+        PY

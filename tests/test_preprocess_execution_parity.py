@@ -27,9 +27,11 @@ class PreprocessExecutionParityTests(unittest.TestCase):
         self.assertIn("/test/", block)
 
     def test_preprocess_uses_managed_runtime_contract(self):
-        self.assertIn("- name: Verify / Install complete managed runtime", self.text)
-        self.assertIn("bash hth-pipeline/tools/ensure-managed-runtime.sh", self.text)
-        self.assertIn("- name: Verify Doc-UFCN historical page-segmentation runtime", self.text)
+        self.assertIn("uses: ./hth-pipeline/.github/actions/setup-hth-managed-runtime", self.text)
+        self.assertIn("need-doc-ufcn: ${{ steps.preferred_document_detector.outputs.needs_doc_ufcn || 'false' }}", self.text)
+        action = (ROOT / ".github/actions/setup-hth-managed-runtime/action.yml").read_text(encoding="utf-8")
+        self.assertIn("tools/ensure-managed-runtime.sh", action)
+        self.assertIn("- name: Verify Doc-UFCN historical page-segmentation runtime", action)
         self.assertNotIn("- name: Install dependencies\n", self.text)
         self.assertNotIn("- name: Install managed detector runtime for document inference", self.text)
 

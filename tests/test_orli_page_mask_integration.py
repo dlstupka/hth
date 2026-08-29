@@ -22,8 +22,10 @@ class OrliPageMaskIntegrationTests(unittest.TestCase):
         for workflow in ("regress-detector.yml", "execution-optimizer.yml"):
             text = (ROOT / ".github/workflows" / workflow).read_text(encoding="utf-8")
             self.assertIn("          - orli_page_mask\n", text)
-            self.assertIn("HTH_NEED_ORLI:", text)
+            self.assertIn("need-orli:", text)
             self.assertIn("orli==", (ROOT / "tools/ensure-managed-runtime.sh").read_text(encoding="utf-8"))
+        action = (ROOT / ".github/actions/setup-hth-managed-runtime/action.yml").read_text(encoding="utf-8")
+        self.assertIn("HTH_NEED_ORLI", action)
 
     def test_shared_learned_evidence_supports_orli(self):
         text = (ROOT / "tools/run-detector-regressions.sh").read_text(encoding="utf-8")

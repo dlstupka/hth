@@ -19,7 +19,10 @@ class KrakenPageMaskIntegrationTests(unittest.TestCase):
         ):
             text=Path(rel).read_text(encoding="utf-8")
             self.assertIn("kraken_page_mask",text)
-            self.assertIn("hth-pipeline/tools/ensure-managed-runtime.sh", text)
+            self.assertIn("uses: ./hth-pipeline/.github/actions/setup-hth-managed-runtime", text)
+            self.assertIn("need-kraken:", text)
+        action = Path(".github/actions/setup-hth-managed-runtime/action.yml").read_text(encoding="utf-8")
+        self.assertIn("Kraken runtime verified — using managed runtime:", action)
 
 
 if __name__ == "__main__":

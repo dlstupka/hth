@@ -7,14 +7,16 @@ WORKFLOWS = (
     ROOT / ".github/workflows/execution-optimizer.yml",
 )
 MANAGER = (ROOT / "tools" / "ensure-managed-runtime.sh").read_text(encoding="utf-8")
+PYTHON_ACTION = (ROOT / ".github/actions/setup-hth-python/action.yml").read_text(encoding="utf-8")
 
 
 class KrakenCpuRuntimeWorkflowTests(unittest.TestCase):
     def test_self_hosted_runtime_uses_requested_persistent_path(self):
+        self.assertIn('runtime_root="/tmp/.ar/.hth-runtime"', PYTHON_ACTION)
         for workflow in WORKFLOWS:
             text = workflow.read_text(encoding="utf-8")
-            self.assertIn('runtime_root="/tmp/.ar/.hth-runtime"', text, workflow.name)
             self.assertIn('rm -rf "/tmp/.ar/.hth-runtime"', text, workflow.name)
+            self.assertIn("uses: ./hth-pipeline/.github/actions/setup-hth-python", text, workflow.name)
 
     def test_kraken_installs_matched_cpu_torchvision_pair_before_kraken(self):
         torch = MANAGER.index('"torch==2.10.0"')

@@ -72,7 +72,7 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
     def test_execution_optimizer_results_checkout_is_shallow_sparse_and_quiet(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         optimize_job = text.split("  optimize:", 1)[1]
-        checkout = optimize_job.split("- name: Checkout results repository", 1)[1].split("- name: Runner diagnostics", 1)[0]
+        checkout = optimize_job.split("- name: Checkout results repository", 1)[1].split("- name: Set up canonical HTH Python runtime", 1)[0]
         self.assertIn("fetch-depth: 1", checkout)
         self.assertIn("sparse-checkout:", checkout)
         self.assertIn("sparse-checkout-cone-mode: false", checkout)
@@ -104,15 +104,21 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         optimizer = WORKFLOW.read_text(encoding="utf-8")
         regression = REGRESSION.read_text(encoding="utf-8")
         for step in (
-            "Checkout HTH pipeline", "Checkout results repository", "Runner diagnostics",
-            "Set up Python — GitHub-hosted Linux",
-            "Use repaired Python tool cache — Windows", "Verify / Create reusable Python environment",
-            "Verify / Install complete managed runtime", "Verify Python dependency ABI", "Show toolchain environment",
-            "Verify / Benchmark OpenCV runtime",
+            "Checkout HTH pipeline", "Checkout results repository",
+            "Set up canonical HTH Python runtime", "Set up canonical HTH managed runtime",
         ):
             marker = f"- name: {step}"
             self.assertIn(marker, regression)
             self.assertIn(marker, optimizer)
+        self.assertIn("uses: ./hth-pipeline/.github/actions/setup-hth-python", regression)
+        self.assertIn("uses: ./hth-pipeline/.github/actions/setup-hth-python", optimizer)
+        self.assertIn("uses: ./hth-pipeline/.github/actions/setup-hth-managed-runtime", regression)
+        self.assertIn("uses: ./hth-pipeline/.github/actions/setup-hth-managed-runtime", optimizer)
+        managed = (ROOT / ".github/actions/setup-hth-managed-runtime/action.yml").read_text(encoding="utf-8")
+        self.assertIn("- name: Verify / Install complete managed runtime", managed)
+        self.assertIn("- name: Verify Python dependency ABI", managed)
+        self.assertIn("- name: Show toolchain environment", managed)
+        self.assertIn("- name: Verify / Benchmark OpenCV runtime", managed)
 
     def test_execution_optimizer_serially_reuses_normal_regression_driver(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")

@@ -1,0 +1,311 @@
+name: Set up HTH managed runtime
+description: Canonical managed dependency installation and model-runtime verification for HTH workflows.
+
+inputs:
+  pipeline-path:
+    description: Checkout path containing the HTH repository.
+    required: false
+    default: hth-pipeline
+  need-dhsegment:
+    required: false
+    default: "false"
+  need-eynollah:
+    required: false
+    default: "false"
+  need-docextractor:
+    required: false
+    default: "false"
+  need-doc-ufcn:
+    required: false
+    default: "false"
+  need-mask-rcnn:
+    required: false
+    default: "false"
+  need-kraken:
+    required: false
+    default: "false"
+  need-orli:
+    required: false
+    default: "false"
+  verify-abi:
+    required: false
+    default: "false"
+  show-toolchain:
+    required: false
+    default: "false"
+  benchmark-opencv:
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Verify / Install complete managed runtime
+      shell: bash
+      env:
+        HTH_NEED_DHSEGMENT: ${{ inputs.need-dhsegment }}
+        HTH_NEED_EYNOLLAH: ${{ inputs.need-eynollah }}
+        HTH_NEED_DOCEXTRACTOR: ${{ inputs.need-docextractor }}
+        HTH_NEED_DOC_UFCN: ${{ inputs.need-doc-ufcn }}
+        HTH_NEED_MASK_RCNN: ${{ inputs.need-mask-rcnn }}
+        HTH_NEED_KRAKEN: ${{ inputs.need-kraken }}
+        HTH_NEED_ORLI: ${{ inputs.need-orli }}
+      run: |
+        set -euo pipefail
+        bash "${{ inputs.pipeline-path }}/tools/ensure-managed-runtime.sh"
+
+    - name: Verify Mask R-CNN historical-document runtime
+      if: ${{ inputs.need-mask-rcnn == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        python - <<'PY'
+        import torch, torchvision, detectron2
+        from detectron2.engine import DefaultPredictor
+        print(f"Mask R-CNN runtime verified — Detectron2; PyTorch {torch.__version__}; Torchvision {torchvision.__version__}")
+        PY
+
+    - name: Verify Doc-UFCN historical page-segmentation runtime
+      if: ${{ inputs.need-doc-ufcn == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        python - <<'PY'
+        import torch
+        from doc_ufcn.main import DocUFCN
+        print("Doc-UFCN runtime verified — HTH-pinned source: 0.2.0rc4")
+        print(f"PyTorch: {torch.__version__}")
+        PY
+
+    - name: Verify dhSegment TensorFlow runtime
+      if: ${{ inputs.need-dhsegment == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        python - <<'PY'
+        from importlib import metadata
+        from pip._vendor.packaging.specifiers import SpecifierSet
+
+        version = metadata.version("tensorflow-cpu")
+        required = SpecifierSet(">=2.18,<2.21")
+        if version not in required:
+            raise SystemExit(f"tensorflow-cpu {version} does not satisfy {required}")
+        import tensorflow as tf
+        print(f"dhSegment TensorFlow runtime verified — using managed runtime: {tf.__version__}")
+        PY
+
+    - name: Verify Orli historical-document segmentation runtime
+      if: ${{ inputs.need-orli == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        python - <<'PY'
+        from importlib import metadata
+        from orli.pred import segment
+        version = metadata.version("orli")
+        if version != "0.0.2":
+            raise SystemExit(f"Expected orli 0.0.2, found {version}")
+        print(f"Orli runtime verified — using managed runtime: {version}")
+        PY
+
+    - name: Verify Kraken historical-document segmentation runtime
+      if: ${{ inputs.need-kraken == 'true' }}
+      shell: bash
+      env:
+        PYTHONPATH: ${{ inputs.pipeline-path }}
+      run: |
+        set -euo pipefail
+        python - <<'PY'
+        from importlib import metadata
+        import torch
+        import torchvision
+        from kraken.tasks.segmentation import SegmentationTaskModel
+
+        version = metadata.version("kraken")
+        if version != "7.0.2":
+            raise SystemExit(f"Expected kraken 7.0.2, found {version}")
+        print(f"Kraken runtime verified — using managed runtime: {version}")
+        print(f"PyTorch: {torch.__version__}")
+        print(f"Torchvision: {torchvision.__version__}")
+        PY
+
+        if [[ "${RUNNER_OS:-}" == "Linux" ]]; then
+          python - <<'PY'
+        import torch
+        import torchvision
+        if torch.cuda.is_available():
+            raise SystemExit("HTH Kraken runtime unexpectedly reports CUDA available")
+        if "+cpu" not in torch.__version__ or "+cpu" not in torchvision.__version__:
+            raise SystemExit(
+                f"Expected CPU-only Torch/Torchvision, got "
+                f"torch={torch.__version__} torchvision={torchvision.__version__}"
+            )
+        print("Kraken PyTorch/Torchvision backend verified: CPU-only")
+        PY
+        fi
+
+    - name: Verify Python dependency ABI
+      if: ${{ inputs.verify-abi == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        python -m pip check
+        python - <<'PY'
+        import sys
+        import cv2
+        import numpy
+        import skimage
+
+        print(f"Python       : {sys.executable}")
+        print(f"NumPy        : {numpy.__version__} ({numpy.__file__})")
+        print(f"scikit-image : {skimage.__version__} ({skimage.__file__})")
+        print(f"OpenCV       : {cv2.__version__} ({cv2.__file__})")
+        PY
+
+    - name: Show toolchain environment
+      if: ${{ inputs.show-toolchain == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        echo "Toolchain Environment"
+        echo "====================="
+        echo "Runner name      : ${RUNNER_NAME:-unknown}"
+        echo "Runner OS        : ${RUNNER_OS:-unknown}"
+        echo "Runner arch      : ${RUNNER_ARCH:-unknown}"
+        echo "Runner toolcache : ${RUNNER_TOOL_CACHE:-unknown}"
+        echo "SHELL            : ${SHELL:-unset}"
+        echo "MSYSTEM          : ${MSYSTEM:-unset}"
+        echo "OSTYPE           : ${OSTYPE:-unset}"
+        echo
+
+        echo "Shell resolution"
+        echo "----------------"
+        echo "bash executable  : $(command -v bash)"
+        echo "sh executable    : $(command -v sh)"
+        type -a bash || true
+        type -a sh || true
+        bash --version | head -n 1
+        echo
+
+        echo "Tool resolution"
+        echo "---------------"
+        echo "git executable   : $(command -v git)"
+        type -a git || true
+        git --version
+        echo "bootstrap Python : ${HTH_BOOTSTRAP_PYTHON:-unknown}"
+        echo "virtual env      : ${HTH_VENV:-unknown}"
+        echo "active Python    : $(command -v python)"
+        type -a python || true
+        python --version
+        python -m pip --version
+
+        python - <<'PY'
+        import os
+        import platform
+        import sys
+        import cv2
+        import numpy
+
+        print(f"OpenCV file      : {cv2.__file__}")
+        print(f"NumPy file       : {numpy.__file__}")
+        print(f"sys.executable   : {sys.executable}")
+        print(f"sys.version      : {sys.version.splitlines()[0]}")
+        print(f"platform         : {platform.platform()}")
+        print(f"process arch     : {platform.machine()}")
+        print(f"PYTHONPATH       : {os.environ.get('PYTHONPATH', 'unset')}")
+        PY
+
+        echo
+        echo "Filesystem"
+        echo "----------------------"
+        pwd
+
+        if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
+          echo "Native Windows cwd : $(pwd -W)"
+          echo "POSIX -> Windows   : $(cygpath -w .)"
+          echo "Workspace -> POSIX : $(cygpath -u "${GITHUB_WORKSPACE:-.}")"
+
+          echo
+          echo "Windows executable resolution"
+          echo "-----------------------------"
+          where.exe bash || true
+          where.exe sh || true
+          where.exe git || true
+          where.exe python || true
+          where.exe py || true
+
+          echo
+          echo "Git Bash path translation"
+          echo "-------------------------"
+          echo "cygpath executable : $(command -v cygpath)"
+          echo "POSIX root         : /"
+          echo "Windows root       : $(cygpath -w /)"
+        else
+          echo "Native POSIX filesystem; MSYS path translation not applicable."
+          echo "Workspace          : ${GITHUB_WORKSPACE:-unset}"
+        fi
+
+        echo
+        echo "PATH entries"
+        echo "------------"
+        tr ':' '\n' <<< "$PATH"
+
+    - name: Verify / Benchmark OpenCV runtime
+      if: ${{ inputs.benchmark-opencv == 'true' }}
+      shell: bash
+      env:
+        PYTHONPATH: ${{ inputs.pipeline-path }}
+      run: |
+        set -euo pipefail
+        python - <<'EOF'
+        import os
+        import time
+
+        import cv2
+        import numpy as np
+
+        print(f"OpenCV version: {cv2.__version__}")
+        print()
+
+        wanted = (
+            "CPU/HW",
+            "Baseline:",
+            "Dispatched code generation:",
+            "Parallel framework",
+            "Intel IPP",
+            "OpenCL",
+            "AVX",
+            "SSE",
+            "TBB",
+            "OpenMP",
+        )
+
+        for line in cv2.getBuildInformation().splitlines():
+            if any(token in line for token in wanted):
+                print(line)
+
+        print()
+        image = np.random.default_rng(12345).integers(
+            0, 256, size=(3000, 3000), dtype=np.uint8
+        )
+
+        for _ in range(5):
+            cv2.GaussianBlur(image, (9, 9), 0)
+
+        started = time.perf_counter()
+        for _ in range(100):
+            cv2.GaussianBlur(image, (9, 9), 0)
+        elapsed = time.perf_counter() - started
+        average = elapsed / 100
+
+        print(f"GaussianBlur 100 iterations: {elapsed:.3f} seconds")
+        print(f"Average per iteration: {average:.6f} seconds")
+
+        github_env = os.environ.get("GITHUB_ENV")
+        if github_env:
+            with open(github_env, "a", encoding="utf-8") as stream:
+                stream.write(f"HTH_OPENCV_BENCHMARK_SECONDS={elapsed:.9f}\n")
+                stream.write(f"HTH_OPENCV_BENCHMARK_AVERAGE_SECONDS={average:.9f}\n")
+        EOF

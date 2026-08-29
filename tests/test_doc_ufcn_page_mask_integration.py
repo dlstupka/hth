@@ -21,10 +21,12 @@ class DocUFCNPageMaskIntegrationTests(unittest.TestCase):
         self.assertEqual(len(config["parameters"]["minimum_confidence"]["values"]), 8)
         self.assertIn("doc_ufcn_page_mask", PRECOMPUTED_EVIDENCE_PREPARERS)
         self.assertIn("doc_ufcn_page_mask", PRECOMPUTED_EVIDENCE_LOADERS)
+        action = (ROOT / ".github/actions/setup-hth-managed-runtime/action.yml").read_text(encoding="utf-8")
+        self.assertIn("HTH_NEED_DOC_UFCN", action)
         for workflow in ("regress-detector.yml", "execution-optimizer.yml"):
             text = (ROOT / ".github/workflows" / workflow).read_text(encoding="utf-8")
             self.assertIn("          - doc_ufcn_page_mask\n", text)
-            self.assertIn("HTH_NEED_DOC_UFCN", text)
+            self.assertIn("need-doc-ufcn:", text)
 
     def test_parameter_count_is_2000(self):
         from hth.regression.strategies.cartesian import generate
