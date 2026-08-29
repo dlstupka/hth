@@ -77,6 +77,16 @@ class OptimizerSearchTests(unittest.TestCase):
         self.assertGreaterEqual(candidate, 1)
         self.assertLessEqual(candidate, 192)
 
+        # A historical seed may tell adaptive where to begin, but it cannot let
+        # the current run stop one step short of a still-improving legal edge.
+        edge_trending = [
+            row(20, 1.83), row(6, 3.67), row(3, 4.58), row(2, 5.00),
+        ]
+        self.assertEqual(
+            adaptive_next_pipeline(1, 192, 384, 1, edge_trending, start_pipeline=20),
+            1,
+        )
+
     def test_adaptive_clamps_seed_to_manual_override_range(self) -> None:
         self.assertEqual(
             adaptive_next_pipeline(50, 100, 384, 1, [], start_pipeline=132),

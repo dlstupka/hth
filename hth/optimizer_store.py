@@ -125,8 +125,15 @@ def _comparable(rows: Iterable[dict[str, Any]], detector_id: str, optimizer_run_
             continue
         if optimizer_run_id is not None and str(row.get("optimizer_run_id")) != str(optimizer_run_id):
             continue
-        if optimizer_run_ids is not None and str(row.get("optimizer_run_id") or "") not in optimizer_run_ids:
-            continue
+        if optimizer_run_ids is not None:
+            run_id = str(row.get("optimizer_run_id") or "").strip()
+            # Pre-run-id optimizer observations are durable legacy completion
+            # evidence.  They were only published to the aggregate index after
+            # a successful optimizer execution, so keep them alongside the
+            # explicitly completed modern run ids.  Explicit invalid evidence
+            # was already rejected above.
+            if run_id and run_id not in optimizer_run_ids:
+                continue
         if row.get("mode") != "full":
             continue
         strategy = str(row.get("strategy") or "")

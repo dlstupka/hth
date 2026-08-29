@@ -153,6 +153,17 @@ def adaptive_next_pipeline(
         default=max(measured, key=measured.get),
     )
 
+    # Historical/predicted intelligence may choose the first shape to measure,
+    # but only measurements from this execution can resolve the search.  If the
+    # current near-best region still touches the lowest/highest sampled edge,
+    # measure the true legal edge before allowing adaptive completion.  Without
+    # this rule a descending search can stop at 2p while 1p is still legal and
+    # potentially faster (the ScanTailor regression that exposed this case).
+    if near_low == tested[0] and legal[0] < near_low and legal[0] in untested:
+        return legal[0]
+    if near_high == tested[-1] and near_high < legal[-1] and legal[-1] in untested:
+        return legal[-1]
+
     # Do not declare a tiny measured bracket resolved while an interior integer
     # pipeline count is still unknown.  Sparse endpoint sampling can hide a
     # narrow local peak (for example 1p and 3p can be equal while 2p is better).
