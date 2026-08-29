@@ -19,6 +19,70 @@ def run_history_dir(results_root: Path, detector: str, run_id: str) -> Path:
     return Path(results_root) / "execution-optimizer" / detector / "runs" / str(run_id)
 
 
+
+
+def completed_optimizer_run_ids(
+    optimizer_index: dict[str, Any],
+    parallelism_index: dict[str, Any],
+    detector: str,
+) -> set[str]:
+    """Return every valid optimizer run known to have reached durable publication.
+
+    Modern runs prove completion through finalized run metadata.  Legacy results
+    predate per-run manifests/stop reasons; under that publication contract,
+    run-tagged aggregate ``execution-optimizer`` observations were written to the
+    results repository only by successful end-of-run publication.  Those rows
+    therefore remain completion evidence even after a newer detector summary
+    replaces the legacy summary that originally accompanied them.
+
+    Validity is a hard exclusion at the run boundary: an explicitly invalid run
+    record, or any invalid observation belonging to a legacy run, excludes the
+    whole run.
+    """
+    runs = optimizer_index.get("runs") if isinstance(optimizer_index.get("runs"), dict) else {}
+    completed: set[str] = set()
+    invalid: set[str] = set()
+
+    for run_id, payload in runs.items():
+        if not isinstance(payload, dict) or str(payload.get("detector_id") or "") != detector:
+            continue
+        run_id = str(run_id)
+        migrated = migrate_optimizer_run(payload)
+        if not optimizer_evidence_is_valid(migrated):
+            invalid.add(run_id)
+            continue
+        metadata = migrated.get("run_metadata") if isinstance(migrated.get("run_metadata"), dict) else {}
+        if (
+            str(metadata.get("stop_reason") or "").strip()
+            or migrated.get("complete") is True
+            or str(migrated.get("status") or "").lower() == "completed"
+        ):
+            completed.add(run_id)
+
+    legacy_rows: dict[str, list[dict[str, Any]]] = {}
+    observations = parallelism_index.get("observations")
+    if isinstance(observations, list):
+        for raw in observations:
+            if not isinstance(raw, dict):
+                continue
+            if str(raw.get("detector_id") or "") != detector or raw.get("source") != "execution-optimizer":
+                continue
+            run_id = str(raw.get("optimizer_run_id") or "").strip()
+            if not run_id:
+                continue
+            legacy_rows.setdefault(run_id, []).append(migrate_optimizer_evidence(raw))
+
+    for run_id, rows in legacy_rows.items():
+        if run_id in invalid or any(not optimizer_evidence_is_valid(row) for row in rows):
+            invalid.add(run_id)
+            completed.discard(run_id)
+            continue
+        # Persisted aggregate optimizer observations are legacy completion
+        # evidence.  Keep every such completed run, not merely the newest one.
+        completed.add(run_id)
+
+    return completed - invalid
+
 def persist_completed_run(*, results_root: Path, detector: str, run_id: str,
                           run_metadata: dict[str, Any], observation_log: Path | None,
                           shard_log: Path | None, runner_metrics_log: Path | None) -> Path | None:

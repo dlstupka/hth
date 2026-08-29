@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 
 from hth.results_layout import canonical_index_path, readable_index_path
-from hth.optimizer_history import completed_run_records
+from hth.optimizer_history import completed_optimizer_run_ids, completed_run_records
 from typing import Any
 
 from hth.optimizer_store import build_optimizer_index, render_all_markdown, render_heatmap_svg, render_markdown, select_preferred_shape
@@ -235,20 +235,6 @@ def _latest_legacy_published_run_from_parallelism(parallelism: dict[str, Any], d
 
 
 
-def _completed_optimizer_run_ids(index: dict[str, Any], detector: str) -> set[str]:
-    """Return only optimizer runs explicitly finalized for this detector."""
-    runs = index.get("runs") if isinstance(index.get("runs"), dict) else {}
-    completed: set[str] = set()
-    for run_id, payload in runs.items():
-        if not isinstance(payload, dict) or str(payload.get("detector_id")) != detector:
-            continue
-        if not optimizer_evidence_is_valid(migrate_optimizer_run(payload)):
-            continue
-        metadata = payload.get("run_metadata") if isinstance(payload.get("run_metadata"), dict) else {}
-        if str(metadata.get("stop_reason") or "").strip():
-            completed.add(str(run_id))
-    return completed
-
 def _completed_run_payload(index: dict[str, Any], detector: str, run_id: str) -> dict[str, Any]:
     runs = index.get("runs") if isinstance(index.get("runs"), dict) else {}
     payload = runs.get(str(run_id))
@@ -360,7 +346,7 @@ def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dic
         raise ValueError(
             f"Completed optimizer run {run_id} has no persisted completed shape observations for {detector}"
         )
-    completed_ids = _completed_optimizer_run_ids(optimizer, detector)
+    completed_ids = completed_optimizer_run_ids(optimizer, parallelism, detector)
     completed_ids.add(str(run_id))
     preferred = _attach_optimizer_run_metadata(build_optimizer_index(parallelism, detector, optimizer_run_ids=completed_ids), optimizer, detector)
     if not preferred.get("observation_count"):

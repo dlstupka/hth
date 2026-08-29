@@ -159,7 +159,7 @@ class ReportGeneratorTests(unittest.TestCase):
             self.assertIn("192t", profile)
             self.assertIn("24t", profile)
 
-    def test_optimizer_report_regenerates_legacy_completed_report_from_latest_run_only(self) -> None:
+    def test_optimizer_report_retains_legacy_completed_history_while_current_table_stays_latest(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "optimizer-index.json").write_text(json.dumps({"schema_version": 1, "detectors": {}}), encoding="utf-8")
@@ -177,7 +177,8 @@ class ReportGeneratorTests(unittest.TestCase):
             profile = paths["profile"].read_text(encoding="utf-8")
             self.assertIn("Optimizer run: **200**", summary)
             self.assertIn("| **e7k — host (96 vCPU)** | 2 | 2 | 96 |", summary)
-            self.assertNotIn("unknown", summary)
+            self.assertIn("| adaptive_radial_edge | unknown — host (96 vCPU) |", summary)
+            self.assertNotIn("| **unknown — host (96 vCPU)** |", summary)
             self.assertIn("detector pipelines (log₂ scale)", profile)
             self.assertIn("parameter sets / second", profile)
             self.assertNotIn("<svg>legacy</svg>", profile)
@@ -333,8 +334,10 @@ class ReportGeneratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             detector = "signed_polar_boundary_vote"
+            # Run 100 models a legacy completed execution: its aggregate
+            # observations survive, but it predates per-run completion metadata.
+            # Publishing run 101 must not make that valid historical runner vanish.
             optimizer = {"runs": {
-                "100": {"detector_id": detector, "updated_at_utc": "2026-08-26T00:00:00Z", "run_metadata": {"pipeline_enumeration": "adaptive", "stop_reason": "range_complete"}},
                 "101": {"detector_id": detector, "updated_at_utc": "2026-08-27T00:00:00Z", "run_metadata": {"pipeline_enumeration": "adaptive", "stop_reason": "range_complete"}},
             }}
             old = {"detector_id": detector, "optimizer_run_id": "100", "source": "execution-optimizer",
