@@ -25,7 +25,7 @@ def plan_static_dispatch(
     if tasks == 0:
         return []
 
-    if multidetector and workers > 1:
+    if multidetector:
         values = list(estimates or [])
         if len(values) < tasks:
             values.extend([None] * (tasks - len(values)))

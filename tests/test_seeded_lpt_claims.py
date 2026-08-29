@@ -14,6 +14,11 @@ class StaticLptShellContractTests(unittest.TestCase):
         self.assertIn("Static schedule pipeline=", DRIVER)
         single = plan_static_dispatch(task_count=9, pipeline_count=9, multidetector=False)
         self.assertEqual([row["task_indexes"] for row in single], [[i] for i in range(9)])
+        one_pipeline = plan_static_dispatch(
+            task_count=3, pipeline_count=1, multidetector=True, estimates=[10.0, 20.0, 30.0]
+        )
+        self.assertEqual(one_pipeline[0]["task_indexes"], [2, 1, 0])
+        self.assertEqual(one_pipeline[0]["estimated_seconds"], 60.0)
 
     def test_schedule_is_built_before_worker_fanout(self):
         plan = DRIVER.index("Static schedule pipeline=")

@@ -1355,15 +1355,17 @@ jobs:
           if [[ "${{ inputs.report_type }}" == "detector-calibration-manifest" ]]; then
             python hth-pipeline/hth/write_action_summary.py generated-report/detector-calibration-manifest.md "$GITHUB_STEP_SUMMARY"
           else
-            # Optimizer summaries reference raw SVGs from the results repository.
-            # Append them only after successful publication so the images cannot
-            # render a stale pre-publish profile.
-            python -c 'import re, sys; from pathlib import Path; destination, source, repository, detector, run_id = sys.argv[1:]; text = Path(source).read_text(encoding="utf-8"); base = f"https://raw.githubusercontent.com/{repository}/main/execution-optimizer/{detector}/"; text = re.sub(r"\(([^)]+\.svg)\)", lambda m: f"({base}{m.group(1)}?report-run={run_id})", text); Path(destination).open("a", encoding="utf-8").write(text + ("" if text.endswith("\n") else "\n"))' \
+            # Pin optimizer profile images to the exact results commit that was
+            # just published. raw.githubusercontent.com branch refs can lag the
+            # push briefly; the first branch-URL fetch may therefore cache the
+            # previous SVG beside an otherwise current report summary.
+            RESULTS_COMMIT="$(git -C results-repo rev-parse HEAD)"
+            python -c 'import re, sys; from pathlib import Path; destination, source, repository, detector, results_commit = sys.argv[1:]; text = Path(source).read_text(encoding="utf-8"); base = f"https://raw.githubusercontent.com/{repository}/{results_commit}/execution-optimizer/{detector}/"; text = re.sub(r"\(([^)]+\.svg)\)", lambda m: f"({base}{m.group(1)})", text); Path(destination).open("a", encoding="utf-8").write(text + ("" if text.endswith("\n") else "\n"))' \
               "$GITHUB_STEP_SUMMARY" \
               "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/summary.md" \
               "$RESULTS_REPOSITORY" \
               "${{ inputs.report_algorithm }}" \
-              "$GITHUB_RUN_ID"
+              "$RESULTS_COMMIT"
           fi
 
       - name: Assemble report research artifact

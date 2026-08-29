@@ -50,9 +50,11 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         summary_step = text[summary_pos:]
         self.assertIn("detector-calibration-manifest.md", summary_step)
         self.assertIn("python -c", summary_step)
-        self.assertIn("report-run={run_id}", summary_step)
+        self.assertIn("RESULTS_COMMIT=", summary_step)
+        self.assertIn("/{results_commit}/execution-optimizer/", summary_step)
+        self.assertNotIn("report-run={run_id}", summary_step)
         self.assertIn("re.sub", summary_step)
-        optimizer_summary_tail = summary_step.split('"$GITHUB_RUN_ID"', 1)[1]
+        optimizer_summary_tail = summary_step.split('"$RESULTS_COMMIT"', 1)[1]
         self.assertTrue(
             optimizer_summary_tail.lstrip().startswith("fi"),
             "report-summary detector/optimizer conditional must be closed",
