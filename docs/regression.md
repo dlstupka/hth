@@ -56,7 +56,7 @@ For a manual run, the **Algorithm** input is a choice of `all`, `contour`, `cont
 
 Manual regression exposes one **Execution shape** control instead of separate pipeline/thread knobs:
 
-- `preferred` (default) resolves the detector's persisted execution-optimizer preference for the current workload and runner profile. Exact runner evidence is preferred; when that runner has no observation, hardware-equivalent evidence with the same CPU model/core topology may be reused. If no compatible preference exists, the workflow falls back to `auto`. Preferred intelligence is used only for full, unlimited, exhaustive regressions matching the optimizer workload.
+- `preferred` (default) resolves the detector's persisted execution-optimizer preference for the runner's vCPU capacity. At the same vCPU count, measured preferred evidence is reused directly; at a different vCPU count, the canonical linear-vCPU prediction scales the shape within the `2 × vCPU` thread budget. Regression search scope (`critical`, `important+`, `moderate+`, `low+`, `non-dormant`, `exhaustive`, and any parameter-set limit) is retained as informational `search-scope` provenance only and does not participate in execution-shape compatibility.
 - `auto` retains the normal wall-clock shard planner and bounded thread planner.
 - `manual` accepts one compact shape such as `8p/48t`. The pipeline and thread counts are treated as an explicit execution contract.
 
@@ -406,7 +406,7 @@ Normal full/exhaustive regression resolves execution shape in this order:
 
 Predicted shapes are explicit execution contracts, just like measured preferred shapes. The run log identifies the source as `predicted-low`, `predicted-moderate`, or `predicted-high`.
 
-Every predicted shape that is actually exercised by a completed regression is recorded from that durable regression observation in `indexes/optimizer-predictions.json`, including the target runner, exercised shape, and workload identity. Planner scratch files are not prediction evidence. When later optimizer data arrives for the predicted detector/runner profile, optimizer publication verifies the saved prediction against the new canonical preferred shape and records pipeline/thread error. Verification is diagnostic only; cross-runner prediction continues to use the single linear-vCPU scaling rule rather than accumulating detector-specific correction layers.
+Every predicted shape that is actually exercised by a completed regression is recorded from that durable regression observation in `indexes/optimizer-predictions.json`, including the target runner, exercised shape, stable evidence identity, and informational `search-scope` provenance. Planner scratch files are not prediction evidence. When later optimizer data arrives for the predicted detector/runner profile, optimizer publication verifies the saved prediction against the new canonical preferred shape and records pipeline/thread error. Verification is diagnostic only; cross-runner prediction continues to use the single linear-vCPU scaling rule rather than accumulating detector-specific correction layers.
 
 The execution-optimizer report includes shape-prediction coverage for each detector: observed vCPU anchors, readiness, prediction verification counts, and the desired/missing optimizer evidence needed to improve confidence. Cross-runner guesses deliberately use one braindead-simple rule everywhere: pipelines scale directly with vCPU count; exact-runner measurements always supersede the guess.
 

@@ -142,7 +142,7 @@ def test_predicted_shape_interpolates_pipeline_vcpu_history_and_persists_evidenc
     assert result["pipelines"] == 36
     assert result["threads_per_pipeline"] == 3
     assert result["evidence_vcpu_anchors"] == [32, 96]
-    assert result["workload"]["detector_config_sha256"] == detector_sha
+    assert result["evidence_identity"]["detector_config_sha256"] == detector_sha
 
 
 def test_prediction_history_correction_is_applied_to_future_guesses(tmp_path: Path) -> None:

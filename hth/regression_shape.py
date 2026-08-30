@@ -188,12 +188,10 @@ def resolve_predicted_shape(
     result["pipelines"] = int(predicted["pipelines"])
     result["threads_per_pipeline"] = int(predicted["threads_per_pipeline"])
     result["allocated_threads"] = int(predicted["allocated_threads"])
-    result["workload"] = {
+    result["evidence_identity"] = {
         "detector_config_sha256": _sha256(detector_config),
         "golden_set_sha256": _sha256(golden_set),
         "max_dimension": max_dimension,
-        "mode": "full",
-        "strategy": "exhaustive",
     }
     result["source"] = f"predicted-{result.get('confidence', 'unknown')}"
     return result
@@ -284,8 +282,6 @@ def resolve_preferred_dispatch(
     if (
         mode != "preferred"
         or regression_mode != "full"
-        or strategy != "exhaustive"
-        or str(limit or "").strip()
         or detector in {"all", "all-without-exhaustive"}
     ):
         return fallback
@@ -449,8 +445,8 @@ def resolve_workflow_shape(
         result["evidence_observation_id"] = preferred_multi.get("evidence_observation_id")
         return result
 
-    if regression_mode != "full" or strategy != "exhaustive" or str(limit or "").strip():
-        return {"exact": False, "source": "auto-fallback-incompatible-workload", "runner_budget": budget}
+    if regression_mode != "full":
+        return {"exact": False, "source": "auto-fallback-non-full-regression", "runner_budget": budget}
     if is_multidetector:
         return {"exact": False, "source": "auto-fallback-all-full-exhaustive", "runner_budget": budget}
 
@@ -473,12 +469,15 @@ def resolve_workflow_shape(
         source = f"preferred-{relation}" if relation != "scaled-vcpu" else f"predicted-{resolved.get('confidence', 'low')}-linear-vcpu"
         prediction_file = None
         if relation == "scaled-vcpu":
-            resolved["workload"] = {
+            resolved["evidence_identity"] = {
                 "detector_config_sha256": _sha256(detector_config),
                 "golden_set_sha256": _sha256(golden_set),
                 "max_dimension": max_dimension,
-                "mode": "full",
-                "strategy": "exhaustive",
+            }
+            resolved["search_scope"] = {
+                "mode": regression_mode,
+                "strategy": strategy,
+                "limit": str(limit or "").strip() or None,
             }
             resolved["source"] = source
             if prediction_out:

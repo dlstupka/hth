@@ -116,7 +116,7 @@ class PreferredDispatchTests(unittest.TestCase):
             _write_json(index, {"observations": [row]})
 
             result = resolve_preferred_dispatch(
-                shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
+                shape_mode="preferred", regression_mode="full", strategy="critical", limit="25",
                 detector="adaptive_multi_scale_radial_edge", parallelism_index=index,
                 detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
                 requested_runner="self-hosted-rhel8", specific_runner="custom",

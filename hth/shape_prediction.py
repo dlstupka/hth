@@ -427,7 +427,7 @@ def prediction_from_execution_observation(observation: dict[str, Any]) -> dict[s
     effect of an earlier planning step.  A completed parallelism observation is
     therefore the canonical producer: if its recorded execution-shape source is
     a cross-vCPU prediction, the observation itself contains the target runner,
-    workload identity, and exact shape that was exercised.
+    evidence identity, informational search scope, and exact shape that was exercised.
     """
     source = str(observation.get("execution_shape_source") or "").strip()
     if not source.startswith("predicted-"):
@@ -474,10 +474,12 @@ def prediction_from_execution_observation(observation: dict[str, Any]) -> dict[s
             "threads_per_pipeline": threads,
             "allocated_threads": _as_int(observation.get("allocated_threads")) or pipelines * threads,
         },
-        "workload": {
+        "evidence_identity": {
             "detector_config_sha256": observation.get("detector_config_sha256"),
             "golden_set_sha256": observation.get("golden_set_sha256"),
             "max_dimension": _as_int(observation.get("max_dimension")),
+        },
+        "search_scope": {
             "mode": observation.get("mode"),
             "strategy": observation.get("strategy"),
         },
@@ -548,14 +550,23 @@ def verify_predictions(
         if str(prediction.get("detector_id") or "") != detector or str(prediction.get("status") or "pending") == "verified":
             continue
         target = prediction.get("target_runner") if isinstance(prediction.get("target_runner"), dict) else {}
-        workload = prediction.get("workload") if isinstance(prediction.get("workload"), dict) else {}
+        evidence = prediction.get("evidence_identity") if isinstance(prediction.get("evidence_identity"), dict) else {}
+        # Read legacy prediction records without making their search strategy a
+        # compatibility dimension.  Only stable evidence identity participates.
+        if not evidence and isinstance(prediction.get("workload"), dict):
+            legacy = prediction["workload"]
+            evidence = {
+                "detector_config_sha256": legacy.get("detector_config_sha256"),
+                "golden_set_sha256": legacy.get("golden_set_sha256"),
+                "max_dimension": legacy.get("max_dimension"),
+            }
         target_name = str(target.get("runner_name") or "")
         target_logical = _as_int(target.get("logical_cpu_count"))
         compatible = [
             row for row in candidates
-            if (not workload.get("detector_config_sha256") or str(row.get("detector_config_sha256") or "") == str(workload.get("detector_config_sha256")))
-            and (not workload.get("golden_set_sha256") or str(row.get("golden_set_sha256") or "") == str(workload.get("golden_set_sha256")))
-            and (not workload.get("max_dimension") or _as_int(row.get("max_dimension")) == _as_int(workload.get("max_dimension")))
+            if (not evidence.get("detector_config_sha256") or str(row.get("detector_config_sha256") or "") == str(evidence.get("detector_config_sha256")))
+            and (not evidence.get("golden_set_sha256") or str(row.get("golden_set_sha256") or "") == str(evidence.get("golden_set_sha256")))
+            and (not evidence.get("max_dimension") or _as_int(row.get("max_dimension")) == _as_int(evidence.get("max_dimension")))
         ]
         exact = [
             row for row in compatible
