@@ -241,6 +241,13 @@ def historical_published_optimizer_indices(path: Path, detector: str) -> list[di
             )
             if shown.returncode != 0:
                 continue
+            # Git-history recovery is exclusively for pre-run-ID summaries.
+            # Once a published summary names an optimizer run it is derived
+            # modern presentation state, not an independent source of physical
+            # measurements.  Re-importing those revisions can back-project a
+            # later coalesced preferred shape onto an older runner identity.
+            if re.search(r"(?im)^\s*Optimizer run:\s*\*\*[^*]+\*\*", shown.stdout):
+                continue
             add(_legacy_published_optimizer_index_from_text(shown.stdout, detector), revision, stamp)
     except (OSError, ValueError, subprocess.SubprocessError):
         return recovered

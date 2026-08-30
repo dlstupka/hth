@@ -177,6 +177,21 @@ class ReportGeneratorTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(root), "add", "."], check=True)
             subprocess.run(["git", "-C", str(root), "commit", "-q", "-m", "legacy optimizer"], check=True)
 
+            # A later modern report is derived presentation state.  Even if it
+            # contains a runner/shape combination that looks like a physical
+            # measurement, git-history recovery must not import it as legacy
+            # evidence and leak the shape onto that runner.
+            persisted.joinpath("summary.md").write_text(
+                "### Execution optimizer summary\n\n"
+                "Optimizer run: **150**\n\n"
+                "| Runner | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Sets/s |\n"
+                "|---|---:|---:|---:|---:|---:|---:|\n"
+                "| 192t — rh8-modern (192 vCPU) | 1 | 1 | 384 | 384 | 6s | 9.17 |\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-q", "-m", "derived modern report"], check=True)
+
             optimizer = {"schema_version": 1, "runs": {
                 "200": {"detector_id": "adaptive_radial_edge", "status": "completed", "run_metadata": {"stop_reason": "range_complete"}}
             }}
@@ -194,6 +209,7 @@ class ReportGeneratorTests(unittest.TestCase):
             self.assertIn("Optimizer run: **200**", summary)
             self.assertIn("| **e7k — host (96 vCPU)** | 2 | 2 | 96 |", summary)
             self.assertIn("rh8-legacy", summary)
+            self.assertNotIn("rh8-modern", summary)
             self.assertNotIn("| **192t — rh8-legacy", summary)
             aggregate = generate_optimizer_report_all(root, root / "all")
             aggregate_profile = (aggregate["profiles"] / "adaptive_radial_edge.svg").read_text(encoding="utf-8")
