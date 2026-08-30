@@ -194,7 +194,6 @@ class PreferredDispatchTests(unittest.TestCase):
                 golden_set=golden,
                 max_dimension=1800,
                 profile=RunnerProfile("rh8-al319", "192t", "AMD", 192, 192),
-                prediction_out=None,
                 runner_budget=384,
                 pre_resolved_pipelines=4,
                 pre_resolved_threads=96,
@@ -303,7 +302,7 @@ class PreferredDispatchTests(unittest.TestCase):
                 predictions_index=None, detector_config_root=detector_root, golden_set=golden,
                 max_dimension=1800,
                 profile=RunnerProfile("rh8-al321", "192t", "AMD EPYC 9655 96-Core Processor", 192, 192),
-                prediction_out=None, runner_budget=384,
+                runner_budget=384,
             )
             self.assertTrue(result["exact"])
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (5, 76))

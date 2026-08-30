@@ -30,7 +30,7 @@ class MultiDetectorPreferredShapeTests(unittest.TestCase):
                 shape_mode="preferred", regression_mode="smoke", strategy="exhaustive", limit="10", detector="all",
                 manual_shape=None, parallelism_index=base/"parallelism.json", predictions_index=None,
                 multidetector_index=index, detector_config_root=configs, golden_set=golden, max_dimension=1800,
-                profile=profile, prediction_out=None, runner_budget=384,
+                profile=profile, runner_budget=384,
             )
             self.assertTrue(result["exact"])
             self.assertTrue(result["multidetector"])

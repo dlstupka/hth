@@ -28,7 +28,7 @@ Calibration runs persist their exact calibration intelligence and provenance bel
 
 ## Execution-optimizer benchmark contract
 
-Execution optimization measures execution shape, not detector calibration-space size. Each optimizer shape therefore evaluates a bounded canonical parameter-set workload (256 sets by default), while retaining the baseline and historic best configuration. The benchmark size and selected calibration domain are part of the optimizer workload identity, so incompatible benchmarks are never coalesced.
+Execution optimization measures execution shape, not detector calibration-space size. Each optimizer shape therefore evaluates a bounded canonical parameter-set workload (256 sets by default), while retaining the baseline and historic best configuration. The benchmark size and selected calibration domain are retained as informational search-scope provenance. They do not define execution-shape compatibility; stable detector evidence identity and runner/vCPU characteristics do.
 
 A full detector calibration may still contain tens or hundreds of thousands of parameter sets; that does not make those sets part of every execution-shape benchmark.
 

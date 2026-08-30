@@ -17,7 +17,7 @@ from typing import Any, Iterable
 
 from hth.domain.execution_shape import (
     DETERMINISTIC_OPTIMIZER_STRATEGIES,
-    optimizer_row_matches_workload,
+    optimizer_row_matches_evidence,
     select_preferred_shape,
 )
 from hth.shape_prediction import resolve_shape
@@ -387,11 +387,11 @@ def compatible_optimizer_rows(
     golden_set: Path,
     max_dimension: int,
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Load optimizer rows compatible with this detector workload.
+    """Load completed optimizer rows compatible with this detector evidence identity.
 
     Detector configs may explicitly declare implementation-level shape
     compatibility so calibration-grid edits do not invalidate execution-shape
-    evidence.  This is the single workload-compatibility path for consumers.
+    evidence.  This is the single execution-evidence compatibility path for consumers.
     """
     detector_config_payload = _read_json(detector_config)
     detector = str(detector_config_payload.get("detector") or detector_config.stem)
@@ -404,7 +404,7 @@ def compatible_optimizer_rows(
     ]
 
     def matches(row: dict[str, Any], detector_sha: str) -> bool:
-        return optimizer_row_matches_workload(
+        return optimizer_row_matches_evidence(
             row,
             detector=detector,
             detector_sha256=detector_sha,
@@ -496,7 +496,6 @@ def resolve_optimizer_intelligence(
         target_cpu_model=target_cpu_model,
         target_physical_cores=target_physical_cores,
         target_logical_cpus=max(1, int(target_logical_cpus)),
-        predictions_index=predictions_index,
     )
     if not resolved:
         return None

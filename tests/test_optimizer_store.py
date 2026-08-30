@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from hth.optimizer_store import build_optimizer_index, render_all_markdown, render_heatmap_svg, render_markdown, select_preferred_shape, update_optimizer_artifacts
+from hth.domain.execution_shape import optimizer_evidence_key
 from hth.parallelism_store import update_parallelism_index, update_parallelism_shards
 from hth.shape_prediction import record_prediction_observations
 
@@ -62,37 +63,30 @@ class OptimizerStoreTests(unittest.TestCase):
         self.assertEqual(index["observation_count"], 0)
         self.assertEqual(index["runners"], [])
 
-    def test_run_local_profile_excludes_incompatible_historical_workload(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            results = Path(td)
-            exhaustive = _row("old-exhaustive", "e7k", 2, 192, 20.0, optimizer_run_id="100")
-            exhaustive["compatibility_key"] = "exhaustive-workload"
-            exhaustive["workload_key"] = "exhaustive"
-            critical = _row("new-critical", "e7k", 3, 128, 10.0, optimizer_run_id="200")
-            critical["strategy"] = "critical"
-            critical["possible_parameter_sets"] = 10000
-            critical["actual_parameter_sets"] = 11
-            critical["parameter_sets_per_second"] = 1.1
-            critical["compatibility_key"] = "critical-workload"
-            critical["workload_key"] = "critical"
-            update_parallelism_index(results, [exhaustive, critical])
-            metadata = results / "run-metadata.json"
-            metadata.write_text(json.dumps({
-                "optimizer_run_id": "200",
-                "pipeline_enumeration": "adaptive",
-            }), encoding="utf-8")
-            paths = update_optimizer_artifacts(
-                results,
-                "adaptive_radial_edge",
-                optimizer_run_id="200",
-                run_metadata_path=metadata,
-            )
-            markdown = paths["markdown"].read_text(encoding="utf-8")
-            svg = paths["heatmap"].read_text(encoding="utf-8")
-            self.assertIn("| 3 | 3 | 128 |", markdown)
-            self.assertNotIn("| 2 | 2 | 192 |", markdown)
-            self.assertIn(">128t<", svg)
-            self.assertNotIn(">192t<", svg)
+    def test_search_scope_does_not_split_optimizer_evidence_identity(self) -> None:
+        exhaustive = _row("old-exhaustive", "e7k", 2, 192, 20.0, optimizer_run_id="100")
+        exhaustive["compatibility_key"] = "stable-evidence-and-runner"
+        exhaustive["evidence_key"] = "stable-evidence"
+        critical = _row("new-critical", "e7k", 3, 128, 10.0, optimizer_run_id="200")
+        critical["strategy"] = "critical"
+        critical["possible_parameter_sets"] = 10000
+        critical["actual_parameter_sets"] = 11
+        critical["parameter_sets_per_second"] = 1.1
+        critical["compatibility_key"] = "stable-evidence-and-runner"
+        critical["evidence_key"] = "stable-evidence"
+
+        index = build_optimizer_index(
+            {"observations": [exhaustive, critical]},
+            "adaptive_radial_edge",
+            optimizer_run_ids={"100", "200"},
+        )
+
+        self.assertEqual(len(index["runners"]), 1)
+        self.assertEqual(index["runners"][0]["evidence_key"], optimizer_evidence_key(exhaustive))
+        self.assertEqual(
+            {shape["pipelines"] for shape in index["runners"][0]["shapes"]},
+            {2, 3},
+        )
 
 
     def test_canonical_preferred_shape_breaks_equal_displayed_throughput_ties_by_resources(self) -> None:

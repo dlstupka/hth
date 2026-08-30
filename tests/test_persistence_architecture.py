@@ -4,8 +4,8 @@ import unittest
 from pathlib import Path
 
 from hth.persistence import INDEX_FILENAMES, canonical_index_path, load_index, write_index
-from hth.shape_prediction import merge_prediction
 from hth.persistence_rebuild import rebuild_all
+from hth.shape_prediction import record_prediction_observations
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -76,15 +76,35 @@ class PersistenceArchitectureTests(unittest.TestCase):
         regression = (WORKFLOWS / "regress-detector.yml").read_text(encoding="utf-8")
         self.assertIn("durable-persistence-confirmed: ${{ steps.persistence.outcome == 'success' }}", regression)
 
-    def test_optimizer_prediction_writer_migrates_through_canonical_index_boundary(self):
+    def test_prediction_observation_writer_migrates_through_canonical_index_boundary(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             legacy = root / "optimizer-predictions.json"
             legacy.write_text(json.dumps({"schema_version": "1.0", "predictions": [{"prediction_id": "old"}]}), encoding="utf-8")
             canonical = root / "indexes" / "optimizer-predictions.json"
-            payload = merge_prediction(canonical, {"prediction_id": "new"})
+            observation = {
+                "observation_id": "obs-1",
+                "observed_at_utc": "2026-08-30T00:00:00Z",
+                "run_id": "run-1",
+                "detector_id": "example",
+                "execution_shape_source": "predicted-low-linear-vcpu",
+                "active_pipelines": 4,
+                "threads_per_pipeline": 16,
+                "allocated_threads": 64,
+                "mode": "full",
+                "strategy": "critical",
+                "parameter_set_limit": 10,
+                "search_scope": {"mode": "full", "strategy": "critical", "limit": 10},
+                "detector_config_sha256": "cfg",
+                "golden_set_sha256": "gold",
+                "max_dimension": 1800,
+                "runner": {"runner_name": "rh8-s32", "runner_label": "32t", "logical_cpu_count": 32},
+                "build": {"github_run_id": "123", "github_run_attempt": "1"},
+            }
+            payload = record_prediction_observations(canonical, [observation])
             self.assertTrue(canonical.is_file())
-            self.assertEqual([row["prediction_id"] for row in payload["predictions"]], ["old", "new"])
+            self.assertEqual(len(payload["predictions"]), 2)
+            self.assertEqual(payload["predictions"][1]["search_scope"]["limit"], 10)
             self.assertEqual(load_index(root, "optimizer-predictions.json")["predictions"], payload["predictions"])
 
     def test_shape_prediction_has_no_ad_hoc_canonical_prediction_write(self):

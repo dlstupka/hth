@@ -14,7 +14,8 @@ import os
 import time
 from contextlib import contextmanager
 
-from hth.optimizer_validity import optimizer_evidence_is_valid
+from hth.optimizer_validity import migrate_optimizer_evidence, optimizer_evidence_is_valid
+from hth.domain.execution_shape import optimizer_compatibility_key, optimizer_evidence_key, optimizer_search_scope
 
 from hth.contracts import (
     OPTIMIZER_OBSERVATION_SCHEMA_VERSION,
@@ -108,6 +109,8 @@ def observation_from_run(
     if not summary_path.is_file():
         summary_path = run_dir / "summary.json"
     summary = _read_json(summary_path)
+    params_path = run_dir / "parameters.json"
+    params = _read_json(params_path) if params_path.is_file() else {}
     pipeline = info.get("detector_pipeline") if isinstance(info.get("detector_pipeline"), dict) else {}
     shard = info.get("shard") if isinstance(info.get("shard"), dict) else {}
     runner = summary.get("runner") if isinstance(summary.get("runner"), dict) else {}
@@ -143,17 +146,8 @@ def observation_from_run(
     runner_label = build.get("runner_label") or info.get("runner_label")
     detector_config_sha256 = info.get("detector_config_sha256") or summary.get("detector_config_sha256")
     golden_sha = info.get("golden_set_sha256") or summary.get("golden_set_sha256")
-    workload = {
-        "detector_id": info.get("detector") or summary.get("detector") or "unknown",
-        "detector_config_sha256": detector_config_sha256,
-        "golden_set_sha256": golden_sha,
-        "mode": build.get("mode"),
-        "strategy": info.get("strategy") or summary.get("strategy"),
-        "possible_parameter_sets": possible_sets,
-        "actual_parameter_sets": actual_sets,
-        "optimizer_benchmark_parameter_sets": _as_int(build.get("optimizer_benchmark_parameter_sets")),
-        "max_dimension": _as_int(info.get("max_dimension") or summary.get("max_dimension")),
-    }
+    detector_id = info.get("detector") or summary.get("detector") or "unknown"
+    max_dimension = _as_int(info.get("max_dimension") or summary.get("max_dimension") or params.get("max_dimension"))
     runner_identity = {
         "runner_label": runner_label,
         "runner_name": runner.get("runner_name") or info.get("runner_name"),
@@ -161,7 +155,6 @@ def observation_from_run(
         "cpu_model": runner.get("cpu_model") or info.get("cpu_model"),
         "logical_cpu_count": _as_int(runner.get("logical_cpu_count") or info.get("logical_cpu_count")),
     }
-    compatibility = {**workload, **runner_identity}
     shape = {
         "shards": shards,
         "active_pipelines": active_pipelines,
@@ -172,26 +165,24 @@ def observation_from_run(
     observation_run_id = info.get("run_id") or run_dir.name
     # Concurrent detector pipelines can share the same second-resolution run ID.
     # Detector identity is therefore part of the durable observation key.
-    observation_id = f"{build.get('github_run_id', 'local')}:{compatibility['detector_id']}:{observation_run_id}"
-    return {
+    observation_id = f"{build.get('github_run_id', 'local')}:{detector_id}:{observation_run_id}"
+    observation = {
         "schema_version": OPTIMIZER_OBSERVATION_SCHEMA_VERSION,
         "observation_id": observation_id,
         "observed_at_utc": info.get("finished_at_utc") or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "run_id": info.get("run_id") or run_dir.name,
-        "detector_id": compatibility["detector_id"],
-        "mode": compatibility["mode"],
-        "strategy": compatibility["strategy"],
+        "detector_id": detector_id,
+        "mode": build.get("mode"),
+        "strategy": info.get("strategy") or summary.get("strategy") or params.get("strategy"),
+        "parameter_set_limit": params.get("limit"),
         "golden_set_sha256": golden_sha,
         "detector_config_sha256": detector_config_sha256,
         "possible_parameter_sets": possible_sets,
         "actual_parameter_sets": actual_sets,
-        "optimizer_benchmark_parameter_sets": workload.get("optimizer_benchmark_parameter_sets"),
+        "optimizer_benchmark_parameter_sets": _as_int(build.get("optimizer_benchmark_parameter_sets")),
         "golden_set_pages": page_count,
         "page_evaluations": page_evaluations,
-        "max_dimension": compatibility["max_dimension"],
-        "workload_key": _canonical_hash(workload),
-        "runner_key": _canonical_hash(runner_identity),
-        "compatibility_key": _canonical_hash(compatibility),
+        "max_dimension": max_dimension,
         "execution_shape": f"{active_pipelines}p/{shards}s/{threads}t",
         "execution_shape_source": str(pipeline.get("execution_shape_source") or "auto"),
         **shape,
@@ -213,6 +204,11 @@ def observation_from_run(
         },
         "build": build,
     }
+    observation["search_scope"] = optimizer_search_scope(observation)
+    observation["evidence_key"] = optimizer_evidence_key(observation)
+    observation["runner_key"] = _canonical_hash(runner_identity)
+    observation["compatibility_key"] = optimizer_compatibility_key(observation)
+    return observation
 
 
 def _is_comparable(row: dict[str, Any]) -> bool:
@@ -244,6 +240,17 @@ def _update_parallelism_index_locked(path: Path, observations: Iterable[dict[str
     }
     for observation in observations:
         by_id[str(observation["observation_id"])] = observation
+
+    normalized_by_id: dict[str, dict[str, Any]] = {}
+    for key, item in by_id.items():
+        normalized = migrate_optimizer_evidence(item) if item.get("source") == "execution-optimizer" else dict(item)
+        if normalized.get("source") == "execution-optimizer":
+            normalized["search_scope"] = optimizer_search_scope(normalized)
+            normalized["evidence_key"] = optimizer_evidence_key(normalized)
+            normalized["compatibility_key"] = optimizer_compatibility_key(normalized)
+            normalized.pop("workload_key", None)
+        normalized_by_id[key] = normalized
+    by_id = normalized_by_id
 
     grouped_by_detector: dict[str, list[dict[str, Any]]] = {}
     for item in by_id.values():

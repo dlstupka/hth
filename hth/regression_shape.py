@@ -20,7 +20,6 @@ from hth.optimizer_intelligence import (
     resolve_selector_intelligence,
     runner_from_row as intelligence_runner_from_row,
 )
-from hth.shape_prediction import merge_prediction
 from hth.regression.sharding import runner_max_threads
 
 
@@ -386,7 +385,7 @@ def resolve_workflow_shape(
     *, shape_mode: str, regression_mode: str, strategy: str, limit: str | None,
     detector: str, manual_shape: str | None, parallelism_index: Path,
     predictions_index: Path | None, detector_config_root: Path, golden_set: Path,
-    max_dimension: int, profile: RunnerProfile, prediction_out: Path | None,
+    max_dimension: int, profile: RunnerProfile,
     multidetector_index: Path | None = None,
     runner_budget: int | None = None, pre_resolved_pipelines: int | None = None,
     pre_resolved_threads: int | None = None, pre_resolved_source: str | None = None,
@@ -467,26 +466,9 @@ def resolve_workflow_shape(
         predicted = resolved["predicted_shape"]
         relation = str(resolved.get("relation") or "unknown")
         source = f"preferred-{relation}" if relation != "scaled-vcpu" else f"predicted-{resolved.get('confidence', 'low')}-linear-vcpu"
-        prediction_file = None
-        if relation == "scaled-vcpu":
-            resolved["evidence_identity"] = {
-                "detector_config_sha256": _sha256(detector_config),
-                "golden_set_sha256": _sha256(golden_set),
-                "max_dimension": max_dimension,
-            }
-            resolved["search_scope"] = {
-                "mode": regression_mode,
-                "strategy": strategy,
-                "limit": str(limit or "").strip() or None,
-            }
-            resolved["source"] = source
-            if prediction_out:
-                prediction_out.parent.mkdir(parents=True, exist_ok=True)
-                prediction_out.write_text(json.dumps(resolved, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-                prediction_file = prediction_out
         return exact(
             int(predicted["pipelines"]), int(predicted["threads_per_pipeline"]),
-            source, prediction_file,
+            source,
         )
     return {"exact": False, "source": "auto-fallback-no-shape-history", "runner_budget": budget}
 
@@ -504,8 +486,6 @@ def workflow_shape_env(result: dict[str, Any]) -> dict[str, Any]:
             "HTH_EXACT_EXECUTION_SHAPE": "1",
             "HTH_ALLOW_THREAD_OVERSUBSCRIPTION": "false",
         })
-    if result.get("prediction_file"):
-        env["HTH_SHAPE_PREDICTION_FILE"] = result["prediction_file"]
     return env
 
 
@@ -527,16 +507,11 @@ def main() -> int:
     predicted = sub.add_parser("predicted", help="Predict a shape from same-detector optimizer history when no compatible preference exists")
     predicted.add_argument("--parallelism-index", type=Path, required=True)
     predicted.add_argument("--predictions-index", type=Path)
-    predicted.add_argument("--prediction-out", type=Path)
     predicted.add_argument("--detector-config", type=Path, required=True)
     predicted.add_argument("--golden-set", type=Path, required=True)
     predicted.add_argument("--max-dimension", type=int, required=True)
     predicted.add_argument("--runner-name")
     predicted.add_argument("--runner-label")
-
-    record = sub.add_parser("record-prediction", help="Merge a generated shape prediction into the persistent prediction history")
-    record.add_argument("--prediction-file", type=Path, required=True)
-    record.add_argument("--predictions-index", type=Path, required=True)
 
     dispatch = sub.add_parser("dispatch-resolve", help="Resolve the runner and preferred shape before GitHub job dispatch")
     dispatch.add_argument("--shape-mode", required=True)
@@ -568,7 +543,6 @@ def main() -> int:
     workflow.add_argument("--max-dimension", type=int, required=True)
     workflow.add_argument("--runner-name")
     workflow.add_argument("--runner-label")
-    workflow.add_argument("--prediction-out", type=Path)
     workflow.add_argument("--github-env", type=Path)
     workflow.add_argument("--runner-budget", type=int)
     workflow.add_argument("--pre-resolved-pipelines", type=int)
@@ -604,7 +578,7 @@ def main() -> int:
             predictions_index=args.predictions_index, multidetector_index=args.multidetector_index,
             detector_config_root=args.detector_config_root, golden_set=args.golden_set,
             max_dimension=args.max_dimension, profile=profile,
-            prediction_out=args.prediction_out, runner_budget=args.runner_budget,
+            runner_budget=args.runner_budget,
             pre_resolved_pipelines=args.pre_resolved_pipelines,
             pre_resolved_threads=args.pre_resolved_threads,
             pre_resolved_source=args.pre_resolved_source,
@@ -627,11 +601,6 @@ def main() -> int:
         _print_shell({"pipelines": pipelines, "threads_per_pipeline": threads, "source": "manual"})
         return 0
 
-    if args.command == "record-prediction":
-        prediction = _read_json(args.prediction_file)
-        merge_prediction(args.predictions_index, prediction)
-        return 0
-
     profile = current_runner_profile(name=args.runner_name, label=args.runner_label)
     if args.command == "predicted":
         result = resolve_predicted_shape(
@@ -644,9 +613,6 @@ def main() -> int:
         )
         if result is None:
             return 2
-        if args.prediction_out:
-            args.prediction_out.parent.mkdir(parents=True, exist_ok=True)
-            args.prediction_out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         _print_shell(result)
         return 0
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from hth.domain.execution_shape import optimizer_search_scope
+
 INVALID_REASON_PIPELINE_FANOUT = "single-detector pipeline fan-out bug"
 
 # Static scheduling first introduced the single-detector fan-out regression in
@@ -93,6 +95,8 @@ def migrate_optimizer_evidence(record: dict[str, Any]) -> dict[str, Any]:
         migrated.setdefault("valid", True)
         if migrated.get("valid") is True:
             migrated.pop("invalid_reason", None)
+    if migrated.get("source") == "execution-optimizer":
+        migrated["search_scope"] = optimizer_search_scope(migrated)
     return migrated
 
 

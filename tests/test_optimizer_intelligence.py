@@ -227,13 +227,12 @@ class OptimizerIntelligenceTests(unittest.TestCase):
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (132, 2))
             self.assertEqual(result["provenance"], "predicted")
 
-    def test_predicted_dispatch_is_re_resolved_on_concrete_runner_and_writes_prediction(self) -> None:
+    def test_predicted_dispatch_is_re_resolved_on_concrete_runner_without_planner_side_channel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             detector_root = root / "detectors"
             detector = detector_root / "adaptive_radial_edge.json"
             golden = root / "golden.json"
-            prediction_out = root / "prediction.json"
             _write_json(detector, {"detector": "adaptive_radial_edge"})
             _write_json(golden, {"pages": []})
             index = root / "parallelism-index.json"
@@ -249,17 +248,14 @@ class OptimizerIntelligenceTests(unittest.TestCase):
                 predictions_index=root / "indexes" / "optimizer-predictions.json", detector_config_root=detector_root,
                 golden_set=golden, max_dimension=1800,
                 profile=RunnerProfile("rh8-al330", "192t", "AMD EPYC", 192, 192),
-                prediction_out=prediction_out, runner_budget=384,
+                runner_budget=384,
                 pre_resolved_pipelines=132, pre_resolved_threads=2,
                 pre_resolved_source="predicted-low-linear-vcpu-dispatch",
             )
             self.assertTrue(result["exact"])
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (132, 2))
             self.assertEqual(result["source"], "predicted-low-linear-vcpu")
-            self.assertTrue(prediction_out.is_file())
-            payload = json.loads(prediction_out.read_text(encoding="utf-8"))
-            self.assertEqual(payload["relation"], "scaled-vcpu")
-            self.assertEqual(payload["anchor_logical_cpus"], 32)
+            self.assertNotIn("prediction_file", result)
 
 
 

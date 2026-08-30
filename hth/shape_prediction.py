@@ -298,7 +298,6 @@ def resolve_shape(
     target_cpu_model: str,
     target_physical_cores: int | None,
     target_logical_cpus: int,
-    predictions_index: Path | None = None,
 ) -> dict[str, Any] | None:
     """Resolve one detector shape through the single canonical shape path.
 
@@ -374,7 +373,6 @@ def resolve_shape(
         "method": PREDICTION_METHOD,
         "relation": relation,
         "confidence": confidence,
-        "verified_pipeline_correction": 1.0,
         "target_runner": {
             "runner_name": target_runner_name,
             "runner_label": target_runner_label,
@@ -401,7 +399,6 @@ def predict_shape(
     target_cpu_model: str,
     target_physical_cores: int | None,
     target_logical_cpus: int,
-    predictions_index: Path | None = None,
 ) -> dict[str, Any] | None:
     """Backward-compatible prediction API; all math delegates to resolve_shape."""
     result = resolve_shape(
@@ -412,7 +409,6 @@ def predict_shape(
         target_cpu_model=target_cpu_model,
         target_physical_cores=target_physical_cores,
         target_logical_cpus=target_logical_cpus,
-        predictions_index=predictions_index,
     )
     if result is None or result.get("relation") in {"exact-runner", "hardware-profile"}:
         return None
@@ -479,9 +475,10 @@ def prediction_from_execution_observation(observation: dict[str, Any]) -> dict[s
             "golden_set_sha256": observation.get("golden_set_sha256"),
             "max_dimension": _as_int(observation.get("max_dimension")),
         },
-        "search_scope": {
+        "search_scope": dict(observation.get("search_scope")) if isinstance(observation.get("search_scope"), dict) else {
             "mode": observation.get("mode"),
             "strategy": observation.get("strategy"),
+            "limit": observation.get("parameter_set_limit"),
         },
         "execution_observation_id": observation_id,
         "github_run_id": build.get("github_run_id"),
@@ -518,32 +515,17 @@ def record_prediction_observations(
         _write_prediction_payload(predictions_index, canonical)
     return canonical
 
-def merge_prediction(predictions_index: Path, prediction: dict[str, Any]) -> dict[str, Any]:
-    payload = _read_prediction_payload(predictions_index)
-    rows = [row for row in payload.get("predictions", []) if isinstance(row, dict)]
-    prediction_id = str(prediction.get("prediction_id") or "")
-    if prediction_id and not any(str(row.get("prediction_id") or "") == prediction_id for row in rows):
-        rows.append(prediction)
-    payload.update({
-        "schema_version": PREDICTION_SCHEMA_VERSION,
-        "updated_at_utc": _now(),
-        "predictions": rows[-2000:],
-    })
-    _write_prediction_payload(predictions_index, payload)
-    return payload
-
-
 def verify_predictions(
     predictions_index: Path,
     *,
     detector: str,
-    workload_rows: Iterable[dict[str, Any]],
+    optimizer_rows: Iterable[dict[str, Any]],
 ) -> dict[str, Any] | None:
     if not predictions_index.is_file() and _legacy_prediction_path(predictions_index) is None:
         return None
     payload = _read_prediction_payload(predictions_index)
     rows = [row for row in payload.get("predictions", []) if isinstance(row, dict)]
-    candidates = [row for row in workload_rows if isinstance(row, dict) and optimizer_evidence_is_valid(row)]
+    candidates = [row for row in optimizer_rows if isinstance(row, dict) and optimizer_evidence_is_valid(row)]
     changed = False
 
     for prediction in rows:

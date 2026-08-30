@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from datetime import datetime, timezone
 from typing import Any, Iterable
@@ -33,6 +35,64 @@ def as_float(value: Any) -> float | None:
 def normalize_cpu_model(value: Any) -> str:
     return " ".join(str(value or "").lower().split())
 
+
+
+
+def _canonical_hash(payload: Any) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def optimizer_evidence_identity(row: dict[str, Any]) -> dict[str, Any]:
+    """Stable detector evidence identity; search scope is deliberately excluded."""
+    return {
+        "detector_id": row.get("detector_id"),
+        "detector_config_sha256": row.get("detector_config_sha256"),
+        "golden_set_sha256": row.get("golden_set_sha256"),
+        "max_dimension": as_int(row.get("max_dimension")),
+    }
+
+
+def optimizer_runner_identity(row: dict[str, Any]) -> dict[str, Any]:
+    """Concrete runner identity used only for same-profile evidence coalescing."""
+    runner = row.get("runner") if isinstance(row.get("runner"), dict) else {}
+    labels = runner.get("runner_labels")
+    if isinstance(labels, list):
+        labels = sorted(str(value) for value in labels)
+    return {
+        "runner_label": runner.get("runner_label"),
+        "runner_name": runner.get("runner_name"),
+        "runner_labels": labels,
+        "cpu_model": normalize_cpu_model(runner.get("cpu_model")),
+        "physical_core_count": as_int(runner.get("physical_core_count")),
+        "logical_cpu_count": as_int(runner.get("logical_cpu_count")),
+    }
+
+
+def optimizer_evidence_key(row: dict[str, Any]) -> str:
+    return _canonical_hash(optimizer_evidence_identity(row))
+
+
+def optimizer_compatibility_key(row: dict[str, Any]) -> str:
+    return _canonical_hash({
+        "evidence": optimizer_evidence_identity(row),
+        "runner": optimizer_runner_identity(row),
+    })
+
+
+def optimizer_search_scope(row: dict[str, Any]) -> dict[str, Any]:
+    """Informational parameter-space provenance; never an execution compatibility key."""
+    existing = row.get("search_scope") if isinstance(row.get("search_scope"), dict) else {}
+    return {
+        "mode": existing.get("mode", row.get("mode")),
+        "strategy": existing.get("strategy", row.get("strategy")),
+        "limit": existing.get("limit", row.get("parameter_set_limit")),
+        "possible_parameter_sets": existing.get("possible_parameter_sets", row.get("possible_parameter_sets")),
+        "actual_parameter_sets": existing.get("actual_parameter_sets", row.get("actual_parameter_sets")),
+        "optimizer_benchmark_parameter_sets": existing.get(
+            "optimizer_benchmark_parameter_sets", row.get("optimizer_benchmark_parameter_sets")
+        ),
+    }
 
 def _freshness_epoch(shape: dict[str, Any]) -> float:
     run_id = str(shape.get("optimizer_run_id") or "").strip()
@@ -80,7 +140,7 @@ def select_preferred_shape(shapes: Iterable[dict[str, Any]]) -> dict[str, Any] |
     return min(candidates, key=rank)
 
 
-def optimizer_row_matches_workload(
+def optimizer_row_matches_evidence(
     row: dict[str, Any], *, detector: str, detector_sha256: str,
     golden_sha256: str, max_dimension: int,
 ) -> bool:

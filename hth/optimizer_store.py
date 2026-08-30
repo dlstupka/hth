@@ -19,7 +19,7 @@ from hth.optimizer_intelligence import historical_published_optimizer_indices, l
 from typing import Any, Iterable
 
 from hth.contracts import OPTIMIZER_INDEX_SCHEMA_VERSION, adapt_optimizer_index
-from hth.domain.execution_shape import DETERMINISTIC_OPTIMIZER_STRATEGIES, select_preferred_shape
+from hth.domain.execution_shape import DETERMINISTIC_OPTIMIZER_STRATEGIES, optimizer_compatibility_key, optimizer_evidence_key, select_preferred_shape
 
 
 
@@ -146,8 +146,8 @@ def _comparable(rows: Iterable[dict[str, Any]], detector_id: str, optimizer_run_
             continue
         # Normal exhaustive observations must cover the complete declared grid.
         # Execution optimizer observations instead use a canonical bounded
-        # benchmark workload; their explicit benchmark budget is part of the
-        # workload/compatibility identity and must be fully consumed.
+        # benchmark sample; its explicit benchmark budget must be fully consumed
+        # before the observation is eligible as completed optimizer evidence.
         benchmark = _as_int(row.get("optimizer_benchmark_parameter_sets"))
         if benchmark is not None and benchmark > 0 and row.get("source") == "execution-optimizer":
             if actual_sets != min(possible_sets or benchmark, benchmark):
@@ -200,7 +200,7 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, o
         # runner-label scoped.  This prevents a changed Golden Set/grid from
         # contaminating a detector's execution preference while still allowing
         # compatible shapes from separate runs to coalesce.
-        group_key = str(row.get("compatibility_key") or _runner_key(row))
+        group_key = optimizer_compatibility_key(row)
         runner_groups.setdefault(group_key, []).append(row)
 
     # Selection remains compatibility-scoped, but visualization must preserve
@@ -238,7 +238,7 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, o
         sample = concrete_rows[0]
         plot_series.append({
             "runner_key": _runner_key(sample),
-            "compatibility_key": sample.get("compatibility_key"),
+            "compatibility_key": optimizer_compatibility_key(sample),
             "runner_title": _runner_title(sample),
             "optimizer_run_id": str(sample.get("optimizer_run_id")) if sample.get("optimizer_run_id") is not None else None,
             "best_shape": select_preferred_shape(plot_shapes),
@@ -271,8 +271,8 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, o
         sample_runner = sample.get("runner") if isinstance(sample.get("runner"), dict) else {}
         runners.append({
             "runner_key": _runner_key(sample),
-            "compatibility_key": sample.get("compatibility_key"),
-            "workload_key": sample.get("workload_key"),
+            "compatibility_key": optimizer_compatibility_key(sample),
+            "evidence_key": optimizer_evidence_key(sample),
             "runner_label": sample_runner.get("runner_label"),
             "runner_title": _runner_title(sample),
             "runner_labels": _runner_labels(sample),
@@ -304,36 +304,6 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, o
 
 
 
-def _filter_optimizer_index_to_compatibility(
-    index: dict[str, Any],
-    compatibility_keys: set[str],
-) -> dict[str, Any]:
-    """Keep only workload/runner groups compatible with the current run."""
-    if not compatibility_keys:
-        return index
-    filtered = dict(index)
-    runners = [
-        runner for runner in index.get("runners", [])
-        if isinstance(runner, dict)
-        and str(runner.get("compatibility_key") or "") in compatibility_keys
-    ]
-    filtered["runners"] = runners
-    filtered["runner_count"] = len(runners)
-    filtered["observation_count"] = sum(
-        int(shape.get("observation_count") or 1)
-        for runner in runners
-        for shape in runner.get("shapes", [])
-        if isinstance(shape, dict)
-    )
-    all_shapes = [
-        shape
-        for runner in runners
-        for shape in runner.get("shapes", [])
-        if isinstance(shape, dict)
-    ]
-    filtered["best_across_runners"] = select_preferred_shape(all_shapes)
-    return filtered
-
 
 PREFERRED_SHAPE_RANGE_THRESHOLD_PCT = 2.0
 
@@ -359,6 +329,7 @@ def _preferred_shape_range(runner: dict[str, Any]) -> str:
     if not measured_shapes:
         return "—"
     return ", ".join(f"{pipelines}p/{threads}t" for pipelines, threads in measured_shapes)
+
 
 def _run_metadata_lookup(index: dict[str, Any]) -> dict[str, dict[str, Any]]:
     value = index.get("run_metadata_by_id")
@@ -444,7 +415,7 @@ def _render_shape_prediction_coverage(index: dict[str, Any]) -> list[str]:
 
 def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
     lines = [
-        "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is selected canonically by throughput, then newest compatible optimizer run, then lower resource use within a run.",
+        "Compatible completed optimizer runs are coalesced by stable detector evidence identity and concrete runner profile; search scope is retained only as informational provenance. Repeated shapes retain all observations; the preferred shape is selected canonically by throughput, then newest compatible optimizer run, then lower resource use within a run.",
         "",
         "| Detector | Runner | Optimizer run | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Search method | Optimization time | Allocated | Sets/s | Shape time | Observations |",
         "|---|---|---|---|---:|---:|---:|---:|---:|---|---|---:|---:|---:|---:|---:|",
@@ -659,7 +630,7 @@ def render_all_markdown(indices: list[dict[str, Any]]) -> str:
         "<details open>",
         "<summary><strong>1. Preferred Detector Run Configuration</strong></summary>",
         "",
-        "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is selected canonically by throughput, then newest compatible optimizer run, then lower resource use within a run.",
+        "Compatible completed optimizer runs are coalesced by stable detector evidence identity and concrete runner profile; search scope is retained only as informational provenance. Repeated shapes retain all observations; the preferred shape is selected canonically by throughput, then newest compatible optimizer run, then lower resource use within a run.",
         "",
         "| Detector | Runner | Optimizer run | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Search method | Optimization time | Allocated | Sets/s | Shape time | Observations |",
         "|---|---|---|---|---:|---:|---:|---:|---:|---|---|---:|---:|---:|---:|---:|",
@@ -864,7 +835,7 @@ def _preferred_executor_records(detectors: dict[str, Any]) -> list[dict[str, Any
                 "detector_id": detector_id,
                 "runner_key": runner.get("runner_key"),
                 "compatibility_key": runner.get("compatibility_key"),
-                "workload_key": runner.get("workload_key"),
+                "evidence_key": runner.get("evidence_key"),
                 "runner_label": runner.get("runner_label"),
                 "runner_title": runner.get("runner_title"),
                 "runner_labels": runner.get("runner_labels"),
@@ -927,20 +898,10 @@ def update_optimizer_artifacts(
     historical = build_optimizer_index(parallelism, detector_id)
     current = build_optimizer_index(parallelism, detector_id, optimizer_run_id) if optimizer_run_id is not None else historical
 
-    # A run-local profile must compare like-for-like benchmark workloads.
-    # Critical and exhaustive measurements are both valid execution evidence,
-    # but their sets/s values are not directly comparable.
+    # Search scope is informational provenance only. Historical optimizer
+    # evidence remains available across critical/exhaustive/limited runs; runner
+    # and stable detector evidence identity determine execution-shape grouping.
     compatible_historical = historical
-    if optimizer_run_id is not None:
-        current_compatibility_keys = {
-            str(runner.get("compatibility_key"))
-            for runner in current.get("runners", [])
-            if isinstance(runner, dict) and runner.get("compatibility_key")
-        }
-        compatible_historical = _filter_optimizer_index_to_compatibility(
-            historical,
-            current_compatibility_keys,
-        )
 
     run_metadata: dict[str, Any] = {}
     if run_metadata_path is not None and run_metadata_path.is_file():
@@ -1008,7 +969,7 @@ def update_optimizer_artifacts(
         prediction_payload = verify_predictions(
             predictions_path,
             detector=detector_id,
-            workload_rows=compatible_rows,
+            optimizer_rows=compatible_rows,
         )
     except Exception as exc:
         prediction_payload = None
