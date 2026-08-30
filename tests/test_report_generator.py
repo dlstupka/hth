@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -162,26 +163,43 @@ class ReportGeneratorTests(unittest.TestCase):
     def test_optimizer_report_retains_legacy_completed_history_while_current_table_stays_latest(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            (root / "optimizer-index.json").write_text(json.dumps({"schema_version": 1, "detectors": {}}), encoding="utf-8")
-            parallelism = {"observations": [
-                {"detector_id": "adaptive_radial_edge", "source": "execution-optimizer", "mode": "full", "strategy": "exhaustive", "actual_parameter_sets": 10, "possible_parameter_sets": 10, "active_pipelines": 1, "shards": 1, "threads_per_pipeline": 192, "allocated_threads": 192, "wall_clock_seconds": 2700, "parameter_sets_per_second": 2.4, "execution_shape": "1p/1s/192t", "optimizer_shape_sequence": 1, "captured_at_utc": "2026-01-01T00:00:00Z", "runner": {"runner_label": "unknown", "runner_name": "host", "logical_cpu_count": 96}},
-                {"detector_id": "adaptive_radial_edge", "optimizer_run_id": "200", "source": "execution-optimizer", "mode": "full", "strategy": "exhaustive", "actual_parameter_sets": 10, "possible_parameter_sets": 10, "active_pipelines": 2, "shards": 2, "threads_per_pipeline": 96, "allocated_threads": 192, "wall_clock_seconds": 1200, "parameter_sets_per_second": 5.5, "execution_shape": "2p/2s/96t", "optimizer_shape_sequence": 2, "captured_at_utc": "2026-01-02T00:00:00Z", "runner": {"runner_label": "e7k", "runner_name": "host", "logical_cpu_count": 96}},
-            ]}
-            (root / "parallelism-index.json").write_text(json.dumps(parallelism), encoding="utf-8")
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "user.name", "test"], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "user.email", "test@example.invalid"], check=True)
             persisted = root / "execution-optimizer" / "adaptive_radial_edge"
             persisted.mkdir(parents=True)
-            (persisted / "summary.md").write_text("legacy completed optimizer report\n", encoding="utf-8")
-            (persisted / "heatmap.svg").write_text("<svg>legacy</svg>\n", encoding="utf-8")
+            persisted.joinpath("summary.md").write_text(
+                "| Runner | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Sets/s |\n"
+                "|---|---:|---:|---:|---:|---:|---:|\n"
+                "| 192t — rh8-legacy (192 vCPU) | 11 | 11 | 34 | 374 | 6s | 42.67 |\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-q", "-m", "legacy optimizer"], check=True)
+
+            optimizer = {"schema_version": 1, "runs": {
+                "200": {"detector_id": "adaptive_radial_edge", "status": "completed", "run_metadata": {"stop_reason": "range_complete"}}
+            }}
+            parallelism = {"observations": [
+                {"observation_id": "modern", "detector_id": "adaptive_radial_edge", "optimizer_run_id": "200", "source": "execution-optimizer", "mode": "full", "strategy": "exhaustive", "actual_parameter_sets": 10, "possible_parameter_sets": 10, "active_pipelines": 2, "shards": 2, "threads_per_pipeline": 96, "allocated_threads": 192, "wall_clock_seconds": 1200, "parameter_sets_per_second": 5.5, "execution_shape": "2p/2s/96t", "optimizer_shape_sequence": 2, "captured_at_utc": "2026-01-02T00:00:00Z", "runner": {"runner_label": "e7k", "runner_name": "host", "logical_cpu_count": 96}},
+            ]}
+            (root / "optimizer-index.json").write_text(json.dumps(optimizer), encoding="utf-8")
+            (root / "parallelism-index.json").write_text(json.dumps(parallelism), encoding="utf-8")
+            self._write_completed_optimizer_summary(root, "adaptive_radial_edge", "200")
+            subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-q", "-m", "modern optimizer"], check=True)
+
             paths = generate_optimizer_report(root, "adaptive_radial_edge", root / "out")
             summary = paths["summary"].read_text(encoding="utf-8")
-            profile = paths["profile"].read_text(encoding="utf-8")
             self.assertIn("Optimizer run: **200**", summary)
             self.assertIn("| **e7k — host (96 vCPU)** | 2 | 2 | 96 |", summary)
-            self.assertIn("| adaptive_radial_edge | unknown — host (96 vCPU) |", summary)
-            self.assertNotIn("| **unknown — host (96 vCPU)** |", summary)
-            self.assertIn("detector pipelines (log₂ scale)", profile)
-            self.assertIn("parameter sets / second", profile)
-            self.assertNotIn("<svg>legacy</svg>", profile)
+            self.assertIn("rh8-legacy", summary)
+            self.assertNotIn("| **192t — rh8-legacy", summary)
+            aggregate = generate_optimizer_report_all(root, root / "all")
+            aggregate_profile = (aggregate["profiles"] / "adaptive_radial_edge.svg").read_text(encoding="utf-8")
+            self.assertIn("rh8-legacy", aggregate_profile)
+            self.assertIn("e7k — host", aggregate_profile)
+
 
     def test_optimizer_report_recovers_pre_run_id_published_table_without_history_rows(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

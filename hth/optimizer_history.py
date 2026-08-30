@@ -108,6 +108,46 @@ def persist_completed_run(*, results_root: Path, detector: str, run_id: str,
     return destination
 
 
+
+def persist_recovered_legacy_run(
+    *, results_root: Path, detector: str, run_id: str, observations: list[dict[str, Any]],
+) -> Path | None:
+    """Materialize one recovered pre-run-history published profile durably.
+
+    Legacy summaries were mutable and could be replaced by the next optimizer
+    publication.  Once recovered from repository history, preserve the profile
+    under the same immutable per-run boundary used by modern optimizer runs.
+    """
+    rows = [migrate_optimizer_evidence(row) for row in observations if isinstance(row, dict)]
+    if not rows:
+        return None
+    destination = run_history_dir(results_root, detector, run_id)
+    if (destination / "run.json").is_file():
+        return destination
+    destination.mkdir(parents=True, exist_ok=True)
+    valid = all(optimizer_evidence_is_valid(row) for row in rows)
+    completed_at = max((str(row.get("observed_at_utc") or "") for row in rows), default="")
+    manifest = {
+        "schema_version": 1, "record_type": "execution-optimizer-run",
+        "optimizer_run_id": str(run_id), "detector_id": detector, "complete": True,
+        "valid": valid,
+        "run_metadata": {
+            "stop_reason": "legacy-published-summary",
+            "completed_at_utc": completed_at,
+            "recovered_from": "published-summary-history",
+        },
+    }
+    if not valid:
+        manifest["invalid_reason"] = next(
+            (str(row.get("invalid_reason")) for row in rows if row.get("valid") is False and row.get("invalid_reason")),
+            "invalid legacy optimizer evidence",
+        )
+    (destination / "run.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (destination / "observations.jsonl").write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8"
+    )
+    return destination
+
 def completed_run_records(results_root: Path, detector: str, *, include_invalid: bool = False) -> list[dict[str, Any]]:
     base = Path(results_root) / "execution-optimizer" / detector / "runs"
     records: list[dict[str, Any]] = []

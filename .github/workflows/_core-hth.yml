@@ -1249,9 +1249,10 @@ jobs:
           path: results-repo
           ref: main
           token: ${{ secrets.HTH_RESULTS_TOKEN }}
-          # Reports consume the authoritative tree at current main. History is
-          # neither queried nor needed for publish retries, so keep this shallow.
-          fetch-depth: 1
+          # Legacy optimizer summaries predate immutable per-run history. Keep a
+          # bounded results history so Report Writer can migrate those published
+          # profiles into canonical evidence while modern runs use durable records.
+          fetch-depth: 100
           persist-credentials: true
 
       - name: Set up canonical HTH Python runtime

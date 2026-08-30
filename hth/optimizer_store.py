@@ -13,8 +13,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from hth.persistence import canonical_index_path, readable_index_path, read_json as _read_json, atomic_write_json as _write_json, load_index, write_index
-from hth.optimizer_history import completed_run_records, persist_completed_run
+from hth.optimizer_history import completed_run_records, persist_completed_run, persist_recovered_legacy_run
 from hth.optimizer_validity import migrate_optimizer_evidence, optimizer_evidence_is_valid
+from hth.optimizer_intelligence import historical_published_optimizer_indices, legacy_optimizer_rows_from_indices
 from typing import Any, Iterable
 
 from hth.contracts import OPTIMIZER_INDEX_SCHEMA_VERSION, adapt_optimizer_index
@@ -903,6 +904,23 @@ def update_optimizer_artifacts(
     if not parallelism_path.is_file():
         raise FileNotFoundError(f"Missing {parallelism_path}")
     parallelism = _read_json(parallelism_path)
+
+    # One-time migration bridge for optimizer summaries that predate immutable
+    # per-run history. Recover distinct historical published profiles while the
+    # bounded git history is available, then materialize them durably so future
+    # optimizer intelligence no longer depends on mutable summary.md or git.
+    published_summary = results_root / "execution-optimizer" / detector_id / "summary.md"
+    recovered_indices = [
+        item for item in historical_published_optimizer_indices(published_summary, detector_id)
+        if str(item.get("optimizer_run_id") or "") != "legacy-published"
+    ]
+    for recovered in recovered_indices:
+        recovered_run_id = str(recovered.get("optimizer_run_id") or "").strip()
+        recovered_rows = legacy_optimizer_rows_from_indices([recovered], detector_id)
+        if recovered_run_id and recovered_rows:
+            persist_recovered_legacy_run(
+                results_root=results_root, detector=detector_id, run_id=recovered_run_id, observations=recovered_rows
+            )
 
     # Rehydrate aggregate planning state from durable completed runs before
     # computing preferences.  This makes optimizer-index.json rebuildable and

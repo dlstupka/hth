@@ -343,7 +343,9 @@ jobs:
         with:
           repository: ${{ env.RESULTS_REPOSITORY }}
           path: results-repo
-          fetch-depth: 1
+          # Bounded history supports one-time recovery of pre-run-history optimizer
+          # summaries; current optimizer runs remain durable under runs/<id>/.
+          fetch-depth: 100
           persist-credentials: false
           token: ${{ github.event_name != 'pull_request' && secrets.HTH_RESULTS_TOKEN || github.token }}
           # Optimizer runs need the current image set, model/evidence caches,

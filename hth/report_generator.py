@@ -15,7 +15,10 @@ from hth.optimizer_history import completed_optimizer_run_ids, completed_run_rec
 from typing import Any
 
 from hth.optimizer_store import build_optimizer_index, render_all_markdown, render_heatmap_svg, render_markdown, select_preferred_shape
-from hth.optimizer_intelligence import legacy_published_optimizer_index
+from hth.optimizer_intelligence import (
+    legacy_published_optimizer_index, historical_published_optimizer_indices,
+    legacy_optimizer_rows_from_indices,
+)
 from hth.optimizer_validity import migrate_optimizer_run, optimizer_evidence_is_valid
 from hth.write_regression_summary import build_combined_summary
 from hth.domain.calibration import authoritative_record
@@ -317,6 +320,7 @@ def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dic
         optimizer["runs"] = optimizer_runs
     persisted_report_dir = results_root / "execution-optimizer" / detector
     persisted_summary = persisted_report_dir / "summary.md"
+
     run_id = _completed_optimizer_run_id(results_root, detector)
     if run_id is None:
         run_id = _latest_completed_run_from_index(optimizer, detector)
@@ -337,6 +341,23 @@ def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dic
 
     if run_id is None:
         return published_current, published_current, {}
+
+    # Once modern completed-run evidence exists, recover distinct older
+    # published profiles from results-repository history.  Do not reinterpret
+    # the current working-tree summary as legacy evidence; it is the mutable
+    # presentation of the latest modern run.
+    historical_indices = [
+        item for item in historical_published_optimizer_indices(persisted_summary, detector)
+        if str(item.get("optimizer_run_id") or "") != "legacy-published"
+    ]
+    legacy_rows = legacy_optimizer_rows_from_indices(historical_indices, detector)
+    if legacy_rows:
+        observations = list(parallelism.get("observations", [])) if isinstance(parallelism.get("observations"), list) else []
+        by_id = {str(row.get("observation_id")): row for row in observations if isinstance(row, dict) and row.get("observation_id")}
+        for row in legacy_rows:
+            if optimizer_evidence_is_valid(row):
+                by_id.setdefault(str(row["observation_id"]), row)
+        parallelism["observations"] = list(by_id.values())
 
     run_payload = _completed_run_payload(optimizer, detector, run_id)
     current = _attach_optimizer_run_metadata(build_optimizer_index(parallelism, detector, run_id), optimizer, detector)
