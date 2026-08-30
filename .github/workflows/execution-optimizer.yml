@@ -603,7 +603,7 @@ jobs:
           fi
           echo "Benchmark workload   : ${{ inputs.benchmark_parameter_sets }} parameter sets/shape (baseline + historic best retained)"
           echo "Benchmark domain     : ${{ inputs.strategy }}"
-          echo "Early stop           : ${{ inputs.early_stop }} (>2% degradation required beyond both available sides of the perceived peak/plateau)"
+          echo "Early stop           : ${{ inputs.early_stop }} (3 consecutive shapes >2% below the perceived peak on each available side)"
 
       - name: Optimize detector execution shapes
         id: optimizer
@@ -707,7 +707,7 @@ jobs:
               "benchmark_parameter_sets": int(sys.argv[16]),
               "benchmark_strategy": sys.argv[17],
               "optimization_started_epoch": int(sys.argv[18]),
-              "early_stop": {"threshold_pct": 2.0, "rule": "bracket_peak_region"},
+              "early_stop": {"threshold_pct": 2.0, "required_consecutive_shapes": 3, "rule": "confirm_perceived_peak"},
               "completed_shapes": int(sys.argv[14]),
               "stop_reason": None,
           }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -892,7 +892,7 @@ jobs:
             )"
             if [[ "$ENUMERATION" != "adaptive" && "$EARLY_STOP" == "true" && "$should_stop" == "true" ]]; then
               stop_reason="throughput_peak_bracketed"
-              echo "Optimizer early stop: perceived peak/plateau bracketed by >2% throughput degradation on both available sides."
+              echo "Optimizer early stop: perceived peak confirmed by 3 consecutive shapes >2% lower on each available side."
               break
             elif [[ "$ENUMERATION" == "adaptive" && "$EARLY_STOP" == "true" && "$should_stop" == "true" ]]; then
               echo "Adaptive optimizer: peak bracketing is resolved by adaptive local refinement before search completion."

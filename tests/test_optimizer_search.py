@@ -43,7 +43,9 @@ class OptimizerSearchTests(unittest.TestCase):
         self.assertEqual(adaptive_next_pipeline(1, 64, 64, 1, observations), 7)
 
         observations.append(row(7, 120.5))
-        self.assertEqual(adaptive_next_pipeline(1, 64, 64, 1, observations), 9)
+        # One near-peak left neighbor is not enough: continue until three
+        # consecutive >2%-lower readings confirm that side.
+        self.assertEqual(adaptive_next_pipeline(1, 64, 64, 1, observations), 6)
 
     def test_adaptive_expands_two_percent_region_until_bounded(self) -> None:
         observations = [

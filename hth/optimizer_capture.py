@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from hth.optimizer_peak import analyze_peak_bracket
 from hth.parallelism_store import observation_from_run, update_parallelism_index, update_parallelism_shards
 from hth.runner_metrics import summarize_runner_metrics
 
@@ -209,15 +210,14 @@ def assess_early_stop(
     threshold_pct: float = 2.0,
     pipeline_min: int | None = None,
     pipeline_max: int | None = None,
+    required_consecutive: int = 3,
 ) -> dict[str, Any]:
-    """Return whether the perceived throughput peak is sufficiently bracketed.
+    """Return whether the perceived throughput peak is confirmed.
 
-    A peak may be a plateau.  Measurements within ``threshold_pct`` of the
-    best observed throughput belong to the perceived peak region.  Early stop
-    is allowed only after a completed shape is *strictly more than* that
-    threshold below the peak on both sides of the entire region.  When the
-    peak region reaches a configured pipeline boundary, that side is
-    necessarily one-sided and is waived.
+    The perceived peak is the best measured throughput. Each available side
+    requires ``required_consecutive`` consecutive measured shapes strictly
+    more than ``threshold_pct`` below that peak. A legal min/max boundary
+    makes the peak one-sided and waives only the unavailable side.
     """
     rows: list[dict[str, Any]] = []
     if observation_log.is_file():
@@ -246,6 +246,7 @@ def assess_early_stop(
             "should_stop": False,
             "stop_reason": None,
             "threshold_pct": threshold_pct,
+            "required_consecutive_shapes": required_consecutive,
             "best_parameter_sets_per_second": None,
             "best_execution_shape": None,
             "completed_shapes": 0,
@@ -255,44 +256,24 @@ def assess_early_stop(
             "right_boundary_required": False,
             "left_boundary_confirmed": False,
             "right_boundary_confirmed": False,
+            "left_consecutive_below_peak": 0,
+            "right_consecutive_below_peak": 0,
             "assessments": [],
         }
-
-    best = max(observations, key=lambda item: item["parameter_sets_per_second"])
-    best_rate = float(best["parameter_sets_per_second"])
-    threshold_fraction = threshold_pct / 100.0
-    peak_floor = best_rate * (1.0 - threshold_fraction)
-
-    # Equality belongs to the peak region: a boundary is confirmed only when
-    # throughput is strictly more than threshold_pct below the perceived peak.
-    peak_rows = [row for row in observations if row["parameter_sets_per_second"] >= peak_floor]
-    peak_low = min(row["pipelines"] for row in peak_rows)
-    peak_high = max(row["pipelines"] for row in peak_rows)
 
     observed_pipelines = [row["pipelines"] for row in observations]
     legal_low = pipeline_min if pipeline_min is not None else min(observed_pipelines)
     legal_high = pipeline_max if pipeline_max is not None else max(observed_pipelines)
-    if legal_low > legal_high:
-        legal_low, legal_high = legal_high, legal_low
-
-    left_required = peak_low > legal_low
-    right_required = peak_high < legal_high
-    left_witnesses = [
-        row for row in observations
-        if row["pipelines"] < peak_low and row["parameter_sets_per_second"] < peak_floor
-    ]
-    right_witnesses = [
-        row for row in observations
-        if row["pipelines"] > peak_high and row["parameter_sets_per_second"] < peak_floor
-    ]
-    left_confirmed = (not left_required) or bool(left_witnesses)
-    right_confirmed = (not right_required) or bool(right_witnesses)
-
-    # Do not call a completely flat, fully bounded search an early stop: no
-    # side ever departed the peak by >threshold_pct, so the range itself must
-    # finish normally.  Boundary peaks need only the available opposite side.
-    has_degradation_witness = bool(left_witnesses or right_witnesses)
-    should_stop = left_confirmed and right_confirmed and has_degradation_witness
+    bracket = analyze_peak_bracket(
+        observations,
+        threshold_pct=threshold_pct,
+        pipeline_min=legal_low,
+        pipeline_max=legal_high,
+        required_consecutive=required_consecutive,
+    )
+    best = bracket["best"]
+    best_rate = float(bracket["best_rate"])
+    peak_floor = float(bracket["peak_floor"])
 
     assessments: list[dict[str, Any]] = []
     for row in observations:
@@ -304,23 +285,29 @@ def assess_early_stop(
             "more_than_threshold_below_peak": row["parameter_sets_per_second"] < peak_floor,
         })
 
+    left_witnesses = bracket["left_witnesses"]
+    right_witnesses = bracket["right_witnesses"]
+    should_stop = bool(bracket["should_stop"])
     return {
         "should_stop": should_stop,
         "stop_reason": "throughput_peak_bracketed" if should_stop else None,
         "threshold_pct": threshold_pct,
+        "required_consecutive_shapes": required_consecutive,
         "best_parameter_sets_per_second": best_rate,
         "best_execution_shape": best["execution_shape"] or "unknown",
         "completed_shapes": len(observations),
-        "configured_pipeline_min": legal_low,
-        "configured_pipeline_max": legal_high,
-        "peak_region_pipeline_min": peak_low,
-        "peak_region_pipeline_max": peak_high,
-        "left_boundary_required": left_required,
-        "right_boundary_required": right_required,
-        "left_boundary_confirmed": left_confirmed,
-        "right_boundary_confirmed": right_confirmed,
+        "configured_pipeline_min": min(legal_low, legal_high),
+        "configured_pipeline_max": max(legal_low, legal_high),
+        "peak_region_pipeline_min": best["pipelines"],
+        "peak_region_pipeline_max": best["pipelines"],
+        "left_boundary_required": bracket["left_required"],
+        "right_boundary_required": bracket["right_required"],
+        "left_boundary_confirmed": bracket["left_confirmed"],
+        "right_boundary_confirmed": bracket["right_confirmed"],
+        "left_consecutive_below_peak": bracket["left_streak"],
+        "right_consecutive_below_peak": bracket["right_streak"],
         "left_boundary_execution_shape": left_witnesses[-1]["execution_shape"] if left_witnesses else None,
-        "right_boundary_execution_shape": right_witnesses[0]["execution_shape"] if right_witnesses else None,
+        "right_boundary_execution_shape": right_witnesses[-1]["execution_shape"] if right_witnesses else None,
         "assessments": assessments,
     }
 

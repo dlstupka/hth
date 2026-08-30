@@ -6,6 +6,8 @@ import math
 from pathlib import Path
 from typing import Any
 
+from hth.optimizer_peak import analyze_peak_bracket
+
 
 def _read_observations(path: Path | None) -> list[dict[str, Any]]:
     if path is None or not path.is_file():
@@ -152,6 +154,44 @@ def adaptive_next_pipeline(
         (pipeline for pipeline, rate in measured.items() if rate == best_rate),
         default=max(measured, key=measured.get),
     )
+
+    # Once the perceived peak is geometrically bracketed (or lies on a legal
+    # boundary), peak confirmation requires three consecutive measured shapes
+    # on every available side to be strictly >2% below that best throughput.
+    # Continue with the nearest unmeasured shape on any unresolved side; one
+    # isolated degradation witness must never terminate an adaptive run.
+    lower_of_best = [p for p in tested if p < best_pipeline]
+    upper_of_best = [p for p in tested if p > best_pipeline]
+    geometrically_bracketed = (
+        (best_pipeline == legal[0] or bool(lower_of_best))
+        and (best_pipeline == legal[-1] or bool(upper_of_best))
+    )
+    if geometrically_bracketed:
+        bracket = analyze_peak_bracket(
+            [
+                {"pipelines": pipeline, "parameter_sets_per_second": rate}
+                for pipeline, rate in measured.items()
+            ],
+            threshold_pct=(1.0 - near_best_fraction) * 100.0,
+            pipeline_min=legal[0],
+            pipeline_max=legal[-1],
+            required_consecutive=3,
+        )
+        unresolved: list[tuple[int, int]] = []
+        if bracket["left_required"] and not bracket["left_confirmed"]:
+            left_untested = [p for p in untested if p < best_pipeline]
+            if left_untested:
+                candidate = max(left_untested)
+                unresolved.append((abs(best_pipeline - candidate), candidate))
+        if bracket["right_required"] and not bracket["right_confirmed"]:
+            right_untested = [p for p in untested if p > best_pipeline]
+            if right_untested:
+                candidate = min(right_untested)
+                unresolved.append((abs(best_pipeline - candidate), candidate))
+        if unresolved:
+            return min(unresolved, key=lambda item: (item[0], item[1]))[1]
+        if bracket["should_stop"]:
+            return None
 
     # Historical/predicted intelligence may choose the first shape to measure,
     # but only measurements from this execution can resolve the search.  If the
