@@ -422,7 +422,9 @@ def _optimizer_profile_index(current: dict[str, Any], preferred: dict[str, Any])
         for series in source.get("plot_series", []):
             if not isinstance(series, dict):
                 continue
-            key = str(series.get("runner_key") or series.get("runner_title") or "unknown")
+            runner_key = str(series.get("runner_key") or series.get("runner_title") or "unknown")
+            run_id = str(series.get("optimizer_run_id") or "legacy-untagged")
+            key = f"{runner_key}::run={run_id}"
             existing = merged.get(key)
             if existing is None:
                 merged[key] = dict(series)

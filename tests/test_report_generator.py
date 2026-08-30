@@ -385,7 +385,9 @@ class ReportGeneratorTests(unittest.TestCase):
             new.update({"optimizer_run_id": "101", "active_pipelines": 11, "shards": 11, "threads_per_pipeline": 34,
                         "allocated_threads": 374, "wall_clock_seconds": 4, "parameter_sets_per_second": 64.0,
                         "execution_shape": "11p/11s/34t", "optimizer_shape_sequence": 1})
-            new["runner"] = {"runner_label": "192t", "runner_name": "rh8-a1328", "logical_cpu_count": 192}
+            # Reuse the same concrete runner to ensure aggregate report merging
+            # preserves optimizer execution identity instead of fabricating one curve.
+            new["runner"] = {"runner_label": "192t", "runner_name": "rh8-a1319", "logical_cpu_count": 192}
             (root / "optimizer-index.json").write_text(json.dumps(optimizer), encoding="utf-8")
             (root / "parallelism-index.json").write_text(json.dumps({"observations": [old, new]}), encoding="utf-8")
             self._write_completed_optimizer_summary(root, detector, "101")
@@ -393,7 +395,8 @@ class ReportGeneratorTests(unittest.TestCase):
             paths = generate_optimizer_report_all(root, root / "out")
             svg = (paths["profiles"] / f"{detector}.svg").read_text(encoding="utf-8")
             self.assertIn("rh8-a1319", svg)
-            self.assertIn("rh8-a1328", svg)
+            self.assertIn("run 100", svg)
+            self.assertIn("run 101", svg)
             self.assertIn("34t", svg)
 
     def test_optimizer_report_all_coalesces_completed_detectors(self) -> None:
