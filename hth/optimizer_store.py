@@ -204,12 +204,13 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, o
         runner_groups.setdefault(group_key, []).append(row)
 
     # Selection remains compatibility-scoped, but visualization must preserve
-    # concrete runner identity.  A compatibility group can legitimately contain
-    # observations from multiple hosts/runs; joining those points into one line
-    # fabricates a processing curve that was never measured on any one runner.
+    # both concrete runner identity and optimizer execution identity.  The same
+    # host can execute multiple optimizer runs; joining those observations into
+    # one line fabricates a processing curve that no single execution measured.
     plot_groups: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
-        plot_groups.setdefault(_runner_key(row), []).append(row)
+        run_id = str(row.get("optimizer_run_id") or "legacy-untagged")
+        plot_groups.setdefault(f"{_runner_key(row)}::run={run_id}", []).append(row)
 
     plot_series: list[dict[str, Any]] = []
     for concrete_key, concrete_rows in plot_groups.items():
@@ -236,9 +237,10 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, o
         plot_shapes.sort(key=lambda shape: (int(shape.get("pipelines") or 0), int(shape.get("threads_per_pipeline") or 0)))
         sample = concrete_rows[0]
         plot_series.append({
-            "runner_key": concrete_key,
+            "runner_key": _runner_key(sample),
             "compatibility_key": sample.get("compatibility_key"),
             "runner_title": _runner_title(sample),
+            "optimizer_run_id": str(sample.get("optimizer_run_id")) if sample.get("optimizer_run_id") is not None else None,
             "best_shape": select_preferred_shape(plot_shapes),
             "shapes": plot_shapes,
         })
@@ -467,8 +469,8 @@ def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
     lines = [
         "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is selected canonically by throughput, then newest compatible optimizer run, then lower resource use within a run.",
         "",
-        "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Search method | Optimization time | Allocated | Sets/s | Shape time | Observations |",
-        "|---|---|---|---:|---:|---:|---:|---:|---|---|---:|---:|---:|---:|---:|",
+        "| Detector | Runner | Optimizer run | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Search method | Optimization time | Allocated | Sets/s | Shape time | Observations |",
+        "|---|---|---|---|---:|---:|---:|---:|---:|---|---|---:|---:|---:|---:|---:|",
     ]
     for runner in sorted(index.get("runners", []), key=lambda item: str(item.get("runner_title") or "")):
         best = runner.get("best_shape") if isinstance(runner.get("best_shape"), dict) else {}
@@ -478,9 +480,10 @@ def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
         rate = _as_float(best.get("parameter_sets_per_second"))
         memory = _as_float(specs.get("memory_gib"))
         lines.append(
-            "| {detector} | {runner} | {cpu} | {physical} | {logical} | {memory} | {pipelines} | {threads} | {shape_range} | {search_method} | {optimization_time} | {allocated} | {rate} | {wall} | {observations} |".format(
+            "| {detector} | {runner} | {optimizer_run_id} | {cpu} | {physical} | {logical} | {memory} | {pipelines} | {threads} | {shape_range} | {search_method} | {optimization_time} | {allocated} | {rate} | {wall} | {observations} |".format(
                 detector=index.get("detector_id") or "unknown",
                 runner=runner.get("runner_title") or "unknown",
+                optimizer_run_id=best.get("optimizer_run_id") or "—",
                 cpu=str(specs.get("cpu_model") or "—").replace("|", "/"),
                 physical=specs.get("physical_core_count") or "—",
                 logical=specs.get("logical_cpu_count") or "—",
@@ -539,8 +542,8 @@ def _render_shape_table(index: dict[str, Any]) -> list[str]:
     lines = [
         "This table contains measurements from this optimizer execution only. Bold identifies this run’s measured throughput winner; the preferred configuration above is selected from all compatible coalesced optimizer evidence.",
         "",
-        "| Runner | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Startup overhead | Sets/s | Speedup | Δ from run best | Avg load | Peak load | Avg CPU | Peak RAM |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Runner | Optimizer run | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Startup overhead | Sets/s | Speedup | Δ from run best | Avg load | Peak load | Avg CPU | Peak RAM |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     rows: list[tuple[str, dict[str, Any], bool]] = []
     for runner in index.get("runners", []):
@@ -569,8 +572,9 @@ def _render_shape_table(index: dict[str, Any]) -> list[str]:
         if delta_from_best is not None and abs(delta_from_best) < 0.005:
             delta_from_best = 0.0
         lines.append(
-            "| {runner} | {pipelines} | {shards} | {threads} | {allocated} | {wall} | {startup} | {rate} | {speedup} | {delta_from_best} | {avg_load} | {peak_load} | {avg_cpu} | {peak_ram} |".format(
+            "| {runner} | {optimizer_run_id} | {pipelines} | {shards} | {threads} | {allocated} | {wall} | {startup} | {rate} | {speedup} | {delta_from_best} | {avg_load} | {peak_load} | {avg_cpu} | {peak_ram} |".format(
                 runner=f"**{runner_title}**" if best else runner_title,
+                optimizer_run_id=shape.get("optimizer_run_id") or "—",
                 pipelines=shape.get("pipelines") or "?",
                 shards=shape.get("shards") or "?",
                 threads=shape.get("threads_per_pipeline") or "?",
@@ -680,8 +684,8 @@ def render_all_markdown(indices: list[dict[str, Any]]) -> str:
         "",
         "Compatible completed optimizer runs are coalesced by detector, workload, and concrete runner profile. Repeated shapes retain all observations; the preferred shape is selected canonically by throughput, then newest compatible optimizer run, then lower resource use within a run.",
         "",
-        "| Detector | Runner | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Search method | Optimization time | Allocated | Sets/s | Shape time | Observations |",
-        "|---|---|---|---:|---:|---:|---:|---:|---|---|---:|---:|---:|---:|---:|",
+        "| Detector | Runner | Optimizer run | CPU | Physical | Logical | RAM | Preferred pipelines | Threads / pipeline | Preferred shape range (≤2%) | Search method | Optimization time | Allocated | Sets/s | Shape time | Observations |",
+        "|---|---|---|---|---:|---:|---:|---:|---:|---|---|---:|---:|---:|---:|---:|",
     ]
     for index in indices:
         for row in _render_preferred_configuration(index)[4:]:
@@ -840,7 +844,11 @@ def render_heatmap_svg(index: dict[str, Any]) -> str:
             parts.append(f'<text x="{label_x:.1f}" y="{label_y:.1f}" text-anchor="{anchor}" font-size="10">{threads}t</text>')
         legend_y = 78 + runner_index * 18
         parts.append(f'<rect x="{width - 320}" y="{legend_y - 10}" width="12" height="12" fill="{color}"/>')
-        parts.append(f'<text x="{width - 300}" y="{legend_y}" font-size="11">{html.escape(str(runner.get("runner_title") or "unknown"))}</text>')
+        legend = str(runner.get("runner_title") or "unknown")
+        run_id = str(runner.get("optimizer_run_id") or "").strip()
+        if run_id:
+            legend = f"{legend} — run {run_id}"
+        parts.append(f'<text x="{width - 300}" y="{legend_y}" font-size="11">{html.escape(legend)}</text>')
     parts.append("</svg>")
     return "\n".join(parts) + "\n"
 

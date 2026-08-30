@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.optimizer_store import build_optimizer_index, render_heatmap_svg, render_markdown, select_preferred_shape, update_optimizer_artifacts
+from hth.optimizer_store import build_optimizer_index, render_all_markdown, render_heatmap_svg, render_markdown, select_preferred_shape, update_optimizer_artifacts
 from hth.parallelism_store import update_parallelism_index, update_parallelism_shards
 
 
@@ -318,33 +318,35 @@ class OptimizerStoreTests(unittest.TestCase):
 
 
 
-    def test_profile_plot_keeps_compatible_concrete_runners_as_separate_series(self) -> None:
+    def test_profile_plot_keeps_optimizer_runs_as_separate_provenance_series(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             rows = [
-                _row("old-a", "192t", 7, 54, 22, optimizer_run_id="100"),
-                _row("old-b", "192t", 9, 42, 20, optimizer_run_id="100"),
-                _row("new-a", "192t", 36, 10, 16, optimizer_run_id="101"),
-                _row("new-b", "192t", 37, 10, 15, optimizer_run_id="101"),
+                _row("old-a", "192t", 7, 54, 22, optimizer_run_id="33279699408"),
+                _row("old-b", "192t", 9, 42, 20, optimizer_run_id="33279699408"),
+                _row("new-a", "192t", 1, 384, 6, optimizer_run_id="33283602734"),
+                _row("new-b", "192t", 2, 192, 8, optimizer_run_id="33283602734"),
             ]
             for row in rows:
                 row["compatibility_key"] = "same-compatible-profile"
-            rows[0]["runner"]["runner_name"] = "rh8-a1316"
-            rows[1]["runner"]["runner_name"] = "rh8-a1316"
-            rows[2]["runner"]["runner_name"] = "rh8-a1318"
-            rows[3]["runner"]["runner_name"] = "rh8-a1318"
+                row["runner"]["runner_name"] = "rh8-al318"
 
             index = build_optimizer_index({"observations": rows}, "adaptive_radial_edge")
 
             # Preferred-shape selection intentionally remains compatibility scoped.
             self.assertEqual(index["runner_count"], 1)
-            # Plotting preserves the two concrete machines instead of connecting
-            # their measurements into one fabricated curve.
+            # Plotting must preserve separate optimizer executions even on the same
+            # concrete runner so distinct physical runs are never drawn as one curve.
             self.assertEqual(len(index["plot_series"]), 2)
             svg = render_heatmap_svg(index)
-            self.assertIn("rh8-a1316", svg)
-            self.assertIn("rh8-a1318", svg)
+            self.assertIn("rh8-al318", svg)
+            self.assertIn("run 33279699408", svg)
+            self.assertIn("run 33283602734", svg)
             self.assertEqual(svg.count('<path d="'), 2)
+            markdown = render_all_markdown([index])
+            self.assertIn("Optimizer run", markdown)
+            self.assertIn("33279699408", markdown)
+            self.assertIn("33283602734", markdown)
 
     def test_shape_report_preserves_and_labels_startup_overhead(self) -> None:
         row = _row("startup", "e7k", 8, 48, 240.0, optimizer_run_id="555")

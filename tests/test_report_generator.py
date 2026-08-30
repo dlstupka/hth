@@ -207,7 +207,7 @@ class ReportGeneratorTests(unittest.TestCase):
             paths = generate_optimizer_report(root, "adaptive_radial_edge", root / "out")
             summary = paths["summary"].read_text(encoding="utf-8")
             self.assertIn("Optimizer run: **200**", summary)
-            self.assertIn("| **e7k — host (96 vCPU)** | 2 | 2 | 96 |", summary)
+            self.assertIn("| **e7k — host (96 vCPU)** | 200 | 2 | 2 | 96 |", summary)
             self.assertIn("rh8-legacy", summary)
             self.assertNotIn("rh8-modern", summary)
             self.assertNotIn("| **192t — rh8-legacy", summary)
