@@ -14,7 +14,7 @@ from pathlib import Path
 
 from hth.persistence import canonical_index_path, readable_index_path, read_json as _read_json, atomic_write_json as _write_json, load_index, write_index
 from hth.optimizer_history import completed_run_records, persist_completed_run, persist_recovered_legacy_run
-from hth.optimizer_validity import migrate_optimizer_evidence, optimizer_evidence_is_valid
+from hth.optimizer_validity import migrate_optimizer_evidence, optimizer_evidence_is_valid, suppress_recovered_optimizer_duplicates
 from hth.optimizer_intelligence import historical_published_optimizer_indices, legacy_optimizer_rows_from_indices
 from typing import Any, Iterable
 
@@ -157,7 +157,7 @@ def _comparable(rows: Iterable[dict[str, Any]], detector_id: str, optimizer_run_
         if (_as_float(row.get("wall_clock_seconds")) or 0) <= 0:
             continue
         result.append(row)
-    return result
+    return suppress_recovered_optimizer_duplicates(result)
 
 
 def _shape_from_row(row: dict[str, Any], *, baseline_wall: float | None, observation_count: int = 1, median_wall: float | None = None) -> dict[str, Any]:
@@ -914,12 +914,17 @@ def update_optimizer_artifacts(
         item for item in historical_published_optimizer_indices(published_summary, detector_id)
         if str(item.get("optimizer_run_id") or "") != "legacy-published"
     ]
+    native_rows = [
+        row for row in parallelism.get("observations", [])
+        if isinstance(row, dict) and not row.get("optimizer_intelligence_recovery")
+    ]
     for recovered in recovered_indices:
         recovered_run_id = str(recovered.get("optimizer_run_id") or "").strip()
         recovered_rows = legacy_optimizer_rows_from_indices([recovered], detector_id)
-        if recovered_run_id and recovered_rows:
+        distinct = suppress_recovered_optimizer_duplicates(native_rows + recovered_rows)[len(native_rows):]
+        if recovered_run_id and distinct:
             persist_recovered_legacy_run(
-                results_root=results_root, detector=detector_id, run_id=recovered_run_id, observations=recovered_rows
+                results_root=results_root, detector=detector_id, run_id=recovered_run_id, observations=distinct
             )
 
     # Rehydrate aggregate planning state from durable completed runs before

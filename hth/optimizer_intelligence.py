@@ -22,7 +22,7 @@ from hth.domain.execution_shape import (
 )
 from hth.shape_prediction import resolve_shape
 from hth.contracts import adapt_parallelism_index
-from hth.optimizer_validity import migrate_optimizer_evidence, optimizer_evidence_is_valid
+from hth.optimizer_validity import migrate_optimizer_evidence, optimizer_evidence_is_valid, suppress_recovered_optimizer_duplicates
 from hth.optimizer_history import completed_run_records
 
 
@@ -383,7 +383,7 @@ def compatible_optimizer_rows(
         if key not in seen and optimizer_evidence_is_valid(row):
             rows.append(row)
             seen.add(key)
-    return detector, rows
+    return detector, suppress_recovered_optimizer_duplicates(rows)
 
 
 def resolve_optimizer_intelligence(

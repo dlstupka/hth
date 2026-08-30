@@ -96,6 +96,74 @@ def migrate_optimizer_evidence(record: dict[str, Any]) -> dict[str, Any]:
     return migrated
 
 
+
+def optimizer_measurement_identity(record: dict[str, Any]) -> tuple[Any, ...]:
+    """Return the canonical physical measurement identity for recovery dedupe.
+
+    Legacy published summaries round timing/rate values and omit some modern
+    runner metadata.  Identity therefore uses the concrete runner name/vCPU,
+    execution shape, and report-visible rounded performance values.  The run id
+    and recovery provenance are intentionally excluded: a recovered summary of
+    a native persisted run is the same measurement, not a second observation.
+    """
+    runner = record.get("runner") if isinstance(record.get("runner"), dict) else {}
+
+    def as_int(value: Any) -> int | None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def as_float(value: Any) -> float | None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    name = str(runner.get("runner_name") or runner.get("name") or "").strip().lower()
+    logical = as_int(runner.get("logical_cpu_count") or runner.get("logical_cpus"))
+    wall = as_float(record.get("wall_clock_seconds"))
+    rate = as_float(record.get("parameter_sets_per_second"))
+    return (
+        str(record.get("detector_id") or ""),
+        name,
+        logical,
+        as_int(record.get("active_pipelines")),
+        as_int(record.get("threads_per_pipeline")),
+        as_int(record.get("allocated_threads")),
+        round(wall, 0) if wall is not None else None,
+        round(rate, 2) if rate is not None else None,
+    )
+
+
+def suppress_recovered_optimizer_duplicates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Prefer native optimizer evidence over equivalent recovery rows.
+
+    Native repetitions are preserved because they are real observations.
+    Recovery rows are retained only when they represent a measurement that is
+    absent from native persisted evidence; duplicate recovered copies collapse
+    to one representation.
+    """
+    native_ids = {
+        optimizer_measurement_identity(row)
+        for row in rows
+        if isinstance(row, dict) and not row.get("optimizer_intelligence_recovery")
+    }
+    seen_recovered: set[tuple[Any, ...]] = set()
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if not row.get("optimizer_intelligence_recovery"):
+            result.append(row)
+            continue
+        identity = optimizer_measurement_identity(row)
+        if identity in native_ids or identity in seen_recovered:
+            continue
+        seen_recovered.add(identity)
+        result.append(row)
+    return result
+
 def migrate_optimizer_run(
     manifest: dict[str, Any],
     observations: list[dict[str, Any]] | None = None,

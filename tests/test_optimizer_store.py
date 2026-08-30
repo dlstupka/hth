@@ -197,9 +197,29 @@ class OptimizerStoreTests(unittest.TestCase):
     def test_historical_optimizer_profile_keeps_all_repeated_shape_observations(self) -> None:
         first = _row("r1-p4", "e7k", 4, 48, 700, optimizer_run_id="100")
         second = _row("r2-p4", "e7k", 4, 48, 680, optimizer_run_id="101")
-        index = build_optimizer_index({"observations": [first, second]}, "adaptive_radial_edge", optimizer_run_ids={"100", "101"})
+        recovered_copy = {
+            **second,
+            "observation_id": "legacy-copy-r2-p4",
+            "optimizer_run_id": "legacy-published-deadbeef",
+            "optimizer_intelligence_recovery": "published-summary-history",
+            "runner": {
+                "runner_label": "96t",
+                "runner_name": "rh8-a197",
+                "runner_labels": ["self-hosted", "96t"],
+                "logical_cpu_count": 96,
+            },
+        }
+        index = build_optimizer_index(
+            {"observations": [first, second, recovered_copy]},
+            "adaptive_radial_edge",
+            optimizer_run_ids={"100", "101", "legacy-published-deadbeef"},
+        )
         shape = index["runners"][0]["shapes"][0]
+        # Native repeated measurements remain evidence; a recovered published
+        # representation of an already-native measurement is not counted twice.
         self.assertEqual(shape["observation_count"], 2)
+        self.assertEqual(index["runner_count"], 1)
+        self.assertEqual(index["observation_count"], 2)
         self.assertEqual(shape["fastest_wall_clock_seconds"], 680)
         self.assertEqual(shape["median_wall_clock_seconds"], 690)
 
