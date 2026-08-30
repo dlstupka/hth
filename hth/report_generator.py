@@ -20,6 +20,7 @@ from hth.optimizer_intelligence import (
     legacy_optimizer_rows_from_indices,
 )
 from hth.optimizer_validity import migrate_optimizer_run, optimizer_evidence_is_valid
+from hth.shape_prediction import canonical_prediction_history
 from hth.write_regression_summary import build_combined_summary
 from hth.domain.calibration import authoritative_record
 from hth.calibration_store import load_index_with_persisted_backfill
@@ -270,16 +271,23 @@ def _attach_optimizer_run_metadata(index: dict[str, Any], optimizer: dict[str, A
 
 
 
-def _attach_prediction_history(results_root: Path, index: dict[str, Any], detector: str) -> dict[str, Any]:
+def _attach_prediction_history(
+    results_root: Path, index: dict[str, Any], detector: str, optimizer: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     path = readable_index_path(results_root, "optimizer-predictions.json")
-    if not path.is_file():
-        return index
-    payload = _read_json(path)
-    index["prediction_history"] = [
-        row for row in payload.get("predictions", [])
-        if isinstance(row, dict) and str(row.get("detector_id") or "") == detector
-    ]
+    payload = _read_json(path) if path.is_file() else {}
+    index["prediction_history"] = canonical_prediction_history(
+        detector=detector, prediction_payload=payload, optimizer_index=optimizer,
+    )
     return index
+
+
+def _canonicalize_published_optimizer_indices(indices: list[dict[str, Any]], detector: str) -> dict[str, Any] | None:
+    """Route legacy published profiles through the same row/index builder as modern evidence."""
+    rows = legacy_optimizer_rows_from_indices(indices, detector)
+    if not rows:
+        return None
+    return build_optimizer_index({"observations": rows}, detector)
 
 
 def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -340,7 +348,17 @@ def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dic
         raise ValueError(f"No completed persisted optimizer run found for detector {detector}")
 
     if run_id is None:
-        return published_current, published_current, {}
+        current_rows = legacy_optimizer_rows_from_indices([published_current], detector)
+        current_legacy = build_optimizer_index(
+            {"observations": current_rows}, detector, optimizer_run_id="legacy-published"
+        ) if current_rows else None
+        legacy_indices = historical_published_optimizer_indices(persisted_summary, detector)
+        preferred_legacy = _canonicalize_published_optimizer_indices(legacy_indices, detector)
+        if current_legacy is None or preferred_legacy is None:
+            raise ValueError(f"No canonical optimizer evidence recovered for detector {detector}")
+        current_legacy = _attach_prediction_history(results_root, current_legacy, detector, optimizer)
+        preferred_legacy = _attach_prediction_history(results_root, preferred_legacy, detector, optimizer)
+        return current_legacy, preferred_legacy, {}
 
     # Once modern completed-run evidence exists, recover distinct older
     # published profiles from results-repository history.  Do not reinterpret
@@ -363,7 +381,14 @@ def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dic
     current = _attach_optimizer_run_metadata(build_optimizer_index(parallelism, detector, run_id), optimizer, detector)
     if not current.get("observation_count"):
         if published_current is not None:
-            return published_current, published_current, run_payload.get("run_metadata", {}) if isinstance(run_payload.get("run_metadata"), dict) else {}
+            recovered_rows = legacy_optimizer_rows_from_indices([published_current], detector)
+            recovered_current = build_optimizer_index(
+                {"observations": recovered_rows}, detector, optimizer_run_id=str(run_id)
+            ) if recovered_rows else None
+            if recovered_current is not None and recovered_current.get("observation_count"):
+                recovered_current = _attach_optimizer_run_metadata(recovered_current, optimizer, detector)
+                recovered_current = _attach_prediction_history(results_root, recovered_current, detector, optimizer)
+                return recovered_current, recovered_current, run_payload.get("run_metadata", {}) if isinstance(run_payload.get("run_metadata"), dict) else {}
         raise ValueError(
             f"Completed optimizer run {run_id} has no persisted completed shape observations for {detector}"
         )
@@ -372,8 +397,8 @@ def _optimizer_report_components(results_root: Path, detector: str) -> tuple[dic
     preferred = _attach_optimizer_run_metadata(build_optimizer_index(parallelism, detector, optimizer_run_ids=completed_ids), optimizer, detector)
     if not preferred.get("observation_count"):
         preferred = current
-    current = _attach_prediction_history(results_root, current, detector)
-    preferred = _attach_prediction_history(results_root, preferred, detector)
+    current = _attach_prediction_history(results_root, current, detector, optimizer)
+    preferred = _attach_prediction_history(results_root, preferred, detector, optimizer)
     run_metadata = run_payload.get("run_metadata") if isinstance(run_payload.get("run_metadata"), dict) else {}
     return current, preferred, run_metadata
 

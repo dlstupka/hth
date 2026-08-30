@@ -32,7 +32,7 @@ def _row(identifier: str, runner: str, pipelines: int, threads: int, wall: float
         "runner_metrics": {"sample_count": 2, "avg_load1": 10.0, "peak_load1": 20.0, "avg_cpu_pct": 75.0, "peak_ram_used_bytes": 8 * 1024**3},
         "runner": {
             "runner_label": runner,
-            "runner_name": "rh8-a197" if runner == "e7k" else runner,
+            "runner_name": "rh8-al97" if runner == "e7k" else runner,
             "runner_labels": ["self-hosted", "linux", runner],
             "cpu_model": f"CPU {runner}",
             "logical_cpu_count": 96 if runner == "e7k" else 32,
@@ -204,7 +204,7 @@ class OptimizerStoreTests(unittest.TestCase):
             "optimizer_intelligence_recovery": "published-summary-history",
             "runner": {
                 "runner_label": "96t",
-                "runner_name": "rh8-a197",
+                "runner_name": "rh8-al97",
                 "runner_labels": ["self-hosted", "96t"],
                 "logical_cpu_count": 96,
             },
@@ -428,14 +428,21 @@ class OptimizerStoreTests(unittest.TestCase):
             row = _row("p8", "e7k", 8, 24, 100.0, optimizer_run_id="321")
             (root / "parallelism-index.json").write_text(json.dumps({"observations": [row], "shard_observations": []}), encoding="utf-8")
             (root / "indexes").mkdir(exist_ok=True)
-            (root / "indexes" / "optimizer-predictions.json").write_text(json.dumps({"predictions": [{
-                "prediction_id": "pred1",
-                "detector_id": "adaptive_radial_edge",
-                "status": "pending",
-                "target_runner": {"runner_name": "rh8-a197", "logical_cpu_count": 96},
-                "predicted_shape": {"pipelines": 7, "threads_per_pipeline": 24, "allocated_threads": 168},
-                "workload": {},
-            }]}), encoding="utf-8")
+            # Legacy optimizer indexes embedded prediction history before the
+            # canonical optimizer-predictions index was guaranteed to exist.
+            # Publishing must migrate that history rather than reporting 0/0.
+            (root / "indexes" / "optimizer-index.json").write_text(json.dumps({
+                "schema_version": 1,
+                "detectors": {"adaptive_radial_edge": {"prediction_history": [{
+                    "prediction_id": "pred1",
+                    "detector_id": "adaptive_radial_edge",
+                    "status": "pending",
+                    "target_runner": {"runner_name": "rh8-al97", "logical_cpu_count": 96},
+                    "predicted_shape": {"pipelines": 7, "threads_per_pipeline": 24, "allocated_threads": 168},
+                    "workload": {},
+                }]}},
+                "runs": {},
+            }), encoding="utf-8")
             metadata = root / "run-metadata.json"
             metadata.write_text(json.dumps({"pipeline_enumeration": "adaptive"}), encoding="utf-8")
             update_optimizer_artifacts(root, "adaptive_radial_edge", optimizer_run_id="321", run_metadata_path=metadata)

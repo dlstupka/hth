@@ -368,7 +368,7 @@ After every successfully completed shape, the optimizer compares parameter sets/
 
 Every optimizer shard writes a shard-completion checkpoint into the raw optimizer parallelism data as soon as that shard finishes. Shape aggregates are written after merge. This preserves partial experimental evidence without turning optimizer runs into calibration runs. Optimizer execution does not publish calibration intelligence, regression manifests, or normal regression artifacts.
 
-Runner health sampling is intentionally coarse. On the existing optimizer heartbeat only, Linux runners read `/proc/loadavg`, `/proc/stat`, and `/proc/meminfo` and emit a companion line such as `[runner e7k/rh8-a197] load=1042.7 cpu=93.4% iowait=1.2% ram=8.1G/2.0T swap=0`. Raw heartbeat samples are retained in optimizer intelligence and summarized for each shape; there is no separate high-frequency sampler.
+Runner health sampling is intentionally coarse. On the existing optimizer heartbeat only, Linux runners read `/proc/loadavg`, `/proc/stat`, and `/proc/meminfo` and emit a companion line such as `[runner e7k/rh8-al97] load=1042.7 cpu=93.4% iowait=1.2% ram=8.1G/2.0T swap=0`. Raw heartbeat samples are retained in optimizer intelligence and summarized for each shape; there is no separate high-frequency sampler.
 
 Persistent artifacts are:
 

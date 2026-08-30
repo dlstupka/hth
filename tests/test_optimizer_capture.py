@@ -35,7 +35,7 @@ class OptimizerCaptureTests(unittest.TestCase):
         }), encoding="utf-8")
         (run / "reports" / "summary.json").write_text(json.dumps({
             "runner": {
-                "runner_name": "rh8-a197",
+                "runner_name": "rh8-al97",
                 "logical_cpu_count": 96,
                 "cpu_model": "AMD EPYC",
             },

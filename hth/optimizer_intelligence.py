@@ -51,6 +51,72 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+
+
+def canonical_optimizer_evidence(
+    rows: Iterable[dict[str, Any]],
+    *,
+    detector: str | None = None,
+) -> list[dict[str, Any]]:
+    """Normalize, validate, and deduplicate optimizer evidence for every consumer."""
+    normalized = []
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        row = migrate_optimizer_evidence(raw)
+        if not optimizer_evidence_is_valid(row):
+            continue
+        if detector is not None and str(row.get("detector_id") or "") != str(detector):
+            continue
+        normalized.append(row)
+    return suppress_recovered_optimizer_duplicates(normalized)
+
+
+def optimizer_evidence_coverage(
+    rows: Iterable[dict[str, Any]],
+    *,
+    detector: str | None = None,
+    prediction_history: Iterable[dict[str, Any]] | None = None,
+    observed_vcpu_anchors: Iterable[int] | None = None,
+) -> dict[str, Any]:
+    """Summarize hardware anchors and prediction-check lifecycle from canonical evidence."""
+    evidence = canonical_optimizer_evidence(rows, detector=detector)
+    anchors = sorted({
+        logical
+        for row in evidence
+        if (logical := _as_int(runner_from_row(row).get("logical_cpu_count"))) is not None and logical > 0
+    } | {
+        logical
+        for value in (observed_vcpu_anchors or [])
+        if (logical := _as_int(value)) is not None and logical > 0
+    })
+    if not anchors:
+        readiness = "none"
+        desired = "missing: at least one completed optimizer run"
+    elif len(anchors) == 1:
+        readiness = "low"
+        desired = "missing: a second vCPU size to establish shape scaling"
+    elif len(anchors) == 2:
+        readiness = "moderate"
+        desired = "desired: a third vCPU size to validate interpolation/extrapolation"
+    else:
+        readiness = "high"
+        desired = "basic vCPU shape coverage is sufficient; additional runner sizes are optional validation"
+
+    predictions = [
+        row for row in (prediction_history or [])
+        if isinstance(row, dict) and (detector is None or str(row.get("detector_id") or "") == str(detector))
+    ]
+    verified = sum(1 for row in predictions if str(row.get("status") or "pending") == "verified")
+    pending = sum(1 for row in predictions if str(row.get("status") or "pending") not in {"verified", "measured-equivalent"})
+    return {
+        "anchors": anchors,
+        "readiness": readiness,
+        "desired": desired,
+        "verified_predictions": verified,
+        "pending_predictions": pending,
+    }
+
 def runner_from_row(row: dict[str, Any]) -> dict[str, Any]:
     runner = row.get("runner")
     return runner if isinstance(runner, dict) else {}
@@ -265,10 +331,14 @@ def legacy_optimizer_rows_from_indices(indices: Iterable[dict[str, Any]], detect
                 continue
             runner_title = str(runner_group.get("runner_title") or "")
             capacity = re.match(r"\s*(\d+)t\b", runner_title.lower())
-            logical = int(capacity.group(1)) if capacity else None
+            vcpu = re.search(r"\((\d+)\s*vCPU\)", runner_title, flags=re.IGNORECASE)
+            logical = int(capacity.group(1)) if capacity else (int(vcpu.group(1)) if vcpu else None)
             name_match = re.search(r"—\s*([^()]+?)(?:\s*\(|$)", runner_title)
             runner_name = name_match.group(1).strip() if name_match else "legacy-published"
-            runner_label = f"{logical}t" if logical else "unknown"
+            label_match = re.match(r"\s*([^—]+?)\s*—", runner_title)
+            runner_label = label_match.group(1).strip() if label_match else (f"{logical}t" if logical else "unknown")
+            if runner_label.lower() == "unknown" and logical:
+                runner_label = f"{logical}t"
             for sequence, shape in enumerate(runner_group.get("shapes", []), start=1):
                 pipelines = _as_int(shape.get("pipelines")); threads = _as_int(shape.get("threads_per_pipeline"))
                 wall = _as_float(shape.get("fastest_wall_clock_seconds")); rate = _as_float(shape.get("parameter_sets_per_second"))
@@ -286,7 +356,7 @@ def legacy_optimizer_rows_from_indices(indices: Iterable[dict[str, Any]], detect
                     "optimizer_shape_sequence": _as_int(shape.get("optimizer_shape_sequence")) or sequence,
                     "optimizer_run_id": run_id,
                     "runner": {"runner_label": runner_label,
-                               "runner_labels": (["self-hosted", runner_label] if logical else ["self-hosted"]),
+                               "runner_labels": (["self-hosted", runner_label] if runner_label != "unknown" else ["self-hosted"]),
                                "runner_name": runner_name, "logical_cpu_count": logical},
                     "optimizer_intelligence_recovery": "published-summary-history",
                 }

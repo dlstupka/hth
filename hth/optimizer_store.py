@@ -15,7 +15,7 @@ from pathlib import Path
 from hth.persistence import canonical_index_path, readable_index_path, read_json as _read_json, atomic_write_json as _write_json, load_index, write_index
 from hth.optimizer_history import completed_run_records, persist_completed_run, persist_recovered_legacy_run
 from hth.optimizer_validity import migrate_optimizer_evidence, optimizer_evidence_is_valid, suppress_recovered_optimizer_duplicates
-from hth.optimizer_intelligence import historical_published_optimizer_indices, legacy_optimizer_rows_from_indices
+from hth.optimizer_intelligence import historical_published_optimizer_indices, legacy_optimizer_rows_from_indices, optimizer_evidence_coverage
 from typing import Any, Iterable
 
 from hth.contracts import OPTIMIZER_INDEX_SCHEMA_VERSION, adapt_optimizer_index
@@ -298,6 +298,7 @@ def build_optimizer_index(parallelism_index: dict[str, Any], detector_id: str, o
         "best_across_runners": best_across_runners,
         "runners": runners,
         "plot_series": plot_series,
+        "evidence_coverage": optimizer_evidence_coverage(rows, detector=detector_id),
     }
 
 
@@ -419,39 +420,15 @@ def _represented_search_methods(index: dict[str, Any]) -> str:
 
 
 def _shape_prediction_coverage(index: dict[str, Any]) -> dict[str, Any]:
-    anchors = sorted({
-        _as_int((runner.get("runner_specs") or {}).get("logical_cpu_count"))
-        for runner in index.get("runners", [])
-        if isinstance(runner, dict)
-        and isinstance(runner.get("best_shape"), dict)
-        and _as_int((runner.get("runner_specs") or {}).get("logical_cpu_count")) is not None
-    })
-    anchors = [value for value in anchors if value is not None]
-    count = len(anchors)
-    if count == 0:
-        readiness = "none"
-        desired = "missing: at least one completed optimizer run"
-    elif count == 1:
-        readiness = "low"
-        desired = "missing: a second vCPU size to establish shape scaling"
-    elif count == 2:
-        readiness = "moderate"
-        desired = "desired: a third vCPU size to validate interpolation/extrapolation"
-    else:
-        readiness = "high"
-        desired = "basic vCPU shape coverage is sufficient; additional runner sizes are optional validation"
-
+    base = index.get("evidence_coverage") if isinstance(index.get("evidence_coverage"), dict) else {}
     history = index.get("prediction_history")
     predictions = history if isinstance(history, list) else []
-    verified = sum(1 for row in predictions if isinstance(row, dict) and row.get("status") == "verified")
-    pending = sum(1 for row in predictions if isinstance(row, dict) and row.get("status") != "verified")
-    return {
-        "anchors": anchors,
-        "readiness": readiness,
-        "desired": desired,
-        "verified_predictions": verified,
-        "pending_predictions": pending,
-    }
+    return optimizer_evidence_coverage(
+        [],
+        detector=str(index.get("detector_id") or ""),
+        prediction_history=predictions,
+        observed_vcpu_anchors=base.get("anchors", []),
+    )
 
 
 def _render_shape_prediction_coverage(index: dict[str, Any]) -> list[str]:
@@ -1022,7 +999,8 @@ def update_optimizer_artifacts(
 
     predictions_path = canonical_index_path(results_root, "optimizer-predictions.json")
     try:
-        from hth.shape_prediction import verify_predictions
+        from hth.shape_prediction import migrate_prediction_history, verify_predictions
+        migrate_prediction_history(predictions_path, optimizer_index=existing)
         compatible_rows = _comparable(
             (row for row in parallelism.get("observations", []) if isinstance(row, dict)),
             detector_id,

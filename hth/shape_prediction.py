@@ -73,6 +73,78 @@ def _write_prediction_payload(path: Path, payload: dict[str, Any]) -> None:
     _write_json(path, payload)
 
 
+
+
+def canonical_prediction_history(
+    *,
+    detector: str | None = None,
+    prediction_payload: dict[str, Any] | None = None,
+    optimizer_index: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Return deduplicated prediction/check history through one compatibility boundary.
+
+    ``optimizer-predictions.json`` is canonical. Older optimizer indexes embedded
+    the same prediction rows under detector/current-execution records; retain
+    those only as migration input so reporting and verification do not silently
+    lose already-recorded prediction checks.
+    """
+    rows: list[dict[str, Any]] = []
+    if isinstance(prediction_payload, dict):
+        rows.extend(row for row in prediction_payload.get("predictions", []) if isinstance(row, dict))
+
+    legacy = optimizer_index if isinstance(optimizer_index, dict) else {}
+    detectors = legacy.get("detectors") if isinstance(legacy.get("detectors"), dict) else {}
+    for detector_id, payload in detectors.items():
+        if not isinstance(payload, dict):
+            continue
+        for row in payload.get("prediction_history", []):
+            if isinstance(row, dict):
+                item = dict(row)
+                item.setdefault("detector_id", str(detector_id))
+                rows.append(item)
+    runs = legacy.get("runs") if isinstance(legacy.get("runs"), dict) else {}
+    for payload in runs.values():
+        if not isinstance(payload, dict):
+            continue
+        current = payload.get("current_execution") if isinstance(payload.get("current_execution"), dict) else {}
+        for row in current.get("prediction_history", []):
+            if isinstance(row, dict):
+                rows.append(dict(row))
+
+    deduped: dict[str, dict[str, Any]] = {}
+    anonymous = 0
+    for row in rows:
+        if detector is not None and str(row.get("detector_id") or "") != str(detector):
+            continue
+        prediction_id = str(row.get("prediction_id") or "").strip()
+        if not prediction_id:
+            anonymous += 1
+            prediction_id = f"anonymous:{anonymous}:{hashlib.sha256(json.dumps(row, sort_keys=True).encode('utf-8')).hexdigest()}"
+        existing = deduped.get(prediction_id)
+        if existing is None or (existing.get("status") != "verified" and row.get("status") == "verified"):
+            deduped[prediction_id] = dict(row)
+    return list(deduped.values())
+
+
+def migrate_prediction_history(
+    predictions_index: Path,
+    *,
+    optimizer_index: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Materialize legacy embedded prediction history into the canonical index."""
+    payload = _read_prediction_payload(predictions_index) if (predictions_index.is_file() or _legacy_prediction_path(predictions_index)) else {}
+    rows = canonical_prediction_history(prediction_payload=payload, optimizer_index=optimizer_index)
+    if not rows:
+        return payload or None
+    canonical = {
+        "schema_version": PREDICTION_SCHEMA_VERSION,
+        "updated_at_utc": _now(),
+        "predictions": rows[-2000:],
+    }
+    if payload.get("predictions") != canonical["predictions"] or not predictions_index.is_file():
+        _write_prediction_payload(predictions_index, canonical)
+    return canonical
+
 def _shape_from_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "pipelines": _as_int(row.get("active_pipelines")),

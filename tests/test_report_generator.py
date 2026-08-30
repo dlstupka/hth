@@ -228,18 +228,19 @@ class ReportGeneratorTests(unittest.TestCase):
 
 | Runner | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Sets/s | Speedup | Efficiency | Runs |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| e7k — rh8-a197 (96 vCPU) | 1 | 1 | 192 | 192 | 44m 32s | 2.46 | 1.00× | unknown | 1 |
-| **e7k — rh8-a197 (96 vCPU)** | 64 | 64 | 3 | 192 | 1m 32s | 71.33 | 29.04× | 84.9% | 1 |
-| unknown — rh8-a197 (96 vCPU) | 1 | 1 | 192 | 192 | 45m 27s | 2.41 | 1.00× | unknown | 1 |
-| **unknown — rh8-a197 (96 vCPU)** | 64 | 64 | 1 | 64 | 1m 28s | unknown | 31.02× | unknown | 4 |
+| e7k — rh8-al97 (96 vCPU) | 1 | 1 | 192 | 192 | 44m 32s | 2.46 | 1.00× | unknown | 1 |
+| **e7k — rh8-al97 (96 vCPU)** | 64 | 64 | 3 | 192 | 1m 32s | 71.33 | 29.04× | 84.9% | 1 |
+| unknown — rh8-al97 (96 vCPU) | 1 | 1 | 192 | 192 | 45m 27s | 2.41 | 1.00× | unknown | 1 |
+| **unknown — rh8-al97 (96 vCPU)** | 64 | 64 | 1 | 64 | 1m 28s | unknown | 31.02× | unknown | 4 |
 """, encoding="utf-8")
             persisted.joinpath("heatmap.svg").write_text("<svg>legacy</svg>\n", encoding="utf-8")
             paths = generate_optimizer_report(root, "adaptive_radial_edge", root / "out")
             summary = paths["summary"].read_text(encoding="utf-8")
             profile = paths["profile"].read_text(encoding="utf-8")
             self.assertIn("Optimizer run: **legacy-published**", summary)
-            self.assertIn("e7k — rh8-a197", summary)
-            self.assertNotIn("unknown — rh8-a197", summary)
+            self.assertIn("e7k — rh8-al97", summary)
+            self.assertNotIn("unknown — rh8-al97", summary)
+            self.assertIn("vCPU anchors `96`; readiness **low**", summary)
             self.assertIn("detector pipelines (log₂ scale)", profile)
             self.assertIn("parameter sets / second", profile)
 
@@ -254,9 +255,9 @@ class ReportGeneratorTests(unittest.TestCase):
 
 | Runner | Pipelines | Shards | Threads / pipeline | Allocated threads | Fastest wall | Median wall | Sets/s | Speedup vs 1 pipeline | Efficiency | Runs |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| e7k — rh8-a197 (96 vCPU) | 1 | 1 | 192 | 192 | 44m 32s | 44m 32s | 2.46 | 1.00× | unknown | 1 |
-| **e7k — rh8-a197 (96 vCPU)** | 64 | 64 | 3 | 192 | 1m 32s | 1m 32s | 71.33 | 29.04× | 84.9% | 1 |
-| unknown — rh8-a197 (96 vCPU) | 1 | 1 | 192 | 192 | 45m 27s | 45m 27s | 2.41 | 1.00× | unknown | 1 |
+| e7k — rh8-al97 (96 vCPU) | 1 | 1 | 192 | 192 | 44m 32s | 44m 32s | 2.46 | 1.00× | unknown | 1 |
+| **e7k — rh8-al97 (96 vCPU)** | 64 | 64 | 3 | 192 | 1m 32s | 1m 32s | 71.33 | 29.04× | 84.9% | 1 |
+| unknown — rh8-al97 (96 vCPU) | 1 | 1 | 192 | 192 | 45m 27s | 45m 27s | 2.41 | 1.00× | unknown | 1 |
 """, encoding="utf-8")
             persisted.joinpath("heatmap.svg").write_text("<svg>legacy</svg>\n", encoding="utf-8")
             paths = generate_optimizer_report(root, "adaptive_radial_edge", root / "out")
@@ -264,7 +265,7 @@ class ReportGeneratorTests(unittest.TestCase):
             profile = paths["profile"].read_text(encoding="utf-8")
             self.assertIn("Optimizer run: **legacy-published**", summary)
             self.assertIn("71.33", summary)
-            self.assertNotIn("unknown — rh8-a197", summary)
+            self.assertNotIn("unknown — rh8-al97", summary)
             self.assertIn("detector pipelines (log₂ scale)", profile)
             self.assertIn("parameter sets / second", profile)
 
