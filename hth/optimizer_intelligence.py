@@ -227,7 +227,7 @@ def historical_published_optimizer_indices(path: Path, detector: str) -> list[di
         relative = path.resolve().relative_to(repo).as_posix()
         result = subprocess.run(
             ["git", "-C", str(repo), "log", "--format=%H%x09%cI", "--", relative],
-            check=False, capture_output=True, text=True, timeout=10,
+            check=False, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
         )
         if result.returncode != 0:
             return recovered
@@ -237,7 +237,7 @@ def historical_published_optimizer_indices(path: Path, detector: str) -> list[di
             revision, _, stamp = line.partition("\t")
             shown = subprocess.run(
                 ["git", "-C", str(repo), "show", f"{revision}:{relative}"],
-                check=False, capture_output=True, text=True, timeout=10,
+                check=False, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
             )
             if shown.returncode != 0:
                 continue
