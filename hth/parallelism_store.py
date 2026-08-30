@@ -193,6 +193,7 @@ def observation_from_run(
         "runner_key": _canonical_hash(runner_identity),
         "compatibility_key": _canonical_hash(compatibility),
         "execution_shape": f"{active_pipelines}p/{shards}s/{threads}t",
+        "execution_shape_source": str(pipeline.get("execution_shape_source") or "auto"),
         **shape,
         "wall_clock_seconds": wall,
         "estimated_serial_runtime_seconds": serial,

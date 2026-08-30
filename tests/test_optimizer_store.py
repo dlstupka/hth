@@ -7,6 +7,7 @@ from pathlib import Path
 
 from hth.optimizer_store import build_optimizer_index, render_all_markdown, render_heatmap_svg, render_markdown, select_preferred_shape, update_optimizer_artifacts
 from hth.parallelism_store import update_parallelism_index, update_parallelism_shards
+from hth.shape_prediction import record_prediction_observations
 
 
 def _row(identifier: str, runner: str, pipelines: int, threads: int, wall: float, *, optimizer_run_id: str = "100") -> dict:
@@ -443,12 +444,57 @@ class OptimizerStoreTests(unittest.TestCase):
                 }]}},
                 "runs": {},
             }), encoding="utf-8")
+            # A completed regression that actually used a predicted shape is the
+            # canonical producer of a prediction check. This survives sharding
+            # because records are keyed to the detector/GitHub execution, not a
+            # transient planner file or individual shard.
+            record_prediction_observations(
+                root / "indexes" / "optimizer-predictions.json",
+                [{
+                    "observation_id": "900:scantailor_page_frame:shard-1",
+                    "run_id": "shard-1",
+                    "detector_id": "scantailor_page_frame",
+                    "mode": "full",
+                    "strategy": "exhaustive",
+                    "execution_shape_source": "predicted-low-linear-vcpu",
+                    "active_pipelines": 5,
+                    "threads_per_pipeline": 12,
+                    "allocated_threads": 60,
+                    "detector_config_sha256": "scan-cfg",
+                    "golden_set_sha256": "gold",
+                    "max_dimension": 1800,
+                    "observed_at_utc": "2026-08-30T12:00:00Z",
+                    "runner": {"runner_name": "github-hosted", "runner_label": "github-hosted", "logical_cpu_count": 32},
+                    "build": {"github_run_id": "900"},
+                }, {
+                    "observation_id": "900:scantailor_page_frame:shard-2",
+                    "run_id": "shard-2",
+                    "detector_id": "scantailor_page_frame",
+                    "mode": "full",
+                    "strategy": "exhaustive",
+                    "execution_shape_source": "predicted-low-linear-vcpu",
+                    "active_pipelines": 5,
+                    "threads_per_pipeline": 12,
+                    "allocated_threads": 60,
+                    "detector_config_sha256": "scan-cfg",
+                    "golden_set_sha256": "gold",
+                    "max_dimension": 1800,
+                    "observed_at_utc": "2026-08-30T12:00:01Z",
+                    "runner": {"runner_name": "github-hosted", "runner_label": "github-hosted", "logical_cpu_count": 32},
+                    "build": {"github_run_id": "900"},
+                }],
+            )
             metadata = root / "run-metadata.json"
             metadata.write_text(json.dumps({"pipeline_enumeration": "adaptive"}), encoding="utf-8")
             update_optimizer_artifacts(root, "adaptive_radial_edge", optimizer_run_id="321", run_metadata_path=metadata)
             predictions = json.loads((root / "indexes" / "optimizer-predictions.json").read_text(encoding="utf-8"))
-            self.assertEqual(predictions["predictions"][0]["status"], "verified")
-            self.assertEqual(predictions["predictions"][0]["verification"]["actual_shape"]["pipelines"], 8)
+            adaptive = next(row for row in predictions["predictions"] if row.get("detector_id") == "adaptive_radial_edge")
+            scantailor = [row for row in predictions["predictions"] if row.get("detector_id") == "scantailor_page_frame"]
+            self.assertEqual(adaptive["status"], "verified")
+            self.assertEqual(adaptive["verification"]["actual_shape"]["pipelines"], 8)
+            self.assertEqual(len(scantailor), 1)
+            self.assertEqual(scantailor[0]["status"], "pending")
+            self.assertEqual(scantailor[0]["predicted_shape"]["pipelines"], 5)
             summary = (root / "execution-optimizer" / "adaptive_radial_edge" / "summary.md").read_text(encoding="utf-8")
             self.assertIn("Shape-prediction coverage", summary)
             self.assertIn("Desired / missing optimization data", summary)

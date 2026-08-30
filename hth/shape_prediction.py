@@ -419,6 +419,103 @@ def predict_shape(
     return result
 
 
+
+def prediction_from_execution_observation(observation: dict[str, Any]) -> dict[str, Any] | None:
+    """Build a durable prediction-use record from a completed regression observation.
+
+    Prediction history is evidence of a shape that was actually used, not a side
+    effect of an earlier planning step.  A completed parallelism observation is
+    therefore the canonical producer: if its recorded execution-shape source is
+    a cross-vCPU prediction, the observation itself contains the target runner,
+    workload identity, and exact shape that was exercised.
+    """
+    source = str(observation.get("execution_shape_source") or "").strip()
+    if not source.startswith("predicted-"):
+        return None
+    detector = str(observation.get("detector_id") or "").strip()
+    observation_id = str(observation.get("observation_id") or "").strip()
+    if not detector or not observation_id:
+        return None
+    runner = observation.get("runner") if isinstance(observation.get("runner"), dict) else {}
+    pipelines = _as_int(observation.get("active_pipelines"))
+    threads = _as_int(observation.get("threads_per_pipeline"))
+    if not pipelines or not threads:
+        return None
+    build = observation.get("build") if isinstance(observation.get("build"), dict) else {}
+    # Every shard/pipeline from one detector regression shares the same GitHub run
+    # and chosen shape.  Key the prediction-use record at that level so fan-out
+    # creates one check, not one check per shard.
+    github_run_id = str(build.get("github_run_id") or observation.get("run_id") or observation_id)
+    github_run_attempt = str(build.get("github_run_attempt") or "1")
+    execution_id = f"{github_run_id}:{github_run_attempt}"
+    identity = "|".join((
+        detector, execution_id, str(runner.get("runner_name") or "unknown"),
+        str(_as_int(runner.get("logical_cpu_count")) or ""), str(pipelines), str(threads), source,
+    ))
+    return {
+        "prediction_id": hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20],
+        "created_at_utc": observation.get("observed_at_utc") or _now(),
+        "detector_id": detector,
+        "method": PREDICTION_METHOD,
+        "relation": "scaled-vcpu",
+        "confidence": source.split("-", 2)[1] if source.startswith("predicted-") and "-" in source else "unknown",
+        "source": source,
+        "status": "pending",
+        "target_runner": {
+            "runner_name": runner.get("runner_name"),
+            "runner_label": runner.get("runner_label"),
+            "cpu_model": runner.get("cpu_model"),
+            "physical_core_count": _as_int(runner.get("physical_core_count")),
+            "logical_cpu_count": _as_int(runner.get("logical_cpu_count")),
+            "thread_budget": (_as_int(runner.get("logical_cpu_count")) or 0) * 2 or None,
+        },
+        "predicted_shape": {
+            "pipelines": pipelines,
+            "threads_per_pipeline": threads,
+            "allocated_threads": _as_int(observation.get("allocated_threads")) or pipelines * threads,
+        },
+        "workload": {
+            "detector_config_sha256": observation.get("detector_config_sha256"),
+            "golden_set_sha256": observation.get("golden_set_sha256"),
+            "max_dimension": _as_int(observation.get("max_dimension")),
+            "mode": observation.get("mode"),
+            "strategy": observation.get("strategy"),
+        },
+        "execution_observation_id": observation_id,
+        "github_run_id": build.get("github_run_id"),
+        "github_run_attempt": build.get("github_run_attempt"),
+    }
+
+
+def record_prediction_observations(
+    predictions_index: Path, observations: Iterable[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Persist prediction checks from completed regression observations."""
+    payload = _read_prediction_payload(predictions_index) if (predictions_index.is_file() or _legacy_prediction_path(predictions_index)) else {}
+    existing = [row for row in payload.get("predictions", []) if isinstance(row, dict)]
+    by_id = {str(row.get("prediction_id") or ""): dict(row) for row in existing if row.get("prediction_id")}
+    for observation in observations:
+        if not isinstance(observation, dict):
+            continue
+        prediction = prediction_from_execution_observation(observation)
+        if prediction is None:
+            continue
+        prediction_id = str(prediction["prediction_id"])
+        previous = by_id.get(prediction_id)
+        if previous is None or str(previous.get("status") or "pending") != "verified":
+            by_id[prediction_id] = prediction
+    rows = list(by_id.values())[-2000:]
+    if not rows:
+        return payload or None
+    canonical = {
+        "schema_version": PREDICTION_SCHEMA_VERSION,
+        "updated_at_utc": _now(),
+        "predictions": rows,
+    }
+    if payload.get("predictions") != rows or not predictions_index.is_file():
+        _write_prediction_payload(predictions_index, canonical)
+    return canonical
+
 def merge_prediction(predictions_index: Path, prediction: dict[str, Any]) -> dict[str, Any]:
     payload = _read_prediction_payload(predictions_index)
     rows = [row for row in payload.get("predictions", []) if isinstance(row, dict)]

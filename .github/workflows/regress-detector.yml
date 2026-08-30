@@ -554,7 +554,6 @@ jobs:
             --runner-label "${HTH_RUNNER_LABEL:-unknown}" \
             --runner-budget "${HTH_DISPATCH_RUNNER_BUDGET:-16}" \
             "${shape_args[@]}" \
-            --prediction-out "$RUNNER_TEMP/hth-shape-prediction-${DETECTOR_ALGORITHM}.json" \
             --github-env "$GITHUB_ENV"
 
       - name: Reset regression output workspace
@@ -608,11 +607,6 @@ jobs:
               python -m hth.regression.learned_evidence rebuild-orli-index --results-root results-repo
             fi
 
-            if [[ -n "${HTH_SHAPE_PREDICTION_FILE:-}" && -f "${HTH_SHAPE_PREDICTION_FILE}" ]]; then
-              python -m hth.regression_shape record-prediction \
-                --prediction-file "${HTH_SHAPE_PREDICTION_FILE}" \
-                --predictions-index results-repo/indexes/optimizer-predictions.json
-            fi
 
             python -m hth.calibration_store publish \
               "${publish_args[@]}" \

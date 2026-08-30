@@ -373,6 +373,8 @@ class PreferredDispatchWorkflowContractTests(unittest.TestCase):
         self.assertIn("runs-on: ${{ fromJSON(needs.resolve-execution-dispatch.outputs.runs_on) }}", text)
         self.assertIn("HTH_PRE_RESOLVED_PIPELINES", text)
         self.assertIn("--runner-budget", text)
+        self.assertNotIn("record-prediction", text)
+        self.assertNotIn("--prediction-out", text)
 
 
 if __name__ == "__main__":

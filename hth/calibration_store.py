@@ -18,6 +18,8 @@ from typing import Any
 
 from hth.runtime_store import observation_from_run, update_runtime_index
 from hth.parallelism_store import observation_from_run as parallelism_observation_from_run, update_parallelism_index
+from hth.shape_prediction import record_prediction_observations
+from hth.persistence import canonical_index_path
 from hth.regression.parameter_provenance import provenance_from_legacy_parameters, resolve_parameter_set
 
 from hth.contracts import CALIBRATION_INDEX_SCHEMA_VERSION, adapt_calibration_index
@@ -539,6 +541,10 @@ def main(argv: list[str] | None = None) -> int:
     update_runtime_index(args.results_root, runtime_observations)
     parallelism_observations = [parallelism_observation_from_run(run_dir, build=build) for run_dir in args.run_dir]
     update_parallelism_index(args.results_root, parallelism_observations)
+    record_prediction_observations(
+        canonical_index_path(args.results_root, "optimizer-predictions.json"),
+        parallelism_observations,
+    )
     return 0
 
 
