@@ -157,6 +157,7 @@ def generate_calibration_manifest(
             results_commit=results_commit,
             calibration_index=readable_index_path(results_root, "calibration-index.json"),
             runtime_index=readable_index_path(results_root, "runtime-index.json"),
+            report_writer_smoke_reference=True,
         )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(text, encoding="utf-8")

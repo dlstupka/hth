@@ -2693,6 +2693,7 @@ def build_combined_summary(
     calibration_index: Path | None = None,
     runtime_index: Path | None = None,
     multidetector_index: Path | None = None,
+    report_writer_smoke_reference: bool = False,
 ) -> str:
     if not run_dirs:
         raise ValueError("At least one regression run directory is required")
@@ -2846,43 +2847,110 @@ def build_combined_summary(
         f"| Loading strategy | {('LPT (Longest Processing Time first)' if str(execution.get('loading_strategy', '')).lower() == 'lpt' else str(execution.get('loading_strategy', 'unknown')).upper())} | Strategy used to construct the fixed detector schedules before fan-out. |",
         f"| Pipeline stagger | {execution.get('stagger_minutes', 'unknown')}m | Delay between initial pipeline starts; each pipeline then follows its fixed schedule. |",
         f"| Source-document images | {source_document.get('image_count', 'unknown')} | Total images recorded for the source document. |",
-        "",
-        "### Regression Smoke-Test Execution Schedule",
-        "",
-        "Report Writer shows a stable GitHub-hosted smoke-test reference schedule rather than reusing the topology of whichever self-hosted runner produced the current calibration manifest. Detector costs come from the newest matching GitHub-hosted smoke observation when available, then canonical static LPT places the detectors for the fixed 4-vCPU / 8-thread reference capacity.",
-        "",
     ])
-    smoke_reference = _github_hosted_smoke_reference_schedule(
-        run_dirs, runtime_index_path=runtime_index, multidetector_index=multidetector_index
-    )
-    lines.extend([
-        "| Setting | GitHub-hosted smoke reference |",
-        "|---|---|",
-        f"| Runner profile | GitHub hosted — {smoke_reference['vcpu']} vCPU / {smoke_reference['max_threads']} max threads |",
-        f"| Detector pipelines | {smoke_reference['pipelines']} |",
-        "| Loading / balancing | Static LPT makespan balancing |",
-        f"| Threads per detector regression | {smoke_reference['threads_per_pipeline']} |",
-        f"| Scheduling intelligence | `{smoke_reference['source']}` |",
-        f"| Smoke evidence | {('GitHub run `' + smoke_reference['evidence_run'] + '`') if smoke_reference['evidence_run'] else 'No matching persisted GitHub-hosted smoke observation; runtime estimates used.'} |",
-        "| Pipeline start stagger | 0m |",
-        "| Runtime intelligence | `runtime-index.json` |",
-        "| Parallelism intelligence | `parallelism-index.json` |",
-        "| Calibration intelligence | `calibration-index.json` |",
-        "",
-        "| Pipeline | Smoke-test schedule | Est Work | Threads |",
-        "|---:|---|---:|---:|",
-    ])
-    for plan in smoke_reference["plans"]:
-        schedule_ids = ", ".join(f"`{row['detector']}`" for row in plan["tasks"]) or "—"
-        lines.append(
-            f"| {plan['pipeline']} | {schedule_ids} | {_duration(plan['estimated_seconds'])} | {smoke_reference['threads_per_pipeline']} |"
+
+    if report_writer_smoke_reference:
+        smoke_reference = _github_hosted_smoke_reference_schedule(
+            run_dirs, runtime_index_path=runtime_index, multidetector_index=multidetector_index
         )
+        lines.extend([
+            "",
+            "### Regression Smoke-Test Execution Schedule",
+            "",
+            "Report Writer shows a stable GitHub-hosted smoke-test reference schedule rather than reusing the topology of whichever self-hosted runner produced the current calibration manifest. Detector costs come from the newest matching GitHub-hosted smoke observation when available, then canonical static LPT places the detectors for the fixed 4-vCPU / 8-thread reference capacity.",
+            "",
+            "| Setting | GitHub-hosted smoke reference |",
+            "|---|---|",
+            f"| Runner profile | GitHub hosted — {smoke_reference['vcpu']} vCPU / {smoke_reference['max_threads']} max threads |",
+            f"| Detector pipelines | {smoke_reference['pipelines']} |",
+            "| Loading / balancing | Static LPT makespan balancing |",
+            f"| Threads per detector regression | {smoke_reference['threads_per_pipeline']} |",
+            f"| Scheduling intelligence | `{smoke_reference['source']}` |",
+            f"| Smoke evidence | {('GitHub run `' + smoke_reference['evidence_run'] + '`') if smoke_reference['evidence_run'] else 'No matching persisted GitHub-hosted smoke observation; runtime estimates used.'} |",
+            "| Pipeline start stagger | 0m |",
+            "| Runtime intelligence | `runtime-index.json` |",
+            "| Parallelism intelligence | `parallelism-index.json` |",
+            "| Calibration intelligence | `calibration-index.json` |",
+            "",
+            "| Pipeline | Smoke-test schedule | Est Work | Threads |",
+            "|---:|---|---:|---:|",
+        ])
+        for plan in smoke_reference["plans"]:
+            schedule_ids = ", ".join(f"`{row['detector']}`" for row in plan["tasks"]) or "—"
+            lines.append(
+                f"| {plan['pipeline']} | {schedule_ids} | {_duration(plan['estimated_seconds'])} | {smoke_reference['threads_per_pipeline']} |"
+            )
+        lines.extend([
+            "",
+            "This is a reference smoke schedule only. Self-hosted runners may use different detector-pipeline counts and thread allocations; their changing topology is intentionally not projected into this Report Writer section.",
+            "",
+            "Scheduler-facing detector cost includes the executor's per-detector load/run/unload wrapper time; canonical static LPT therefore learns orchestration overhead instead of modeling detector-core RUN-INFO time alone.",
+            "",
+        ])
+    else:
+        lines.extend([
+            "",
+            "### Regression Smoke-Test Execution Schedule",
+            "",
+            "The smoke-test schedule below is the live schedule executed by this build. Detector runtimes are ordered by Longest Processing Time (LPT), then greedily assigned to the least-loaded pipeline before workers start; pipelines execute their fixed schedules without dynamic stealing or refill claims.",
+            "",
+            "| Setting | Live smoke run |",
+            "|---|---|",
+            f"| Detector pipelines | {next_schedule['pipelines']} |",
+            "| Loading / balancing | Static LPT makespan balancing |",
+            f"| Threads per detector regression | {next_schedule['threads_per_pipeline']} |",
+            f"| Scheduling intelligence | `{next_schedule['source']}` |",
+            "| Pipeline start stagger | 0m |",
+            "| Runtime intelligence | `runtime-index.json` |",
+            "| Parallelism intelligence | `parallelism-index.json` |",
+            "| Calibration intelligence | `calibration-index.json` |",
+            "| Persistence | Results are accumulated during execution and published as one post-run calibration/index transaction. |",
+            "",
+        ])
+        current_schedule = _current_pipeline_schedule(run_dirs, int(next_schedule["pipelines"]))
+        current_observation = _current_multidetector_observation(
+            multidetector_index,
+            build_id=str(execution.get("profile", {}).get("build_id") or "") if execution.get("profile") else None,
+            golden_set_sha256=_combined_golden_sha(run_dirs),
+        )
+        feedback_schedule, actual_pipeline_seconds = _scheduler_feedback_schedule(
+            current_schedule, current_observation, int(next_schedule["pipelines"])
+        )
+        current_by_pipeline = {int(plan["pipeline"]): plan for plan in current_schedule}
+        next_by_pipeline = {int(plan["pipeline"]): plan for plan in feedback_schedule}
+        lines.extend([
+            "| Pipeline | Schedule | Reshuffle | Est Work | Actual Work Time | Next Run | Next Est | Threads |",
+            "|---:|---|---|---:|---:|---|---:|---:|",
+        ])
+        for pipeline in sorted(set(current_by_pipeline) | set(next_by_pipeline)):
+            current = current_by_pipeline.get(pipeline, {"pipeline": pipeline, "tasks": [], "estimated_seconds": 0.0})
+            next_plan = next_by_pipeline.get(pipeline, {"pipeline": pipeline, "tasks": [], "estimated_seconds": 0.0})
+            schedule_ids = ", ".join(f"`{row['detector']}`" for row in current["tasks"]) or "—"
+            next_ids = ", ".join(f"`{row['detector']}`" for row in next_plan["tasks"]) or "—"
+            actual = actual_pipeline_seconds.get(pipeline)
+            lines.append(
+                f"| {pipeline} | {schedule_ids} | {_schedule_delta(current, next_plan)} | "
+                f"{_duration(current['estimated_seconds'])} | {_duration(actual) if actual is not None else '—'} | "
+                f"{next_ids} | {_duration(next_plan['estimated_seconds'])} | {next_schedule['threads_per_pipeline']} |"
+            )
+        if actual_pipeline_seconds:
+            actual_values = list(actual_pipeline_seconds.values())
+            next_values = [float(plan.get("estimated_seconds") or 0.0) for plan in feedback_schedule]
+            actual_spread = max(actual_values) - min(actual_values) if len(actual_values) > 1 else 0.0
+            next_spread = max(next_values) - min(next_values) if len(next_values) > 1 else 0.0
+            lines.extend([
+                "",
+                f"**Pipeline balance feedback:** actual work-time spread {_duration(actual_spread)}; projected next-run spread {_duration(next_spread)}.",
+            ])
+        lines.extend([
+            "",
+            "`Schedule` is the fixed detector-ID order executed by this build. `Est Work` is the estimate used before fan-out. `Actual Work Time` is the measured fixed-pipeline span. `Reshuffle`, `Next Run`, and `Next Est` are derived after the run by re-running static LPT with the newly measured scheduler-facing detector costs.",
+            "",
+            "Scheduler-facing detector cost includes the executor's per-detector load/run/unload wrapper time; pipeline scheduling therefore learns orchestration overhead instead of modeling detector-core RUN-INFO time alone. The next schedule is still fixed before the following run starts—there is no dynamic stealing.",
+            "",
+        ])
+
     lines.extend([
-        "",
-        "This is a reference smoke schedule only. Self-hosted runners may use different detector-pipeline counts and thread allocations; their changing topology is intentionally not projected into this Report Writer section.",
-        "",
-        "Scheduler-facing detector cost includes the executor's per-detector load/run/unload wrapper time; canonical static LPT therefore learns orchestration overhead instead of modeling detector-core RUN-INFO time alone.",
-        "",
         "#### Estimated Runtime by Search Scope",
         "",
         "| All-Detector Regression Scope | Estimated Wall Time* |",

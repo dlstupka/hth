@@ -496,6 +496,18 @@ class RegressionSummaryTests(unittest.TestCase):
                 }],
             }), encoding="utf-8")
 
+            live_text = build_combined_summary(
+                run_dirs,
+                "https://example.invalid/run",
+                pipeline_repository="dlstupka/hth",
+                results_repository="dlstupka/hth-results",
+                results_commit="abc123def456",
+                multidetector_index=multidetector_index,
+            )
+            self.assertIn("| Setting | Live smoke run |", live_text)
+            self.assertIn("| Pipeline | Schedule | Reshuffle | Est Work | Actual Work Time | Next Run | Next Est | Threads |", live_text)
+            self.assertNotIn("GitHub-hosted smoke reference", live_text)
+
             text = build_combined_summary(
                 run_dirs,
                 "https://example.invalid/run",
@@ -503,6 +515,7 @@ class RegressionSummaryTests(unittest.TestCase):
                 results_repository="dlstupka/hth-results",
                 results_commit="abc123def456",
                 multidetector_index=multidetector_index,
+                report_writer_smoke_reference=True,
             )
             self.assertIn("# Detector Regression Manifest", text)
             self.assertIn("**Detectors evaluated:** 2", text)
