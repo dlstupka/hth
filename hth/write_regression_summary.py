@@ -11,6 +11,9 @@ from pathlib import Path
 
 from hth.results_layout import resolve_index_relative_path
 from typing import Any
+
+GITHUB_HOSTED_SMOKE_VCPU = 4
+GITHUB_HOSTED_SMOKE_MAX_THREADS = 8
 from hth.regression.result_metrics import normalize_summary_metrics
 from hth.regression.authoritative_record import authoritative_record
 from hth.regression.calibration_intelligence import detector_characterization
@@ -2565,6 +2568,83 @@ def _capacity_runner_label(info: dict[str, Any]) -> str:
     return str(info.get("runner_name") or "unknown")
 
 
+
+def _latest_github_hosted_smoke_observation(
+    index_path: Path | None, *, golden_set_sha256: str = ""
+) -> dict[str, Any] | None:
+    """Return the newest persisted GitHub-hosted short-run scheduler observation."""
+    if index_path is None or not index_path.is_file():
+        return None
+    payload = _read_json(index_path)
+    candidates: list[dict[str, Any]] = []
+    for row in payload.get("observations", []):
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("workload_class") or "") != "short":
+            continue
+        if str(row.get("runner_label") or "") != "github-hosted":
+            continue
+        try:
+            budget = int(row.get("runner_thread_budget") or 0)
+        except (TypeError, ValueError):
+            continue
+        if budget != GITHUB_HOSTED_SMOKE_MAX_THREADS:
+            continue
+        if golden_set_sha256 and str(row.get("golden_set_sha256") or "") != golden_set_sha256:
+            continue
+        candidates.append(row)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda row: str(row.get("observed_at_utc") or ""), reverse=True)
+    return candidates[0]
+
+
+def _github_hosted_smoke_reference_schedule(
+    run_dirs: list[Path], *, runtime_index_path: Path | None, multidetector_index: Path | None
+) -> dict[str, Any]:
+    """Build Report Writer's stable GitHub-hosted smoke schedule reference."""
+    golden_sha = _combined_golden_sha(run_dirs)
+    observation = _latest_github_hosted_smoke_observation(
+        multidetector_index, golden_set_sha256=golden_sha
+    )
+    measured_by_detector: dict[str, float] = {}
+    evidence_run = ""
+    if observation:
+        evidence_run = str(observation.get("github_run_id") or observation.get("github_run_number") or "")
+        for task in observation.get("tasks", []):
+            if not isinstance(task, dict) or str(task.get("status") or "") != "complete":
+                continue
+            detector = str(task.get("detector") or "")
+            try:
+                seconds = float(task.get("scheduler_slot_seconds", task.get("busy_seconds")))
+            except (TypeError, ValueError):
+                continue
+            if detector and seconds >= 0:
+                measured_by_detector[detector] = measured_by_detector.get(detector, 0.0) + seconds
+
+    rows = _queue_rows(run_dirs, runtime_index_path=runtime_index_path, execution_profile=None)
+    for row in rows:
+        detector = str(row.get("detector") or "")
+        if detector in measured_by_detector:
+            row["estimate_seconds"] = measured_by_detector[detector]
+            row["estimate_source"] = "github-hosted-smoke-observation"
+
+    recommendation = recommended_schedule(
+        index_path=None, detector_count=len(rows),
+        runner_thread_budget=GITHUB_HOSTED_SMOKE_MAX_THREADS, runner_label="github-hosted",
+        golden_set_sha256=golden_sha or None, mode="smoke", strategy="exhaustive", limit="10",
+    )
+    plans = _static_pipeline_schedule(rows, int(recommendation["pipelines"]))
+    return {
+        "vcpu": GITHUB_HOSTED_SMOKE_VCPU,
+        "max_threads": GITHUB_HOSTED_SMOKE_MAX_THREADS,
+        "pipelines": int(recommendation["pipelines"]),
+        "threads_per_pipeline": int(recommendation["threads_per_pipeline"]),
+        "source": "canonical-lpt-planner",
+        "evidence_run": evidence_run,
+        "plans": plans,
+    }
+
 def _next_run_schedule_recommendation(
     run_dirs: list[Path], *, multidetector_index: Path | None
 ) -> dict[str, Any]:
@@ -2767,63 +2847,41 @@ def build_combined_summary(
         f"| Pipeline stagger | {execution.get('stagger_minutes', 'unknown')}m | Delay between initial pipeline starts; each pipeline then follows its fixed schedule. |",
         f"| Source-document images | {source_document.get('image_count', 'unknown')} | Total images recorded for the source document. |",
         "",
-        "### Regression Execution Schedule",
+        "### Regression Smoke-Test Execution Schedule",
         "",
-        "The next multi-detector run is planned once, before workers start. Detector runtimes are ordered by Longest Processing Time (LPT), then greedily assigned to the least-loaded pipeline so the longest jobs gate the build and projected pipeline finish times converge. Pipelines execute their fixed schedules without dynamic stealing or refill claims.",
+        "Report Writer shows a stable GitHub-hosted smoke-test reference schedule rather than reusing the topology of whichever self-hosted runner produced the current calibration manifest. Detector costs come from the newest matching GitHub-hosted smoke observation when available, then canonical static LPT places the detectors for the fixed 4-vCPU / 8-thread reference capacity.",
         "",
-        "| Setting | Preferred next run |",
+    ])
+    smoke_reference = _github_hosted_smoke_reference_schedule(
+        run_dirs, runtime_index_path=runtime_index, multidetector_index=multidetector_index
+    )
+    lines.extend([
+        "| Setting | GitHub-hosted smoke reference |",
         "|---|---|",
-        f"| Detector pipelines | {next_schedule['pipelines']} |",
+        f"| Runner profile | GitHub hosted — {smoke_reference['vcpu']} vCPU / {smoke_reference['max_threads']} max threads |",
+        f"| Detector pipelines | {smoke_reference['pipelines']} |",
         "| Loading / balancing | Static LPT makespan balancing |",
-        f"| Threads per detector regression | {next_schedule['threads_per_pipeline']} |",
-        f"| Scheduling intelligence | `{next_schedule['source']}` |",
+        f"| Threads per detector regression | {smoke_reference['threads_per_pipeline']} |",
+        f"| Scheduling intelligence | `{smoke_reference['source']}` |",
+        f"| Smoke evidence | {('GitHub run `' + smoke_reference['evidence_run'] + '`') if smoke_reference['evidence_run'] else 'No matching persisted GitHub-hosted smoke observation; runtime estimates used.'} |",
         "| Pipeline start stagger | 0m |",
         "| Runtime intelligence | `runtime-index.json` |",
         "| Parallelism intelligence | `parallelism-index.json` |",
         "| Calibration intelligence | `calibration-index.json` |",
-        "| Persistence | Results are accumulated during execution and published as one post-run calibration/index transaction. |",
         "",
+        "| Pipeline | Smoke-test schedule | Est Work | Threads |",
+        "|---:|---|---:|---:|",
     ])
-    current_schedule = _current_pipeline_schedule(run_dirs, int(next_schedule["pipelines"]))
-    current_observation = _current_multidetector_observation(
-        multidetector_index,
-        build_id=str(execution.get("profile", {}).get("build_id") or "") if execution.get("profile") else None,
-        golden_set_sha256=_combined_golden_sha(run_dirs),
-    )
-    feedback_schedule, actual_pipeline_seconds = _scheduler_feedback_schedule(
-        current_schedule, current_observation, int(next_schedule["pipelines"])
-    )
-    current_by_pipeline = {int(plan["pipeline"]): plan for plan in current_schedule}
-    next_by_pipeline = {int(plan["pipeline"]): plan for plan in feedback_schedule}
-    lines.extend([
-        "| Pipeline | Schedule | Reshuffle | Est Work | Actual Work Time | Next Run | Next Est | Threads |",
-        "|---:|---|---|---:|---:|---|---:|---:|",
-    ])
-    for pipeline in sorted(set(current_by_pipeline) | set(next_by_pipeline)):
-        current = current_by_pipeline.get(pipeline, {"pipeline": pipeline, "tasks": [], "estimated_seconds": 0.0})
-        next_plan = next_by_pipeline.get(pipeline, {"pipeline": pipeline, "tasks": [], "estimated_seconds": 0.0})
-        schedule_ids = ", ".join(f"`{row['detector']}`" for row in current["tasks"]) or "—"
-        next_ids = ", ".join(f"`{row['detector']}`" for row in next_plan["tasks"]) or "—"
-        actual = actual_pipeline_seconds.get(pipeline)
+    for plan in smoke_reference["plans"]:
+        schedule_ids = ", ".join(f"`{row['detector']}`" for row in plan["tasks"]) or "—"
         lines.append(
-            f"| {pipeline} | {schedule_ids} | {_schedule_delta(current, next_plan)} | "
-            f"{_duration(current['estimated_seconds'])} | {_duration(actual) if actual is not None else '—'} | "
-            f"{next_ids} | {_duration(next_plan['estimated_seconds'])} | {next_schedule['threads_per_pipeline']} |"
+            f"| {plan['pipeline']} | {schedule_ids} | {_duration(plan['estimated_seconds'])} | {smoke_reference['threads_per_pipeline']} |"
         )
-    if actual_pipeline_seconds:
-        actual_values = list(actual_pipeline_seconds.values())
-        next_values = [float(plan.get("estimated_seconds") or 0.0) for plan in feedback_schedule]
-        actual_spread = max(actual_values) - min(actual_values) if len(actual_values) > 1 else 0.0
-        next_spread = max(next_values) - min(next_values) if len(next_values) > 1 else 0.0
-        lines.extend([
-            "",
-            f"**Pipeline balance feedback:** actual work-time spread {_duration(actual_spread)}; projected next-run spread {_duration(next_spread)}.",
-        ])
     lines.extend([
         "",
-        "`Schedule` is the fixed detector-ID order executed by this build. `Est Work` is the estimate used before fan-out. `Actual Work Time` is the measured fixed-pipeline span. `Reshuffle`, `Next Run`, and `Next Est` are derived after the run by re-running static LPT with the newly measured scheduler-facing detector costs.",
+        "This is a reference smoke schedule only. Self-hosted runners may use different detector-pipeline counts and thread allocations; their changing topology is intentionally not projected into this Report Writer section.",
         "",
-        "Scheduler-facing detector cost includes the executor's per-detector load/run/unload wrapper time; pipeline scheduling therefore learns orchestration overhead instead of modeling detector-core RUN-INFO time alone. The next schedule is still fixed before the following run starts—there is no dynamic stealing.",
+        "Scheduler-facing detector cost includes the executor's per-detector load/run/unload wrapper time; canonical static LPT therefore learns orchestration overhead instead of modeling detector-core RUN-INFO time alone.",
         "",
         "#### Estimated Runtime by Search Scope",
         "",

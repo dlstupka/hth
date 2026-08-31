@@ -479,12 +479,30 @@ class RegressionSummaryTests(unittest.TestCase):
                 }), encoding="utf-8")
                 run_dirs.append(run)
 
+            multidetector_index = root / "multidetector-index.json"
+            multidetector_index.write_text(json.dumps({
+                "schema_version": 1,
+                "observations": [{
+                    "observation_id": "github-smoke-123",
+                    "observed_at_utc": "2026-08-30T20:00:00Z",
+                    "github_run_id": "123",
+                    "workload_class": "short",
+                    "runner_label": "github-hosted",
+                    "runner_thread_budget": 8,
+                    "tasks": [
+                        {"detector": "grabcut", "status": "complete", "scheduler_slot_seconds": 12.0},
+                        {"detector": "contour", "status": "complete", "scheduler_slot_seconds": 8.0},
+                    ],
+                }],
+            }), encoding="utf-8")
+
             text = build_combined_summary(
                 run_dirs,
                 "https://example.invalid/run",
                 pipeline_repository="dlstupka/hth",
                 results_repository="dlstupka/hth-results",
                 results_commit="abc123def456",
+                multidetector_index=multidetector_index,
             )
             self.assertIn("# Detector Regression Manifest", text)
             self.assertIn("**Detectors evaluated:** 2", text)
@@ -512,10 +530,16 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("| Measure | Value | Notes |", text)
             self.assertIn("| Aggregate detector runtime | 2s |", text)
             self.assertIn("| Regression wall-clock span | 2s |", text)
-            self.assertIn("### Regression Execution Schedule", text)
-            self.assertIn("| Detector pipelines | 4 |", text)
+            self.assertIn("### Regression Smoke-Test Execution Schedule", text)
+            self.assertIn("| Runner profile | GitHub hosted — 4 vCPU / 8 max threads |", text)
+            self.assertIn("| Detector pipelines | 1 |", text)
+            self.assertIn("| Threads per detector regression | 8 |", text)
+            self.assertIn("| Smoke evidence | GitHub run `123` |", text)
+            self.assertIn("| 1 | `grabcut`, `contour` | 20s | 8 |", text)
             self.assertIn("| Loading / balancing | Static LPT makespan balancing |", text)
-            self.assertIn("| Pipeline | Schedule | Reshuffle | Est Work | Actual Work Time | Next Run | Next Est | Threads |", text)
+            self.assertIn("| Pipeline | Smoke-test schedule | Est Work | Threads |", text)
+            self.assertNotIn("| Reshuffle |", text)
+            self.assertNotIn("Actual Work Time", text)
             self.assertNotIn("Initial LPT claim batch", text)
             self.assertNotIn("Regression Recommendations Summary", text)
             self.assertNotIn("Execution Configuration", text)
