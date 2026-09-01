@@ -8,6 +8,38 @@ from hth.regression.parameter_space import parameter_set_equivalence_family_id
 
 
 class RegressionSummaryTests(unittest.TestCase):
+    def test_builds_failed_manifest_without_a_manufactured_winner(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run = Path(temporary) / "run-invalid"
+            (run / "reports").mkdir(parents=True)
+            (run / "raw").mkdir()
+            (run / "raw" / "results.csv").write_text("rank,parameter_set_id\n", encoding="utf-8")
+            state = {
+                "status": "no_valid_measurements",
+                "reason": "No page evaluation produced a valid detector measurement.",
+                "informative": False,
+                "terminal_success": False,
+            }
+            (run / "manifest.json").write_text(json.dumps({
+                "run_id": "run-invalid", "detector": "ransac", "strategy": "exhaustive",
+                "status": "failed", "outputs": ["raw/results.csv", "reports/summary.json"],
+                "error": {"code": "no_valid_measurements"},
+            }), encoding="utf-8")
+            (run / "RUN-INFO.json").write_text(json.dumps({"status": "failed"}), encoding="utf-8")
+            (run / "parameters.json").write_text(json.dumps({"configuration": {"profiles": {}}}), encoding="utf-8")
+            (run / "reports" / "summary.json").write_text(json.dumps({
+                "winner": None, "baseline": None, "top_parameter_sets": [],
+                "page_ordinals": [1], "parameter_set_count": 2,
+                "measurement_state": state,
+                "winner_page_report": {"available": False, "reason": "no_valid_measurements", "pages": []},
+                "progress": {"winner_changes": 0, "winner_history": [], "baseline_surpassed": False},
+            }), encoding="utf-8")
+
+            rendered = build_summary(run)
+
+            self.assertIn("**Status:** failed", rendered)
+            self.assertNotIn("Parameter Set ID: `unknown`", rendered)
+
     def test_scheduler_feedback_preserves_schedule_without_material_makespan_gain(self):
         current = [
             {"pipeline": 1, "tasks": [{"detector": "a", "estimate_seconds": 10.0}, {"detector": "b", "estimate_seconds": 10.0}], "estimated_seconds": 20.0},

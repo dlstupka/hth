@@ -93,6 +93,21 @@ class CalibrationStoreTests(unittest.TestCase):
             self.assertEqual(preferred["build"]["run_url"], "https://github.com/dlstupka/hth/actions/runs/1")
             self.assertEqual(preferred["build"]["run_time_seconds"], 3723)
 
+    def test_zero_valid_measurements_cannot_be_persisted(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            run = self._run(root, "invalid", exhaustive=True, mode="full")
+            path = run / "reports" / "calibration-intelligence.json"
+            intelligence = json.loads(path.read_text(encoding="utf-8"))
+            intelligence["measurement_state"] = {
+                "status": "no_valid_measurements",
+                "terminal_success": False,
+            }
+            path.write_text(json.dumps(intelligence), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "no valid measurements"):
+                publish_run(run, root / "results", mode="full", source_fallback="repo", build={})
+
 
 if __name__ == "__main__":
     unittest.main()

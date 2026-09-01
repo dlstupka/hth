@@ -231,6 +231,9 @@ def publish_run(
 ) -> dict[str, Any]:
     intelligence_path = run_dir / "reports" / "calibration-intelligence.json"
     intelligence = _read_json(intelligence_path)
+    measurement_state = intelligence.get("measurement_state")
+    if isinstance(measurement_state, dict) and measurement_state.get("status") == "no_valid_measurements":
+        raise ValueError(f"Calibration has no valid measurements and cannot be persisted: {intelligence_path}")
     if not intelligence.get("available"):
         raise ValueError(f"Calibration intelligence is unavailable in {intelligence_path}")
 

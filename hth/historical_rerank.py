@@ -15,6 +15,7 @@ from hth.contracts import adapt_regression_summary
 from hth.regression.calibration_intelligence import build_calibration_intelligence
 from hth.regression.merge_shards import _results_from_raw
 from hth.regression.reports import ranking_key, write_rankings
+from hth.regression.outcome import reduce_regression_outcome
 from hth.regression.runner import build_winner_page_report, write_json
 
 class HistoricalRerankSkip(RuntimeError):
@@ -68,25 +69,29 @@ def rerank_run(run_dir: Path, results_root: Path, *, top: int = 20) -> dict[str,
     if strategy not in {"exhaustive", "exhaustive-with-zombies", "cartesian"}:
         raise ValueError(f"Historical reranking is restricted to exhaustive runs; got {strategy!r}")
 
-    ranked = sorted(_results_from_raw(raw_path), key=ranking_key)
-    if not ranked:
+    evidence = _results_from_raw(raw_path)
+    if not evidence:
         raise ValueError(f"No parameter-set evidence found in {raw_path}")
 
+    ordered, ranked, winner, measurement_state = reduce_regression_outcome(evidence, ranking_key=ranking_key)
+    if winner is None:
+        raise HistoricalRerankSkip(
+            f"historical run has {measurement_state['status']}; refusing to manufacture a winner"
+        )
+
     run_id = str(summary.get("run_id") or info.get("run_id") or manifest.get("run_id") or run_dir.name)
-    for rank, result in enumerate(ranked, 1):
-        result["rank"] = rank
+    for result in ordered:
         result["run_id"] = run_id
 
-    baseline = next((result for result in ranked if result.get("profile") == "baseline"), None)
+    baseline = next((result for result in ordered if result.get("profile") == "baseline"), None)
     old_winner_id = str(((summary.get("winner") or {}).get("parameter_set_id") or ""))
-    winner = ranked[0]
     winner_pages = build_winner_page_report(winner, baseline)
     page_ordinals = summary.get("page_ordinals", []) if isinstance(summary.get("page_ordinals"), list) else []
     pages = len(page_ordinals)
     possible = int(
         info.get("possible_parameter_sets")
         or (summary.get("parameter_space") or {}).get("possible_parameter_sets")
-        or len(ranked)
+        or len(ordered)
     )
 
     # Preserve historical execution/provenance fields and replace only values
@@ -95,16 +100,17 @@ def rerank_run(run_dir: Path, results_root: Path, *, top: int = 20) -> dict[str,
     summary["baseline"] = baseline
     summary["top_parameter_sets"] = ranked[:5]
     summary["winner_page_report"] = winner_pages
-    summary["parameter_set_count"] = len(ranked)
-    summary["page_evaluation_count"] = len(ranked) * pages
+    summary["parameter_set_count"] = len(ordered)
+    summary["page_evaluation_count"] = measurement_state["page_evaluation_count"]
+    summary["measurement_state"] = measurement_state
     summary["successful_page_evaluation_count"] = sum(
-        int(result["summary"].get("success_count") or 0) for result in ranked
+        int(result["summary"].get("success_count") or 0) for result in ordered
     )
     summary["fully_successful_parameter_set_count"] = sum(
-        1 for result in ranked if int(result["summary"].get("failure_count") or 0) == 0
+        1 for result in ordered if int(result["summary"].get("failure_count") or 0) == 0 and int(result["summary"].get("success_count") or 0) > 0
     )
     progress = summary.setdefault("progress", {})
-    progress["failures"] = sum(int(result["summary"].get("failure_count") or 0) for result in ranked)
+    progress["failures"] = sum(int(result["summary"].get("failure_count") or 0) for result in ordered)
     summary["historical_rerank"] = {
         "schema_version": "1.0",
         "reranked_from_raw": True,
@@ -121,7 +127,7 @@ def rerank_run(run_dir: Path, results_root: Path, *, top: int = 20) -> dict[str,
     write_json(run_dir / "reports" / "winner-pages.json", winner_pages)
 
     calibration = build_calibration_intelligence(
-        ranked,
+        ordered,
         detector=str(summary.get("detector") or manifest.get("detector") or old_intelligence.get("detector") or "unknown"),
         strategy=strategy,
         possible_parameter_sets=possible,
@@ -157,7 +163,7 @@ def rerank_run(run_dir: Path, results_root: Path, *, top: int = 20) -> dict[str,
     return {
         "run_id": run_id,
         "detector": str(summary.get("detector") or manifest.get("detector") or "unknown"),
-        "parameter_sets": len(ranked),
+        "parameter_sets": len(ordered),
         "previous_winner": old_winner_id or None,
         "winner": str(winner.get("parameter_set_id") or ""),
         "winner_changed": bool(old_winner_id and old_winner_id != str(winner.get("parameter_set_id") or "")),

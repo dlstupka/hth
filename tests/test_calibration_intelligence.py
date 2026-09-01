@@ -123,6 +123,9 @@ class CalibrationIntelligenceTests(unittest.TestCase):
         self.assertEqual(report["parameter_influence"], [])
         self.assertEqual(report["domain_space"], {})
         self.assertEqual(report["recommendations"]["dormant_parameters"], [])
+        self.assertFalse(report["available"])
+        self.assertFalse(report["detector_selection_intelligence"]["available"])
+        self.assertIsNone(report["detector_selection_intelligence"]["recommended_parameter_set_id"])
 
     def test_withholds_parameter_influence_when_candidates_have_zero_overlap(self):
         ranked = [{

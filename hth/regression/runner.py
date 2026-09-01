@@ -70,6 +70,7 @@ from .strategies.binary_refine import search as binary_search
 from .progress import ProgressReporter
 from .performance import PerformanceSampler, peak_rss_bytes
 from .calibration_intelligence import build_calibration_intelligence
+from .outcome import reduce_regression_outcome, unavailable_winner_page_report
 from hth.regression.result_metrics import aggregate_page_metrics
 from hth.domain.result_metrics import baseline_surpassed
 from hth.geometry.registry import detector_entrypoint, detector_names
@@ -809,8 +810,11 @@ def write_debug_artifacts(
     if policy == "all":
         selected = [(parameter_set, page_result) for parameter_set in ranked for page_result in parameter_set["pages"]]
     elif policy in {"winner", "failures"}:
-        winner = ranked[0]
-        selected = [(winner, page_result) for page_result in winner["pages"]]
+        diagnostic_result = ranked[0] if ranked else None
+        selected = (
+            [(diagnostic_result, page_result) for page_result in diagnostic_result["pages"]]
+            if diagnostic_result is not None else []
+        )
         if policy == "failures":
             selected = [item for item in selected if item[1].get("status") != "ok"]
 
@@ -1240,9 +1244,7 @@ def run(args:argparse.Namespace)->Path:
             family_id = identity_by_parameter_set.get(str(event.get("parameter_set_id")))
             if family_id:
                 event["parameter_set_equivalence_family_id"] = family_id
-        ranked=sorted(results,key=ranking_key)
-        for rank,r in enumerate(ranked,1):
-            r["rank"]=rank
+        ordered,ranked,winner,measurement_state=reduce_regression_outcome(results,ranking_key=ranking_key)
         search_ranked = [
             result for result in ranked
             if result.get("requested_search_member")
@@ -1251,30 +1253,46 @@ def run(args:argparse.Namespace)->Path:
         for search_rank, result in enumerate(search_ranked, 1):
             result["search_rank"] = search_rank
         historic_best_result = next(
-            (result for result in ranked if "historic_best" in (result.get("reference_roles") or [])),
+            (result for result in ordered if "historic_best" in (result.get("reference_roles") or [])),
             None,
         )
         complete_cartesian = (
             effective_strategy in {"exhaustive", "exhaustive-with-zombies"}
             and args.limit is None
             and args.shard_count == 1
-            and len(ranked) >= possible_parameter_set_count
+            and len(ordered) >= possible_parameter_set_count
         )
         parameter_provenance = build_provenance(
             name,
             config,
-            ranked,
+            ordered,
             strategy=effective_strategy,
             complete_cartesian=complete_cartesian,
         )
         write_json(run_dir/"parameter-provenance.json", parameter_provenance)
-        baseline=next((r for r in ranked if r.get("profile")=="baseline"),None)
+        baseline=next((r for r in ordered if r.get("profile")=="baseline"),None)
         raw=run_dir/"raw"/"results.csv"; rankings=run_dir/"reports"/"rankings.csv"; top=run_dir/"reports"/"top20.csv"
-        write_raw_results(raw,ranked); write_rankings(rankings,ranked); write_rankings(top,ranked[:max(0,args.top)])
-        winner_pages = build_winner_page_report(ranked[0], baseline)
+        write_raw_results(raw,ordered); write_rankings(rankings,ranked); write_rankings(top,ranked[:max(0,args.top)])
+        winner_pages = build_winner_page_report(winner, baseline) if winner is not None else unavailable_winner_page_report(measurement_state)
         locally_evaluated_parameter_sets = max(0, len(results) - 1) + (0 if baseline_reused else 1)
         locally_evaluated_page_evaluations = locally_evaluated_parameter_sets * len(pages)
-        summary={"schema_version":"0.8","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"threads":args.threads,"shard":{"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved","full_candidate_count":full_exhaustive_candidate_count},"detector_pipeline":detector_pipeline_context,"parameter_space":{"possible_parameter_sets":possible_parameter_set_count,"live_possible_parameter_sets":live_possible_parameter_set_count,"zombie_possible_parameter_sets":zombie_possible_parameter_set_count,"canonical_search_space":search_space_contract,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated","shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ranked)*len(pages),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated"},"page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ranked),"page_evaluation_count":len(ranked)*len(pages),"successful_page_evaluation_count":len(ranked)*len(pages)-progress_snapshot.failures,"fully_successful_parameter_set_count":sum(1 for r in ranked if int(r["summary"].get("failure_count", 0) or 0) == 0),"golden_set_sha256":golden_set_sha256,"detector_config_sha256":detector_config_sha256,"model_selection":model_selection,"max_dimension":args.max_dimension,"winner":ranked[0],"baseline":baseline,"historic_best":historic_best_result,"top_parameter_sets":ranked[:5],"search_top_parameter_sets":search_ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,"performance":{"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl","precomputed_evidence":name in PRECOMPUTED_EVIDENCE_PREPARERS,"evidence_source":evidence_source,"evidence_precompute_seconds":round(evidence_precompute_seconds,6) if evidence_precompute_seconds is not None else None},"progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes,"baseline_surpassed":baseline_surpassed(ranked[0], baseline),"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds,"winner_history":progress_snapshot.winner_history,"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}}
+        summary={
+            "schema_version":"0.8","run_id":run_id,"detector":name,"strategy":effective_strategy,
+            "requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,
+            "threads":args.threads,"shard":{"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved","full_candidate_count":full_exhaustive_candidate_count},
+            "detector_pipeline":detector_pipeline_context,
+            "parameter_space":{"possible_parameter_sets":possible_parameter_set_count,"live_possible_parameter_sets":live_possible_parameter_set_count,"zombie_possible_parameter_sets":zombie_possible_parameter_set_count,"canonical_search_space":search_space_contract,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ordered),"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ordered)*len(pages),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated","shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count},
+            "page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ordered),
+            "page_evaluation_count":measurement_state["page_evaluation_count"],
+            "successful_page_evaluation_count":measurement_state["successful_page_evaluation_count"],
+            "fully_successful_parameter_set_count":sum(1 for r in ordered if int(r["summary"].get("failure_count",0) or 0)==0 and int(r["summary"].get("success_count",0) or 0)>0),
+            "measurement_state":measurement_state,"golden_set_sha256":golden_set_sha256,
+            "detector_config_sha256":detector_config_sha256,"model_selection":model_selection,"max_dimension":args.max_dimension,
+            "winner":winner,"baseline":baseline,"historic_best":historic_best_result,"top_parameter_sets":ranked[:5],
+            "search_top_parameter_sets":search_ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,
+            "performance":{"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl","precomputed_evidence":name in PRECOMPUTED_EVIDENCE_PREPARERS,"evidence_source":evidence_source,"evidence_precompute_seconds":round(evidence_precompute_seconds,6) if evidence_precompute_seconds is not None else None},
+            "progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes if winner else 0,"baseline_surpassed":baseline_surpassed(winner,baseline),"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds if winner else None,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds if winner else None,"winner_history":progress_snapshot.winner_history if winner else [],"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds},
+        }
         write_json(run_dir/"reports"/"summary.json",summary)
         write_json(run_dir/"reports"/"winner-pages.json",winner_pages)
         try:
@@ -1318,9 +1336,9 @@ def run(args:argparse.Namespace)->Path:
             "detector_pipeline": detector_pipeline_context,
             "possible_parameter_sets": possible_parameter_set_count,
             "planned_parameter_sets": planned_parameter_set_count,
-            "evaluated_parameter_sets": len(ranked),
+            "evaluated_parameter_sets": len(ordered),
             "golden_set_pages": len(pages),
-            "page_evaluations": len(ranked) * len(pages),
+            "page_evaluations": len(ordered) * len(pages),
             "failed_page_evaluations": progress_snapshot.failures,
             "average_eval_rate": progress_snapshot.eval_rate,
             "execution_environment": environment,
@@ -1333,7 +1351,7 @@ def run(args:argparse.Namespace)->Path:
             "canonical_search_space": search_space_contract,
         }
         calibration_intelligence = build_calibration_intelligence(
-            ranked,
+            ordered,
             detector=name,
             strategy=effective_strategy,
             possible_parameter_sets=possible_parameter_set_count,
@@ -1349,14 +1367,19 @@ def run(args:argparse.Namespace)->Path:
             name,
             run_id,
             policy=debug_policy,
-            ranked=ranked,
+            ranked=(
+                ordered if debug_policy == "all"
+                else ranked if ranked
+                else ([baseline] if baseline is not None else ordered[:1])
+            ),
             pages=pages,
             debug_level=debug_level,
         )
-        finished=utc_now(); info={"schema_version":"0.3","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"status":"complete","started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"detector_config":str(args.detector_config),"detector_config_sha256":detector_config_sha256,"model_selection":model_selection,"max_dimension":args.max_dimension,"debug_artifacts":debug_policy,"debug_level":debug_level,"source_commit":source_commit,"threads":args.threads,"detector_pipeline":detector_pipeline_context,"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ranked),"shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"performance_samples":len(performance_samples),"peak_rss_bytes":peak_rss_bytes(),**environment}
+        finished=utc_now(); info={"schema_version":"0.4","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"status":"complete" if measurement_state["terminal_success"] else "invalid","outcome":measurement_state,"started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"detector_config":str(args.detector_config),"detector_config_sha256":detector_config_sha256,"model_selection":model_selection,"max_dimension":args.max_dimension,"debug_artifacts":debug_policy,"debug_level":debug_level,"source_commit":source_commit,"threads":args.threads,"detector_pipeline":detector_pipeline_context,"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ordered),"shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"performance_samples":len(performance_samples),"peak_rss_bytes":peak_rss_bytes(),**environment}
         write_json(run_dir/"RUN-INFO.json",info)
         manifest.update({
-            "status": "complete",
+            "status": "complete" if measurement_state["terminal_success"] else "invalid",
+            "outcome": measurement_state,
             "finished_at_utc": finished,
             "outputs": [
                 "RUN-INFO.json",
@@ -1374,10 +1397,13 @@ def run(args:argparse.Namespace)->Path:
         }); write_json(run_dir/"manifest.json",manifest)
         # Convenience report at detector root, refreshed on every completed run.
         write_rankings(run_dir.parent/f"{name}-regression-results.csv",ranked)
-        winner_summary=ranked[0]["summary"]
+        winner_summary=winner["summary"] if winner is not None else None
         baseline_summary=baseline["summary"] if baseline else None
-        winner_profile=ranked[0].get("profile") or ranked[0]["parameter_set_id"][:8]
-        progress.announce("Regression complete", emit_status=False)
+        winner_profile=(winner.get("profile") or winner["parameter_set_id"][:8]) if winner is not None else "none"
+        progress.announce(
+            "Regression complete" if measurement_state["terminal_success"] else "Regression evaluation complete; no valid measurements",
+            emit_status=False,
+        )
         # Preserve one visible separator before the summary in GitHub Actions.
         print(" ")
         elapsed_seconds=time.perf_counter()-wall
@@ -1395,7 +1421,7 @@ def run(args:argparse.Namespace)->Path:
         summary_rows: list[tuple[str, object] | None] = [
             ("Run", run_id),
             ("Elapsed", f"{elapsed_seconds:.1f}s"),
-            ("Average Eval Rate", f"{(len(ranked)/elapsed_seconds if elapsed_seconds else 0.0):.4f}/s"),
+            ("Average Eval Rate", f"{(len(ordered)/elapsed_seconds if elapsed_seconds else 0.0):.4f}/s"),
             ("Search Strategy", effective_strategy),
             ("Threads", args.threads),
             ("Detector pipeline", f"{detector_pipeline_context['pipeline_number']} of {detector_pipeline_context['pipeline_count']}"),
@@ -1403,19 +1429,20 @@ def run(args:argparse.Namespace)->Path:
             ("Possible parameter sets", possible_parameter_set_count),
             ("Planned parameter sets", planned_parameter_set_count if planned_parameter_set_count is not None else "adaptive / unknown"),
             None,
-            ("Parameter sets evaluated", len(ranked)),
+            ("Parameter sets evaluated", len(ordered)),
             ("Fully successful parameter sets", summary["fully_successful_parameter_set_count"]),
             None,
-            ("Page evaluations", len(ranked) * len(pages)),
-            ("Successful page evaluations", len(ranked) * len(pages) - progress_snapshot.failures),
+            ("Page evaluations", measurement_state["page_evaluation_count"]),
+            ("Successful page evaluations", measurement_state["successful_page_evaluation_count"]),
             ("Failed page evaluations", progress_snapshot.failures),
             None,
             ("Winner", winner_profile),
-            ("Average Page IoU", f"{winner_summary['mean_iou']:.4f}"),
-            ("Minimum Page IoU", f"{winner_summary['minimum_iou']:.4f}"),
-            ("Std Dev", f"{winner_summary['stddev_iou']:.4f}"),
+            ("Outcome", measurement_state["status"]),
+            ("Average Page IoU", f"{winner_summary['mean_iou']:.4f}" if winner_summary else "n/a"),
+            ("Minimum Page IoU", f"{winner_summary['minimum_iou']:.4f}" if winner_summary else "n/a"),
+            ("Std Dev", f"{winner_summary['stddev_iou']:.4f}" if winner_summary else "n/a"),
         ]
-        if baseline_summary:
+        if baseline_summary and winner_summary:
             summary_rows.extend([
                 ("Baseline Average Page IoU", f"{baseline_summary['mean_iou']:.4f}"),
                 ("Average Page IoU improvement", f"{winner_summary['mean_iou']-baseline_summary['mean_iou']:+.4f}"),
@@ -1423,10 +1450,12 @@ def run(args:argparse.Namespace)->Path:
             ])
         print_key_value_section("Regression Summary", summary_rows)
         if progress_snapshot.failures:
-            diag = failure_diagnostics(ranked[0])
+            diagnostic_result = winner or baseline or ordered[0]
+            diag = failure_diagnostics(diagnostic_result)
             print(" ")
-            print("Failure Diagnostics (winner)")
-            print("============================")
+            diagnostic_label = "winner" if winner is not None else "baseline/first evaluated parameter set"
+            print(f"Failure Diagnostics ({diagnostic_label})")
+            print("=" * (22 + len(diagnostic_label)))
             print(f"Reason counts : {json.dumps(diag['reason_counts'], sort_keys=True)}")
             if diag["diagnostic_ranges"]:
                 print(f"Evidence ranges: {json.dumps(diag['diagnostic_ranges'], sort_keys=True)}")
@@ -1444,10 +1473,10 @@ def run(args:argparse.Namespace)->Path:
             ("Std Dev improvements", progress_snapshot.stddev_improvements),
             ("Total metric improvements", progress_snapshot.mean_iou_improvements + progress_snapshot.minimum_iou_improvements + progress_snapshot.stddev_improvements),
             ("Parameter sets with improvements", progress_snapshot.parameter_sets_with_improvements),
-            ("Winner changes", progress_snapshot.winner_changes),
-            ("Baseline surpassed", "yes" if progress.baseline_surpassed else "no"),
+            ("Winner changes", progress_snapshot.winner_changes if winner else 0),
+            ("Baseline surpassed", "yes" if baseline_surpassed(winner, baseline) else "no"),
         ])
-        print(json.dumps({"run_id":run_id,"run_directory":str(run_dir),"winner":ranked[0],"baseline":baseline},indent=2))
+        print(json.dumps({"run_id":run_id,"run_directory":str(run_dir),"winner":winner,"baseline":baseline,"measurement_state":measurement_state},indent=2))
         return run_dir
     except Exception as exc:
         manifest.update({"status":"failed","finished_at_utc":utc_now(),"error":{"type":type(exc).__name__,"message":str(exc)}}); write_json(run_dir/"manifest.json",manifest)

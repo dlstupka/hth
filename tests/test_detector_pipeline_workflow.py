@@ -188,6 +188,15 @@ def test_single_and_multi_shard_paths_share_one_finalizer():
     assert '--staging-root "$staging_root"' in script
     assert '--output "$OUTPUT_DIR"' in script
 
+
+def test_zero_valid_measurement_failures_are_aggregated_after_finalization():
+    script = (ROOT / "tools" / "run-detector-regressions.sh").read_text(encoding="utf-8")
+    collect = script.index('invalid_detectors+=("$detector_name")')
+    publish_output = script.index('echo "run_dirs_file=$OUTPUT_DIR/run-directories.txt" >> "$GITHUB_OUTPUT"')
+    terminal_failure = script.index('Regression failed: no valid measurements for detector(s)')
+    assert collect < publish_output < terminal_failure
+    assert 'state.get("status", "unknown")' in script
+
 def test_parallel_shards_share_one_run_local_baseline_cache() -> None:
     text = DRIVER.read_text(encoding="utf-8")
     assert 'shared_baseline="$OUTPUT_DIR/.baselines/$detector_name.json"' in text

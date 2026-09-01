@@ -27,6 +27,34 @@ def _merge_tree(source: Path, target: Path) -> None:
             shutil.copy2(item, destination)
 
 
+def _write_json(path: Path, payload: dict) -> None:
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _mark_terminal_outcome(target_run: Path) -> None:
+    """Make the promoted run's terminal status agree with canonical evidence."""
+    summary_path = target_run / "reports" / "summary.json"
+    if not summary_path.is_file():
+        return
+    summary = _read_json(summary_path)
+    state = summary.get("measurement_state")
+    if not isinstance(state, dict) or state.get("terminal_success") is not False:
+        return
+    error = {
+        "code": str(state.get("status") or "invalid_regression_outcome"),
+        "message": str(state.get("reason") or "Regression did not produce a valid winner."),
+    }
+    for name in ("manifest.json", "RUN-INFO.json"):
+        path = target_run / name
+        if not path.is_file():
+            continue
+        payload = _read_json(path)
+        payload["status"] = "failed"
+        payload["error"] = error
+        payload["outcome"] = state
+        _write_json(path, payload)
+
+
 def finalize_run(
     *,
     canonical_run: Path,
@@ -86,6 +114,7 @@ def finalize_run(
         shutil.move(str(staged_ranking), str(ranking_target))
 
     shutil.move(str(canonical_run), str(target_run))
+    _mark_terminal_outcome(target_run)
     return target_run
 
 

@@ -125,9 +125,21 @@ def _fit_line(
     return model, inliers
 
 
+def _line_components(model: LineModelND) -> tuple[np.ndarray, np.ndarray]:
+    """Read LineModelND geometry across scikit-image 0.25 and 0.26+."""
+    origin = getattr(model, "origin", None)
+    direction = getattr(model, "direction", None)
+    if origin is not None and direction is not None:
+        return np.asarray(origin, dtype=float), np.asarray(direction, dtype=float)
+    # scikit-image 0.25 exposes only params; 0.26 deprecates it in favor of
+    # origin/direction. The fallback remains necessary for the pinned runtime.
+    legacy_origin, legacy_direction = model.params
+    return np.asarray(legacy_origin, dtype=float), np.asarray(legacy_direction, dtype=float)
+
+
 def _intersection(a: LineModelND, b: LineModelND) -> np.ndarray | None:
-    origin_a, direction_a = (np.asarray(value) for value in a.params)
-    origin_b, direction_b = (np.asarray(value) for value in b.params)
+    origin_a, direction_a = _line_components(a)
+    origin_b, direction_b = _line_components(b)
     matrix = np.column_stack((direction_a, -direction_b))
     if abs(float(np.linalg.det(matrix))) < 1e-8:
         return None
@@ -281,7 +293,7 @@ def _draw_points(image: np.ndarray, points: dict[str, np.ndarray], *, inliers: d
 
 
 def _line_endpoints(model: LineModelND, width: int, height: int) -> tuple[tuple[int, int], tuple[int, int]]:
-    origin, direction = (np.asarray(value, dtype=float) for value in model.params)
+    origin, direction = _line_components(model)
     span = float(max(width, height) * 2)
     first = origin - direction * span
     second = origin + direction * span

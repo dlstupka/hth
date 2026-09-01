@@ -1,10 +1,13 @@
 """Derive calibration intelligence from complete detector regression results."""
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import defaultdict
 import json
 import math
 from typing import Any, Iterable
+
+from hth.domain.result_metrics import SUCCESS_STATUSES
+from .outcome import classify_measurements, is_winner_eligible
 
 
 NEAR_BEST_ABSOLUTE_TOLERANCE = 0.001
@@ -381,72 +384,58 @@ def build_calibration_intelligence(
         if search_ranked:
             ranked = search_ranked
 
+    measurement_state = classify_measurements(ranked)
+    eligible_ranked = [result for result in ranked if is_winner_eligible(result)]
+    if not eligible_ranked:
+        calibration_context = dict(calibration_context or {})
+        regression_context = dict(regression_context or {})
+        reason = measurement_state["status"]
+        return {
+            "schema_version": "1.1",
+            "calibration_identity": calibration_context,
+            "regression_metadata": regression_context,
+            "detector": detector,
+            "available": False,
+            "reason": reason,
+            "measurement_state": measurement_state,
+            "parameter_intelligence": {"available": False, "reason": reason, "parameters": []},
+            "domain_space_intelligence": {"available": False, "reason": reason, "domains": {}},
+            "detector_selection_intelligence": {
+                "available": False,
+                "reason": reason,
+                "recommended_detector_id": None,
+                "recommended_parameter_set_id": None,
+                "recommended_parameters": None,
+            },
+            "search": {
+                "strategy": strategy,
+                "parameter_sets": len(ranked),
+                "possible_parameter_sets": possible_parameter_sets,
+                "fully_successful_parameter_sets": 0,
+                "fully_successful_rate": 0.0,
+            },
+            "landscape": {"available": False, "reason": reason},
+            "parameter_influence": [],
+            "domain_space": {},
+            "interactions": [],
+            "page_sensitivity": [],
+            "recommendations": {
+                "available": False,
+                "reason": reason,
+                "dormant_parameters": [],
+                "zombie_parameters": [],
+                "configured_zombie_parameters": [],
+                "retain_for_revalidation": False,
+            },
+            "calibration_confidence": {"rating": "None", "reasons": [measurement_state["reason"]]},
+        }
+    selected_winner = eligible_ranked[0]
     page_evaluations = [
         page
         for result in ranked
         for page in (result.get("pages", []) if isinstance(result.get("pages"), list) else [])
         if isinstance(page, dict)
     ]
-    successful_page_evaluations = sum(1 for page in page_evaluations if str(page.get("status", "")) == "ok")
-    failure_reasons = Counter()
-    for page in page_evaluations:
-        if str(page.get("status", "")) == "ok":
-            continue
-        candidate = page.get("candidate") if isinstance(page.get("candidate"), dict) else {}
-        diagnostics = candidate.get("diagnostics") if isinstance(candidate.get("diagnostics"), dict) else {}
-        error = page.get("error") if isinstance(page.get("error"), dict) else {}
-        reason = diagnostics.get("reason") or error.get("type") or page.get("status") or "unknown"
-        failure_reasons[str(reason)] += 1
-    positive_iou_page_evaluations = sum(
-        1 for page in page_evaluations
-        if str(page.get("status", "")) == "ok" and float(page.get("iou", 0.0) or 0.0) > 0.0
-    )
-    summary_positive_signal = any(
-        float(result.get("summary", {}).get("mean_iou", 0.0) or 0.0) > 0.0
-        for result in ranked
-    )
-    if not page_evaluations and summary_positive_signal:
-        # Older/persisted fixtures may omit page detail while retaining valid
-        # aggregate metrics; keep those calibrations analyzable.
-        measurement_state = {
-            "informative": True,
-            "status": "measured",
-            "reason": "Calibration contains positive aggregate overlap measurements.",
-            "page_evaluations": 0,
-            "successful_page_evaluations": 0,
-            "positive_iou_page_evaluations": 0,
-        }
-    elif successful_page_evaluations == 0:
-        measurement_state = {
-            "informative": False,
-            "status": "no_valid_measurements",
-            "reason": "No page evaluation produced a valid detector candidate.",
-            "page_evaluations": len(page_evaluations),
-            "successful_page_evaluations": 0,
-            "positive_iou_page_evaluations": 0,
-            "failure_reason_counts": dict(failure_reasons.most_common()),
-        }
-    elif positive_iou_page_evaluations == 0:
-        measurement_state = {
-            "informative": False,
-            "status": "no_overlap_signal",
-            "reason": "Valid detector candidates were produced, but none overlapped an approved Golden Set bounding box.",
-            "page_evaluations": len(page_evaluations),
-            "successful_page_evaluations": successful_page_evaluations,
-            "positive_iou_page_evaluations": 0,
-            "failure_reason_counts": dict(failure_reasons.most_common()),
-        }
-    else:
-        measurement_state = {
-            "informative": True,
-            "status": "measured",
-            "reason": "Calibration contains valid positive-overlap measurements.",
-            "page_evaluations": len(page_evaluations),
-            "successful_page_evaluations": successful_page_evaluations,
-            "positive_iou_page_evaluations": positive_iou_page_evaluations,
-            "failure_reason_counts": dict(failure_reasons.most_common()),
-        }
-
     scores = [float(result.get("summary", {}).get("mean_iou", 0.0) or 0.0) for result in ranked]
     best_score = scores[0]
     count = len(scores)
@@ -486,7 +475,7 @@ def build_calibration_intelligence(
             accumulator = page_accumulators[ordinal]
             accumulator["count"] += 1.0
             page_iou = float(page.get("iou", 0.0) or 0.0)
-            if str(page.get("status", "")) == "ok":
+            if str(page.get("status", "")).strip().lower() in SUCCESS_STATUSES:
                 accumulator["success"] += 1.0
             accumulator["sum"] += page_iou
             accumulator["sum_sq"] += page_iou * page_iou
@@ -621,7 +610,7 @@ def build_calibration_intelligence(
     )
     dormant = [item["parameter"] for item in parameters_report if item["classification"] == "Dormant"]
     zombies = [item["parameter"] for item in parameters_report if item["classification"] == "Zombie"]
-    winner_parameters = ranked[0].get("parameters", {}) if isinstance(ranked[0].get("parameters"), dict) else {}
+    winner_parameters = selected_winner.get("parameters", {}) if isinstance(selected_winner.get("parameters"), dict) else {}
     baseline_parameters = {}
     if isinstance(regression_context, dict) and isinstance(regression_context.get("baseline_parameters"), dict):
         baseline_parameters = dict(regression_context["baseline_parameters"])
@@ -652,7 +641,7 @@ def build_calibration_intelligence(
     )
     calibration_context = dict(calibration_context or {})
     regression_context = dict(regression_context or {})
-    winner = ranked[0]
+    winner = selected_winner
     winner_summary = winner.get("summary", {}) if isinstance(winner.get("summary"), dict) else {}
     winner_parameter_set_id = winner.get("parameter_set_id") or winner.get("parameter_short_name")
     fallback_order = ["critical", "important_plus", "moderate_plus", "low_plus", "non_dormant", "exhaustive"]

@@ -657,7 +657,7 @@ jobs:
           echo "results_commit=$HTH_PERSIST_COMMIT" >> "$GITHUB_OUTPUT"
 
       - name: Write Regression Manifest
-        if: ${{ always() && steps.regression.outcome == 'success' }}
+        if: ${{ always() && steps.regression.outputs.run_dirs_file != '' }}
         shell: bash
         env:
           PYTHONPATH: hth-pipeline

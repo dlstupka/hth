@@ -891,6 +891,7 @@ fi
 
 : > "$OUTPUT_DIR/run-directories.txt"
 mapfile -t unique_detectors < <(printf '%s\n' "${task_detectors[@]}" | sort -u)
+invalid_detectors=()
 for detector_name in "${unique_detectors[@]}"; do
   mapfile -t detector_task_indexes < <(
     for ((task_index = 0; task_index < ${#task_detectors[@]}; task_index++)); do
@@ -955,6 +956,18 @@ for detector_name in "${unique_detectors[@]}"; do
     --output "$OUTPUT_DIR" \
     --detector "$detector_name")"
   printf '%s\n' "$finalized_dir" >> "$OUTPUT_DIR/run-directories.txt"
+  outcome_status="$(python - "$finalized_dir/reports/summary.json" <<'PYOUTCOME'
+import json, sys
+from pathlib import Path
+summary = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+state = summary.get("measurement_state") if isinstance(summary, dict) else None
+print(state.get("status", "unknown") if isinstance(state, dict) else "unknown")
+PYOUTCOME
+  )"
+  if [[ "$outcome_status" == "no_valid_measurements" ]]; then
+    invalid_detectors+=("$detector_name")
+    echo "::error::Detector regression produced no valid measurements: $detector_name"
+  fi
   rm -rf "$finalization_root"
 done
 while IFS= read -r queue_file; do
@@ -980,3 +993,7 @@ done
 
 rm -rf "$queue_dir"
 echo "run_dirs_file=$OUTPUT_DIR/run-directories.txt" >> "$GITHUB_OUTPUT"
+if (( ${#invalid_detectors[@]} > 0 )); then
+  echo "::error::Regression failed: no valid measurements for detector(s): ${invalid_detectors[*]}"
+  exit 1
+fi

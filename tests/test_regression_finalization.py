@@ -95,3 +95,31 @@ def test_finalizer_rejects_detector_identity_mismatch(tmp_path: Path):
         assert "Canonical detector mismatch" in str(exc)
     else:
         raise AssertionError("Expected detector identity mismatch")
+
+
+def test_finalizer_marks_zero_valid_measurement_run_failed(tmp_path: Path):
+    staging = tmp_path / "staging"
+    output = tmp_path / "output"
+    run = _staged_run(staging, "ransac", "run-invalid")
+    state = {
+        "status": "no_valid_measurements",
+        "reason": "No page evaluation produced a valid detector measurement.",
+        "terminal_success": False,
+    }
+    (run / "reports" / "summary.json").write_text(
+        json.dumps({"winner": None, "measurement_state": state}), encoding="utf-8"
+    )
+    (run / "RUN-INFO.json").write_text(json.dumps({"status": "invalid"}), encoding="utf-8")
+
+    target = finalize_run(
+        canonical_run=run,
+        staging_root=staging,
+        output_root=output,
+        detector="ransac",
+    )
+
+    manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
+    info = json.loads((target / "RUN-INFO.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "failed"
+    assert info["status"] == "failed"
+    assert manifest["error"]["code"] == "no_valid_measurements"
