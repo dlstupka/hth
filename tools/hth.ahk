@@ -6,7 +6,7 @@
 ; ============================================================
 
 LEFT_CROP   := 0.435   ; keep a generous black border on the left
-RIGHT_CROP  := 0.125   ; keep a small black border on the right
+RIGHT_CROP  := 0.100   ; keep a small black border on the right
 TOP_CROP    := 0.035   ; keep a small top border
 BOTTOM_CROP := 0.335   ; keep the lower border for page movement tolerance
 
