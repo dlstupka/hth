@@ -126,8 +126,8 @@ def _fit_line(
 
 
 def _intersection(a: LineModelND, b: LineModelND) -> np.ndarray | None:
-    origin_a, direction_a = np.asarray(a.origin), np.asarray(a.direction)
-    origin_b, direction_b = np.asarray(b.origin), np.asarray(b.direction)
+    origin_a, direction_a = (np.asarray(value) for value in a.params)
+    origin_b, direction_b = (np.asarray(value) for value in b.params)
     matrix = np.column_stack((direction_a, -direction_b))
     if abs(float(np.linalg.det(matrix))) < 1e-8:
         return None
@@ -281,8 +281,7 @@ def _draw_points(image: np.ndarray, points: dict[str, np.ndarray], *, inliers: d
 
 
 def _line_endpoints(model: LineModelND, width: int, height: int) -> tuple[tuple[int, int], tuple[int, int]]:
-    origin = np.asarray(model.origin, dtype=float)
-    direction = np.asarray(model.direction, dtype=float)
+    origin, direction = (np.asarray(value, dtype=float) for value in model.params)
     span = float(max(width, height) * 2)
     first = origin - direction * span
     second = origin + direction * span
