@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,10 +15,26 @@ class SourceReleaseContractTests(unittest.TestCase):
     def test_source_workflows_use_verified_release_assets_not_source_checkout(self):
         core = (ROOT / ".github/workflows/_core-hth.yml").read_text(encoding="utf-8")
         self.assertIn("Download immutable source release", core)
-        self.assertIn("hth-pipeline/hth/source_release.py", core)
+        self.assertIn("PYTHONPATH: hth-pipeline", core)
+        self.assertIn("python -m hth.source_release", core)
+        self.assertNotIn("python hth-pipeline/hth/source_release.py", core)
         self.assertIn("source_release_tag", core)
         self.assertNotIn("Checkout source repository", core)
         self.assertNotIn("lfs: true", core.lower())
+
+    def test_source_release_module_bootstraps_from_pipeline_checkout_parent(self):
+        environment = dict(os.environ)
+        environment["PYTHONPATH"] = str(ROOT)
+        completed = subprocess.run(
+            [sys.executable, "-m", "hth.source_release", "--help"],
+            cwd=ROOT.parent,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("Download and verify immutable HTH source DOCX masters", completed.stdout)
 
     def test_pipeline_has_no_binary_tracking_rule(self):
         attrs = (ROOT / ".gitattributes").read_text(encoding="utf-8").lower()

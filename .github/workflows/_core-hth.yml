@@ -161,10 +161,11 @@ jobs:
         shell: bash
         env:
           HTH_SOURCE_TOKEN: ${{ secrets.HTH_SOURCE_TOKEN || github.token }}
+          PYTHONPATH: hth-pipeline
         run: |
           set -euo pipefail
           rm -rf source-repo
-          python hth-pipeline/hth/source_release.py \
+          python -m hth.source_release \
             --repository "$SOURCE_REPOSITORY" \
             --tag "$SOURCE_RELEASE_TAG" \
             --destination source-repo
@@ -1425,4 +1426,3 @@ jobs:
           if-no-files-found: error
           retention-days: ${{ inputs.artifact_retention_days }}
           compression-level: 6
-
