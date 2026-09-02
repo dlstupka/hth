@@ -58,14 +58,14 @@ class RegressionSummaryTests(unittest.TestCase):
 
     def test_scheduler_feedback_bounds_reassignments_while_improving_makespan(self):
         current = [
-            {"pipeline": 1, "tasks": [{"detector": name, "estimate_seconds": 10.0} for name in ("a", "b", "c")], "estimated_seconds": 30.0},
-            {"pipeline": 2, "tasks": [{"detector": name, "estimate_seconds": 10.0} for name in ("d", "e")], "estimated_seconds": 20.0},
-            {"pipeline": 3, "tasks": [{"detector": name, "estimate_seconds": 10.0} for name in ("f", "g")], "estimated_seconds": 20.0},
-            {"pipeline": 4, "tasks": [{"detector": "h", "estimate_seconds": 10.0}], "estimated_seconds": 10.0},
+            {"pipeline": 1, "tasks": [{"detector": name, "estimate_seconds": 100.0} for name in ("a", "b", "c")], "estimated_seconds": 300.0},
+            {"pipeline": 2, "tasks": [{"detector": name, "estimate_seconds": 100.0} for name in ("d", "e")], "estimated_seconds": 200.0},
+            {"pipeline": 3, "tasks": [{"detector": name, "estimate_seconds": 100.0} for name in ("f", "g")], "estimated_seconds": 200.0},
+            {"pipeline": 4, "tasks": [{"detector": "h", "estimate_seconds": 100.0}], "estimated_seconds": 100.0},
         ]
         observation = {
             "tasks": [
-                {"detector": name, "status": "complete", "scheduler_slot_seconds": 10.0}
+                {"detector": name, "status": "complete", "scheduler_slot_seconds": 100.0}
                 for name in "abcdefgh"
             ],
         }
@@ -80,7 +80,28 @@ class RegressionSummaryTests(unittest.TestCase):
         moved = sum(following[detector] != pipeline for detector, pipeline in original.items())
 
         self.assertEqual(moved, 1)
-        self.assertEqual(max(plan["estimated_seconds"] for plan in next_schedule), 20.0)
+        self.assertEqual(max(plan["estimated_seconds"] for plan in next_schedule), 200.0)
+
+    def test_scheduler_feedback_rejects_small_github_hosted_gain(self):
+        current = [
+            {"pipeline": 1, "tasks": [{"detector": "a", "estimate_seconds": 447.0}, {"detector": "b", "estimate_seconds": 447.0}], "estimated_seconds": 894.0},
+            {"pipeline": 2, "tasks": [{"detector": "c", "estimate_seconds": 433.0}, {"detector": "d", "estimate_seconds": 440.0}], "estimated_seconds": 873.0},
+            {"pipeline": 3, "tasks": [{"detector": "e", "estimate_seconds": 433.0}, {"detector": "f", "estimate_seconds": 440.0}], "estimated_seconds": 873.0},
+            {"pipeline": 4, "tasks": [{"detector": "g", "estimate_seconds": 421.0}, {"detector": "h", "estimate_seconds": 421.0}], "estimated_seconds": 842.0},
+        ]
+        observation = {
+            "tasks": [
+                {"detector": task["detector"], "status": "complete", "scheduler_slot_seconds": task["estimate_seconds"]}
+                for plan in current for task in plan["tasks"]
+            ],
+        }
+
+        next_schedule, _ = _scheduler_feedback_schedule(current, observation, 4)
+
+        self.assertEqual(
+            [[task["detector"] for task in plan["tasks"]] for plan in next_schedule],
+            [[task["detector"] for task in plan["tasks"]] for plan in current],
+        )
 
     def test_builds_manifest_with_winner_baseline_and_outputs(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -27,7 +27,8 @@ GITHUB_HOSTED_SMOKE_VCPU = 4
 GITHUB_HOSTED_SMOKE_PIPELINES = 4
 GITHUB_HOSTED_SMOKE_THREADS_PER_REGRESSION = 8
 SCHEDULER_MAX_REASSIGNMENT_SHARE = 0.10
-SCHEDULER_MIN_MAKESPAN_GAIN = 0.02
+SCHEDULER_MIN_MAKESPAN_GAIN = 0.05
+SCHEDULER_MIN_MAKESPAN_GAIN_SECONDS = 30.0
 
 
 
@@ -2434,9 +2435,13 @@ def _scheduler_feedback_schedule(
     candidate = _bounded_schedule_rebalance(retained)
     retained_makespan = max((float(plan["estimated_seconds"]) for plan in retained), default=0.0)
     candidate_makespan = max((float(plan["estimated_seconds"]) for plan in candidate), default=0.0)
+    required_gain = max(
+        retained_makespan * SCHEDULER_MIN_MAKESPAN_GAIN,
+        SCHEDULER_MIN_MAKESPAN_GAIN_SECONDS,
+    )
     if (
         retained_makespan > 0
-        and candidate_makespan >= retained_makespan * (1.0 - SCHEDULER_MIN_MAKESPAN_GAIN)
+        and retained_makespan - candidate_makespan < required_gain
     ):
         return retained, actual_pipeline_seconds
     return candidate, actual_pipeline_seconds
@@ -3025,7 +3030,7 @@ def build_combined_summary(
             ])
         lines.extend([
             "",
-            "`Schedule` is the fixed detector-ID order executed by this build. `Est Work` is the estimate used before fan-out. `Actual Work Time` is the measured fixed-pipeline span. `Reshuffle`, `Next Run`, and `Next Est` use a stability-first rebalance capped at 10% detector reassignment with the newly measured scheduler-facing detector costs.",
+            "`Schedule` is the fixed detector-ID order executed by this build. `Est Work` is the estimate used before fan-out. `Actual Work Time` is the measured fixed-pipeline span. `Reshuffle`, `Next Run`, and `Next Est` use a stability-first rebalance capped at 10% detector reassignment; a change is accepted only when it reduces projected makespan by at least 5% and 30 seconds using the newly measured scheduler-facing detector costs.",
             "",
             "Scheduler-facing detector cost includes the executor's per-detector load/run/unload wrapper time; pipeline scheduling therefore learns orchestration overhead instead of modeling detector-core RUN-INFO time alone. The next schedule is still fixed before the following run starts—there is no dynamic stealing.",
             "",
