@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.persistence import INDEX_FILENAMES, canonical_index_path, load_index, write_index
+from hth.persistence import INDEX_FILENAMES, ResultsRepository, canonical_index_path, load_index, write_index
 from hth.persistence_rebuild import rebuild_all
 from hth.shape_prediction import record_prediction_observations
 
@@ -12,6 +12,28 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 
 class PersistenceArchitectureTests(unittest.TestCase):
+    def test_repository_api_owns_index_and_record_queries(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repository = ResultsRepository(root)
+            record = root / "records" / "run-1"
+            record.mkdir(parents=True)
+            (record / "summary.json").write_text(json.dumps({"value": 7}), encoding="utf-8")
+            repository.write_index("calibration-index.json", {
+                "entries": [{
+                    "detector_id": "detector",
+                    "golden_set_sha256": "gold",
+                    "record_path": "records/run-1",
+                }],
+                "preferred": {},
+            })
+
+            self.assertTrue(repository.has_index("calibration-index.json"))
+            entries = repository.calibration_entries(golden_set_sha256="gold", existing_only=True)
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(repository.record_dir(entries[0]), record)
+            self.assertEqual(repository.read_record_json(entries[0], "summary.json"), {"value": 7})
+
     def test_all_derived_indexes_have_one_canonical_registry(self):
         self.assertEqual(INDEX_FILENAMES, frozenset({
             "calibration-index.json", "multidetector-index.json", "optimizer-index.json",
@@ -33,6 +55,27 @@ class PersistenceArchitectureTests(unittest.TestCase):
             text = (ROOT / relative).read_text(encoding="utf-8")
             self.assertNotIn("def _write_json(path: Path", text, relative)
         self.assertIn("atomic_write_json", (ROOT / "hth/regression/learned_evidence.py").read_text(encoding="utf-8"))
+
+    def test_results_repository_consumers_do_not_query_index_layout_directly(self):
+        for relative in (
+            "hth/historical_rerank.py",
+            "hth/optimizer_resume.py",
+            "hth/optimizer_report.py",
+            "hth/calibration_report.py",
+        ):
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            self.assertNotIn("from hth.results_layout import", text, relative)
+            self.assertNotIn("from hth.persistence import readable_index_path", text, relative)
+
+    def test_report_generator_is_a_thin_responsibility_facade(self):
+        facade = (ROOT / "hth/report_generator.py").read_text(encoding="utf-8")
+        calibration = (ROOT / "hth/calibration_report.py").read_text(encoding="utf-8")
+        optimizer = (ROOT / "hth/optimizer_report.py").read_text(encoding="utf-8")
+        self.assertLess(len(facade.splitlines()), 100)
+        self.assertIn("from hth.calibration_report import", facade)
+        self.assertIn("from hth.optimizer_report import", facade)
+        self.assertNotIn("optimizer", calibration)
+        self.assertNotIn("calibration_run_dirs", optimizer)
 
     def test_delete_indexes_rebuilds_calibration_from_durable_evidence(self):
         with tempfile.TemporaryDirectory() as td:

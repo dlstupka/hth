@@ -35,6 +35,93 @@ class IndexContract:
     empty: Callable[[], dict[str, Any]]
 
 
+@dataclass(frozen=True)
+class ResultsRepository:
+    """Single read/query boundary for one HTH results repository.
+
+    Callers describe the logical index or durable record they need; layout
+    migration, compatibility adaptation, and root-relative path resolution
+    remain private to this boundary.
+    """
+
+    root: Path
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "root", Path(self.root))
+
+    def canonical_index_path(self, filename: str) -> Path:
+        return canonical_index_path(self.root, filename)
+
+    def readable_index_path(self, filename: str) -> Path:
+        return readable_index_path(self.root, filename)
+
+    def has_index(self, filename: str) -> bool:
+        return self.readable_index_path(filename).is_file()
+
+    def load_index(self, filename: str) -> dict[str, Any]:
+        contract = contract_for(filename)
+        path = self.readable_index_path(filename)
+        if not path.is_file():
+            return contract.empty()
+        return contract.adapter(read_json(path))
+
+    def write_index(self, filename: str, payload: dict[str, Any]) -> Path:
+        contract = contract_for(filename)
+        data = contract.adapter(dict(payload))
+        if data.get("schema_version") in (None, "legacy"):
+            data["schema_version"] = contract.schema_version
+        path = self.canonical_index_path(filename)
+        atomic_write_json(path, data)
+        return path
+
+    def resolve(self, relative_path: str | Path) -> Path:
+        return self.root / Path(relative_path)
+
+    def record_dir(self, record: dict[str, Any]) -> Path:
+        relative = str(record.get("record_path") or "").strip()
+        if not relative:
+            raise ValueError("Persisted record has no record_path")
+        return self.resolve(relative)
+
+    def read_record_json(self, record: dict[str, Any], filename: str) -> dict[str, Any]:
+        return read_json(self.record_dir(record) / filename)
+
+    def index_entries(self, filename: str, field: str = "entries") -> list[dict[str, Any]]:
+        return [
+            row for row in self.load_index(filename).get(field, [])
+            if isinstance(row, dict)
+        ]
+
+    def calibration_entries(
+        self,
+        *,
+        golden_set_sha256: str | None = None,
+        existing_only: bool = False,
+        recover_persisted: bool = False,
+    ) -> list[dict[str, Any]]:
+        entries: list[dict[str, Any]] = []
+        if recover_persisted:
+            # Imported lazily because calibration_store itself writes through
+            # this repository boundary.
+            from hth.calibration_store import load_index_with_persisted_backfill
+            index = load_index_with_persisted_backfill(
+                self.readable_index_path("calibration-index.json")
+            )
+        else:
+            index = self.load_index("calibration-index.json")
+        for row in index.get("entries", []):
+            if not isinstance(row, dict):
+                continue
+            if golden_set_sha256 and str(row.get("golden_set_sha256") or "") != golden_set_sha256:
+                continue
+            if not str(row.get("detector_id") or "").strip() or not str(row.get("record_path") or "").strip():
+                continue
+            if existing_only and not self.record_dir(row).is_dir():
+                continue
+            entries.append(row)
+        return entries
+
+
 def _empty_calibration() -> dict[str, Any]:
     return {"schema_version": CALIBRATION_INDEX_SCHEMA_VERSION, "entries": [], "preferred": {}}
 
@@ -137,11 +224,7 @@ def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def load_index(results_root: Path, filename: str) -> dict[str, Any]:
-    contract = contract_for(filename)
-    path = readable_index_path(results_root, filename)
-    if not path.is_file():
-        return contract.empty()
-    return contract.adapter(read_json(path))
+    return ResultsRepository(results_root).load_index(filename)
 
 
 def load_index_path(index_path: Path, filename: str | None = None) -> dict[str, Any]:
@@ -151,13 +234,7 @@ def load_index_path(index_path: Path, filename: str | None = None) -> dict[str, 
 
 
 def write_index(results_root: Path, filename: str, payload: dict[str, Any]) -> Path:
-    contract = contract_for(filename)
-    data = contract.adapter(dict(payload))
-    if data.get("schema_version") in (None, "legacy"):
-        data["schema_version"] = contract.schema_version
-    path = canonical_index_path(results_root, filename)
-    atomic_write_json(path, data)
-    return path
+    return ResultsRepository(results_root).write_index(filename, payload)
 
 
 def legacy_indexes(results_root: Path) -> list[Path]:

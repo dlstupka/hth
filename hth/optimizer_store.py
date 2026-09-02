@@ -12,7 +12,7 @@ import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 
-from hth.persistence import canonical_index_path, readable_index_path, read_json as _read_json, atomic_write_json as _write_json, load_index, write_index
+from hth.persistence import ResultsRepository, canonical_index_path, read_json as _read_json, atomic_write_json as _write_json, load_index, write_index
 from hth.optimizer_history import completed_run_records, persist_completed_run, persist_recovered_legacy_run
 from hth.optimizer_validity import migrate_optimizer_evidence, optimizer_evidence_is_valid, suppress_recovered_optimizer_duplicates
 from hth.optimizer_intelligence import historical_published_optimizer_indices, legacy_optimizer_rows_from_indices, optimizer_evidence_coverage
@@ -856,10 +856,12 @@ def update_optimizer_artifacts(
     observation_log: Path | None = None,
     shard_log: Path | None = None,
 ) -> dict[str, Path]:
-    parallelism_path = readable_index_path(results_root, "parallelism-index.json")
-    if not parallelism_path.is_file():
-        raise FileNotFoundError(f"Missing {parallelism_path}")
-    parallelism = _read_json(parallelism_path)
+    repository = ResultsRepository(results_root)
+    if not repository.has_index("parallelism-index.json"):
+        raise FileNotFoundError(
+            f"Missing {repository.readable_index_path('parallelism-index.json')}"
+        )
+    parallelism = repository.load_index("parallelism-index.json")
 
     # One-time migration bridge for optimizer summaries that predate immutable
     # per-run history. Recover distinct historical published profiles while the
@@ -908,12 +910,8 @@ def update_optimizer_artifacts(
         run_metadata = _read_json(run_metadata_path)
     runner_samples = _read_jsonl(runner_metrics_log, optimizer_run_id)
 
-    index_path = canonical_index_path(results_root, "optimizer-index.json")
-    read_index_path = readable_index_path(results_root, "optimizer-index.json")
-    if read_index_path.is_file():
-        existing = adapt_optimizer_index(_read_json(read_index_path))
-    else:
-        existing = {"schema_version": OPTIMIZER_INDEX_SCHEMA_VERSION, "detectors": {}, "runs": {}}
+    index_path = repository.canonical_index_path("optimizer-index.json")
+    existing = repository.load_index("optimizer-index.json")
     detectors = existing.get("detectors") if isinstance(existing.get("detectors"), dict) else {}
     runs = existing.get("runs") if isinstance(existing.get("runs"), dict) else {}
     for record in durable_records:
@@ -958,7 +956,7 @@ def update_optimizer_artifacts(
     historical["run_metadata_by_id"] = metadata_by_id
     current["run_metadata_by_id"] = metadata_by_id
 
-    predictions_path = canonical_index_path(results_root, "optimizer-predictions.json")
+    predictions_path = repository.canonical_index_path("optimizer-predictions.json")
     try:
         from hth.shape_prediction import migrate_prediction_history, verify_predictions
         migrate_prediction_history(predictions_path, optimizer_index=existing)

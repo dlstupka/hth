@@ -8,7 +8,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from hth.results_layout import canonical_index_path, readable_index_path
+from hth.persistence import ResultsRepository
 from typing import Any
 
 
@@ -41,10 +41,7 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def _published_run_ids(results_root: Path) -> set[str]:
-    index = readable_index_path(results_root, "optimizer-index.json")
-    if not index.is_file():
-        return set()
-    payload = _read_json(index)
+    payload = ResultsRepository(results_root).load_index("optimizer-index.json")
     runs = payload.get("runs") if isinstance(payload.get("runs"), dict) else {}
     return {str(run_id) for run_id in runs}
 

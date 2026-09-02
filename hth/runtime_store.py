@@ -9,9 +9,14 @@ import math
 from datetime import datetime, timezone
 from pathlib import Path
 
-from hth.persistence import resolve_index_relative_path
-
-from hth.persistence import canonical_index_path, readable_index_path, read_json as _read_json, atomic_write_json as _write_json, load_index, write_index
+from hth.persistence import (
+    ResultsRepository,
+    canonical_index_path,
+    load_index,
+    load_index_path,
+    read_json as _read_json,
+    write_index,
+)
 from typing import Any, Iterable
 
 from hth.contracts import (
@@ -318,7 +323,12 @@ def _ranked_quality(calibration_index: dict[str, Any], detector: str, golden_sha
 def _runtime_observations_from_calibration_store(calibration_index_path: Path | None) -> list[dict[str, Any]]:
     if calibration_index_path is None or not calibration_index_path.is_file():
         return []
-    calibration_index = _read_json(calibration_index_path)
+    repository = ResultsRepository(
+        calibration_index_path.parent.parent
+        if calibration_index_path.parent.name == "indexes"
+        else calibration_index_path.parent
+    )
+    calibration_index = repository.load_index("calibration-index.json")
     observations: list[dict[str, Any]] = []
     for entry in calibration_index.get("entries", []):
         if not isinstance(entry, dict):
@@ -326,7 +336,7 @@ def _runtime_observations_from_calibration_store(calibration_index_path: Path | 
         record_path = entry.get("record_path")
         if not record_path:
             continue
-        info_path = resolve_index_relative_path(calibration_index_path, str(record_path)) / "RUN-INFO.json"
+        info_path = repository.resolve(str(record_path)) / "RUN-INFO.json"
         if not info_path.is_file():
             continue
         try:
@@ -361,8 +371,14 @@ def order_configs(
     calibration_index_path: Path | None, mode: str, search_strategy: str, threads: int,
     max_dimension: int, golden_set_sha256: str, runner_label: str,
 ) -> list[tuple[Path, float | None, str, float | None]]:
-    runtime_index = _read_json(runtime_index_path) if runtime_index_path and runtime_index_path.is_file() else {"observations": []}
-    calibration_index = _read_json(calibration_index_path) if calibration_index_path and calibration_index_path.is_file() else {"entries": []}
+    runtime_index = (
+        load_index_path(runtime_index_path, "runtime-index.json")
+        if runtime_index_path and runtime_index_path.is_file() else {"observations": []}
+    )
+    calibration_index = (
+        load_index_path(calibration_index_path, "calibration-index.json")
+        if calibration_index_path and calibration_index_path.is_file() else {"entries": []}
+    )
 
     # Calibration records contain durable RUN-INFO for every persisted detector.
     # Supplement only detectors missing from runtime-index so historical

@@ -7,7 +7,6 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from hth.results_layout import canonical_index_path, readable_index_path
 from typing import Any
 
 from hth.calibration_store import publish_run, update_index
@@ -22,27 +21,17 @@ from hth.regression.merge_shards import _results_from_raw
 from hth.regression.reports import ranking_key
 from hth.regression.run_semantics import legacy_run_semantics
 from hth.regression.runner import build_winner_page_report
+from hth.persistence import ResultsRepository, read_json as _read_json
 
 class HistoricalRerankSkip(RuntimeError):
     """Historical artifact is incompatible with safe canonical reranking."""
 
 
 
-def _read_json(path: Path) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError(f"Expected JSON object in {path}")
-    return payload
-
-
 def _matching_index_entry(results_root: Path, run_id: str) -> dict[str, Any] | None:
-    index_path = readable_index_path(results_root, "calibration-index.json")
-    if not index_path.is_file():
-        return None
-    index = _read_json(index_path)
     matches = [
-        entry for entry in index.get("entries", [])
-        if isinstance(entry, dict) and str(entry.get("calibration_id") or "") == run_id
+        entry for entry in ResultsRepository(results_root).index_entries("calibration-index.json")
+        if str(entry.get("calibration_id") or "") == run_id
     ]
     if not matches:
         return None
