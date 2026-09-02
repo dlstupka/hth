@@ -10,10 +10,14 @@ class CalibrationStoreTests(unittest.TestCase):
     def _run(self, root: Path, run_id: str, *, exhaustive: bool, mode: str, score: float = 0.9) -> Path:
         run = root / run_id
         (run / "reports").mkdir(parents=True)
+        (run / "raw").mkdir()
+        evidence_tier = "provisional" if mode == "smoke" else ("authoritative" if exhaustive else "partial")
         intelligence = {
             "schema_version": "1.1",
             "available": True,
             "detector": "grabcut",
+            "run_mode": mode,
+            "evidence_tier": evidence_tier,
             "calibration_identity": {
                 "calibration_run_id": run_id,
                 "created_at_utc": {"smoke": "2026-07-31T00:00:01Z", "full": "2026-07-31T00:00:02Z", "later-worse": "2026-07-31T00:00:03Z"}.get(run_id, "2026-07-31T00:00:04Z"),
@@ -26,11 +30,13 @@ class CalibrationStoreTests(unittest.TestCase):
             "detector_selection_intelligence": {"recommended_parameter_set_id": f"p-{run_id}", "best_avg_iou": score, "minimum_iou": score - 0.1, "stddev_iou": 0.05, "failure_count": 0},
         }
         (run / "reports" / "calibration-intelligence.json").write_text(json.dumps(intelligence), encoding="utf-8")
-        for name in ("manifest.json", "parameters.json"):
-            (run / name).write_text("{}", encoding="utf-8")
-        (run / "RUN-INFO.json").write_text(json.dumps({"elapsed_seconds": 3723}), encoding="utf-8")
-        (run / "reports" / "summary.json").write_text("{}", encoding="utf-8")
+        (run / "manifest.json").write_text(json.dumps({"run_mode": mode, "evidence_tier": evidence_tier}), encoding="utf-8")
+        (run / "parameters.json").write_text("{}", encoding="utf-8")
+        (run / "RUN-INFO.json").write_text(json.dumps({"elapsed_seconds": 3723, "run_mode": mode, "evidence_tier": evidence_tier}), encoding="utf-8")
+        (run / "reports" / "summary.json").write_text(json.dumps({"run_mode": mode, "evidence_tier": evidence_tier}), encoding="utf-8")
         (run / "reports" / "winner-pages.json").write_text("{}", encoding="utf-8")
+        (run / "raw" / "results.csv").write_text("observation\nlossless\n", encoding="utf-8")
+        (run / "raw" / "evidence.jsonl").write_text('{"observation":"lossless"}\n', encoding="utf-8")
         return run
 
     def test_later_worse_authoritative_full_is_retained_but_cannot_usurp_incumbent(self):
@@ -86,12 +92,26 @@ class CalibrationStoreTests(unittest.TestCase):
             self.assertIn("full", selected.as_posix())
             stored = json.loads(selected.read_text(encoding="utf-8"))
             self.assertEqual(stored["calibration_status"], "authoritative")
+            self.assertEqual(stored["run_mode"], "full")
+            self.assertEqual(stored["evidence_tier"], "authoritative")
+            self.assertEqual((selected.parent / "raw" / "results.csv").read_text(encoding="utf-8"), "observation\nlossless\n")
+            self.assertEqual(
+                (selected.parent / "raw" / "evidence.jsonl").read_text(encoding="utf-8"),
+                '{"observation":"lossless"}\n',
+            )
             self.assertEqual(stored["calibration_identity"]["build"]["github_run_id"], "1")
             self.assertEqual(stored["calibration_identity"]["build"]["github_run_number"], "193")
             self.assertEqual(stored["calibration_identity"]["build"]["workflow"], "Regress detectors against Golden Set")
             self.assertEqual(stored["calibration_identity"]["build"]["run_time_seconds"], 3723)
             self.assertEqual(preferred["build"]["run_url"], "https://github.com/dlstupka/hth/actions/runs/1")
             self.assertEqual(preferred["build"]["run_time_seconds"], 3723)
+
+    def test_persistence_rejects_run_mode_mismatch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            run = self._run(root, "smoke", exhaustive=False, mode="smoke")
+            with self.assertRaisesRegex(ValueError, "does not match run mode"):
+                publish_run(run, root / "results", mode="full", source_fallback="repo", build={})
 
     def test_zero_valid_measurements_cannot_be_persisted(self):
         with tempfile.TemporaryDirectory() as temp:

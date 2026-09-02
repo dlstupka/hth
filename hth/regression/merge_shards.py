@@ -22,6 +22,7 @@ from .parameter_space import canonical_search_space
 from .parameter_provenance import attach_identity, build_provenance
 from .reports import normalize_result_record, ranking_key, write_rankings
 from .outcome import is_winner_eligible
+from .run_semantics import evidence_tier_for, legacy_run_semantics
 from .runner import build_winner_page_report, file_sha256, load_pages, write_debug_artifacts
 from hth.regression.result_metrics import aggregate_page_metrics
 
@@ -76,12 +77,29 @@ def _merged_pipeline_context(infos: list[dict[str, Any]], summaries: list[dict[s
 
 
 def _results_from_raw(path: Path) -> list[dict[str, Any]]:
+    evidence_path = path.with_name("evidence.jsonl")
+    if evidence_path.is_file():
+        records = [
+            json.loads(line)
+            for line in evidence_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        if not all(isinstance(record, dict) for record in records):
+            raise ValueError(f"Raw evidence must contain JSON objects: {evidence_path}")
+        results = [
+            record["result"] if isinstance(record.get("result"), dict) else record
+            for record in records
+        ]
+        return _finalize_raw_results(results, normalize_optional=False)
+
     grouped: dict[str, dict[str, Any]] = {}
     with path.open(newline="", encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
+            result_envelope = json.loads(row.get("result_json") or "null")
+            page_envelope = json.loads(row.get("page_json") or "null")
             parameter_id = row["parameter_set_id"]
             identity_sha = row.get("parameter_identity_sha256") or parameter_id
-            result = grouped.setdefault(identity_sha, {
+            legacy_result = {
                 "parameter_set_id": parameter_id,
                 "parameter_set_equivalence_family_id": row.get("parameter_set_equivalence_family_id") or None,
                 "parameter_set_equivalence_family_sha256": row.get("parameter_set_equivalence_family_sha256") or None,
@@ -98,7 +116,15 @@ def _results_from_raw(path: Path) -> list[dict[str, Any]]:
                 "historic_reference": json.loads(row.get("historic_reference_json") or "{}"),
                 "parameters": json.loads(row["parameters_json"]),
                 "pages": [],
-            })
+            }
+            if isinstance(result_envelope, dict):
+                result_seed = dict(result_envelope)
+                result_seed["pages"] = []
+                for key, value in legacy_result.items():
+                    result_seed.setdefault(key, value)
+            else:
+                result_seed = legacy_result
+            result = grouped.setdefault(identity_sha, result_seed)
             if "search_observation" not in result:
                 completion_index = row.get("completion_index")
                 elapsed = row.get("completion_elapsed_seconds")
@@ -118,7 +144,7 @@ def _results_from_raw(path: Path) -> list[dict[str, Any]]:
             error = None
             if row.get("error_type") or row.get("error_message"):
                 error = {"type": row.get("error_type"), "message": row.get("error_message")}
-            result["pages"].append({
+            legacy_page = {
                 "global_ordinal": int(row["global_ordinal"]),
                 "label": row["label"],
                 "layout_type": row["layout_type"],
@@ -131,20 +157,30 @@ def _results_from_raw(path: Path) -> list[dict[str, Any]]:
                 "approved_bbox": json.loads(row["approved_bbox_json"]),
                 "predicted_bbox": json.loads(row["predicted_bbox_json"]),
                 "error": error,
-            })
-    results = []
-    for result in grouped.values():
+            }
+            result["pages"].append(page_envelope if isinstance(page_envelope, dict) else legacy_page)
+    return _finalize_raw_results(list(grouped.values()))
+
+
+def _finalize_raw_results(
+    results: list[dict[str, Any]], *, normalize_optional: bool = True
+) -> list[dict[str, Any]]:
+    """Recompute canonical derived metrics without discarding source fields."""
+    finalized = []
+    for result in results:
         pages = result["pages"]
         successful = [page for page in pages if str(page.get("status") or "").strip().lower() in {"ok", "success"}]
         edges = [float(page["edge_error_mean_px"]) for page in successful if page.get("edge_error_mean_px") is not None]
-        result["summary"] = aggregate_page_metrics(pages)
-        result["summary"].update({
+        summary = dict(result.get("summary") or {})
+        summary.update(aggregate_page_metrics(pages))
+        summary.update({
             "mean_edge_error_px": round(sum(edges) / len(edges), 3) if edges else None,
             "elapsed_ms_total": round(sum(float(page.get("elapsed_ms") or 0) for page in pages), 3),
             "wall_ms": round(sum(float(page.get("elapsed_ms") or 0) for page in pages), 3),
         })
-        results.append(normalize_result_record(result))
-    return results
+        result["summary"] = summary
+        finalized.append(normalize_result_record(result) if normalize_optional else result)
+    return finalized
 
 
 def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int = 20, *, expected_shard_count: int | None = None, golden_set: Path | None = None, image_root: Path | None = None, max_dimension: int = 1800, debug_level: str = "none") -> Path:
@@ -248,6 +284,10 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
     detector_configuration = _read(detector_config)
     first_summary = summaries[0]
     first_info = infos[0]
+    run_mode = _require_common(
+        "run mode",
+        [legacy_run_semantics(info, summary)[0] for info, summary in zip(infos, summaries)],
+    )
     strategy = str(first_info.get("strategy") or first_summary.get("strategy") or "exhaustive")
     requested_strategy = str(first_info.get("requested_strategy") or first_summary.get("requested_strategy") or strategy)
     run_id, run_dir = create_run_directory(output, detector, None)
@@ -282,12 +322,18 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
     else:
         possible = int(first_info.get("possible_parameter_sets") or first_summary.get("parameter_space", {}).get("possible_parameter_sets") or live_possible)
     search_space_contract["effective_parameter_sets"] = possible
+    complete_cartesian = (
+        sum(1 for result in ordered if result.get("search_space_member")) >= possible
+    )
+    evidence_tier = evidence_tier_for(
+        run_mode, exhaustive_complete=complete_cartesian
+    )
     parameter_provenance = build_provenance(
         detector,
         detector_configuration,
         ordered,
         strategy=strategy,
-        complete_cartesian=(sum(1 for result in ordered if result.get("search_space_member")) >= possible),
+        complete_cartesian=complete_cartesian,
     )
     write_json(run_dir / "parameter-provenance.json", parameter_provenance)
     baseline = outcome.baseline
@@ -319,6 +365,8 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         outcome,
         run_id=run_id,
         detector=detector,
+        run_mode=run_mode,
+        evidence_tier=evidence_tier,
         strategy=strategy,
         requested_strategy=requested_strategy,
         strategy_fallback_reason=strategy_fallback_reason,
@@ -372,7 +420,10 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
     write_json(run_dir / "parameters.json", parameters)
     info = dict(first_info)
     info.update({
+        "schema_version": "0.5",
         "run_id": run_id,
+        "run_mode": run_mode,
+        "evidence_tier": evidence_tier,
         "started_at_utc": start.isoformat(),
         "finished_at_utc": finish.isoformat(),
         "elapsed_seconds": round(elapsed, 3),
@@ -392,6 +443,8 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         outcome,
         run_id=run_id,
         detector=detector,
+        run_mode=run_mode,
+        evidence_tier=evidence_tier,
         strategy=strategy,
         requested_strategy=requested_strategy,
         strategy_fallback_reason=strategy_fallback_reason,

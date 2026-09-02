@@ -21,6 +21,7 @@ from hth.runtime_store import coherent_execution_profile, select_runtime_observa
 from hth.regression.parameter_provenance import parameter_identity_sha256, resolve_parameter_set
 from hth.regression.parameter_space import parameter_set_equivalence_family_id
 from hth.calibration_store import load_index_with_persisted_backfill
+from hth.regression.run_semantics import legacy_run_semantics
 
 
 GITHUB_HOSTED_SMOKE_VCPU = 4
@@ -476,10 +477,9 @@ def _build_parameter_build_index(
         if not isinstance(entry, dict):
             continue
 
-        # Provisional calibration records are smoke evidence in HTH's persisted
-        # calibration contract.  They are intentionally excluded from human
+        # Smoke observations are intentionally excluded from human
         # "Known Builds" / "Last Build" history to keep those lists useful.
-        if str(entry.get("calibration_status") or "").lower() == "provisional":
+        if legacy_run_semantics(entry)[0] == "smoke":
             continue
 
         detector = str(entry.get("detector_id") or "")
@@ -1332,7 +1332,8 @@ def _golden_set_identity(run_dir: Path, info: dict[str, Any], parameters: dict[s
 
 
 def _calibration_search_type(entry: dict[str, Any], payload: dict[str, Any]) -> str:
-    if str(entry.get("calibration_status") or "").lower() == "provisional":
+    run_mode, _ = legacy_run_semantics(entry, payload)
+    if run_mode == "smoke":
         return "smoke"
     search = payload.get("search", {}) if isinstance(payload.get("search"), dict) else {}
     strategy = search.get("strategy") or (entry.get("search") or {}).get("strategy")
@@ -1403,7 +1404,7 @@ def _calibration_record_from_payload(
     date_text = str(date_value or "unknown")[:10]
     actual_golden_id = str(entry.get("golden_set_id") or golden_set_id or "unknown")
     actual_golden_sha = str(entry.get("golden_set_sha256") or golden_set_sha256 or "unknown")
-    status = str(entry.get("calibration_status") or ("authoritative" if search.get("exhaustive_complete") else "partial"))
+    run_mode, evidence_tier = legacy_run_semantics(entry, payload, summary)
     build = entry.get("build") if isinstance(entry.get("build"), dict) else identity.get("build")
     build = build if isinstance(build, dict) else {}
     return {
@@ -1412,8 +1413,10 @@ def _calibration_record_from_payload(
         "golden_set_sha256": actual_golden_sha,
         "date": date_text,
         "created_at_utc": str(date_value or ""),
-        "search_type": _calibration_search_type({**entry, "calibration_status": status}, payload),
-        "status": status,
+        "run_mode": run_mode,
+        "evidence_tier": evidence_tier,
+        "search_type": _calibration_search_type({**entry, "run_mode": run_mode, "evidence_tier": evidence_tier}, payload),
+        "status": evidence_tier,
         "parameter_set_equivalence_family_id": _reconstruct_family_id(detector, winner),
         "parameter_set_id": _short(parameter_id, 12),
         "role": _detector_characterization(detector).get("role", "Unknown"),
@@ -1464,7 +1467,8 @@ def _best_known_calibrations(
             current_records.append(_calibration_record_from_payload(
                 detector, payload, summary=summary, golden_set_id=golden_id, golden_set_sha256=golden_sha,
                 entry={
-                    "calibration_status": "provisional" if int(summary.get("parameter_set_count", 0) or 0) <= 20 else ("authoritative" if (payload.get("search") or {}).get("exhaustive_complete") else "partial"),
+                    "run_mode": summary.get("run_mode") or info.get("run_mode") or manifest.get("run_mode"),
+                    "evidence_tier": summary.get("evidence_tier") or info.get("evidence_tier") or manifest.get("evidence_tier"),
                     "created_at_utc": info.get("started_at_utc"),
                     "build": {
                         "github_run_number": info.get("github_run_number"),
@@ -2047,7 +2051,7 @@ def _persisted_scope_parameter_count(
             continue
         if golden_sha256 and str(entry.get("golden_set_sha256") or "") != golden_sha256:
             continue
-        if str(entry.get("calibration_status") or "").lower() != "authoritative":
+        if legacy_run_semantics(entry)[1] != "authoritative":
             continue
         intelligence_path = resolve_index_relative_path(
             calibration_index, str(entry.get("intelligence_path") or "")

@@ -26,7 +26,12 @@ def _timestamp(record: dict[str, Any]) -> tuple[float, int]:
 
 
 def calibration_status(record: dict[str, Any]) -> str:
-    return str(record.get("status") or record.get("calibration_status") or "").lower()
+    return str(
+        record.get("evidence_tier")
+        or record.get("status")
+        or record.get("calibration_status")
+        or ""
+    ).lower()
 
 
 def calibration_search_type(record: dict[str, Any]) -> str:

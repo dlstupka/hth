@@ -23,6 +23,7 @@ from hth.optimizer_validity import migrate_optimizer_run, optimizer_evidence_is_
 from hth.shape_prediction import canonical_prediction_history
 from hth.write_regression_summary import build_combined_summary
 from hth.domain.calibration import authoritative_record
+from hth.regression.run_semantics import legacy_run_semantics
 from hth.calibration_store import load_index_with_persisted_backfill
 
 
@@ -91,7 +92,7 @@ def smoke_run_dirs(results_root: Path, golden_set: Path | None = None) -> list[P
     """
     grouped: dict[str, list[dict[str, Any]]] = {}
     for entry in _matching_index_entries(results_root, golden_set):
-        if str(entry.get("calibration_status") or "").lower() != "provisional":
+        if legacy_run_semantics(entry)[0] != "smoke":
             continue
         grouped.setdefault(str(entry["detector_id"]), []).append(entry)
     selected: dict[str, dict[str, Any]] = {}

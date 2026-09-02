@@ -13,6 +13,7 @@ from hth.optimizer_store import update_optimizer_artifacts
 from hth.parallelism_store import update_parallelism_index, update_parallelism_shards, observation_from_run as parallelism_observation_from_run
 from hth.persistence import INDEX_FILENAMES, canonical_index_path, read_json, write_index
 from hth.regression.learned_evidence import rebuild_orli_index
+from hth.regression.run_semantics import legacy_run_semantics
 from hth.runtime_store import observation_from_run as runtime_observation_from_run, update_runtime_index
 
 
@@ -27,8 +28,9 @@ def _calibration_build(run_dir: Path) -> dict[str, Any]:
     intelligence = read_json(intelligence_path) if intelligence_path.is_file() else {}
     identity = intelligence.get("calibration_identity") if isinstance(intelligence.get("calibration_identity"), dict) else {}
     build = dict(identity.get("build") or {}) if isinstance(identity, dict) else {}
-    status = str(intelligence.get("calibration_status") or "")
-    build.setdefault("mode", "smoke" if status == "provisional" else "full")
+    run_mode, evidence_tier = legacy_run_semantics(intelligence, build)
+    build.setdefault("mode", run_mode)
+    build.setdefault("evidence_tier", evidence_tier)
     build.setdefault("source", "calibration")
     return build
 

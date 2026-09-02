@@ -21,6 +21,7 @@ from hth.parallelism_store import observation_from_run as parallelism_observatio
 from hth.shape_prediction import record_prediction_observations
 from hth.persistence import canonical_index_path
 from hth.regression.parameter_provenance import provenance_from_legacy_parameters, resolve_parameter_set
+from hth.regression.run_semantics import legacy_run_semantics
 
 from hth.contracts import CALIBRATION_INDEX_SCHEMA_VERSION, adapt_calibration_index
 from hth.domain.calibration import authoritative_record
@@ -32,6 +33,8 @@ PERSISTED_FILES = (
     "parameters.json",
     "parameter-provenance.json",
     "RUN-INFO.json",
+    "raw/results.csv",
+    "raw/evidence.jsonl",
     "reports/summary.json",
     "reports/winner-pages.json",
     "reports/calibration-intelligence.json",
@@ -68,15 +71,6 @@ def _golden_set_id(intelligence: dict[str, Any]) -> str:
             if golden.get(key):
                 return _slug(golden[key], "golden-set")
     return "golden-set"
-
-
-def _status(mode: str, intelligence: dict[str, Any]) -> str:
-    if mode == "smoke":
-        return "provisional"
-    search = intelligence.get("search", {})
-    if isinstance(search, dict) and search.get("exhaustive_complete"):
-        return "authoritative"
-    return "partial"
 
 
 def _compatibility(intelligence: dict[str, Any]) -> dict[str, Any]:
@@ -131,14 +125,14 @@ def _entry_from_persisted_intelligence(results_root: Path, intelligence_path: Pa
     search = search if isinstance(search, dict) else {}
     build = identity.get("build") if isinstance(identity.get("build"), dict) else {}
     persistence = intelligence.get("persistence") if isinstance(intelligence.get("persistence"), dict) else {}
-    status = str(intelligence.get("calibration_status") or "").strip().lower()
-    if not status:
-        status = "authoritative" if search.get("exhaustive_complete") else "partial"
+    run_mode, evidence_tier = legacy_run_semantics(intelligence)
 
     provenance = relative_dir / "parameter-provenance.json"
     return {
         "calibration_id": calibration_id,
-        "calibration_status": status,
+        "run_mode": run_mode,
+        "evidence_tier": evidence_tier,
+        "calibration_status": evidence_tier,
         "record_path": relative_dir.as_posix(),
         "intelligence_path": (relative_dir / "calibration-intelligence.json").as_posix(),
         "parameter_provenance_path": provenance.as_posix() if (results_root / provenance).is_file() else None,
@@ -244,12 +238,25 @@ def publish_run(
     summary = _read_json(summary_path) if summary_path.is_file() else {}
     info_path = run_dir / "RUN-INFO.json"
     info = _read_json(info_path) if info_path.is_file() else {}
+    manifest_path = run_dir / "manifest.json"
+    manifest = _read_json(manifest_path) if manifest_path.is_file() else {}
+    run_mode, evidence_tier = legacy_run_semantics(
+        info, summary, intelligence, manifest, fallback_mode=mode
+    )
+    if run_mode != mode:
+        raise ValueError(
+            f"Persistence mode {mode!r} does not match run mode {run_mode!r}: {run_dir}"
+        )
     persisted_build = dict(build)
     run_time_seconds = info.get("elapsed_seconds", summary.get("elapsed_seconds"))
     if run_time_seconds is not None:
         persisted_build["run_time_seconds"] = run_time_seconds
     identity["build"] = persisted_build
-    intelligence["calibration_status"] = _status(mode, intelligence)
+    persisted_build["mode"] = run_mode
+    persisted_build["evidence_tier"] = evidence_tier
+    intelligence["run_mode"] = run_mode
+    intelligence["evidence_tier"] = evidence_tier
+    intelligence["calibration_status"] = evidence_tier
     intelligence["persistence"] = {
         "store": "results-repository",
         "index": "indexes/calibration-index.json",
@@ -271,7 +278,13 @@ def publish_run(
     for relative in PERSISTED_FILES:
         source = run_dir / relative
         if source.is_file():
-            target = destination / Path(relative).name
+            target = (
+                destination / relative
+                if Path(relative).parent != Path(".")
+                and not str(relative).startswith("reports/")
+                else destination / Path(relative).name
+            )
+            target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
 
     copied_intelligence = destination / "calibration-intelligence.json"
@@ -283,6 +296,8 @@ def publish_run(
     search = intelligence.get("search", {})
     entry = {
         "calibration_id": calibration_id,
+        "run_mode": run_mode,
+        "evidence_tier": evidence_tier,
         "calibration_status": intelligence["calibration_status"],
         "record_path": relative_dir.as_posix(),
         "intelligence_path": (relative_dir / "calibration-intelligence.json").as_posix(),
@@ -335,6 +350,8 @@ def update_index(results_root: Path, entries: list[dict[str, Any]]) -> dict[str,
         if selected:
             preferred[key] = {
                 "calibration_id": selected.get("calibration_id"),
+                "run_mode": selected.get("run_mode"),
+                "evidence_tier": selected.get("evidence_tier"),
                 "calibration_status": selected.get("calibration_status"),
                 "detector_id": selected.get("detector_id"),
                 "intelligence_path": selected.get("intelligence_path"),

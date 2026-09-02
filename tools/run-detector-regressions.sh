@@ -503,6 +503,7 @@ PY
     --golden-set "hth-pipeline/$GOLDEN_SET"
     --image-root "results-repo/$IMAGE_ROOT"
     --output "$shard_output"
+    --run-mode "$REGRESSION_MODE"
     --max-dimension "$MAX_DIMENSION"
     --top "$TOP_COUNT"
     --threads "$detector_threads"

@@ -6,6 +6,9 @@ from typing import Any
 from .parameter_space import canonical_parameters
 
 
+RAW_EVIDENCE_SCHEMA_VERSION = "1.0"
+
+
 def normalize_result_record(result: dict[str, Any]) -> dict[str, Any]:
     """Normalize optional result fields at the execution/reporting boundary.
 
@@ -29,12 +32,13 @@ def ranking_key(result: dict[str, Any]) -> tuple[float, float, int, float]:
 
 
 def write_raw_results(path: Path, ranked: list[dict[str, Any]]) -> None:
-    fields=["run_id","parameter_set_equivalence_family_id","parameter_set_equivalence_family_sha256","parameter_set_equivalence_family_size","parameter_set_id","parameter_identity_sha256","parameter_schema_version","parameter_grid_sha256","parameter_grid_ordinal","profile","rank","search_rank","requested_search_member","search_space_member","reference_roles_json","historic_reference_json","completion_index","completion_elapsed_seconds","search_fraction","global_ordinal","label","layout_type","status","iou","left_error_px","top_error_px","right_error_px","bottom_error_px","edge_error_mean_px","edge_error_maximum_px","elapsed_ms","approved_bbox_json","predicted_bbox_json","parameters_json","error_type","error_message"]
+    fields=["run_id","parameter_set_equivalence_family_id","parameter_set_equivalence_family_sha256","parameter_set_equivalence_family_size","parameter_set_id","parameter_identity_sha256","parameter_schema_version","parameter_grid_sha256","parameter_grid_ordinal","profile","rank","search_rank","requested_search_member","search_space_member","reference_roles_json","historic_reference_json","completion_index","completion_elapsed_seconds","search_fraction","global_ordinal","label","layout_type","status","iou","left_error_px","top_error_px","right_error_px","bottom_error_px","edge_error_mean_px","edge_error_maximum_px","elapsed_ms","approved_bbox_json","predicted_bbox_json","parameters_json","error_type","error_message","result_json","page_json"]
     with path.open("w",newline="",encoding="utf-8") as h:
         w=csv.DictWriter(h,fieldnames=fields); w.writeheader()
         for result in ranked:
-            normalize_result_record(result)
-            for page in result["pages"]:
+            result_payload = {key: value for key, value in result.items() if key != "pages"}
+            result_json = json.dumps(result_payload, sort_keys=True, separators=(",", ":"))
+            for page in result.get("pages") or []:
                 errors=page.get("edge_errors") or {}
                 err=page.get("error") or {}
                 w.writerow({
@@ -46,7 +50,19 @@ def write_raw_results(path: Path, ranked: list[dict[str, Any]]) -> None:
                     "left_error_px":errors.get("left"),"top_error_px":errors.get("top"),"right_error_px":errors.get("right"),"bottom_error_px":errors.get("bottom"),
                     "edge_error_mean_px":page.get("edge_error_mean_px"),"edge_error_maximum_px":page.get("edge_error_maximum_px"),"elapsed_ms":page.get("elapsed_ms"),
                     "approved_bbox_json":json.dumps(page.get("approved_bbox")),"predicted_bbox_json":json.dumps(page.get("predicted_bbox")),
-                    "parameters_json":canonical_parameters(result["parameters"]),"error_type":err.get("type"),"error_message":err.get("message")})
+                    "parameters_json":canonical_parameters(result["parameters"]),"error_type":err.get("type"),"error_message":err.get("message"),
+                    "result_json":result_json,"page_json":json.dumps(page,sort_keys=True,separators=(",", ":"))})
+
+
+def write_raw_evidence(path: Path, results: list[dict[str, Any]]) -> None:
+    """Write one complete JSON record per parameter-set observation."""
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        for result in results:
+            handle.write(json.dumps({
+                "schema_version": RAW_EVIDENCE_SCHEMA_VERSION,
+                "result": result,
+            }, sort_keys=True, separators=(",", ":")))
+            handle.write("\n")
 
 
 def write_rankings(path: Path, ranked: list[dict[str, Any]]) -> None:

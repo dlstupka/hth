@@ -7,6 +7,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -20,9 +21,10 @@ from hth.regression.materialization import (
     canonical_outcome_summary_fields,
     derive_canonical_outcome,
 )
-from hth.regression.reports import ranking_key
-from hth.regression.merge_shards import _merged_pipeline_context, _require_common, merge
+from hth.regression.reports import ranking_key, write_raw_evidence, write_raw_results
+from hth.regression.merge_shards import _merged_pipeline_context, _require_common, _results_from_raw, merge
 from hth.regression.runner import parse_args, run
+from hth.historical_rerank import rerank_run
 
 
 def _result(parameter_set_id: str, iou: float, *, profile=None, roles=(), requested=False):
@@ -87,6 +89,43 @@ class RegressionMaterializationTests(unittest.TestCase):
         self.assertEqual([row["parameter_set_id"] for row in outcome.search_ranked], ["winner"])
         self.assertEqual(outcome.search_ranked[0]["search_rank"], 1)
 
+    def test_raw_evidence_round_trip_preserves_extension_fields(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "results.csv"
+            result = _result("candidate", 0.91, requested=True)
+            result.update({
+                "metadata": {"model": {"sha256": "abc"}},
+                "warnings": [{"code": "soft-limit", "detail": {"value": 3}}],
+                "error": {"type": "aggregate", "context": {"retry": False}},
+                "future_result_field": {"nested": [1, "two", None]},
+            })
+            result["pages"][0].update({
+                "metadata": {"candidate_count": 4},
+                "warnings": [{"code": "clipped"}],
+                "error": {"type": "page-note", "context": {"source": "detector"}},
+                "future_page_field": {"confidence": 0.87654321},
+            })
+            empty_result = _result("no-pages", 0.0)
+            empty_result["pages"] = []
+            empty_result["future_result_field"] = {"survives_without_pages": True}
+
+            write_raw_results(path, [result, empty_result])
+            write_raw_evidence(path.with_name("evidence.jsonl"), [result, empty_result])
+            restored_results = _results_from_raw(path)
+            restored = restored_results[0]
+
+            for key in ("metadata", "warnings", "error", "future_result_field"):
+                self.assertEqual(restored[key], result[key], key)
+            for key in ("metadata", "warnings", "error", "future_page_field"):
+                self.assertEqual(restored["pages"][0][key], result["pages"][0][key], key)
+            self.assertEqual(restored["parameters"], result["parameters"])
+            self.assertEqual(len(restored_results), 2)
+            self.assertEqual(restored_results[1]["pages"], [])
+            self.assertEqual(
+                restored_results[1]["future_result_field"],
+                {"survives_without_pages": True},
+            )
+
     def test_all_paths_share_the_same_outcome_summary_fields(self):
         outcome = self._canonical_outcome()
         fields = canonical_outcome_summary_fields(outcome)
@@ -94,6 +133,8 @@ class RegressionMaterializationTests(unittest.TestCase):
             outcome,
             run_id="run-1",
             detector="detector",
+            run_mode="full",
+            evidence_tier="authoritative",
             strategy="exhaustive",
             requested_strategy="exhaustive",
             strategy_fallback_reason=None,
@@ -116,6 +157,8 @@ class RegressionMaterializationTests(unittest.TestCase):
         self.assertEqual(summary["detector_config_sha256"], "config")
         self.assertEqual(summary["model_selection"], {"variant": "current"})
         self.assertEqual(summary["detector_pipeline"], {"pipeline_count": 1})
+        self.assertEqual(summary["run_mode"], "full")
+        self.assertEqual(summary["evidence_tier"], "authoritative")
 
     def test_calibration_identity_preserves_model_and_pipeline_identity(self):
         identity = build_calibration_identity(
@@ -142,6 +185,8 @@ class RegressionMaterializationTests(unittest.TestCase):
             outcome,
             run_id="run-1",
             detector="detector",
+            run_mode="full",
+            evidence_tier="authoritative",
             strategy="exhaustive",
             requested_strategy="exhaustive",
             strategy_fallback_reason=None,
@@ -199,6 +244,8 @@ class RegressionMaterializationTests(unittest.TestCase):
             self._canonical_outcome(),
             run_id="run-1",
             detector="detector",
+            run_mode="full",
+            evidence_tier="authoritative",
             strategy="exhaustive",
             started_at_utc="start",
             finished_at_utc="finish",
@@ -223,7 +270,8 @@ class RegressionMaterializationTests(unittest.TestCase):
         self.assertIsNone(pipeline["pipeline_number"])
         self.assertEqual(pipeline["pipeline_numbers"], [1, 2])
 
-    def test_direct_and_merged_runs_share_canonical_artifact_fields(self):
+    def test_direct_merged_and_reranked_runs_share_canonical_semantics(self):
+        self.maxDiff = None
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             image_root = root / "images"
@@ -301,7 +349,7 @@ class RegressionMaterializationTests(unittest.TestCase):
                 "schema_version", "detector", "strategy", "requested_strategy",
                 "strategy_fallback_reason", "golden_set_sha256",
                 "detector_config_sha256", "model_selection", "max_dimension",
-                "measurement_state",
+                "measurement_state", "run_mode", "evidence_tier",
             ):
                 self.assertEqual(direct_summary[key], merged_summary[key], key)
             self.assertEqual(
@@ -326,6 +374,78 @@ class RegressionMaterializationTests(unittest.TestCase):
                     merged_calibration["regression_metadata"][key],
                     key,
                 )
+
+            results_root = root / "results"
+            results_root.mkdir()
+            (results_root / "calibration-index.json").write_text(json.dumps({
+                "entries": [{
+                    "calibration_id": merged_summary["run_id"],
+                    "run_mode": merged_summary["run_mode"],
+                    "evidence_tier": merged_summary["evidence_tier"],
+                    "calibration_status": merged_summary["evidence_tier"],
+                    "source_document_id": "source",
+                    "build": {"github_run_number": "1", "mode": "full"},
+                }],
+            }), encoding="utf-8")
+            fake_entry = {
+                "calibration_id": merged_summary["run_id"],
+                "compatibility_key": "key",
+                "run_mode": "full",
+                "evidence_tier": "authoritative",
+                "calibration_status": "authoritative",
+            }
+            with patch("hth.historical_rerank.publish_run", return_value=fake_entry), patch(
+                "hth.historical_rerank.update_index"
+            ):
+                rerank_run(merged, results_root)
+
+            reranked_summary = json.loads((merged / "reports" / "summary.json").read_text(encoding="utf-8"))
+            reranked_calibration = json.loads((merged / "reports" / "calibration-intelligence.json").read_text(encoding="utf-8"))
+
+            def semantic_view(summary, calibration):
+                def result_view(result):
+                    if result is None:
+                        return None
+                    view = {
+                        key: result.get(key)
+                        for key in (
+                            "parameter_set_id", "parameter_identity_sha256",
+                            "parameter_set_equivalence_family_id", "profile",
+                            "reference_roles", "parameters",
+                        )
+                    }
+                    view["quality"] = {
+                        key: (result.get("summary") or {}).get(key)
+                        for key in (
+                            "mean_iou", "mean_iou_success", "minimum_iou",
+                            "stddev_iou", "mean_edge_error_px", "failure_count",
+                            "success_count", "page_count",
+                        )
+                    }
+                    return view
+                return {
+                    "run_mode": summary["run_mode"],
+                    "evidence_tier": summary["evidence_tier"],
+                    "detector": summary["detector"],
+                    "strategy": summary["strategy"],
+                    "measurement_state": summary["measurement_state"],
+                    "parameter_set_count": summary["parameter_set_count"],
+                    "winner": result_view(summary["winner"]),
+                    "baseline": result_view(summary["baseline"]),
+                    "calibration_run_mode": calibration["run_mode"],
+                    "calibration_evidence_tier": calibration["evidence_tier"],
+                    "selection": calibration["detector_selection_intelligence"],
+                    "search": calibration["search"],
+                }
+
+            self.assertEqual(
+                semantic_view(direct_summary, direct_calibration),
+                semantic_view(merged_summary, merged_calibration),
+            )
+            self.assertEqual(
+                semantic_view(merged_summary, merged_calibration),
+                semantic_view(reranked_summary, reranked_calibration),
+            )
 
 
 if __name__ == "__main__":

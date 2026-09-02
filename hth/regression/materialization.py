@@ -14,17 +14,19 @@ from typing import Any, Callable, Iterable, Mapping
 from .calibration_intelligence import build_calibration_intelligence
 from .io import write_json
 from .outcome import reduce_regression_outcome, unavailable_winner_page_report
-from .reports import write_rankings, write_raw_results
+from .reports import write_rankings, write_raw_evidence, write_raw_results
+from .run_semantics import validate_run_semantics
 
 
-CANONICAL_SUMMARY_SCHEMA_VERSION = "0.8"
-CANONICAL_MANIFEST_SCHEMA_VERSION = "0.2"
+CANONICAL_SUMMARY_SCHEMA_VERSION = "0.9"
+CANONICAL_MANIFEST_SCHEMA_VERSION = "0.3"
 CANONICAL_CALIBRATION_SCHEMA_VERSION = "1.1"
 CANONICAL_REPORT_OUTPUTS = (
     "RUN-INFO.json",
     "parameters.json",
     "parameter-provenance.json",
     "raw/results.csv",
+    "raw/evidence.jsonl",
     "reports/summary.json",
     "reports/winner-pages.json",
     "reports/calibration-intelligence.json",
@@ -145,6 +147,8 @@ def build_canonical_summary(
     *,
     run_id: str,
     detector: str,
+    run_mode: str,
+    evidence_tier: str,
     strategy: str,
     requested_strategy: str,
     strategy_fallback_reason: str | None,
@@ -164,10 +168,13 @@ def build_canonical_summary(
     extra: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the shared summary schema for every execution shape."""
+    run_mode, evidence_tier = validate_run_semantics(run_mode, evidence_tier)
     summary: dict[str, Any] = {
         "schema_version": CANONICAL_SUMMARY_SCHEMA_VERSION,
         "run_id": run_id,
         "detector": detector,
+        "run_mode": run_mode,
+        "evidence_tier": evidence_tier,
         "strategy": strategy,
         "requested_strategy": requested_strategy,
         "strategy_fallback_reason": strategy_fallback_reason,
@@ -229,6 +236,8 @@ def build_calibration_identity(
 def build_regression_metadata(
     *,
     requested_strategy: str,
+    run_mode: str,
+    evidence_tier: str,
     resolved_strategy: str,
     strategy_fallback_reason: str | None,
     configured_threads: int,
@@ -249,7 +258,10 @@ def build_regression_metadata(
     zombie_parameter_evidence: Mapping[str, Any],
     extra: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    run_mode, evidence_tier = validate_run_semantics(run_mode, evidence_tier)
     metadata: dict[str, Any] = {
+        "run_mode": run_mode,
+        "evidence_tier": evidence_tier,
         "requested_strategy": requested_strategy,
         "resolved_strategy": resolved_strategy,
         "strategy_fallback_reason": strategy_fallback_reason,
@@ -284,7 +296,11 @@ def build_canonical_calibration(
     calibration_identity: Mapping[str, Any],
     regression_metadata: Mapping[str, Any],
 ) -> dict[str, Any]:
-    return build_calibration_intelligence(
+    run_mode, evidence_tier = validate_run_semantics(
+        regression_metadata.get("run_mode"),
+        regression_metadata.get("evidence_tier"),
+    )
+    calibration = build_calibration_intelligence(
         outcome.ordered,
         detector=detector,
         strategy=strategy,
@@ -292,6 +308,9 @@ def build_canonical_calibration(
         calibration_context=dict(calibration_identity),
         regression_context=dict(regression_metadata),
     )
+    calibration["run_mode"] = run_mode
+    calibration["evidence_tier"] = evidence_tier
+    return calibration
 
 
 def build_golden_set_identity(
@@ -362,6 +381,8 @@ def build_canonical_calibration_from_summary(
     profiles = detector_config.get("profiles", {})
     baseline_parameters = profiles.get("baseline", {}) if isinstance(profiles, dict) else {}
     regression_metadata = build_regression_metadata(
+        run_mode=str(summary["run_mode"]),
+        evidence_tier=str(summary["evidence_tier"]),
         requested_strategy=str(summary.get("requested_strategy") or strategy),
         resolved_strategy=strategy,
         strategy_fallback_reason=summary.get("strategy_fallback_reason"),
@@ -406,6 +427,8 @@ def build_canonical_manifest(
     *,
     run_id: str,
     detector: str,
+    run_mode: str,
+    evidence_tier: str,
     strategy: str,
     requested_strategy: str | None = None,
     strategy_fallback_reason: str | None = None,
@@ -416,10 +439,13 @@ def build_canonical_manifest(
     debug_outputs: Iterable[str] = (),
     extra: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    run_mode, evidence_tier = validate_run_semantics(run_mode, evidence_tier)
     manifest: dict[str, Any] = {
         "schema_version": CANONICAL_MANIFEST_SCHEMA_VERSION,
         "run_id": run_id,
         "detector": detector,
+        "run_mode": run_mode,
+        "evidence_tier": evidence_tier,
         "strategy": strategy,
         "requested_strategy": requested_strategy or strategy,
         "strategy_fallback_reason": strategy_fallback_reason,
@@ -448,6 +474,7 @@ def write_canonical_reports(
     """Write every report derived solely from normalized regression evidence."""
     if write_raw:
         write_raw_results(run_dir / "raw" / "results.csv", outcome.ordered)
+        write_raw_evidence(run_dir / "raw" / "evidence.jsonl", outcome.ordered)
     write_rankings(run_dir / "reports" / "rankings.csv", outcome.ranked)
     write_rankings(run_dir / "reports" / "top20.csv", outcome.ranked[:max(0, top)])
     write_json(run_dir / "reports" / "summary.json", dict(summary))

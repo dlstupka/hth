@@ -20,6 +20,7 @@ from hth.regression.materialization import (
 )
 from hth.regression.merge_shards import _results_from_raw
 from hth.regression.reports import ranking_key
+from hth.regression.run_semantics import legacy_run_semantics
 from hth.regression.runner import build_winner_page_report
 
 class HistoricalRerankSkip(RuntimeError):
@@ -66,6 +67,11 @@ def rerank_run(run_dir: Path, results_root: Path, *, top: int = 20) -> dict[str,
     manifest = _read_json(run_dir / "manifest.json")
     info = _read_json(run_dir / "RUN-INFO.json")
     old_intelligence = _read_json(intelligence_path)
+    run_mode, evidence_tier = legacy_run_semantics(
+        summary, info, manifest, old_intelligence
+    )
+    summary["run_mode"] = run_mode
+    summary["evidence_tier"] = evidence_tier
 
     if str(manifest.get("status") or "").lower() != "complete":
         raise ValueError(f"Historical run is not complete: {run_dir}")
@@ -118,6 +124,9 @@ def rerank_run(run_dir: Path, results_root: Path, *, top: int = 20) -> dict[str,
         "winner_changed": bool(old_winner_id and old_winner_id != str(winner.get("parameter_set_id") or "")),
     }
 
+    regression_metadata = dict(old_intelligence.get("regression_metadata") or {})
+    regression_metadata["run_mode"] = run_mode
+    regression_metadata["evidence_tier"] = evidence_tier
     calibration = build_canonical_calibration(
         outcome,
         detector=str(summary.get("detector") or manifest.get("detector") or old_intelligence.get("detector") or "unknown"),
@@ -125,12 +134,11 @@ def rerank_run(run_dir: Path, results_root: Path, *, top: int = 20) -> dict[str,
         possible_parameter_sets=possible,
         calibration_identity=old_intelligence.get("calibration_identity")
         if isinstance(old_intelligence.get("calibration_identity"), dict) else {},
-        regression_metadata=old_intelligence.get("regression_metadata")
-        if isinstance(old_intelligence.get("regression_metadata"), dict) else {},
+        regression_metadata=regression_metadata,
     )
     # Preserve persistence/status metadata; this is a reinterpretation of the
     # original evidence, not a new detector execution.
-    for key in ("calibration_status", "persistence"):
+    for key in ("persistence",):
         if key in old_intelligence:
             calibration[key] = old_intelligence[key]
     write_canonical_reports(
@@ -149,11 +157,10 @@ def rerank_run(run_dir: Path, results_root: Path, *, top: int = 20) -> dict[str,
             "refusing to create ambiguous provenance"
         )
     build = dict(existing_entry.get("build")) if isinstance(existing_entry.get("build"), dict) else {}
-    mode = "full" if str(existing_entry.get("calibration_status") or "") == "authoritative" else "smoke"
     entry = publish_run(
         run_dir,
         results_root,
-        mode=mode,
+        mode=run_mode,
         source_fallback=str(existing_entry.get("source_document_id") or "results-repository"),
         build=build,
     )

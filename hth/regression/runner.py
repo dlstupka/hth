@@ -36,6 +36,7 @@ from .materialization import (
     derive_canonical_outcome,
     write_canonical_reports,
 )
+from .run_semantics import evidence_tier_for
 from hth.regression.result_metrics import aggregate_page_metrics
 from hth.domain.result_metrics import baseline_surpassed
 from hth.geometry.registry import detector_entrypoint, detector_names
@@ -275,6 +276,7 @@ def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
     p.add_argument("--image-root",type=Path,required=True)
     p.add_argument("--output",type=Path,required=True,help="Regression root; a detector/run-* directory is created below it.")
     p.add_argument("--strategy",choices=("exhaustive","exhaustive-with-zombies","binary-refine","non-dormant","low+","moderate+","important+","critical"),default="exhaustive")
+    p.add_argument("--run-mode", choices=("smoke", "full"), default="full")
     p.add_argument("--calibration-intelligence",type=Path,default=None,help="Prior calibration-intelligence.json used for effect-size-domain strategies.")
     p.add_argument("--historic-best",type=Path,default=None,help="Exact historic best-known parameter reference injected into every regression.")
     p.add_argument("--precomputed-evidence",type=Path,default=None,help="Parent-precomputed immutable learned Golden Set evidence shared by all shards.")
@@ -1224,6 +1226,9 @@ def run(args:argparse.Namespace)->Path:
             and args.shard_count == 1
             and len(ordered) >= possible_parameter_set_count
         )
+        evidence_tier = evidence_tier_for(
+            args.run_mode, exhaustive_complete=complete_cartesian
+        )
         parameter_provenance = build_provenance(
             name,
             config,
@@ -1243,6 +1248,8 @@ def run(args:argparse.Namespace)->Path:
             outcome,
             run_id=run_id,
             detector=name,
+            run_mode=args.run_mode,
+            evidence_tier=evidence_tier,
             strategy=effective_strategy,
             requested_strategy=requested_strategy,
             strategy_fallback_reason=strategy_fallback_reason,
@@ -1293,12 +1300,14 @@ def run(args:argparse.Namespace)->Path:
             pages=pages,
             debug_level=debug_level,
         )
-        finished=utc_now(); info={"schema_version":"0.4","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"status":"complete" if measurement_state["terminal_success"] else "invalid","outcome":measurement_state,"started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"detector_config":str(args.detector_config),"detector_config_sha256":detector_config_sha256,"model_selection":model_selection,"max_dimension":args.max_dimension,"debug_artifacts":debug_policy,"debug_level":debug_level,"source_commit":source_commit,"threads":args.threads,"detector_pipeline":detector_pipeline_context,"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ordered),"shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"performance_samples":len(performance_samples),"peak_rss_bytes":peak_rss_bytes(),**environment}
+        finished=utc_now(); info={"schema_version":"0.5","run_id":run_id,"detector":name,"run_mode":args.run_mode,"evidence_tier":evidence_tier,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"status":"complete" if measurement_state["terminal_success"] else "invalid","outcome":measurement_state,"started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"detector_config":str(args.detector_config),"detector_config_sha256":detector_config_sha256,"model_selection":model_selection,"max_dimension":args.max_dimension,"debug_artifacts":debug_policy,"debug_level":debug_level,"source_commit":source_commit,"threads":args.threads,"detector_pipeline":detector_pipeline_context,"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ordered),"shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"performance_samples":len(performance_samples),"peak_rss_bytes":peak_rss_bytes(),**environment}
         write_json(run_dir/"RUN-INFO.json",info)
         manifest = build_canonical_manifest(
             outcome,
             run_id=run_id,
             detector=name,
+            run_mode=args.run_mode,
+            evidence_tier=evidence_tier,
             strategy=effective_strategy,
             requested_strategy=requested_strategy,
             strategy_fallback_reason=strategy_fallback_reason,
