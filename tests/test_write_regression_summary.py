@@ -56,6 +56,32 @@ class RegressionSummaryTests(unittest.TestCase):
         next_schedule, _ = _scheduler_feedback_schedule(current, observation, 2)
         self.assertEqual([[t["detector"] for t in p["tasks"]] for p in next_schedule], [["a", "b"], ["c"]])
 
+    def test_scheduler_feedback_bounds_reassignments_while_improving_makespan(self):
+        current = [
+            {"pipeline": 1, "tasks": [{"detector": name, "estimate_seconds": 10.0} for name in ("a", "b", "c")], "estimated_seconds": 30.0},
+            {"pipeline": 2, "tasks": [{"detector": name, "estimate_seconds": 10.0} for name in ("d", "e")], "estimated_seconds": 20.0},
+            {"pipeline": 3, "tasks": [{"detector": name, "estimate_seconds": 10.0} for name in ("f", "g")], "estimated_seconds": 20.0},
+            {"pipeline": 4, "tasks": [{"detector": "h", "estimate_seconds": 10.0}], "estimated_seconds": 10.0},
+        ]
+        observation = {
+            "tasks": [
+                {"detector": name, "status": "complete", "scheduler_slot_seconds": 10.0}
+                for name in "abcdefgh"
+            ],
+        }
+
+        next_schedule, _ = _scheduler_feedback_schedule(current, observation, 4)
+        original = {
+            task["detector"]: plan["pipeline"] for plan in current for task in plan["tasks"]
+        }
+        following = {
+            task["detector"]: plan["pipeline"] for plan in next_schedule for task in plan["tasks"]
+        }
+        moved = sum(following[detector] != pipeline for detector, pipeline in original.items())
+
+        self.assertEqual(moved, 1)
+        self.assertEqual(max(plan["estimated_seconds"] for plan in next_schedule), 20.0)
+
     def test_builds_manifest_with_winner_baseline_and_outputs(self):
         with tempfile.TemporaryDirectory() as temporary:
             run = Path(temporary) / "run-1"

@@ -26,6 +26,8 @@ from hth.calibration_store import load_index_with_persisted_backfill
 GITHUB_HOSTED_SMOKE_VCPU = 4
 GITHUB_HOSTED_SMOKE_PIPELINES = 4
 GITHUB_HOSTED_SMOKE_THREADS_PER_REGRESSION = 8
+SCHEDULER_MAX_REASSIGNMENT_SHARE = 0.10
+SCHEDULER_MIN_MAKESPAN_GAIN = 0.02
 
 
 
@@ -2369,7 +2371,7 @@ def _current_multidetector_observation(
 def _scheduler_feedback_schedule(
     current_schedule: list[dict[str, Any]],
     observation: dict[str, Any] | None,
-    execution_pipeline_count: int,
+    _execution_pipeline_count: int,
 ) -> tuple[list[dict[str, Any]], dict[int, float]]:
     """Reshuffle the next fixed LPT schedule within the executed topology.
 
@@ -2412,11 +2414,9 @@ def _scheduler_feedback_schedule(
                 "detector": detector,
                 "estimate_seconds": measured_by_detector.get(detector, prior),
             })
-    candidate = _static_pipeline_schedule(rows, execution_pipeline_count)
-
-    # Prefer schedule stability when fresh telemetry cannot materially shorten
-    # the critical path.  Re-estimate the schedule that just ran with the same
-    # fresh costs, then accept a reshuffle only for >2% projected makespan gain.
+    # Re-estimate the schedule that just ran with the fresh costs. Pipeline
+    # assignments and task order remain stable unless a bounded local change
+    # materially shortens the critical path.
     measured = {str(row["detector"]): float(row["estimate_seconds"]) for row in rows}
     retained: list[dict[str, Any]] = []
     for plan in current_schedule:
@@ -2431,11 +2431,141 @@ def _scheduler_feedback_schedule(
             total += seconds
         if tasks:
             retained.append({"pipeline": int(plan["pipeline"]), "tasks": tasks, "estimated_seconds": total})
+    candidate = _bounded_schedule_rebalance(retained)
     retained_makespan = max((float(plan["estimated_seconds"]) for plan in retained), default=0.0)
     candidate_makespan = max((float(plan["estimated_seconds"]) for plan in candidate), default=0.0)
-    if retained_makespan > 0 and candidate_makespan >= retained_makespan * 0.98:
+    if (
+        retained_makespan > 0
+        and candidate_makespan >= retained_makespan * (1.0 - SCHEDULER_MIN_MAKESPAN_GAIN)
+    ):
         return retained, actual_pipeline_seconds
     return candidate, actual_pipeline_seconds
+
+
+def _bounded_schedule_rebalance(
+    schedule: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Improve makespan with minimal churn instead of rebuilding LPT globally."""
+    plans = [
+        {
+            "pipeline": int(plan["pipeline"]),
+            "tasks": [dict(task) for task in plan.get("tasks", [])],
+            "estimated_seconds": float(plan.get("estimated_seconds") or 0.0),
+        }
+        for plan in schedule
+    ]
+    original_pipeline = {
+        str(task.get("detector") or ""): int(plan["pipeline"])
+        for plan in plans
+        for task in plan["tasks"]
+        if str(task.get("detector") or "")
+    }
+    current_pipeline = dict(original_pipeline)
+    reassignment_limit = max(1, int(len(original_pipeline) * SCHEDULER_MAX_REASSIGNMENT_SHARE))
+
+    def changed_after(assignments: dict[str, int]) -> int:
+        return sum(
+            pipeline != original_pipeline.get(detector)
+            for detector, pipeline in assignments.items()
+        )
+
+    while plans:
+        loads = [float(plan["estimated_seconds"]) for plan in plans]
+        current_makespan = max(loads, default=0.0)
+        best: tuple[float, int, str, tuple[Any, ...]] | None = None
+
+        for source_index, source in enumerate(plans):
+            if len(source["tasks"]) <= 1 or loads[source_index] < current_makespan - 1e-9:
+                continue
+            for task_index, task in enumerate(source["tasks"]):
+                detector = str(task.get("detector") or "")
+                seconds = float(task.get("estimate_seconds") or 0.0)
+                for target_index, target in enumerate(plans):
+                    if target_index == source_index:
+                        continue
+                    assignments = dict(current_pipeline)
+                    assignments[detector] = int(target["pipeline"])
+                    changed = changed_after(assignments)
+                    if changed > reassignment_limit:
+                        continue
+                    projected = list(loads)
+                    projected[source_index] -= seconds
+                    projected[target_index] += seconds
+                    new_makespan = max(projected)
+                    if new_makespan < current_makespan - 1e-9:
+                        operation = ("move", source_index, task_index, target_index)
+                        score = (new_makespan, changed, detector, operation)
+                        if best is None or score < best:
+                            best = score
+
+            for target_index in range(len(plans)):
+                if target_index == source_index:
+                    continue
+                target = plans[target_index]
+                for source_task_index, source_task in enumerate(source["tasks"]):
+                    source_detector = str(source_task.get("detector") or "")
+                    source_seconds = float(source_task.get("estimate_seconds") or 0.0)
+                    for target_task_index, target_task in enumerate(target["tasks"]):
+                        target_detector = str(target_task.get("detector") or "")
+                        target_seconds = float(target_task.get("estimate_seconds") or 0.0)
+                        assignments = dict(current_pipeline)
+                        assignments[source_detector] = int(target["pipeline"])
+                        assignments[target_detector] = int(source["pipeline"])
+                        changed = changed_after(assignments)
+                        if changed > reassignment_limit:
+                            continue
+                        projected = list(loads)
+                        projected[source_index] += target_seconds - source_seconds
+                        projected[target_index] += source_seconds - target_seconds
+                        new_makespan = max(projected)
+                        if new_makespan < current_makespan - 1e-9:
+                            operation = (
+                                "swap", source_index, source_task_index,
+                                target_index, target_task_index,
+                            )
+                            label = f"{source_detector}:{target_detector}"
+                            score = (new_makespan, changed, label, operation)
+                            if best is None or score < best:
+                                best = score
+
+        if best is None:
+            break
+        operation = best[3]
+        if operation[0] == "move":
+            _, source_index, task_index, target_index = operation
+            task = plans[source_index]["tasks"].pop(task_index)
+            plans[target_index]["tasks"].append(task)
+            seconds = float(task.get("estimate_seconds") or 0.0)
+            plans[source_index]["estimated_seconds"] -= seconds
+            plans[target_index]["estimated_seconds"] += seconds
+            current_pipeline[str(task.get("detector") or "")] = int(plans[target_index]["pipeline"])
+        else:
+            _, source_index, source_task_index, target_index, target_task_index = operation
+            source_task = plans[source_index]["tasks"][source_task_index]
+            target_task = plans[target_index]["tasks"][target_task_index]
+            plans[source_index]["tasks"][source_task_index] = target_task
+            plans[target_index]["tasks"][target_task_index] = source_task
+            source_seconds = float(source_task.get("estimate_seconds") or 0.0)
+            target_seconds = float(target_task.get("estimate_seconds") or 0.0)
+            plans[source_index]["estimated_seconds"] += target_seconds - source_seconds
+            plans[target_index]["estimated_seconds"] += source_seconds - target_seconds
+            current_pipeline[str(source_task.get("detector") or "")] = int(plans[target_index]["pipeline"])
+            current_pipeline[str(target_task.get("detector") or "")] = int(plans[source_index]["pipeline"])
+    return plans
+
+
+def _schedule_reassignment_count(
+    current_schedule: list[dict[str, Any]], next_schedule: list[dict[str, Any]],
+) -> int:
+    current = {
+        str(task.get("detector") or ""): int(plan["pipeline"])
+        for plan in current_schedule for task in plan.get("tasks", [])
+    }
+    following = {
+        str(task.get("detector") or ""): int(plan["pipeline"])
+        for plan in next_schedule for task in plan.get("tasks", [])
+    }
+    return sum(following.get(detector) != pipeline for detector, pipeline in current.items())
 
 
 def _schedule_delta(current: dict[str, Any], next_plan: dict[str, Any]) -> str:
@@ -2891,11 +3021,11 @@ def build_combined_summary(
             next_spread = max(next_values) - min(next_values) if len(next_values) > 1 else 0.0
             lines.extend([
                 "",
-                f"**Pipeline balance feedback:** actual work-time spread {_duration(actual_spread)}; projected next-run spread {_duration(next_spread)}.",
+                f"**Pipeline balance feedback:** actual work-time spread {_duration(actual_spread)}; projected next-run spread {_duration(next_spread)}; {_schedule_reassignment_count(current_schedule, feedback_schedule)} of {len(combined_rows)} detectors reassigned.",
             ])
         lines.extend([
             "",
-            "`Schedule` is the fixed detector-ID order executed by this build. `Est Work` is the estimate used before fan-out. `Actual Work Time` is the measured fixed-pipeline span. `Reshuffle`, `Next Run`, and `Next Est` are derived after the run by re-running static LPT with the newly measured scheduler-facing detector costs.",
+            "`Schedule` is the fixed detector-ID order executed by this build. `Est Work` is the estimate used before fan-out. `Actual Work Time` is the measured fixed-pipeline span. `Reshuffle`, `Next Run`, and `Next Est` use a stability-first rebalance capped at 10% detector reassignment with the newly measured scheduler-facing detector costs.",
             "",
             "Scheduler-facing detector cost includes the executor's per-detector load/run/unload wrapper time; pipeline scheduling therefore learns orchestration overhead instead of modeling detector-core RUN-INFO time alone. The next schedule is still fixed before the following run starts—there is no dynamic stealing.",
             "",
