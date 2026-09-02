@@ -1260,8 +1260,6 @@ def run(args:argparse.Namespace)->Path:
         ranked = outcome.ranked
         winner = outcome.winner
         measurement_state = outcome.measurement_state
-        search_ranked = outcome.search_ranked
-        historic_best_result = outcome.historic_best
         complete_cartesian = (
             effective_strategy in {"exhaustive", "exhaustive-with-zombies"}
             and args.limit is None
@@ -1277,7 +1275,6 @@ def run(args:argparse.Namespace)->Path:
         )
         write_json(run_dir/"parameter-provenance.json", parameter_provenance)
         baseline = outcome.baseline
-        winner_pages = outcome.winner_pages
         locally_evaluated_parameter_sets = max(0, len(results) - 1) + (0 if baseline_reused else 1)
         locally_evaluated_page_evaluations = locally_evaluated_parameter_sets * len(pages)
         shard_context = {"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved","full_candidate_count":full_exhaustive_candidate_count}

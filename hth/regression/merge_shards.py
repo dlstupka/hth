@@ -37,6 +37,47 @@ def _parse_time(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _require_common(label: str, values: list[Any]) -> Any:
+    """Return one shard invariant or reject an incompatible evidence set."""
+    encoded = {
+        json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+        for value in values
+    }
+    if len(encoded) != 1:
+        raise ValueError(f"Shard {label} mismatch: {values!r}")
+    return values[0]
+
+
+def _merged_pipeline_context(infos: list[dict[str, Any]], summaries: list[dict[str, Any]]) -> dict[str, Any] | None:
+    contexts = [
+        info.get("detector_pipeline") or summary.get("detector_pipeline")
+        for info, summary in zip(infos, summaries)
+    ]
+    contexts = [context for context in contexts if isinstance(context, dict)]
+    if not contexts:
+        return None
+    merged: dict[str, Any] = {"source_shards": len(infos)}
+    varying_keys = {"pipeline_number", "queue_position"}
+    for key in sorted(set().union(*(context.keys() for context in contexts)) - varying_keys):
+        values = [context.get(key) for context in contexts]
+        if all(value == values[0] for value in values):
+            merged[key] = values[0]
+        else:
+            merged[f"{key}_values"] = values
+    merged["pipeline_number"] = None
+    merged["pipeline_numbers"] = sorted({
+        int(context["pipeline_number"])
+        for context in contexts
+        if context.get("pipeline_number") is not None
+    })
+    merged["queue_positions"] = sorted({
+        int(context["queue_position"])
+        for context in contexts
+        if str(context.get("queue_position") or "").isdigit()
+    })
+    return merged
+
+
 def _results_from_raw(path: Path) -> list[dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
     with path.open(newline="", encoding="utf-8") as handle:
@@ -114,7 +155,31 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         raise ValueError("No shard directories supplied")
     infos = [_read(path / "RUN-INFO.json") for path in shard_dirs]
     summaries = [_read(path / "reports" / "summary.json") for path in shard_dirs]
-    detector = str(infos[0]["detector"])
+    detector = str(_require_common("detector", [str(info.get("detector") or "") for info in infos]))
+    _require_common(
+        "strategy",
+        [str(info.get("strategy") or summary.get("strategy") or "") for info, summary in zip(infos, summaries)],
+    )
+    _require_common(
+        "Golden Set identity",
+        [info.get("golden_set_sha256") or summary.get("golden_set_sha256") for info, summary in zip(infos, summaries)],
+    )
+    _require_common(
+        "detector configuration identity",
+        [info.get("detector_config_sha256") or summary.get("detector_config_sha256") for info, summary in zip(infos, summaries)],
+    )
+    _require_common(
+        "model selection",
+        [info.get("model_selection", summary.get("model_selection")) for info, summary in zip(infos, summaries)],
+    )
+    _require_common(
+        "maximum dimension",
+        [info.get("max_dimension", summary.get("max_dimension")) for info, summary in zip(infos, summaries)],
+    )
+    _require_common(
+        "Golden Set pages",
+        [summary.get("page_ordinals", []) for summary in summaries],
+    )
     metadata_counts = {
         int(info.get("shard_count") or summary.get("shard", {}).get("count") or 1)
         for info, summary in zip(infos, summaries)
@@ -238,7 +303,7 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
     shard_context = {"count": expected, "assignment": "interleaved", "source_run_ids": list(dict.fromkeys(info.get("run_id") for info in infos))}
     threads = max(int(info.get("threads") or 1) for info in infos)
     strategy_fallback_reason = first_info.get("strategy_fallback_reason", first_summary.get("strategy_fallback_reason"))
-    detector_pipeline = first_info.get("detector_pipeline") or first_summary.get("detector_pipeline")
+    detector_pipeline = _merged_pipeline_context(infos, summaries)
     runner_context = first_summary.get("runner", {})
     model_selection = first_info.get("model_selection") or first_summary.get("model_selection")
     resolved_max_dimension = first_info.get("max_dimension", first_summary.get("max_dimension", max_dimension))

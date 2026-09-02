@@ -35,7 +35,6 @@ class DetectorRegressionSpaceSanityTests(unittest.TestCase):
         text = (ROOT / "hth" / "regression" / "runner.py").read_text(encoding="utf-8")
         materialization = (ROOT / "hth" / "regression" / "materialization.py").read_text(encoding="utf-8")
         self.assertIn('historic_best_result["reference_roles"] = ["historic_best"]', text)
-        self.assertIn("historic_best_result = outcome.historic_best", text)
         self.assertIn('"historic_best": outcome.historic_best', materialization)
         self.assertIn("historic_best_parameters", text)
 

@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 import copy
+import contextlib
+import io
+import json
+import tempfile
 import unittest
+from pathlib import Path
+
+import cv2
+import numpy as np
 
 from hth.regression.materialization import (
     CANONICAL_REPORT_OUTPUTS,
@@ -12,6 +20,8 @@ from hth.regression.materialization import (
     derive_canonical_outcome,
 )
 from hth.regression.reports import ranking_key
+from hth.regression.merge_shards import _merged_pipeline_context, _require_common, merge
+from hth.regression.runner import parse_args, run
 
 
 def _result(parameter_set_id: str, iou: float, *, profile=None, roles=(), requested=False):
@@ -138,6 +148,115 @@ class RegressionMaterializationTests(unittest.TestCase):
         self.assertEqual(tuple(manifest["outputs"][: len(CANONICAL_REPORT_OUTPUTS)]), CANONICAL_REPORT_OUTPUTS)
         self.assertEqual(manifest["outputs"].count("RUN-INFO.json"), 1)
         self.assertIn("logs/runner-performance.jsonl", manifest["outputs"])
+
+    def test_shard_merge_rejects_identity_drift_and_aggregates_pipeline_provenance(self):
+        self.assertEqual(_require_common("identity", ["same", "same"]), "same")
+        with self.assertRaisesRegex(ValueError, "Shard identity mismatch"):
+            _require_common("identity", ["first", "second"])
+        pipeline = _merged_pipeline_context(
+            [
+                {"detector_pipeline": {"pipeline_count": 2, "pipeline_number": 1, "loading_strategy": "lpt"}},
+                {"detector_pipeline": {"pipeline_count": 2, "pipeline_number": 2, "loading_strategy": "lpt"}},
+            ],
+            [{}, {}],
+        )
+        self.assertEqual(pipeline["pipeline_count"], 2)
+        self.assertIsNone(pipeline["pipeline_number"])
+        self.assertEqual(pipeline["pipeline_numbers"], [1, 2])
+
+    def test_direct_and_merged_runs_share_canonical_artifact_fields(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image_root = root / "images"
+            image_root.mkdir()
+            image = np.zeros((150, 200, 3), dtype=np.uint8)
+            cv2.rectangle(image, (20, 15), (180, 135), (245, 245, 245), -1)
+            cv2.imwrite(str(image_root / "fs_0001.png"), image)
+
+            golden_set = root / "golden.json"
+            golden_set.write_text(json.dumps({
+                "schema_version": "1",
+                "collection_id": "TEST",
+                "source_document": {"id": "source"},
+                "pages": [{
+                    "global_ordinal": 1,
+                    "label": "page-1",
+                    "layout_type": "single",
+                    "physical_document_bbox": [20, 15, 181, 136],
+                }],
+            }), encoding="utf-8")
+            baseline = {
+                "minimum_contour_area_fraction": 0.12,
+                "polygon_epsilon_fraction": 0.018,
+                "close_kernel_fraction": 0.0,
+                "close_iterations": 0,
+                "rectangularity_weight": 0.25,
+                "bbox_padding_fraction": 0.0,
+                "merge_fragmented_contours": False,
+            }
+            config = root / "contour.json"
+            config.write_text(json.dumps({
+                "schema_version": "0.1",
+                "detector": "contour",
+                "profiles": {"baseline": baseline},
+                "parameters": {
+                    name: {"values": ([0.12, 0.2] if name == "minimum_contour_area_fraction" else [value])}
+                    for name, value in baseline.items()
+                },
+                "regression": {"debug_artifacts": "none"},
+            }), encoding="utf-8")
+
+            common = [
+                "--detector-config", str(config),
+                "--golden-set", str(golden_set),
+                "--image-root", str(image_root),
+                "--max-dimension", "200",
+                "--debug-level", "none",
+                "--threads", "1",
+            ]
+            with contextlib.redirect_stdout(io.StringIO()):
+                direct = run(parse_args([*common, "--output", str(root / "direct")]))
+                shared_baseline = root / "shared-baseline.json"
+                shard_zero = run(parse_args([
+                    *common, "--output", str(root / "shard-zero"),
+                    "--shard-index", "0", "--shard-count", "2",
+                    "--shared-baseline", str(shared_baseline),
+                ]))
+                shard_one = run(parse_args([
+                    *common, "--output", str(root / "shard-one"),
+                    "--shard-index", "1", "--shard-count", "2",
+                    "--shared-baseline", str(shared_baseline),
+                ]))
+                merged = merge(
+                    [shard_zero, shard_one], root / "merged", config,
+                    expected_shard_count=2,
+                    golden_set=golden_set,
+                    image_root=image_root,
+                    max_dimension=200,
+                    debug_level="none",
+                )
+
+            direct_summary = json.loads((direct / "reports" / "summary.json").read_text(encoding="utf-8"))
+            merged_summary = json.loads((merged / "reports" / "summary.json").read_text(encoding="utf-8"))
+            for key in (
+                "schema_version", "detector", "strategy", "requested_strategy",
+                "strategy_fallback_reason", "golden_set_sha256",
+                "detector_config_sha256", "model_selection", "max_dimension",
+                "measurement_state",
+            ):
+                self.assertEqual(direct_summary[key], merged_summary[key], key)
+            self.assertEqual(
+                direct_summary["winner"]["parameter_identity_sha256"],
+                merged_summary["winner"]["parameter_identity_sha256"],
+            )
+            direct_calibration = json.loads((direct / "reports" / "calibration-intelligence.json").read_text(encoding="utf-8"))
+            merged_calibration = json.loads((merged / "reports" / "calibration-intelligence.json").read_text(encoding="utf-8"))
+            for key in ("detector_configuration", "model_selection"):
+                self.assertEqual(
+                    direct_calibration["calibration_identity"][key],
+                    merged_calibration["calibration_identity"][key],
+                    key,
+                )
 
 
 if __name__ == "__main__":
