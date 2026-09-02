@@ -131,12 +131,17 @@ class ModelCacheHardeningTests(unittest.TestCase):
                 patch("hth.detector_lifecycle.importlib.util.find_spec", return_value=object()),
                 patch("hth.detector_lifecycle.importlib.metadata.version", return_value=ORLI_PACKAGE_VERSION),
                 patch("hth.detector_lifecycle._download", side_effect=fake_download),
+                patch("hth.detector_lifecycle.time.sleep"),
             ):
                 payload = _prepare_orli_page_mask_hook(
                     results_root=results_root, policy="refresh", env_file=None
                 )
 
-            self.assertEqual(calls, [ORLI_MODEL_SOURCES[0].url, ORLI_MODEL_SOURCES[1].url])
+            self.assertEqual(calls, [
+                ORLI_MODEL_SOURCES[0].url,
+                ORLI_MODEL_SOURCES[0].url,
+                ORLI_MODEL_SOURCES[1].url,
+            ])
             self.assertEqual(payload["model_source_site"], ORLI_MODEL_SOURCES[1].site)
             self.assertEqual(payload["model_url"], ORLI_MODEL_SOURCES[1].url)
             self.assertEqual(len(payload["registered_model_sources"]), 3)

@@ -1,11 +1,12 @@
 # detector lifecycle
 from __future__ import annotations
-import argparse, hashlib, importlib.metadata, importlib.resources, importlib.util, json, os, re, shlex, shutil, struct, tempfile, urllib.request, zipfile
+import argparse, hashlib, importlib.metadata, importlib.resources, importlib.util, json, os, re, shlex, shutil, struct, tempfile, time, urllib.error, urllib.request, zipfile
 import cv2
 import numpy as np
 from datetime import datetime, timezone
 from pathlib import Path
 from hth.model_variants import ModelSource, resolve_model_variant
+from hth.network_retry import is_transient_network_error
 
 PAGENET_REPOSITORY="https://github.com/ctensmeyer/pagenet"
 PAGENET_LICENSE="BSD-3-Clause"
@@ -229,6 +230,8 @@ def _log_cache_repair(*,detector,artifact,path,reason):
 
 
 MODEL_DOWNLOAD_SOURCE_LIMIT=3
+MODEL_DOWNLOAD_ATTEMPTS_PER_SOURCE=2
+MODEL_DOWNLOAD_RETRY_DELAY_SECONDS=2
 
 def _download_model_source(source, target, *, validator=None):
     url=source.url if isinstance(source,ModelSource) else str(source)
@@ -274,22 +277,39 @@ def _download_from_sources(sources, target, *, artifact, variant, validator=None
         print(f"Model cache hit: variant={variant} artifact={artifact} path={target}")
         return {"site":"cache","url":None,"reference":None,"attempt":0}
     failures=[]
-    for attempt,source in enumerate(sources,1):
+    for source_number,source in enumerate(sources,1):
         if isinstance(source,ModelSource):
             site,url,reference=source.site,source.url,source.reference
         else:
             site,url,reference="unspecified",str(source),None
         ref=f" reference={reference}" if reference else ""
-        print(f"Model download: variant={variant} artifact={artifact} attempt={attempt}/{len(sources)} site={site}{ref}")
-        try:
-            _download_model_source(source,target,validator=validator)
-        except Exception as exc:
-            detail=f"{type(exc).__name__}: {exc}"
-            failures.append(f"{site}: {detail}")
-            print(f"Model download failed: variant={variant} artifact={artifact} site={site} error={detail}")
-            continue
-        print(f"Model download succeeded: variant={variant} artifact={artifact} site={site}")
-        return {"site":site,"url":url,"reference":reference,"attempt":attempt}
+        for source_attempt in range(1,MODEL_DOWNLOAD_ATTEMPTS_PER_SOURCE+1):
+            print(
+                f"Model download: variant={variant} artifact={artifact} "
+                f"source={source_number}/{len(sources)} retry={source_attempt}/{MODEL_DOWNLOAD_ATTEMPTS_PER_SOURCE} "
+                f"site={site}{ref}"
+            )
+            try:
+                _download_model_source(source,target,validator=validator)
+            except Exception as exc:
+                detail=f"{type(exc).__name__}: {exc}"
+                retryable=(
+                    is_transient_network_error(exc)
+                    if isinstance(exc,urllib.error.HTTPError)
+                    else is_transient_network_error(exc) or isinstance(exc,(OSError,RuntimeError))
+                )
+                will_retry=retryable and source_attempt < MODEL_DOWNLOAD_ATTEMPTS_PER_SOURCE
+                print(
+                    f"Model download failed: variant={variant} artifact={artifact} site={site} "
+                    f"retry={'yes' if will_retry else 'no'} error={detail}"
+                )
+                if will_retry:
+                    time.sleep(MODEL_DOWNLOAD_RETRY_DELAY_SECONDS)
+                    continue
+                failures.append(f"{site}: {detail}")
+                break
+            print(f"Model download succeeded: variant={variant} artifact={artifact} site={site}")
+            return {"site":site,"url":url,"reference":reference,"attempt":source_number}
     raise RuntimeError(
         f"All {artifact} download sources failed for {variant}: " + "; ".join(failures)
     )

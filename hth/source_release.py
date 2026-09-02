@@ -11,6 +11,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from hth.network_retry import is_transient_network_error
+
 MANIFEST_NAME = "source-release-manifest.json"
 
 
@@ -41,7 +43,10 @@ def _urlopen_with_retry(req: urllib.request.Request, *, timeout: int, attempts: 
             return urllib.request.urlopen(req, timeout=timeout)
         except urllib.error.HTTPError as exc:
             last_error = exc
-            retryable = exc.code in {429, 500, 502, 503, 504} or (exc.code == 403 and not req.headers.get("Authorization"))
+            retryable = is_transient_network_error(
+                exc,
+                retry_unauthenticated_forbidden=not bool(req.headers.get("Authorization")),
+            )
             if not retryable or attempt == attempts:
                 raise
         except urllib.error.URLError as exc:
