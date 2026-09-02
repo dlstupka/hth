@@ -12,18 +12,20 @@ from pathlib import Path
 from hth.results_layout import resolve_index_relative_path
 from typing import Any
 
-GITHUB_HOSTED_SMOKE_VCPU = 4
-GITHUB_HOSTED_SMOKE_MAX_THREADS = 8
 from hth.regression.result_metrics import normalize_summary_metrics
 from hth.regression.authoritative_record import authoritative_record
 from hth.regression.calibration_intelligence import detector_characterization
 from hth.domain.result_metrics import baseline_surpassed, calibration_metric_view, result_metric_view
-from hth.domain.multidetector_schedule import recommended_schedule
 from hth.domain.execution_dispatch import plan_static_dispatch
 from hth.runtime_store import coherent_execution_profile, select_runtime_observation
 from hth.regression.parameter_provenance import parameter_identity_sha256, resolve_parameter_set
 from hth.regression.parameter_space import parameter_set_equivalence_family_id
 from hth.calibration_store import load_index_with_persisted_backfill
+
+
+GITHUB_HOSTED_SMOKE_VCPU = 4
+GITHUB_HOSTED_SMOKE_PIPELINES = 4
+GITHUB_HOSTED_SMOKE_THREADS_PER_REGRESSION = 8
 
 
 
@@ -2367,13 +2369,14 @@ def _current_multidetector_observation(
 def _scheduler_feedback_schedule(
     current_schedule: list[dict[str, Any]],
     observation: dict[str, Any] | None,
-    pipeline_count: int,
+    execution_pipeline_count: int,
 ) -> tuple[list[dict[str, Any]], dict[int, float]]:
-    """Build the next fixed LPT schedule from this run's measured task slots.
+    """Reshuffle the next fixed LPT schedule within the executed topology.
 
     Task busy time is the scheduler-facing detector cost.  It deliberately
     includes detector wrapper/load/unload overhead captured by the executor,
-    rather than using only the detector core RUN-INFO elapsed time.
+    rather than using only the detector core RUN-INFO elapsed time.  Pipeline
+    count is persisted launch provenance; reporting never recomputes it.
     """
     actual_pipeline_seconds: dict[int, float] = {}
     measured_by_detector: dict[str, float] = {}
@@ -2409,7 +2412,7 @@ def _scheduler_feedback_schedule(
                 "detector": detector,
                 "estimate_seconds": measured_by_detector.get(detector, prior),
             })
-    candidate = _static_pipeline_schedule(rows, pipeline_count)
+    candidate = _static_pipeline_schedule(rows, execution_pipeline_count)
 
     # Prefer schedule stability when fresh telemetry cannot materially shorten
     # the critical path.  Re-estimate the schedule that just ran with the same
@@ -2560,15 +2563,6 @@ def _combined_ranking_key(row: dict[str, Any]) -> tuple[float, float, int, float
     )
 
 
-def _capacity_runner_label(info: dict[str, Any]) -> str:
-    labels = info.get("github_runner_labels") if isinstance(info.get("github_runner_labels"), list) else []
-    capacity = [str(label) for label in labels if re.fullmatch(r"\d+t", str(label).strip().lower())]
-    if capacity:
-        return capacity[-1]
-    return str(info.get("runner_name") or "unknown")
-
-
-
 def _latest_github_hosted_smoke_observation(
     index_path: Path | None, *, golden_set_sha256: str = ""
 ) -> dict[str, Any] | None:
@@ -2588,7 +2582,7 @@ def _latest_github_hosted_smoke_observation(
             budget = int(row.get("runner_thread_budget") or 0)
         except (TypeError, ValueError):
             continue
-        if budget != GITHUB_HOSTED_SMOKE_MAX_THREADS:
+        if budget != GITHUB_HOSTED_SMOKE_THREADS_PER_REGRESSION:
             continue
         if golden_set_sha256 and str(row.get("golden_set_sha256") or "") != golden_set_sha256:
             continue
@@ -2629,58 +2623,15 @@ def _github_hosted_smoke_reference_schedule(
             row["estimate_seconds"] = measured_by_detector[detector]
             row["estimate_source"] = "github-hosted-smoke-observation"
 
-    recommendation = recommended_schedule(
-        index_path=None, detector_count=len(rows),
-        runner_thread_budget=GITHUB_HOSTED_SMOKE_MAX_THREADS, runner_label="github-hosted",
-        golden_set_sha256=golden_sha or None, mode="smoke", strategy="exhaustive", limit="10",
-    )
-    plans = _static_pipeline_schedule(rows, int(recommendation["pipelines"]))
+    plans = _static_pipeline_schedule(rows, GITHUB_HOSTED_SMOKE_PIPELINES)
     return {
         "vcpu": GITHUB_HOSTED_SMOKE_VCPU,
-        "max_threads": GITHUB_HOSTED_SMOKE_MAX_THREADS,
-        "pipelines": int(recommendation["pipelines"]),
-        "threads_per_pipeline": int(recommendation["threads_per_pipeline"]),
-        "source": "canonical-lpt-planner",
+        "pipelines": GITHUB_HOSTED_SMOKE_PIPELINES,
+        "threads_per_pipeline": GITHUB_HOSTED_SMOKE_THREADS_PER_REGRESSION,
+        "source": "github-hosted-workflow + static-lpt",
         "evidence_run": evidence_run,
         "plans": plans,
     }
-
-def _next_run_schedule_recommendation(
-    run_dirs: list[Path], *, multidetector_index: Path | None
-) -> dict[str, Any]:
-    infos = [_read_json(run_dir / "RUN-INFO.json") for run_dir in run_dirs]
-    contexts = [_pipeline_context(run_dir) for run_dir in run_dirs]
-    budgets = []
-    for context in contexts:
-        try:
-            value = int(context.get("execution_thread_budget") or 0)
-        except (TypeError, ValueError):
-            value = 0
-        if value > 0:
-            budgets.append(value)
-    if budgets:
-        budget = max(budgets)
-    else:
-        logical = [int(info.get("logical_cpu_count") or 0) for info in infos if int(info.get("logical_cpu_count") or 0) > 0]
-        budget = (max(logical) * 2) if logical else max(1, int(_common_value([info.get("threads") for info in infos], 1) or 1))
-    runner_label = _common_value([_capacity_runner_label(info) for info in infos], "unknown")
-    short = any(
-        int(info.get("actual_parameter_sets") or 0) < int(info.get("possible_parameter_sets") or 0)
-        for info in infos
-        if int(info.get("possible_parameter_sets") or 0) > 0
-    )
-    strategies = [str(_read_json(run_dir / "manifest.json").get("strategy") or "exhaustive") for run_dir in run_dirs]
-    strategy = str(_common_value(strategies, "exhaustive"))
-    return recommended_schedule(
-        index_path=multidetector_index,
-        detector_count=len(run_dirs),
-        runner_thread_budget=budget,
-        runner_label=str(runner_label),
-        golden_set_sha256=_combined_golden_sha(run_dirs) or None,
-        mode="smoke" if short else "full",
-        strategy=strategy,
-        limit="bounded" if short else "",
-    )
 
 
 def build_combined_summary(
@@ -2803,8 +2754,8 @@ def build_combined_summary(
     )
     aggregate_elapsed = sum(float(row.get("elapsed_seconds", 0.0) or 0.0) for row in combined_rows)
     execution = _regression_execution_metadata(run_dirs, runtime_index_path=runtime_index)
-    next_schedule = _next_run_schedule_recommendation(run_dirs, multidetector_index=multidetector_index)
-    pipeline_count = int(next_schedule.get("pipelines", 1) or 1)
+    pipeline_count = max(1, int(execution.get("pipeline_count") or 1))
+    execution_threads = execution.get("threads", "unknown")
     regression_span = execution.get("span_seconds")
     concurrency = (
         aggregate_elapsed / float(regression_span)
@@ -2857,11 +2808,11 @@ def build_combined_summary(
             "",
             "### Regression Smoke-Test Execution Schedule",
             "",
-            "Report Writer shows a stable GitHub-hosted smoke-test reference schedule rather than reusing the topology of whichever self-hosted runner produced the current calibration manifest. Detector costs come from the newest matching GitHub-hosted smoke observation when available, then canonical static LPT places the detectors for the fixed 4-vCPU / 8-thread reference capacity.",
+            "Report Writer shows a stable GitHub-hosted smoke-test reference schedule rather than reusing the topology of whichever self-hosted runner produced the current calibration manifest. Detector costs come from the newest matching GitHub-hosted smoke observation when available, then canonical static LPT places the detectors within the workflow's fixed 4-pipeline / 8-threads-per-regression topology.",
             "",
             "| Setting | GitHub-hosted smoke reference |",
             "|---|---|",
-            f"| Runner profile | GitHub hosted — {smoke_reference['vcpu']} vCPU / {smoke_reference['max_threads']} max threads |",
+            f"| Runner profile | GitHub hosted — {smoke_reference['vcpu']} vCPU / {smoke_reference['threads_per_pipeline']} threads per detector regression |",
             f"| Detector pipelines | {smoke_reference['pipelines']} |",
             "| Loading / balancing | Static LPT makespan balancing |",
             f"| Threads per detector regression | {smoke_reference['threads_per_pipeline']} |",
@@ -2896,10 +2847,10 @@ def build_combined_summary(
             "",
             "| Setting | Live smoke run |",
             "|---|---|",
-            f"| Detector pipelines | {next_schedule['pipelines']} |",
+            f"| Detector pipelines | {pipeline_count} |",
             "| Loading / balancing | Static LPT makespan balancing |",
-            f"| Threads per detector regression | {next_schedule['threads_per_pipeline']} |",
-            f"| Scheduling intelligence | `{next_schedule['source']}` |",
+            f"| Threads per detector regression | {execution_threads} |",
+            f"| Execution shape provenance | `{execution['source']}` |",
             "| Pipeline start stagger | 0m |",
             "| Runtime intelligence | `runtime-index.json` |",
             "| Parallelism intelligence | `parallelism-index.json` |",
@@ -2907,14 +2858,14 @@ def build_combined_summary(
             "| Persistence | Results are accumulated during execution and published as one post-run calibration/index transaction. |",
             "",
         ])
-        current_schedule = _current_pipeline_schedule(run_dirs, int(next_schedule["pipelines"]))
+        current_schedule = _current_pipeline_schedule(run_dirs, pipeline_count)
         current_observation = _current_multidetector_observation(
             multidetector_index,
             build_id=str(execution.get("profile", {}).get("build_id") or "") if execution.get("profile") else None,
             golden_set_sha256=_combined_golden_sha(run_dirs),
         )
         feedback_schedule, actual_pipeline_seconds = _scheduler_feedback_schedule(
-            current_schedule, current_observation, int(next_schedule["pipelines"])
+            current_schedule, current_observation, pipeline_count
         )
         current_by_pipeline = {int(plan["pipeline"]): plan for plan in current_schedule}
         next_by_pipeline = {int(plan["pipeline"]): plan for plan in feedback_schedule}
@@ -2931,7 +2882,7 @@ def build_combined_summary(
             lines.append(
                 f"| {pipeline} | {schedule_ids} | {_schedule_delta(current, next_plan)} | "
                 f"{_duration(current['estimated_seconds'])} | {_duration(actual) if actual is not None else '—'} | "
-                f"{next_ids} | {_duration(next_plan['estimated_seconds'])} | {next_schedule['threads_per_pipeline']} |"
+                f"{next_ids} | {_duration(next_plan['estimated_seconds'])} | {execution_threads} |"
             )
         if actual_pipeline_seconds:
             actual_values = list(actual_pipeline_seconds.values())
@@ -2959,7 +2910,7 @@ def build_combined_summary(
         f"| Non-dormant | {_duration(non_dormant_estimate)} |",
         f"| Critical only | {_duration(critical_estimate)} |",
         "",
-        r"\* Estimates scale each detector's measured runtime to the selected effect-size domain, apply the normal bounded shard plan, and simulate static LPT placement across the recommended detector pipelines. Effect-group fallback remains active when a detector has no parameter sets in the requested group.",
+        r"\* Estimates scale each detector's measured runtime to the selected effect-size domain, apply the normal bounded shard plan, and simulate static LPT placement across the persisted execution topology. Effect-group fallback remains active when a detector has no parameter sets in the requested group.",
         "",
         "The reports below preserve the complete manifest, winner, baseline, calibration statistics, page analysis, and output inventory for each detector run.",
         "",
