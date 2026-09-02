@@ -45,6 +45,24 @@ class CanonicalOutcome:
     winner_pages: dict[str, Any]
 
 
+def _merge_extra_fields(
+    target: dict[str, Any],
+    extra: Mapping[str, Any] | None,
+    *,
+    contract: str,
+) -> None:
+    """Add extension fields without allowing canonical contract overrides."""
+    if not extra:
+        return
+    overlap = set(target).intersection(extra)
+    if overlap:
+        raise ValueError(
+            f"Canonical {contract} fields cannot be overridden: "
+            + ", ".join(sorted(overlap))
+        )
+    target.update(extra)
+
+
 def canonical_outcome_summary_fields(outcome: CanonicalOutcome) -> dict[str, Any]:
     """Return every summary field derived exclusively from page evidence."""
     state = outcome.measurement_state
@@ -168,13 +186,7 @@ def build_canonical_summary(
         "progress": dict(progress),
     }
     summary.update(canonical_outcome_summary_fields(outcome))
-    if extra:
-        overlap = set(summary).intersection(extra)
-        if overlap:
-            raise ValueError(
-                "Canonical summary fields cannot be overridden: " + ", ".join(sorted(overlap))
-            )
-        summary.update(extra)
+    _merge_extra_fields(summary, extra, contract="summary")
     return summary
 
 
@@ -259,14 +271,7 @@ def build_regression_metadata(
         "zombie_possible_parameter_sets": int(zombie_possible_parameter_sets),
         "canonical_search_space": dict(canonical_search_space),
     }
-    if extra:
-        overlap = set(metadata).intersection(extra)
-        if overlap:
-            raise ValueError(
-                "Canonical regression metadata fields cannot be overridden: "
-                + ", ".join(sorted(overlap))
-            )
-        metadata.update(extra)
+    _merge_extra_fields(metadata, extra, contract="regression metadata")
     return metadata
 
 
@@ -289,12 +294,121 @@ def build_canonical_calibration(
     )
 
 
+def build_golden_set_identity(
+    *,
+    configuration: Any,
+    sha256: Any,
+    payload: Mapping[str, Any] | None,
+    page_ordinals: Iterable[int],
+) -> dict[str, Any]:
+    """Describe the Golden Set once for every calibration-producing path."""
+    golden_set = dict(payload or {})
+    ordinals = [int(value) for value in page_ordinals]
+    return {
+        "configuration": str(configuration) if configuration is not None else None,
+        "sha256": sha256,
+        "collection_id": golden_set.get("collection_id"),
+        "schema_version": golden_set.get("schema_version"),
+        "description": golden_set.get("description"),
+        "page_count": len(ordinals),
+        "page_ordinals": ordinals,
+    }
+
+
+def build_canonical_calibration_from_summary(
+    outcome: CanonicalOutcome,
+    *,
+    summary: Mapping[str, Any],
+    created_at_utc: str,
+    golden_set_configuration: Any,
+    golden_set_payload: Mapping[str, Any] | None,
+    detector_configuration: Any,
+    detector_config: Mapping[str, Any],
+    regression_metadata_extra: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Derive calibration identity and metadata from one canonical summary."""
+    detector = str(summary["detector"])
+    strategy = str(summary["strategy"])
+    runner = dict(summary.get("runner") or {})
+    parameter_space = dict(summary.get("parameter_space") or {})
+    progress = dict(summary.get("progress") or {})
+    page_ordinals = list(summary.get("page_ordinals") or [])
+    golden_set_payload = dict(golden_set_payload or {})
+    calibration_identity = build_calibration_identity(
+        run_id=str(summary["run_id"]),
+        created_at_utc=created_at_utc,
+        source_document=golden_set_payload.get("source_document"),
+        golden_set=build_golden_set_identity(
+            configuration=golden_set_configuration,
+            sha256=summary.get("golden_set_sha256"),
+            payload=golden_set_payload,
+            page_ordinals=page_ordinals,
+        ),
+        detector=detector,
+        detector_configuration=str(detector_configuration),
+        detector_config_sha256=str(summary.get("detector_config_sha256") or ""),
+        model_selection=summary.get("model_selection"),
+        pipeline_commit=runner.get("pipeline_commit"),
+        source_commit=summary.get("source_commit"),
+        python_version=runner.get("python_version"),
+        opencv_version=runner.get("opencv_version"),
+    )
+    search_space = dict(parameter_space.get("canonical_search_space") or {})
+    zombie_specs = (
+        detector_config.get("zombie_parameters", {})
+        if isinstance(detector_config.get("zombie_parameters"), dict)
+        else {}
+    )
+    profiles = detector_config.get("profiles", {})
+    baseline_parameters = profiles.get("baseline", {}) if isinstance(profiles, dict) else {}
+    regression_metadata = build_regression_metadata(
+        requested_strategy=str(summary.get("requested_strategy") or strategy),
+        resolved_strategy=strategy,
+        strategy_fallback_reason=summary.get("strategy_fallback_reason"),
+        configured_threads=int(summary.get("threads") or 1),
+        detector_pipeline=summary.get("detector_pipeline"),
+        possible_parameter_sets=int(parameter_space.get("possible_parameter_sets") or 0),
+        planned_parameter_sets=parameter_space.get("planned_parameter_sets"),
+        evaluated_parameter_sets=int(summary.get("parameter_set_count") or 0),
+        golden_set_pages=len(page_ordinals),
+        page_evaluations=int(
+            parameter_space.get("actual_page_evaluations")
+            or summary.get("page_evaluation_count")
+            or 0
+        ),
+        failed_page_evaluations=int(progress.get("failures") or 0),
+        average_eval_rate=progress.get("average_eval_rate"),
+        execution_environment=runner,
+        baseline_parameters=baseline_parameters,
+        live_possible_parameter_sets=int(parameter_space.get("live_possible_parameter_sets") or 0),
+        zombie_possible_parameter_sets=int(parameter_space.get("zombie_possible_parameter_sets") or 0),
+        canonical_search_space=search_space,
+        zombie_parameters=search_space.get("configured_zombie_parameters", zombie_specs),
+        zombie_parameter_evidence={
+            str(parameter_name): dict(spec.get("last_measured", {}))
+            for parameter_name, spec in zombie_specs.items()
+            if isinstance(spec, dict) and isinstance(spec.get("last_measured"), dict)
+        },
+        extra=regression_metadata_extra,
+    )
+    return build_canonical_calibration(
+        outcome,
+        detector=detector,
+        strategy=strategy,
+        possible_parameter_sets=int(parameter_space.get("possible_parameter_sets") or 0),
+        calibration_identity=calibration_identity,
+        regression_metadata=regression_metadata,
+    )
+
+
 def build_canonical_manifest(
     outcome: CanonicalOutcome,
     *,
     run_id: str,
     detector: str,
     strategy: str,
+    requested_strategy: str | None = None,
+    strategy_fallback_reason: str | None = None,
     started_at_utc: str,
     finished_at_utc: str,
     shard: Mapping[str, Any] | None = None,
@@ -307,6 +421,8 @@ def build_canonical_manifest(
         "run_id": run_id,
         "detector": detector,
         "strategy": strategy,
+        "requested_strategy": requested_strategy or strategy,
+        "strategy_fallback_reason": strategy_fallback_reason,
         "status": "complete" if outcome.measurement_state["terminal_success"] else "invalid",
         "outcome": outcome.measurement_state,
         "started_at_utc": started_at_utc,
@@ -316,13 +432,7 @@ def build_canonical_manifest(
     }
     if shard is not None:
         manifest["shard"] = dict(shard)
-    if extra:
-        overlap = set(manifest).intersection(extra)
-        if overlap:
-            raise ValueError(
-                "Canonical manifest fields cannot be overridden: " + ", ".join(sorted(overlap))
-            )
-        manifest.update(extra)
+    _merge_extra_fields(manifest, extra, contract="manifest")
     return manifest
 
 

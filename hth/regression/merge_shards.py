@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import statistics
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -13,15 +12,13 @@ from hth.domain.result_metrics import baseline_surpassed
 
 from .io import create_run_directory, write_json
 from .materialization import (
-    build_calibration_identity,
-    build_canonical_calibration,
+    build_canonical_calibration_from_summary,
     build_canonical_manifest,
     build_canonical_summary,
-    build_regression_metadata,
     derive_canonical_outcome,
     write_canonical_reports,
 )
-from .parameter_space import canonical_parameters, canonical_search_space
+from .parameter_space import canonical_search_space
 from .parameter_provenance import attach_identity, build_provenance
 from .reports import normalize_result_record, ranking_key, write_rankings
 from .outcome import is_winner_eligible
@@ -348,60 +345,15 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         golden_set_payload = _read(golden_set) if golden_set is not None else {}
     except (OSError, ValueError, json.JSONDecodeError):
         golden_set_payload = {}
-    source_document = golden_set_payload.get("source_document") if isinstance(golden_set_payload, dict) else None
-    golden_set_identity = {
-        "configuration": str(golden_set) if golden_set is not None else first_info.get("golden_set"),
-        "sha256": first_info.get("golden_set_sha256"),
-        "collection_id": golden_set_payload.get("collection_id") if isinstance(golden_set_payload, dict) else None,
-        "schema_version": golden_set_payload.get("schema_version") if isinstance(golden_set_payload, dict) else None,
-        "description": golden_set_payload.get("description") if isinstance(golden_set_payload, dict) else None,
-        "page_count": pages,
-        "page_ordinals": first_summary.get("page_ordinals", []),
-    }
-    calibration_context = build_calibration_identity(
-        run_id=run_id,
-        created_at_utc=start.isoformat(),
-        source_document=source_document,
-        golden_set=golden_set_identity,
-        detector=detector,
-        detector_configuration=str(detector_config),
-        detector_config_sha256=detector_config_sha256,
-        model_selection=model_selection,
-        pipeline_commit=runner_context.get("pipeline_commit"),
-        source_commit=first_info.get("source_commit"),
-        python_version=runner_context.get("python_version"),
-        opencv_version=runner_context.get("opencv_version"),
-    )
-    zombie_specs = detector_configuration.get("zombie_parameters", {}) if isinstance(detector_configuration.get("zombie_parameters"), dict) else {}
-    regression_context = build_regression_metadata(
-        requested_strategy=requested_strategy,
-        resolved_strategy=strategy,
-        strategy_fallback_reason=strategy_fallback_reason,
-        configured_threads=threads,
-        detector_pipeline=detector_pipeline,
-        possible_parameter_sets=possible,
-        planned_parameter_sets=len(ordered),
-        evaluated_parameter_sets=len(ordered),
-        golden_set_pages=pages,
-        page_evaluations=len(ordered) * pages,
-        failed_page_evaluations=progress_payload["failures"],
-        average_eval_rate=progress_payload["average_eval_rate"],
-        execution_environment=runner_context,
-        baseline_parameters=detector_configuration.get("profiles", {}).get("baseline", {}),
-        live_possible_parameter_sets=live_possible,
-        zombie_possible_parameter_sets=zombie_possible,
-        canonical_search_space=search_space_contract,
-        zombie_parameters=search_space_contract["configured_zombie_parameters"],
-        zombie_parameter_evidence={str(parameter_name): dict(spec.get("last_measured", {})) for parameter_name, spec in zombie_specs.items() if isinstance(spec, dict) and isinstance(spec.get("last_measured"), dict)},
-        extra={"shard": shard_context},
-    )
-    calibration = build_canonical_calibration(
+    calibration = build_canonical_calibration_from_summary(
         outcome,
-        detector=detector,
-        strategy=strategy,
-        possible_parameter_sets=possible,
-        calibration_identity=calibration_context,
-        regression_metadata=regression_context,
+        summary=summary,
+        created_at_utc=start.isoformat(),
+        golden_set_configuration=golden_set if golden_set is not None else first_info.get("golden_set"),
+        golden_set_payload=golden_set_payload,
+        detector_configuration=detector_config,
+        detector_config=detector_configuration,
+        regression_metadata_extra={"shard": shard_context},
     )
     write_canonical_reports(
         run_dir,
@@ -441,14 +393,12 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         run_id=run_id,
         detector=detector,
         strategy=strategy,
+        requested_strategy=requested_strategy,
+        strategy_fallback_reason=strategy_fallback_reason,
         started_at_utc=start.isoformat(),
         finished_at_utc=finish.isoformat(),
         shard=shard_context,
         debug_outputs=debug_outputs,
-        extra={
-            "requested_strategy": requested_strategy,
-            "strategy_fallback_reason": strategy_fallback_reason,
-        },
     )
     write_json(run_dir / "manifest.json", manifest)
     write_rankings(run_dir.parent / f"{detector}-regression-results.csv", ranked)

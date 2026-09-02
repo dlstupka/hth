@@ -1,68 +1,28 @@
 """Execute a reproducible detector regression run."""
 from __future__ import annotations
-import argparse, hashlib, json, os, statistics, threading, time
+import argparse, hashlib, json, os, threading, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 import cv2
 from hth.geometry.common import document_mask, resize_for_analysis, scale_bbox, valid_bbox
-from hth.geometry import detector_eynollah_page_mask, detector_docextractor_page_mask, detector_pagenet_page_mask, detector_kraken_page_mask, detector_orli_page_mask, detector_doc_ufcn_page_mask, detector_mask_rcnn_page_mask, detector_adaptive_multi_scale_radial_edge, detector_amsre_bfq_spbv_pbg, detector_amsre_doc_ufcn_fusion, detector_adaptive_radial_edge, detector_border_energy, detector_border_fusion_quad, detector_components, detector_convex_hull, detector_consensus_quad, detector_contour_components, detector_contour_grabcut, detector_cross_edge_contour, detector_distance_transform, detector_distance_transform_rect, detector_dhsegment_page_mask, detector_polar_boundary_vote, detector_page_background, detector_signed_polar_boundary_vote, detector_segment_supported_polar_vote, detector_star_convex, detector_grabcut, detector_grabcut_contour, detector_gradient_vote, detector_multi_scale_radial_edge, detector_msre_bfq_spbv_pbg, detector_projective_gradient_vote, detector_radial_edge, detector_contour_projection, detector_contour_quad, detector_ransac, detector_radon_boundary, detector_text_flow, detector_whitespace_frame, detector_joint_rectangle_vote, detector_learned_page_mask
-from .adapters.convex_hull import detect as convex_hull_detect
-from .adapters.distance_transform import detect as distance_transform_detect
-from .adapters.distance_transform_rect import detect as distance_transform_rect_detect
-from .adapters.polar_boundary_vote import detect as polar_boundary_vote_detect
-from .adapters.page_background import detect as page_background_detect
-from .adapters.signed_polar_boundary_vote import detect as signed_polar_boundary_vote_detect
-from .adapters.segment_supported_polar_vote import detect as segment_supported_polar_vote_detect
-from .adapters.radon_boundary import detect as radon_boundary_detect
-from .adapters.text_flow import detect as text_flow_detect
-from .adapters.whitespace_frame import detect as whitespace_frame_detect
-from .adapters.joint_rectangle_vote import detect as joint_rectangle_vote_detect
-from .adapters.learned_page_mask import detect as learned_page_mask_detect
-from .adapters.dhsegment_page_mask import detect as dhsegment_page_mask_detect
-from .adapters.multi_scale_radial_edge import detect as multi_scale_radial_edge_detect
-from .adapters.msre_bfq_spbv_pbg import detect as msre_bfq_spbv_pbg_detect
-from .adapters.projective_gradient_vote import detect as projective_gradient_vote_detect
-from .adapters.border_fusion_quad import detect as border_fusion_quad_detect
-from .adapters.star_convex import detect as star_convex_detect
+from hth.geometry import detector_eynollah_page_mask, detector_docextractor_page_mask, detector_pagenet_page_mask, detector_kraken_page_mask, detector_orli_page_mask, detector_doc_ufcn_page_mask, detector_mask_rcnn_page_mask, detector_adaptive_multi_scale_radial_edge, detector_amsre_bfq_spbv_pbg, detector_amsre_doc_ufcn_fusion, detector_adaptive_radial_edge, detector_border_energy, detector_border_fusion_quad, detector_components, detector_convex_hull, detector_consensus_quad, detector_contour_components, detector_contour_grabcut, detector_distance_transform, detector_distance_transform_rect, detector_dhsegment_page_mask, detector_polar_boundary_vote, detector_page_background, detector_signed_polar_boundary_vote, detector_segment_supported_polar_vote, detector_star_convex, detector_grabcut, detector_grabcut_contour, detector_gradient_vote, detector_multi_scale_radial_edge, detector_msre_bfq_spbv_pbg, detector_projective_gradient_vote, detector_radial_edge, detector_contour_projection, detector_contour_quad, detector_ransac, detector_radon_boundary, detector_text_flow, detector_whitespace_frame, detector_joint_rectangle_vote, detector_learned_page_mask
 from .adapters.components import (
-    detect as components_detect,
     pre_regression_report_sections as components_pre_regression_report_sections,
 )
-from .adapters.contour import detect as contour_detect
-from .adapters.contour_quad import detect as contour_quad_detect
-from .adapters.contour_components import detect as contour_components_detect
-from .adapters.consensus_quad import detect as consensus_quad_detect
-from .adapters.contour_projection import detect as contour_projection_detect
-from .adapters.contour_grabcut import detect as contour_grabcut_detect
-from .adapters.grabcut_contour import detect as grabcut_contour_detect
-from .adapters.edge_contour import detect as edge_contour_detect
-from .adapters.cross_edge_contour import detect as cross_edge_contour_detect
-from .adapters.gradient_vote import detect as gradient_vote_detect
-from .adapters.radial_edge import detect as radial_edge_detect
-from .adapters.adaptive_multi_scale_radial_edge import detect as adaptive_multi_scale_radial_edge_detect
-from .adapters.amsre_bfq_spbv_pbg import detect as amsre_bfq_spbv_pbg_detect
-from .adapters.amsre_doc_ufcn_fusion import detect as amsre_doc_ufcn_fusion_detect
-from .adapters.adaptive_radial_edge import detect as adaptive_radial_edge_detect
-from .adapters.border_energy import detect as border_energy_detect
-from .adapters.grabcut import detect as grabcut_detect
 from .adapters.hough import (
-    detect as hough_detect,
     pre_regression_report_sections as hough_pre_regression_report_sections,
 )
 from .adapters.lsd import (
-    detect as lsd_detect,
     pre_regression_report_sections as lsd_pre_regression_report_sections,
 )
 from .adapters.ransac import (
-    detect as ransac_detect,
     pre_regression_report_sections as ransac_pre_regression_report_sections,
 )
 from .io import create_run_directory, environment_info, utc_now, write_json
 from .metrics import bbox_iou, edge_errors
-from .parameter_space import canonical_parameters, parameter_set_id, exhaustive_parameter_sets, canonical_search_space, parameter_set_equivalence_family_id
+from .parameter_space import canonical_parameters, parameter_set_id, canonical_search_space
 from .parameter_provenance import attach_identity, build_provenance
 from .reports import ranking_key, write_rankings
 from .strategies.cartesian import generate as cartesian_generate
@@ -70,11 +30,9 @@ from .strategies.binary_refine import search as binary_search
 from .progress import ProgressReporter
 from .performance import PerformanceSampler, peak_rss_bytes
 from .materialization import (
-    build_calibration_identity,
-    build_canonical_calibration,
+    build_canonical_calibration_from_summary,
     build_canonical_manifest,
     build_canonical_summary,
-    build_regression_metadata,
     derive_canonical_outcome,
     write_canonical_reports,
 )
@@ -1306,59 +1264,14 @@ def run(args:argparse.Namespace)->Path:
             golden_set_payload = json.loads(args.golden_set.read_text(encoding="utf-8"))
         except (OSError, ValueError, json.JSONDecodeError):
             golden_set_payload = {}
-        source_document = golden_set_payload.get("source_document") if isinstance(golden_set_payload, dict) else None
-        golden_set_identity = {
-            "configuration": str(args.golden_set),
-            "sha256": golden_set_sha256,
-            "collection_id": golden_set_payload.get("collection_id") if isinstance(golden_set_payload, dict) else None,
-            "schema_version": golden_set_payload.get("schema_version") if isinstance(golden_set_payload, dict) else None,
-            "description": golden_set_payload.get("description") if isinstance(golden_set_payload, dict) else None,
-            "page_count": len(pages),
-            "page_ordinals": [page["global_ordinal"] for page in pages],
-        }
-        calibration_context = build_calibration_identity(
-            run_id=run_id,
-            created_at_utc=started,
-            source_document=source_document,
-            golden_set=golden_set_identity,
-            detector=name,
-            detector_configuration=str(args.detector_config),
-            detector_config_sha256=detector_config_sha256,
-            model_selection=model_selection,
-            pipeline_commit=environment.get("pipeline_commit"),
-            source_commit=source_commit,
-            python_version=environment.get("python_version"),
-            opencv_version=environment.get("opencv_version"),
-        )
-        zombie_specs = config.get("zombie_parameters", {}) if isinstance(config.get("zombie_parameters"), dict) else {}
-        regression_context = build_regression_metadata(
-            requested_strategy=requested_strategy,
-            resolved_strategy=effective_strategy,
-            strategy_fallback_reason=strategy_fallback_reason,
-            configured_threads=args.threads,
-            detector_pipeline=detector_pipeline_context,
-            possible_parameter_sets=possible_parameter_set_count,
-            planned_parameter_sets=planned_parameter_set_count,
-            evaluated_parameter_sets=len(ordered),
-            golden_set_pages=len(pages),
-            page_evaluations=len(ordered) * len(pages),
-            failed_page_evaluations=progress_snapshot.failures,
-            average_eval_rate=progress_snapshot.eval_rate,
-            execution_environment=environment,
-            baseline_parameters=baseline_parameters,
-            live_possible_parameter_sets=live_possible_parameter_set_count,
-            zombie_possible_parameter_sets=zombie_possible_parameter_set_count,
-            canonical_search_space=search_space_contract,
-            zombie_parameters=zombie_specs,
-            zombie_parameter_evidence={str(parameter_name): dict(spec.get("last_measured", {})) for parameter_name, spec in zombie_specs.items() if isinstance(spec, dict) and isinstance(spec.get("last_measured"), dict)},
-        )
-        calibration_intelligence = build_canonical_calibration(
+        calibration_intelligence = build_canonical_calibration_from_summary(
             outcome,
-            detector=name,
-            strategy=effective_strategy,
-            possible_parameter_sets=possible_parameter_set_count,
-            calibration_identity=calibration_context,
-            regression_metadata=regression_context,
+            summary=summary,
+            created_at_utc=started,
+            golden_set_configuration=args.golden_set,
+            golden_set_payload=golden_set_payload,
+            detector_configuration=args.detector_config,
+            detector_config=config,
         )
         write_canonical_reports(
             run_dir,
@@ -1387,15 +1300,13 @@ def run(args:argparse.Namespace)->Path:
             run_id=run_id,
             detector=name,
             strategy=effective_strategy,
+            requested_strategy=requested_strategy,
+            strategy_fallback_reason=strategy_fallback_reason,
             started_at_utc=started,
             finished_at_utc=finished,
             shard=shard_context,
             additional_outputs=("logs/runner-performance.jsonl",),
             debug_outputs=debug_outputs,
-            extra={
-                "requested_strategy": requested_strategy,
-                "strategy_fallback_reason": strategy_fallback_reason,
-            },
         )
         write_json(run_dir/"manifest.json",manifest)
         # Convenience report at detector root, refreshed on every completed run.

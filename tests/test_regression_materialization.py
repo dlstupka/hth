@@ -14,6 +14,7 @@ import numpy as np
 from hth.regression.materialization import (
     CANONICAL_REPORT_OUTPUTS,
     build_calibration_identity,
+    build_canonical_calibration_from_summary,
     build_canonical_manifest,
     build_canonical_summary,
     canonical_outcome_summary_fields,
@@ -135,6 +136,64 @@ class RegressionMaterializationTests(unittest.TestCase):
         self.assertEqual(identity["pipeline"]["commit"], "pipeline")
         self.assertEqual(identity["detector_configuration"]["sha256"], "config")
 
+    def test_calibration_context_is_derived_from_the_canonical_summary(self):
+        outcome = self._canonical_outcome()
+        summary = build_canonical_summary(
+            outcome,
+            run_id="run-1",
+            detector="detector",
+            strategy="exhaustive",
+            requested_strategy="exhaustive",
+            strategy_fallback_reason=None,
+            threads=4,
+            shard={"count": 1},
+            detector_pipeline={"pipeline_count": 2, "pipeline_number": 1},
+            parameter_space={
+                "possible_parameter_sets": 3,
+                "planned_parameter_sets": 3,
+                "actual_page_evaluations": 3,
+                "live_possible_parameter_sets": 3,
+                "zombie_possible_parameter_sets": 6,
+                "canonical_search_space": {"configured_zombie_parameters": ["threshold"]},
+            },
+            page_ordinals=[1],
+            golden_set_sha256="gold",
+            detector_config_sha256="config",
+            model_selection={"variant": "current"},
+            max_dimension=1800,
+            runner={
+                "pipeline_commit": "pipeline",
+                "python_version": "3.12",
+                "opencv_version": "4.14",
+            },
+            source_commit="source",
+            progress={"failures": 0, "average_eval_rate": 2.5},
+        )
+        calibration = build_canonical_calibration_from_summary(
+            outcome,
+            summary=summary,
+            created_at_utc="2026-09-02T00:00:00Z",
+            golden_set_configuration="golden.json",
+            golden_set_payload={
+                "collection_id": "HTH-0001",
+                "schema_version": "1",
+                "source_document": {"id": "source-document"},
+            },
+            detector_configuration="detector.json",
+            detector_config={
+                "profiles": {"baseline": {"threshold": 1}},
+                "zombie_parameters": {"threshold": {"last_measured": {"build": 1}}},
+            },
+        )
+        identity = calibration["calibration_identity"]
+        metadata = calibration["regression_metadata"]
+        self.assertEqual(identity["golden_set"]["page_ordinals"], [1])
+        self.assertEqual(identity["pipeline"]["commit"], "pipeline")
+        self.assertEqual(metadata["configured_threads"], 4)
+        self.assertEqual(metadata["evaluated_parameter_sets"], 3)
+        self.assertEqual(metadata["baseline_parameters"], {"threshold": 1})
+        self.assertEqual(metadata["zombie_parameter_evidence"]["threshold"], {"build": 1})
+
     def test_manifest_has_one_canonical_output_contract(self):
         manifest = build_canonical_manifest(
             self._canonical_outcome(),
@@ -255,6 +314,16 @@ class RegressionMaterializationTests(unittest.TestCase):
                 self.assertEqual(
                     direct_calibration["calibration_identity"][key],
                     merged_calibration["calibration_identity"][key],
+                    key,
+                )
+            for key in (
+                "requested_strategy", "resolved_strategy", "possible_parameter_sets",
+                "evaluated_parameter_sets", "golden_set_pages", "page_evaluations",
+                "baseline_parameters", "canonical_search_space",
+            ):
+                self.assertEqual(
+                    direct_calibration["regression_metadata"][key],
+                    merged_calibration["regression_metadata"][key],
                     key,
                 )
 
