@@ -87,6 +87,42 @@ def _download_asset(asset: dict[str, Any], destination: Path, *, token: str = ""
         raise RuntimeError(f"Release asset network download failed for {asset.get('name')}: {exc}") from exc
 
 
+def _download_verified_asset(
+    asset: dict[str, Any],
+    destination: Path,
+    *,
+    expected_size: int,
+    expected_sha256: str,
+    token: str = "",
+    attempts: int = 4,
+) -> None:
+    """Download an asset atomically, retrying clean-EOF integrity failures."""
+    partial = destination.with_name(f"{destination.name}.part")
+    last_problem = "download did not start"
+    for attempt in range(1, attempts + 1):
+        partial.unlink(missing_ok=True)
+        try:
+            _download_asset(asset, partial, token=token)
+            actual_size = partial.stat().st_size
+            if expected_size >= 0 and actual_size != expected_size:
+                last_problem = f"size mismatch: expected {expected_size}, got {actual_size}"
+            else:
+                actual_sha = _sha256(partial)
+                if actual_sha.lower() == expected_sha256.lower():
+                    partial.replace(destination)
+                    return
+                last_problem = f"SHA-256 mismatch: expected {expected_sha256}, got {actual_sha}"
+        except Exception:
+            partial.unlink(missing_ok=True)
+            raise
+        partial.unlink(missing_ok=True)
+        if attempt < attempts:
+            time.sleep(min(8, 2 ** (attempt - 1)))
+    raise RuntimeError(
+        f"Integrity verification failed for {asset.get('name')} after {attempts} attempts: {last_problem}"
+    )
+
+
 def _validate_manifest(manifest: dict[str, Any], *, repository: str, tag: str) -> list[dict[str, Any]]:
     if int(manifest.get("schema_version", 0)) != 1:
         raise RuntimeError("Unsupported source release manifest schema")
@@ -136,14 +172,14 @@ def download_release(repository: str, tag: str, destination: Path, token: str = 
     for record in expected:
         name = str(record["name"])
         target = images / name
-        _download_asset(release_assets[name], target, token=token)
-        actual_size = target.stat().st_size
         expected_size = int(record.get("size", -1))
-        if expected_size >= 0 and actual_size != expected_size:
-            raise RuntimeError(f"Size mismatch for {name}: expected {expected_size}, got {actual_size}")
-        actual_sha = _sha256(target)
-        if actual_sha.lower() != str(record["sha256"]).lower():
-            raise RuntimeError(f"SHA-256 mismatch for {name}: expected {record['sha256']}, got {actual_sha}")
+        _download_verified_asset(
+            release_assets[name],
+            target,
+            expected_size=expected_size,
+            expected_sha256=str(record["sha256"]),
+            token=token,
+        )
 
     manifest_sha = _sha256(manifest_path)
     return {

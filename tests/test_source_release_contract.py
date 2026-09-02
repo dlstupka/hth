@@ -1,12 +1,14 @@
+import hashlib
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
-from hth.source_release import _validate_manifest
+from hth.source_release import _download_verified_asset, _validate_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -64,6 +66,54 @@ class SourceReleaseContractTests(unittest.TestCase):
             _validate_manifest(manifest, repository="other/source", tag="HTH-SOURCE-0001")
         with self.assertRaises(RuntimeError):
             _validate_manifest(manifest, repository="owner/source", tag="HTH-SOURCE-0002")
+
+    def test_verified_asset_retries_a_clean_eof_partial_download(self):
+        content = b"complete release asset"
+        digest = hashlib.sha256(content).hexdigest()
+        with tempfile.TemporaryDirectory() as td:
+            destination = Path(td) / "master.docx"
+            attempts = 0
+
+            def download(_asset, path, *, token=""):
+                nonlocal attempts
+                attempts += 1
+                path.write_bytes(content[:5] if attempts == 1 else content)
+
+            with mock.patch("hth.source_release._download_asset", side_effect=download), mock.patch(
+                "hth.source_release.time.sleep"
+            ):
+                _download_verified_asset(
+                    {"name": "master.docx"},
+                    destination,
+                    expected_size=len(content),
+                    expected_sha256=digest,
+                )
+
+            self.assertEqual(attempts, 2)
+            self.assertEqual(destination.read_bytes(), content)
+            self.assertFalse(destination.with_name("master.docx.part").exists())
+
+    def test_verified_asset_exhaustion_removes_partial_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            destination = Path(td) / "master.docx"
+
+            def download(_asset, path, *, token=""):
+                path.write_bytes(b"partial")
+
+            with mock.patch("hth.source_release._download_asset", side_effect=download), mock.patch(
+                "hth.source_release.time.sleep"
+            ):
+                with self.assertRaisesRegex(RuntimeError, "after 3 attempts.*size mismatch"):
+                    _download_verified_asset(
+                        {"name": "master.docx"},
+                        destination,
+                        expected_size=100,
+                        expected_sha256="a" * 64,
+                        attempts=3,
+                    )
+
+            self.assertFalse(destination.exists())
+            self.assertFalse(destination.with_name("master.docx.part").exists())
 
     def test_source_release_documentation_exists(self):
         text = (ROOT / "docs/source-releases.md").read_text(encoding="utf-8")
