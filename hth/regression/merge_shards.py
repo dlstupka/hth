@@ -11,12 +11,20 @@ from typing import Any
 
 from hth.domain.result_metrics import baseline_surpassed
 
-from .calibration_intelligence import build_calibration_intelligence
 from .io import create_run_directory, write_json
+from .materialization import (
+    build_calibration_identity,
+    build_canonical_calibration,
+    build_canonical_manifest,
+    build_canonical_summary,
+    build_regression_metadata,
+    derive_canonical_outcome,
+    write_canonical_reports,
+)
 from .parameter_space import canonical_parameters, canonical_search_space
 from .parameter_provenance import attach_identity, build_provenance
-from .reports import normalize_result_record, ranking_key, write_rankings, write_raw_results
-from .outcome import is_winner_eligible, reduce_regression_outcome, unavailable_winner_page_report
+from .reports import normalize_result_record, ranking_key, write_rankings
+from .outcome import is_winner_eligible
 from .runner import build_winner_page_report, file_sha256, load_pages, write_debug_artifacts
 from hth.regression.result_metrics import aggregate_page_metrics
 
@@ -175,16 +183,24 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
                 **observation,
             })
 
-    ordered, ranked, winner, measurement_state = reduce_regression_outcome(by_id.values(), ranking_key=ranking_key)
     detector_configuration = _read(detector_config)
     first_summary = summaries[0]
     first_info = infos[0]
     strategy = str(first_info.get("strategy") or first_summary.get("strategy") or "exhaustive")
     requested_strategy = str(first_info.get("requested_strategy") or first_summary.get("requested_strategy") or strategy)
     run_id, run_dir = create_run_directory(output, detector, None)
-    for result in ordered:
+    for result in by_id.values():
         attach_identity(result, detector, detector_configuration, strategy=strategy)
         result["run_id"] = run_id
+    outcome = derive_canonical_outcome(
+        by_id.values(),
+        ranking_key=ranking_key,
+        winner_page_builder=build_winner_page_report,
+    )
+    ordered = outcome.ordered
+    ranked = outcome.ranked
+    winner = outcome.winner
+    measurement_state = outcome.measurement_state
     identity_by_parameter_set = {
         str(result.get("parameter_set_id")): result.get("parameter_set_equivalence_family_id")
         for result in ordered
@@ -194,17 +210,6 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         family_id = identity_by_parameter_set.get(str(event.get("parameter_set_id")))
         if family_id:
             event["parameter_set_equivalence_family_id"] = family_id
-    search_ranked = [
-        result for result in ranked
-        if result.get("requested_search_member")
-        and not result.get("reference_roles")
-    ]
-    for search_rank, result in enumerate(search_ranked, 1):
-        result["search_rank"] = search_rank
-    historic_best = next(
-        (result for result in ordered if "historic_best" in (result.get("reference_roles") or [])),
-        None,
-    )
     search_space_contract = canonical_search_space(detector_configuration, strategy)
     live_possible = int(search_space_contract["live_exhaustive_parameter_sets"])
     zombie_possible = int(search_space_contract["exhaustive_with_zombies_parameter_sets"])
@@ -223,38 +228,57 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         complete_cartesian=(sum(1 for result in ordered if result.get("search_space_member")) >= possible),
     )
     write_json(run_dir / "parameter-provenance.json", parameter_provenance)
-    baseline = next((result for result in ordered if result.get("profile") == "baseline"), None)
+    baseline = outcome.baseline
     pages = len(first_summary.get("page_ordinals", []))
-    winner_pages = build_winner_page_report(winner, baseline) if winner is not None else unavailable_winner_page_report(measurement_state)
     serial_runtime_seconds = sum(
         max(0.0, float((result.get("summary") or {}).get("wall_ms") or (result.get("summary") or {}).get("elapsed_ms_total") or 0.0)) / 1000.0
         for result in ordered
     )
     effective_acceleration = serial_runtime_seconds / elapsed if elapsed > 0 else None
     shard_context = {"count": expected, "assignment": "interleaved", "source_run_ids": list(dict.fromkeys(info.get("run_id") for info in infos))}
-    summary = {
-        "schema_version": "0.8", "run_id": run_id, "detector": detector,
-        "strategy": strategy, "requested_strategy": requested_strategy,
-        "threads": max(int(info.get("threads") or 1) for info in infos), "shard": shard_context,
-        "parameter_space": {"possible_parameter_sets": possible, "live_possible_parameter_sets": live_possible, "zombie_possible_parameter_sets": zombie_possible, "canonical_search_space": search_space_contract, "planned_parameter_sets": len(ordered), "actual_parameter_sets": len(ordered), "golden_set_pages": pages, "planned_page_evaluations": len(ordered) * pages, "actual_page_evaluations": len(ordered) * pages},
-        "page_ordinals": first_summary.get("page_ordinals", []), "parameter_set_count": len(ordered),
-        "page_evaluation_count": measurement_state["page_evaluation_count"],
-        "successful_page_evaluation_count": measurement_state["successful_page_evaluation_count"],
-        "fully_successful_parameter_set_count": sum(1 for r in ordered if r["summary"]["failure_count"] == 0 and r["summary"]["success_count"] > 0),
-        "measurement_state": measurement_state,
-        "golden_set_sha256": first_info.get("golden_set_sha256"), "winner": winner, "baseline": baseline,
-        "historic_best": historic_best, "top_parameter_sets": ranked[:5], "search_top_parameter_sets": search_ranked[:5], "winner_page_report": winner_pages,
-        "runner": first_summary.get("runner", {}), "source_commit": first_info.get("source_commit"),
-        "elapsed_seconds": round(elapsed, 3),
-        "estimated_serial_runtime_seconds": round(serial_runtime_seconds, 3),
-        "effective_acceleration": round(effective_acceleration, 4) if effective_acceleration is not None else None,
-        "progress": {"estimated_parameter_sets": completion_total, "completed_parameter_sets": completion_total, "average_eval_rate": completion_total / elapsed if elapsed else None, "failures": sum(r["summary"]["failure_count"] for r in ordered), "winner_changes": len(winner_history) if winner else 0, "winner_history": winner_history if winner else [], "winner_first_changed_elapsed_seconds": winner_history[0]["elapsed_seconds"] if winner and winner_history else None, "winner_last_changed_elapsed_seconds": winner_history[-1]["elapsed_seconds"] if winner and winner_history else None, "baseline_surpassed": baseline_surpassed(winner, baseline)},
+    threads = max(int(info.get("threads") or 1) for info in infos)
+    strategy_fallback_reason = first_info.get("strategy_fallback_reason", first_summary.get("strategy_fallback_reason"))
+    detector_pipeline = first_info.get("detector_pipeline") or first_summary.get("detector_pipeline")
+    runner_context = first_summary.get("runner", {})
+    model_selection = first_info.get("model_selection") or first_summary.get("model_selection")
+    resolved_max_dimension = first_info.get("max_dimension", first_summary.get("max_dimension", max_dimension))
+    detector_config_sha256 = first_info.get("detector_config_sha256") or file_sha256(detector_config)
+    parameter_space = {"possible_parameter_sets": possible, "live_possible_parameter_sets": live_possible, "zombie_possible_parameter_sets": zombie_possible, "canonical_search_space": search_space_contract, "planned_parameter_sets": len(ordered), "actual_parameter_sets": len(ordered), "golden_set_pages": pages, "planned_page_evaluations": len(ordered) * pages, "actual_page_evaluations": len(ordered) * pages}
+    progress_payload = {"estimated_parameter_sets": completion_total, "completed_parameter_sets": completion_total, "average_eval_rate": completion_total / elapsed if elapsed else None, "failures": sum(r["summary"]["failure_count"] for r in ordered), "winner_changes": len(winner_history) if winner else 0, "winner_history": winner_history if winner else [], "winner_first_changed_elapsed_seconds": winner_history[0]["elapsed_seconds"] if winner and winner_history else None, "winner_last_changed_elapsed_seconds": winner_history[-1]["elapsed_seconds"] if winner and winner_history else None, "baseline_surpassed": baseline_surpassed(winner, baseline)}
+    performance_payload = {
+        "sample_count": sum(int((summary.get("performance") or {}).get("sample_count") or 0) for summary in summaries),
+        "configured_threads": threads,
+        "peak_rss_bytes": max((int((summary.get("performance") or {}).get("peak_rss_bytes") or 0) for summary in summaries), default=0),
+        "source_shards": expected,
+        "precomputed_evidence": any(bool((summary.get("performance") or {}).get("precomputed_evidence")) for summary in summaries),
+        "evidence_source": next((str((summary.get("performance") or {}).get("evidence_source")) for summary in summaries if (summary.get("performance") or {}).get("evidence_source")), None),
     }
-    write_raw_results(run_dir / "raw" / "results.csv", ordered)
-    write_rankings(run_dir / "reports" / "rankings.csv", ranked)
-    write_rankings(run_dir / "reports" / "top20.csv", ranked[:max(0, top)])
-    write_json(run_dir / "reports" / "summary.json", summary)
-    write_json(run_dir / "reports" / "winner-pages.json", winner_pages)
+    summary = build_canonical_summary(
+        outcome,
+        run_id=run_id,
+        detector=detector,
+        strategy=strategy,
+        requested_strategy=requested_strategy,
+        strategy_fallback_reason=strategy_fallback_reason,
+        threads=threads,
+        shard=shard_context,
+        detector_pipeline=detector_pipeline,
+        parameter_space=parameter_space,
+        page_ordinals=first_summary.get("page_ordinals", []),
+        golden_set_sha256=first_info.get("golden_set_sha256"),
+        detector_config_sha256=detector_config_sha256,
+        model_selection=model_selection,
+        max_dimension=resolved_max_dimension,
+        runner=runner_context,
+        source_commit=first_info.get("source_commit"),
+        performance=performance_payload,
+        progress=progress_payload,
+        extra={
+            "elapsed_seconds": round(elapsed, 3),
+            "estimated_serial_runtime_seconds": round(serial_runtime_seconds, 3),
+            "effective_acceleration": round(effective_acceleration, 4) if effective_acceleration is not None else None,
+        },
+    )
     try:
         golden_set_payload = _read(golden_set) if golden_set is not None else {}
     except (OSError, ValueError, json.JSONDecodeError):
@@ -269,53 +293,58 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         "page_count": pages,
         "page_ordinals": first_summary.get("page_ordinals", []),
     }
-    calibration_context = {
-        "calibration_run_id": run_id,
-        "calibration_schema_version": "1.1",
-        "created_at_utc": start.isoformat(),
-        "source_document": source_document,
-        "golden_set": golden_set_identity,
-        "detector_configuration": {
-            "detector_id": detector,
-            "configuration": str(detector_config),
-            "sha256": file_sha256(detector_config),
-        },
-        "pipeline": {
-            "commit": first_summary.get("runner", {}).get("pipeline_commit"),
-            "source_commit": first_info.get("source_commit"),
-            "python": first_summary.get("runner", {}).get("python_version"),
-            "opencv": first_summary.get("runner", {}).get("opencv_version"),
-        },
-    }
-    calibration = build_calibration_intelligence(
-        ordered,
+    calibration_context = build_calibration_identity(
+        run_id=run_id,
+        created_at_utc=start.isoformat(),
+        source_document=source_document,
+        golden_set=golden_set_identity,
+        detector=detector,
+        detector_configuration=str(detector_config),
+        detector_config_sha256=detector_config_sha256,
+        model_selection=model_selection,
+        pipeline_commit=runner_context.get("pipeline_commit"),
+        source_commit=first_info.get("source_commit"),
+        python_version=runner_context.get("python_version"),
+        opencv_version=runner_context.get("opencv_version"),
+    )
+    zombie_specs = detector_configuration.get("zombie_parameters", {}) if isinstance(detector_configuration.get("zombie_parameters"), dict) else {}
+    regression_context = build_regression_metadata(
+        requested_strategy=requested_strategy,
+        resolved_strategy=strategy,
+        strategy_fallback_reason=strategy_fallback_reason,
+        configured_threads=threads,
+        detector_pipeline=detector_pipeline,
+        possible_parameter_sets=possible,
+        planned_parameter_sets=len(ordered),
+        evaluated_parameter_sets=len(ordered),
+        golden_set_pages=pages,
+        page_evaluations=len(ordered) * pages,
+        failed_page_evaluations=progress_payload["failures"],
+        average_eval_rate=progress_payload["average_eval_rate"],
+        execution_environment=runner_context,
+        baseline_parameters=detector_configuration.get("profiles", {}).get("baseline", {}),
+        live_possible_parameter_sets=live_possible,
+        zombie_possible_parameter_sets=zombie_possible,
+        canonical_search_space=search_space_contract,
+        zombie_parameters=search_space_contract["configured_zombie_parameters"],
+        zombie_parameter_evidence={str(parameter_name): dict(spec.get("last_measured", {})) for parameter_name, spec in zombie_specs.items() if isinstance(spec, dict) and isinstance(spec.get("last_measured"), dict)},
+        extra={"shard": shard_context},
+    )
+    calibration = build_canonical_calibration(
+        outcome,
         detector=detector,
         strategy=strategy,
         possible_parameter_sets=possible,
-        calibration_context=calibration_context,
-        regression_context={
-            "requested_strategy": requested_strategy,
-            "resolved_strategy": strategy,
-            "configured_threads": summary["threads"],
-            "possible_parameter_sets": possible,
-            "live_possible_parameter_sets": live_possible,
-            "zombie_possible_parameter_sets": zombie_possible,
-            "baseline_parameters": dict(detector_configuration.get("profiles", {}).get("baseline", {})),
-            "fixed_parameter_policy": "baseline",
-            "zombie_parameters": list(search_space_contract["configured_zombie_parameters"]),
-            "zombie_parameter_evidence": {str(name): dict(spec.get("last_measured", {})) for name, spec in (detector_configuration.get("zombie_parameters", {}) if isinstance(detector_configuration.get("zombie_parameters"), dict) else {}).items() if isinstance(spec, dict) and isinstance(spec.get("last_measured"), dict)},
-            "canonical_search_space": search_space_contract,
-            "planned_parameter_sets": len(ordered),
-            "evaluated_parameter_sets": len(ordered),
-            "golden_set_pages": pages,
-            "page_evaluations": len(ordered) * pages,
-            "failed_page_evaluations": summary["progress"]["failures"],
-            "average_eval_rate": summary["progress"]["average_eval_rate"],
-            "execution_environment": first_summary.get("runner", {}),
-            "shard": shard_context,
-        },
+        calibration_identity=calibration_context,
+        regression_metadata=regression_context,
     )
-    write_json(run_dir / "reports" / "calibration-intelligence.json", calibration)
+    write_canonical_reports(
+        run_dir,
+        outcome,
+        summary=summary,
+        calibration=calibration,
+        top=top,
+    )
     debug_outputs: list[str] = []
     if debug_level != "none" and golden_set is not None and image_root is not None:
         pages_payload = load_pages(golden_set, image_root, max_dimension)
@@ -342,7 +371,21 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         "shard": shard_context,
     })
     write_json(run_dir / "RUN-INFO.json", info)
-    write_json(run_dir / "manifest.json", {"schema_version": "0.2", "run_id": run_id, "detector": detector, "strategy": strategy, "status": "complete" if measurement_state["terminal_success"] else "invalid", "outcome": measurement_state, "started_at_utc": start.isoformat(), "finished_at_utc": finish.isoformat(), "shard": shard_context, "outputs": ["RUN-INFO.json", "parameters.json", "parameter-provenance.json", "raw/results.csv", "reports/summary.json", "reports/winner-pages.json", "reports/calibration-intelligence.json", "reports/rankings.csv", "reports/top20.csv"], "debug_outputs": debug_outputs})
+    manifest = build_canonical_manifest(
+        outcome,
+        run_id=run_id,
+        detector=detector,
+        strategy=strategy,
+        started_at_utc=start.isoformat(),
+        finished_at_utc=finish.isoformat(),
+        shard=shard_context,
+        debug_outputs=debug_outputs,
+        extra={
+            "requested_strategy": requested_strategy,
+            "strategy_fallback_reason": strategy_fallback_reason,
+        },
+    )
+    write_json(run_dir / "manifest.json", manifest)
     write_rankings(run_dir.parent / f"{detector}-regression-results.csv", ranked)
     return run_dir
 

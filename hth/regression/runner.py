@@ -64,13 +64,20 @@ from .io import create_run_directory, environment_info, utc_now, write_json
 from .metrics import bbox_iou, edge_errors
 from .parameter_space import canonical_parameters, parameter_set_id, exhaustive_parameter_sets, canonical_search_space, parameter_set_equivalence_family_id
 from .parameter_provenance import attach_identity, build_provenance
-from .reports import ranking_key, write_rankings, write_raw_results
+from .reports import ranking_key, write_rankings
 from .strategies.cartesian import generate as cartesian_generate
 from .strategies.binary_refine import search as binary_search
 from .progress import ProgressReporter
 from .performance import PerformanceSampler, peak_rss_bytes
-from .calibration_intelligence import build_calibration_intelligence
-from .outcome import reduce_regression_outcome, unavailable_winner_page_report
+from .materialization import (
+    build_calibration_identity,
+    build_canonical_calibration,
+    build_canonical_manifest,
+    build_canonical_summary,
+    build_regression_metadata,
+    derive_canonical_outcome,
+    write_canonical_reports,
+)
 from hth.regression.result_metrics import aggregate_page_metrics
 from hth.domain.result_metrics import baseline_surpassed
 from hth.geometry.registry import detector_entrypoint, detector_names
@@ -1244,18 +1251,17 @@ def run(args:argparse.Namespace)->Path:
             family_id = identity_by_parameter_set.get(str(event.get("parameter_set_id")))
             if family_id:
                 event["parameter_set_equivalence_family_id"] = family_id
-        ordered,ranked,winner,measurement_state=reduce_regression_outcome(results,ranking_key=ranking_key)
-        search_ranked = [
-            result for result in ranked
-            if result.get("requested_search_member")
-            and not result.get("reference_roles")
-        ]
-        for search_rank, result in enumerate(search_ranked, 1):
-            result["search_rank"] = search_rank
-        historic_best_result = next(
-            (result for result in ordered if "historic_best" in (result.get("reference_roles") or [])),
-            None,
+        outcome = derive_canonical_outcome(
+            results,
+            ranking_key=ranking_key,
+            winner_page_builder=build_winner_page_report,
         )
+        ordered = outcome.ordered
+        ranked = outcome.ranked
+        winner = outcome.winner
+        measurement_state = outcome.measurement_state
+        search_ranked = outcome.search_ranked
+        historic_best_result = outcome.historic_best
         complete_cartesian = (
             effective_strategy in {"exhaustive", "exhaustive-with-zombies"}
             and args.limit is None
@@ -1270,31 +1276,35 @@ def run(args:argparse.Namespace)->Path:
             complete_cartesian=complete_cartesian,
         )
         write_json(run_dir/"parameter-provenance.json", parameter_provenance)
-        baseline=next((r for r in ordered if r.get("profile")=="baseline"),None)
-        raw=run_dir/"raw"/"results.csv"; rankings=run_dir/"reports"/"rankings.csv"; top=run_dir/"reports"/"top20.csv"
-        write_raw_results(raw,ordered); write_rankings(rankings,ranked); write_rankings(top,ranked[:max(0,args.top)])
-        winner_pages = build_winner_page_report(winner, baseline) if winner is not None else unavailable_winner_page_report(measurement_state)
+        baseline = outcome.baseline
+        winner_pages = outcome.winner_pages
         locally_evaluated_parameter_sets = max(0, len(results) - 1) + (0 if baseline_reused else 1)
         locally_evaluated_page_evaluations = locally_evaluated_parameter_sets * len(pages)
-        summary={
-            "schema_version":"0.8","run_id":run_id,"detector":name,"strategy":effective_strategy,
-            "requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,
-            "threads":args.threads,"shard":{"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved","full_candidate_count":full_exhaustive_candidate_count},
-            "detector_pipeline":detector_pipeline_context,
-            "parameter_space":{"possible_parameter_sets":possible_parameter_set_count,"live_possible_parameter_sets":live_possible_parameter_set_count,"zombie_possible_parameter_sets":zombie_possible_parameter_set_count,"canonical_search_space":search_space_contract,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ordered),"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ordered)*len(pages),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated","shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count},
-            "page_ordinals":[p["global_ordinal"] for p in pages],"parameter_set_count":len(ordered),
-            "page_evaluation_count":measurement_state["page_evaluation_count"],
-            "successful_page_evaluation_count":measurement_state["successful_page_evaluation_count"],
-            "fully_successful_parameter_set_count":sum(1 for r in ordered if int(r["summary"].get("failure_count",0) or 0)==0 and int(r["summary"].get("success_count",0) or 0)>0),
-            "measurement_state":measurement_state,"golden_set_sha256":golden_set_sha256,
-            "detector_config_sha256":detector_config_sha256,"model_selection":model_selection,"max_dimension":args.max_dimension,
-            "winner":winner,"baseline":baseline,"historic_best":historic_best_result,"top_parameter_sets":ranked[:5],
-            "search_top_parameter_sets":search_ranked[:5],"winner_page_report":winner_pages,"runner":environment,"source_commit":source_commit,
-            "performance":{"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl","precomputed_evidence":name in PRECOMPUTED_EVIDENCE_PREPARERS,"evidence_source":evidence_source,"evidence_precompute_seconds":round(evidence_precompute_seconds,6) if evidence_precompute_seconds is not None else None},
-            "progress":{"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes if winner else 0,"baseline_surpassed":baseline_surpassed(winner,baseline),"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds if winner else None,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds if winner else None,"winner_history":progress_snapshot.winner_history if winner else [],"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds},
-        }
-        write_json(run_dir/"reports"/"summary.json",summary)
-        write_json(run_dir/"reports"/"winner-pages.json",winner_pages)
+        shard_context = {"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved","full_candidate_count":full_exhaustive_candidate_count}
+        parameter_space = {"possible_parameter_sets":possible_parameter_set_count,"live_possible_parameter_sets":live_possible_parameter_set_count,"zombie_possible_parameter_sets":zombie_possible_parameter_set_count,"canonical_search_space":search_space_contract,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ordered),"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ordered)*len(pages),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated","shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count}
+        performance_payload = {"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl","precomputed_evidence":name in PRECOMPUTED_EVIDENCE_PREPARERS,"evidence_source":evidence_source,"evidence_precompute_seconds":round(evidence_precompute_seconds,6) if evidence_precompute_seconds is not None else None}
+        progress_payload = {"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes if winner else 0,"baseline_surpassed":baseline_surpassed(winner,baseline),"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds if winner else None,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds if winner else None,"winner_history":progress_snapshot.winner_history if winner else [],"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}
+        summary = build_canonical_summary(
+            outcome,
+            run_id=run_id,
+            detector=name,
+            strategy=effective_strategy,
+            requested_strategy=requested_strategy,
+            strategy_fallback_reason=strategy_fallback_reason,
+            threads=args.threads,
+            shard=shard_context,
+            detector_pipeline=detector_pipeline_context,
+            parameter_space=parameter_space,
+            page_ordinals=[p["global_ordinal"] for p in pages],
+            golden_set_sha256=golden_set_sha256,
+            detector_config_sha256=detector_config_sha256,
+            model_selection=model_selection,
+            max_dimension=args.max_dimension,
+            runner=environment,
+            source_commit=source_commit,
+            performance=performance_payload,
+            progress=progress_payload,
+        )
         try:
             golden_set_payload = json.loads(args.golden_set.read_text(encoding="utf-8"))
         except (OSError, ValueError, json.JSONDecodeError):
@@ -1309,58 +1319,56 @@ def run(args:argparse.Namespace)->Path:
             "page_count": len(pages),
             "page_ordinals": [page["global_ordinal"] for page in pages],
         }
-        calibration_context = {
-            "calibration_run_id": run_id,
-            "calibration_schema_version": "1.1",
-            "created_at_utc": started,
-            "source_document": source_document,
-            "golden_set": golden_set_identity,
-            "detector_configuration": {
-                "detector_id": name,
-                "configuration": str(args.detector_config),
-                "sha256": file_sha256(args.detector_config),
-            },
-            "model_selection": model_selection,
-            "pipeline": {
-                "commit": environment.get("pipeline_commit"),
-                "source_commit": source_commit,
-                "python": environment.get("python_version"),
-                "opencv": environment.get("opencv_version"),
-            },
-        }
-        regression_context = {
-            "requested_strategy": requested_strategy,
-            "resolved_strategy": effective_strategy,
-            "strategy_fallback_reason": strategy_fallback_reason,
-            "configured_threads": args.threads,
-            "detector_pipeline": detector_pipeline_context,
-            "possible_parameter_sets": possible_parameter_set_count,
-            "planned_parameter_sets": planned_parameter_set_count,
-            "evaluated_parameter_sets": len(ordered),
-            "golden_set_pages": len(pages),
-            "page_evaluations": len(ordered) * len(pages),
-            "failed_page_evaluations": progress_snapshot.failures,
-            "average_eval_rate": progress_snapshot.eval_rate,
-            "execution_environment": environment,
-            "baseline_parameters": dict(baseline_parameters),
-            "fixed_parameter_policy": "baseline",
-            "zombie_parameters": sorted(str(name) for name in (config.get("zombie_parameters", {}) if isinstance(config.get("zombie_parameters"), dict) else {})),
-            "zombie_parameter_evidence": {str(name): dict(spec.get("last_measured", {})) for name, spec in (config.get("zombie_parameters", {}) if isinstance(config.get("zombie_parameters"), dict) else {}).items() if isinstance(spec, dict) and isinstance(spec.get("last_measured"), dict)},
-            "live_possible_parameter_sets": live_possible_parameter_set_count,
-            "zombie_possible_parameter_sets": zombie_possible_parameter_set_count,
-            "canonical_search_space": search_space_contract,
-        }
-        calibration_intelligence = build_calibration_intelligence(
-            ordered,
+        calibration_context = build_calibration_identity(
+            run_id=run_id,
+            created_at_utc=started,
+            source_document=source_document,
+            golden_set=golden_set_identity,
+            detector=name,
+            detector_configuration=str(args.detector_config),
+            detector_config_sha256=detector_config_sha256,
+            model_selection=model_selection,
+            pipeline_commit=environment.get("pipeline_commit"),
+            source_commit=source_commit,
+            python_version=environment.get("python_version"),
+            opencv_version=environment.get("opencv_version"),
+        )
+        zombie_specs = config.get("zombie_parameters", {}) if isinstance(config.get("zombie_parameters"), dict) else {}
+        regression_context = build_regression_metadata(
+            requested_strategy=requested_strategy,
+            resolved_strategy=effective_strategy,
+            strategy_fallback_reason=strategy_fallback_reason,
+            configured_threads=args.threads,
+            detector_pipeline=detector_pipeline_context,
+            possible_parameter_sets=possible_parameter_set_count,
+            planned_parameter_sets=planned_parameter_set_count,
+            evaluated_parameter_sets=len(ordered),
+            golden_set_pages=len(pages),
+            page_evaluations=len(ordered) * len(pages),
+            failed_page_evaluations=progress_snapshot.failures,
+            average_eval_rate=progress_snapshot.eval_rate,
+            execution_environment=environment,
+            baseline_parameters=baseline_parameters,
+            live_possible_parameter_sets=live_possible_parameter_set_count,
+            zombie_possible_parameter_sets=zombie_possible_parameter_set_count,
+            canonical_search_space=search_space_contract,
+            zombie_parameters=zombie_specs,
+            zombie_parameter_evidence={str(parameter_name): dict(spec.get("last_measured", {})) for parameter_name, spec in zombie_specs.items() if isinstance(spec, dict) and isinstance(spec.get("last_measured"), dict)},
+        )
+        calibration_intelligence = build_canonical_calibration(
+            outcome,
             detector=name,
             strategy=effective_strategy,
             possible_parameter_sets=possible_parameter_set_count,
-            calibration_context=calibration_context,
-            regression_context=regression_context,
+            calibration_identity=calibration_context,
+            regression_metadata=regression_context,
         )
-        write_json(
-            run_dir/"reports"/"calibration-intelligence.json",
-            calibration_intelligence,
+        write_canonical_reports(
+            run_dir,
+            outcome,
+            summary=summary,
+            calibration=calibration_intelligence,
+            top=args.top,
         )
         debug_outputs = [] if debug_policy == "none" else write_debug_artifacts(
             args.output,
@@ -1377,24 +1385,22 @@ def run(args:argparse.Namespace)->Path:
         )
         finished=utc_now(); info={"schema_version":"0.4","run_id":run_id,"detector":name,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"status":"complete" if measurement_state["terminal_success"] else "invalid","outcome":measurement_state,"started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"detector_config":str(args.detector_config),"detector_config_sha256":detector_config_sha256,"model_selection":model_selection,"max_dimension":args.max_dimension,"debug_artifacts":debug_policy,"debug_level":debug_level,"source_commit":source_commit,"threads":args.threads,"detector_pipeline":detector_pipeline_context,"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ordered),"shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"performance_samples":len(performance_samples),"peak_rss_bytes":peak_rss_bytes(),**environment}
         write_json(run_dir/"RUN-INFO.json",info)
-        manifest.update({
-            "status": "complete" if measurement_state["terminal_success"] else "invalid",
-            "outcome": measurement_state,
-            "finished_at_utc": finished,
-            "outputs": [
-                "RUN-INFO.json",
-                "parameters.json",
-                "parameter-provenance.json",
-                "raw/results.csv",
-                "logs/runner-performance.jsonl",
-                "reports/summary.json",
-                "reports/winner-pages.json",
-                "reports/calibration-intelligence.json",
-                "reports/rankings.csv",
-                "reports/top20.csv",
-            ],
-            "debug_outputs": debug_outputs,
-        }); write_json(run_dir/"manifest.json",manifest)
+        manifest = build_canonical_manifest(
+            outcome,
+            run_id=run_id,
+            detector=name,
+            strategy=effective_strategy,
+            started_at_utc=started,
+            finished_at_utc=finished,
+            shard=shard_context,
+            additional_outputs=("logs/runner-performance.jsonl",),
+            debug_outputs=debug_outputs,
+            extra={
+                "requested_strategy": requested_strategy,
+                "strategy_fallback_reason": strategy_fallback_reason,
+            },
+        )
+        write_json(run_dir/"manifest.json",manifest)
         # Convenience report at detector root, refreshed on every completed run.
         write_rankings(run_dir.parent/f"{name}-regression-results.csv",ranked)
         winner_summary=winner["summary"] if winner is not None else None

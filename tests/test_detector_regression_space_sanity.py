@@ -33,8 +33,10 @@ class DetectorRegressionSpaceSanityTests(unittest.TestCase):
 
     def test_full_regression_runner_always_evaluates_historic_best(self):
         text = (ROOT / "hth" / "regression" / "runner.py").read_text(encoding="utf-8")
+        materialization = (ROOT / "hth" / "regression" / "materialization.py").read_text(encoding="utf-8")
         self.assertIn('historic_best_result["reference_roles"] = ["historic_best"]', text)
-        self.assertIn('"historic_best":historic_best_result', text)
+        self.assertIn("historic_best_result = outcome.historic_best", text)
+        self.assertIn('"historic_best": outcome.historic_best', materialization)
         self.assertIn("historic_best_parameters", text)
 
     def test_oversized_spaces_were_reduced_to_sane_bounds(self):

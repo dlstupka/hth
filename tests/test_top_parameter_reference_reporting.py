@@ -17,10 +17,11 @@ class TopParameterReferenceReportingTests(unittest.TestCase):
 
     def test_runner_persists_reference_and_search_views(self):
         text = Path("hth/regression/runner.py").read_text(encoding="utf-8")
+        materialization = Path("hth/regression/materialization.py").read_text(encoding="utf-8")
         self.assertIn('baseline_result["reference_roles"] = ["baseline"]', text)
         self.assertIn('historic_best_result["reference_roles"] = ["historic_best"]', text)
-        self.assertIn('"historic_best":historic_best_result', text)
-        self.assertIn('"search_top_parameter_sets":search_ranked[:5]', text)
+        self.assertIn('"historic_best": outcome.historic_best', materialization)
+        self.assertIn('"search_top_parameter_sets": outcome.search_ranked[:5]', materialization)
 
 
 if __name__ == "__main__":
