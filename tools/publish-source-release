@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# ----------------------------------------------------------------------
+# HTH development environment
+# ----------------------------------------------------------------------
+export HTH_HOME="$HOME/Documents/stupka/drt/hth"
+export HTH_TOOLS="$HTH_HOME/tools"
+export PUBLISH_SOURCE_RELEASE="$HTH_TOOLS/publish-source-release.py"
+
+python $PUBLISH_SOURCE_RELEASE \
+  --repository dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898 \
+  --tag HTH-SOURCE-0002 \
+  --collection-id "HTH Baptisms San Antonio 1788-1824, 1858-1898" \
+  --title "HTH Baptisms San Antonio 1788-1824, 1858-1898 source collection" \
+  --target main \
+  "./Baptisms_San_Antonio_Baptism_Records_1788–1824_1858–1898.docx"
