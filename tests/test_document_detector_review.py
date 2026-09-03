@@ -50,6 +50,7 @@ class DocumentDetectorReviewTests(unittest.TestCase):
     def test_explicit_ordinal_entry_selects_the_matching_view_mode(self):
         text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
         self.assertIn("$('selectionOrdinals').oninput=()=>{$('imageSelectionMode').value='list'",text)
+        self.assertIn("$('selectionOrdinals').disabled=false",text)
         self.assertIn('enable(true);syncImageSelectionControls();rebuild()',text)
 
 if __name__=='__main__': unittest.main()

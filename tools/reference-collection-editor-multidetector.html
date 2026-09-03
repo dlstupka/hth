@@ -446,7 +446,8 @@ function syncImageSelectionControls(){
   const mode=$('imageSelectionMode').value;
   $('selectionFrom').disabled=mode!=='range';
   $('selectionTo').disabled=mode!=='range';
-  $('selectionOrdinals').disabled=mode!=='list'
+  // Keep this field available so typing or pasting can select list mode.
+  $('selectionOrdinals').disabled=false
 }
 function nearestVisibleIndex(current,direction){
   refreshVisibleIndices();
