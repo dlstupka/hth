@@ -45,7 +45,7 @@ class SourceReleaseContractTests(unittest.TestCase):
         self.assertIn("source_release_tag:", dispatch)
         self.assertIn('default: "HTH-SOURCE-0001"', dispatch)
         self.assertIn("image_limit:", dispatch)
-        self.assertIn("default: 10", dispatch)
+        self.assertIn('default: "10"', dispatch)
 
         core = (ROOT / ".github/workflows/_core-hth.yml").read_text(encoding="utf-8")
         self.assertIn('LIMIT_ARGS+=(--limit "$IMAGE_LIMIT")', core)

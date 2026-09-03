@@ -31,8 +31,8 @@ on:
       image_limit:
         description: "Maximum images processed across the selected source; zero processes all images"
         required: false
-        type: number
-        default: 0
+        type: string
+        default: "0"
       output_directory:
         description: "Pipeline output directory"
         required: false
