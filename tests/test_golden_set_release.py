@@ -21,6 +21,14 @@ class GoldenSetReleaseTests(unittest.TestCase):
         self.assertIn("golden_release_freeze:", workflow)
         self.assertIn("python -m hth.golden_set_release", workflow)
         self.assertIn('IMAGE_ROOT=$RUNNER_TEMP/golden-set-images/raw', workflow)
+        self.assertIn("default: HTH-GOLDEN-0001", workflow)
+        self.assertIn("if: ${{ env.GOLDEN_RELEASE_TAG != '' }}", workflow)
+
+    def test_optimizer_workflow_uses_the_same_canonical_release_bundle(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "execution-optimizer.yml").read_text(encoding="utf-8")
+        self.assertIn("default: HTH-GOLDEN-0001", workflow)
+        self.assertIn("python -m hth.golden_set_release", workflow)
+        self.assertIn('IMAGE_ROOT=$RUNNER_TEMP/golden-set-images/raw', workflow)
 
     def test_hth_0001_release_assets_preserve_frozen_identity(self) -> None:
         tag, golden_name, freeze_name = MODULE.release_assets(
@@ -57,6 +65,13 @@ class GoldenSetReleaseTests(unittest.TestCase):
             MODULE.verify_and_extract(first, one, extracted)
             self.assertEqual((extracted / "raw" / "fs_0003.png").read_bytes(), b"page-three")
             self.assertEqual((extracted / "raw" / "fs_0064.jpg").read_bytes(), b"page-sixty-four")
+
+    def test_download_rejects_release_coordinates_that_disagree_with_freeze(self) -> None:
+        freeze = ROOT / "config" / "golden_sets" / "HTH-0001.freeze.json"
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaisesRegex(ValueError, "canonical_release.repository"):
+                from hth.golden_set_release import download_release_bundle
+                download_release_bundle("other/source", "HTH-GOLDEN-0001", freeze, Path(td))
 
 
 if __name__ == "__main__":

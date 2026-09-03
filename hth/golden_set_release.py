@@ -62,8 +62,16 @@ def verify_and_extract(bundle: Path, metadata: dict[str, Any], destination: Path
 
 
 def download_release_bundle(repository: str, tag: str, freeze: Path, destination: Path, token: str = "") -> Path:
-    metadata = json.loads(freeze.read_text(encoding="utf-8"))["image_bundle"]
+    frozen = json.loads(freeze.read_text(encoding="utf-8"))
+    canonical = frozen.get("canonical_release") or {}
+    if canonical.get("repository") != repository:
+        raise ValueError("Golden Set release repository does not match canonical_release.repository")
+    if canonical.get("tag") != tag:
+        raise ValueError("Golden Set release tag does not match canonical_release.tag")
+    metadata = frozen["image_bundle"]
     asset = str(metadata["asset"])
+    if canonical.get("image_bundle_asset") != asset:
+        raise ValueError("Golden Set image bundle does not match canonical_release.image_bundle_asset")
     url = f"https://api.github.com/repos/{repository}/releases/tags/{tag}"
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "hth-golden-set/1"}
     if token:

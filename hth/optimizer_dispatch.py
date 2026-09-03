@@ -91,6 +91,9 @@ def main() -> int:
     parser.add_argument("--results-repository", required=True)
     parser.add_argument("--golden-set", required=True)
     parser.add_argument("--image-root", required=True)
+    parser.add_argument("--golden-release-repository", default="")
+    parser.add_argument("--golden-release-tag", default="")
+    parser.add_argument("--golden-release-freeze", default="")
     parser.add_argument("--max-dimension", required=True)
     parser.add_argument("--strategy", required=True)
     parser.add_argument("--debug-level", required=True)
@@ -118,6 +121,9 @@ def main() -> int:
         "results_repository": args.results_repository,
         "golden_set": args.golden_set,
         "image_root": args.image_root,
+        "golden_release_repository": args.golden_release_repository,
+        "golden_release_tag": args.golden_release_tag,
+        "golden_release_freeze": args.golden_release_freeze,
         "max_dimension": args.max_dimension,
         "strategy": args.strategy,
         "debug_level": args.debug_level,

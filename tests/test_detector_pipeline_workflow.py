@@ -166,7 +166,7 @@ def test_results_repository_checkout_is_shallow_and_sparse() -> None:
     assert "sparse-checkout-cone-mode: false" in text
     assert "            calibration-index.json\n" in text
     assert "            parallelism-index.json\n" in text
-    assert "            ${{ inputs.golden_release_tag == '' && env.IMAGE_ROOT || '' }}\n" in text
+    assert "            ${{ env.GOLDEN_RELEASE_TAG == '' && env.IMAGE_ROOT || '' }}\n" in text
     assert "Materialize immutable Golden Set images" in text
     assert "python -m hth.golden_set_release" in text
     assert "            source-documents\n" in text

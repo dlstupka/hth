@@ -82,12 +82,14 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
             "/runtime-index.json",
             "/parallelism-index.json",
             "/optimizer-index.json",
-            "/${{ env.IMAGE_ROOT }}/",
+            "${{ env.GOLDEN_RELEASE_TAG == '' && format('/{0}/', env.IMAGE_ROOT) || '' }}",
             "/models/",
             "/learned-evidence/",
             "/execution-optimizer/",
         ):
             self.assertIn(required, checkout)
+        self.assertIn("Materialize immutable Golden Set images", checkout)
+        self.assertIn("python -m hth.golden_set_release", checkout)
         self.assertNotIn("/*\n", checkout)
 
     def test_execution_optimizer_dispatch_checkout_only_materializes_optimizer_index(self) -> None:

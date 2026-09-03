@@ -132,19 +132,19 @@ on:
         default: test/latest/raw
         type: string
       golden_release_repository:
-        description: Optional source repository containing an immutable Golden Set image bundle
+        description: Source repository containing the immutable Golden Set image bundle
         required: false
-        default: ""
+        default: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898
         type: string
       golden_release_tag:
-        description: Optional immutable Golden Set release tag, e.g. HTH-GOLDEN-0002
+        description: Immutable Golden Set release tag
         required: false
-        default: ""
+        default: HTH-GOLDEN-0001
         type: string
       golden_release_freeze:
         description: Pipeline-relative freeze manifest used to verify the image bundle
         required: false
-        default: ""
+        default: config/golden_sets/HTH-0001.freeze.json
         type: string
       execution_shape:
         description: Execution shape; preferred uses optimizer intelligence and falls back to auto
@@ -317,6 +317,9 @@ jobs:
             --summary "$GITHUB_STEP_SUMMARY" \
             --results-repository "${{ inputs.results_repository }}" \
             --image-root "${{ inputs.image_root }}" \
+            --golden-release-repository "${{ inputs.golden_release_repository }}" \
+            --golden-release-tag "${{ inputs.golden_release_tag }}" \
+            --golden-release-freeze "${{ inputs.golden_release_freeze }}" \
             --execution-shape "${{ inputs.execution_shape }}" \
             --manual-execution-shape "${{ inputs.manual_execution_shape }}" \
             --runner "${{ inputs.runner }}" \
@@ -429,6 +432,9 @@ jobs:
       GOLDEN_SET: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_set || 'config/golden_set.json' }}
       RESULTS_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && inputs.results_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results' }}
       IMAGE_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_root || 'test/latest/raw' }}
+      GOLDEN_RELEASE_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_release_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898' }}
+      GOLDEN_RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_release_tag || 'HTH-GOLDEN-0001' }}
+      GOLDEN_RELEASE_FREEZE: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_release_freeze || 'config/golden_sets/HTH-0001.freeze.json' }}
       REGRESSION_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'smoke' }}
       STRATEGY: ${{ github.event_name == 'workflow_dispatch' && inputs.strategy || 'exhaustive' }}
       LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '' }}
@@ -514,13 +520,13 @@ jobs:
             orli-evidence-index.json
             source-documents
             learned-evidence/orli_page_mask
-            ${{ inputs.golden_release_tag == '' && env.IMAGE_ROOT || '' }}
+            ${{ env.GOLDEN_RELEASE_TAG == '' && env.IMAGE_ROOT || '' }}
           sparse-checkout-cone-mode: false
           persist-credentials: false
           token: ${{ github.event_name != 'pull_request' && secrets.HTH_RESULTS_TOKEN || github.token }}
 
       - name: Materialize immutable Golden Set images
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_release_tag != '' }}
+        if: ${{ env.GOLDEN_RELEASE_TAG != '' }}
         id: golden_images
         shell: bash
         env:
@@ -528,14 +534,14 @@ jobs:
           PYTHONPATH: hth-pipeline
         run: |
           set -euo pipefail
-          if [[ -z "${{ inputs.golden_release_repository }}" || -z "${{ inputs.golden_release_freeze }}" ]]; then
+          if [[ -z "$GOLDEN_RELEASE_REPOSITORY" || -z "$GOLDEN_RELEASE_FREEZE" ]]; then
             echo "::error::golden_release_repository and golden_release_freeze are required with golden_release_tag"
             exit 1
           fi
           python -m hth.golden_set_release \
-            --repository "${{ inputs.golden_release_repository }}" \
-            --tag "${{ inputs.golden_release_tag }}" \
-            --freeze "hth-pipeline/${{ inputs.golden_release_freeze }}" \
+            --repository "$GOLDEN_RELEASE_REPOSITORY" \
+            --tag "$GOLDEN_RELEASE_TAG" \
+            --freeze "hth-pipeline/$GOLDEN_RELEASE_FREEZE" \
             --destination "$RUNNER_TEMP/golden-set-images" \
             --github-output "$GITHUB_OUTPUT"
           echo "IMAGE_ROOT=$RUNNER_TEMP/golden-set-images/raw" >> "$GITHUB_ENV"
