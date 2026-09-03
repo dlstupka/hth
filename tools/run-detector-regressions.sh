@@ -6,6 +6,20 @@ mkdir -p "$OUTPUT_DIR"
 executor_started_epoch="$(date +%s.%N)"
 export HTH_SOURCE_COMMIT="$(git -C results-repo rev-parse HEAD)"
 
+# Golden Set releases are materialized outside the results checkout, while the
+# explicit legacy fallback remains relative to that checkout. Resolve this once
+# so every image consumer sees the same canonical directory.
+if [[ "$IMAGE_ROOT" == /* || "$IMAGE_ROOT" =~ ^[A-Za-z]:[\\/] ]]; then
+  regression_image_root="$IMAGE_ROOT"
+else
+  regression_image_root="results-repo/$IMAGE_ROOT"
+fi
+if [[ ! -d "$regression_image_root" ]]; then
+  echo "::error::Golden Set image root does not exist: $regression_image_root"
+  exit 1
+fi
+echo "Golden Set image root: $regression_image_root"
+
 effective_limit="${LIMIT:-}"
 if [[ -n "$effective_limit" ]]; then
   effective_limit_source="user specified"
@@ -501,7 +515,7 @@ PY
     python -m hth.regress_detector
     --detector-config "$detector_config"
     --golden-set "hth-pipeline/$GOLDEN_SET"
-    --image-root "results-repo/$IMAGE_ROOT"
+    --image-root "$regression_image_root"
     --output "$shard_output"
     --run-mode "$REGRESSION_MODE"
     --max-dimension "$MAX_DIMENSION"
@@ -806,7 +820,7 @@ for learned_detector in kraken_page_mask orli_page_mask dhsegment_page_mask doc_
     python -m hth.regression.learned_evidence prepare \
       --detector "$learned_detector" \
       --golden-set "hth-pipeline/$GOLDEN_SET" \
-      --image-root "results-repo/$IMAGE_ROOT" \
+      --image-root "$regression_image_root" \
       --max-dimension "$MAX_DIMENSION" \
       --output "$learned_output" \
       --results-root results-repo
@@ -944,7 +958,7 @@ for detector_name in "${unique_detectors[@]}"; do
       --output "$finalization_root" \
       --detector-config "$detector_config" \
       --golden-set "hth-pipeline/$GOLDEN_SET" \
-      --image-root "results-repo/$IMAGE_ROOT" \
+      --image-root "$regression_image_root" \
       --max-dimension "$MAX_DIMENSION" \
       --debug-level "$DEBUG_LEVEL" \
       --top "$TOP_COUNT")"

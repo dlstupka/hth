@@ -171,3 +171,12 @@ def test_results_repository_checkout_is_shallow_and_sparse() -> None:
     assert "python -m hth.golden_set_release" in text
     assert "            source-documents\n" in text
     assert "            learned-evidence/orli_page_mask\n" in text
+
+
+def test_regression_driver_preserves_absolute_release_image_root() -> None:
+    script = (ROOT / "tools" / "run-detector-regressions.sh").read_text(encoding="utf-8")
+    assert 'if [[ "$IMAGE_ROOT" == /* || "$IMAGE_ROOT" =~ ^[A-Za-z]:[\\\\/] ]]; then' in script
+    assert 'regression_image_root="$IMAGE_ROOT"' in script
+    assert 'regression_image_root="results-repo/$IMAGE_ROOT"' in script
+    assert script.count('--image-root "$regression_image_root"') == 3
+    assert '--image-root "results-repo/$IMAGE_ROOT"' not in script
