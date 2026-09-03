@@ -5,6 +5,12 @@
   "frozen_at_utc": "2026-08-22T00:00:00Z",
   "golden_set_path": "config/golden_set.json",
   "golden_set_sha256": "135c0ff576876ef8911296e2502193ed20d159799079a4f8a58994854fcbba8e",
+  "canonical_release": {
+    "repository": "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
+    "tag": "HTH-GOLDEN-0001",
+    "golden_set_asset": "HTH-0001.golden-set.json",
+    "freeze_asset": "HTH-0001.freeze.json"
+  },
   "policy": {
     "immutable_identity": true,
     "mutation_rule": "Do not edit the frozen Golden Set in place. Create a new Golden Set ID (for example HTH-0002) for any membership, truth-geometry, acceptance, or source-identity change.",

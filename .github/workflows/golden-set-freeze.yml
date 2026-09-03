@@ -29,8 +29,8 @@ env:
   GIT_CONFIG_VALUE_0: main
 
 jobs:
-  verify-hth-0001:
-    name: Verify frozen HTH-0001
+  verify-frozen-golden-sets:
+    name: Verify frozen Golden Sets
     runs-on: ubuntu-latest
     steps:
       - name: Checkout HTH pipeline
@@ -39,10 +39,15 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Verify HTH-0001 freeze
+      - name: Verify every frozen Golden Set
         shell: bash
         run: |
           set -euo pipefail
-          python hth/validate_golden_set_freeze.py \
-            --freeze config/golden_sets/HTH-0001.freeze.json \
-            --repository-root .
+          shopt -s nullglob
+          freezes=(config/golden_sets/*.freeze.json)
+          test "${#freezes[@]}" -gt 0
+          for freeze in "${freezes[@]}"; do
+            python hth/validate_golden_set_freeze.py \
+              --freeze "$freeze" \
+              --repository-root .
+          done

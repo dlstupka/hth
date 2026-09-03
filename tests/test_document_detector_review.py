@@ -26,4 +26,13 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertIn("amsre_doc_ufcn_fusion",text)
         self.assertIn('Fusion Gen3 — AMSRE + Doc-UFCN',text)
 
+    def test_workbench_supports_safe_versioned_golden_set_approval(self):
+        text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
+        self.assertIn('Replace membership with visible',text)
+        self.assertIn("p.calibration_selected=!sourceCollection",text)
+        self.assertIn("Every selected page must be reviewed and approved",text)
+        self.assertIn("`${g.golden_set_id}.golden-set.json`",text)
+        self.assertIn("`${g.golden_set_id}.freeze.json`",text)
+        self.assertIn("golden_set_sha256:fileSha",text)
+
 if __name__=='__main__': unittest.main()

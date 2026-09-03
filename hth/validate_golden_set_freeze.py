@@ -19,6 +19,23 @@ def validate_freeze(*, freeze_path: Path, repository_root: Path) -> None:
     if freeze.get("state") != "frozen":
         raise ValueError(f"freeze manifest is not frozen: {freeze_path}")
 
+    frozen_id = str(freeze.get("golden_set_id") or "").strip()
+    release = freeze.get("canonical_release") or {}
+    expected_release = {
+        "repository": None,
+        "tag": f"HTH-GOLDEN-{frozen_id.removeprefix('HTH-')}",
+        "golden_set_asset": f"{frozen_id}.golden-set.json",
+        "freeze_asset": f"{frozen_id}.freeze.json",
+    }
+    if not str(release.get("repository") or "").strip():
+        raise ValueError("freeze manifest is missing canonical_release.repository")
+    for field in ("tag", "golden_set_asset", "freeze_asset"):
+        if release.get(field) != expected_release[field]:
+            raise ValueError(
+                f"invalid canonical_release.{field}: {release.get(field)!r} "
+                f"!= {expected_release[field]!r}"
+            )
+
     relative = str(freeze.get("golden_set_path") or "").strip()
     if not relative:
         raise ValueError("freeze manifest is missing golden_set_path")
@@ -34,7 +51,6 @@ def validate_freeze(*, freeze_path: Path, repository_root: Path) -> None:
 
     golden = json.loads(data.decode("utf-8"))
     golden_id = str(golden.get("collection_id") or golden.get("id") or "").strip()
-    frozen_id = str(freeze.get("golden_set_id") or "").strip()
     if golden_id != frozen_id:
         raise ValueError(f"Golden Set identity changed: {golden_id!r} != {frozen_id!r}")
 

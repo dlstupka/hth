@@ -21,6 +21,46 @@ The external freeze manifest at `config/golden_sets/HTH-0001.freeze.json` record
 
 HTH-0001 remains a permanent legacy validation subset even after a broader Golden Set is introduced. This preserves the historical meaning of every calibration already keyed to `HTH-0001` while allowing future sets to challenge generalization across a wider corpus.
 
+HTH-0001 follows the same release contract retroactively. Its canonical source-repository release is `HTH-GOLDEN-0001`, containing `HTH-0001.golden-set.json` and `HTH-0001.freeze.json`. The Golden Set asset must contain the exact existing `config/golden_set.json` bytes (SHA-256 `135c0ff576876ef8911296e2502193ed20d159799079a4f8a58994854fcbba8e`); do not re-export, reformat, or add approval fields to that legacy JSON. The freeze manifest records this canonical release identity.
+
+## Golden Set ownership and releases
+
+Golden Sets are curated claims about a particular source corpus, so the canonical copy belongs in that source repository. Publish each approved set as a separate immutable source-repository release (for example, release/tag `HTH-GOLDEN-0002`) with these assets:
+
+- `HTH-0002.golden-set.json`, exported by the multidetector reference editor;
+- `HTH-0002.freeze.json`, exported immediately afterward from the same approved editor state; and
+- an optional human-readable review note or screenshot bundle.
+
+Never replace assets on an established Golden Set release. A membership, approved geometry, acceptance threshold, or source-identity change creates a new Golden Set ID and release. Editorial notes that do not affect the JSON may be added to the release description without changing its identity.
+
+The pipeline repository vendors the exact released JSON and freeze manifest under `config/golden_sets/`. CI validates every `*.freeze.json` file against its pinned Golden Set bytes. `config/golden_set.json` remains the active/default compatibility path used by existing workflows; changing that pointer does not delete or mutate older versioned sets. Calibration and runtime evidence continue to key on both Golden Set ID and SHA-256.
+
+This division keeps responsibility clear:
+
+- source repository: canonical approval record and immutable Golden Set release;
+- pipeline repository: pinned copies, schemas, validators, and the active default;
+- results repository: run evidence referring to the exact Golden Set ID and hash.
+
+## Creating HTH-0002 from SOURCE-0002
+
+1. Expand the SOURCE-0002 production review artifact and open `tools/reference-collection-editor-multidetector.html`.
+2. Choose **Open results workspace** and select the expanded artifact directory.
+3. Under **Image selection**, choose **Explicit ordinals**, enter the proposed ordinals, and choose **Apply view**.
+4. Choose **Replace membership with visible**. This makes the visible list the complete set membership; source collections otherwise start with no calibration pages selected.
+5. Review every selected image, correct its box/layout metadata, and choose the per-page **Approve** action.
+6. Enter `HTH-0002` plus creator, reviewer, approver, and change-note provenance. Choose **Approve current state**.
+7. Export the Golden Set and then its freeze manifest without changing the editor state between exports.
+8. Publish both files in an immutable `HTH-GOLDEN-0002` release in the SOURCE-0002 repository, then vendor those exact files into `config/golden_sets/` here.
+
+The proposed SOURCE-0002 transfer-validation selection is:
+
+```text
+3, 64, 65, 95, 100, 101, 155, 197, 251, 298, 300, 308,
+367, 380, 381, 400, 500, 676, 700, 710, 711, 728, 821, 920
+```
+
+Pages 1, 2, and 929 are collection/roll frames and are intentionally excluded from this initial set. This selection validates transfer of the existing approved Fusion Gen3 calibration; it does not itself authorize recalibration.
+
 ## Choose representative pages
 
 Include examples of:
