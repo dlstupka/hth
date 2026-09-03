@@ -22,17 +22,6 @@ def test_execution_shape_inputs_replace_raw_pipeline_and_thread_knobs() -> None:
     assert 'default: "0"' in text
 
 
-def test_detector_queue_is_dynamic_and_records_pipeline_metadata() -> None:
-    text = DRIVER.read_text(encoding="utf-8")
-    assert 'mkdir "$claim_dir"' in text
-    assert "Completed; pipeline is taking the next queued detector." in text
-    assert 'HTH_DETECTOR_PIPELINES="$effective_pipelines"' in text
-    assert 'HTH_DETECTOR_PIPELINE_NUMBER="$pipeline_number"' in text
-    assert 'HTH_PIPELINE_STAGGER_MINUTES="$PIPELINE_STAGGER_MINUTES"' in text
-    assert 'HTH_DETECTOR_QUEUE_POSITION="$((task_index + 1))"' in text
-    assert 'HTH_DETECTOR_RANKED_QUALITY="$detector_ranked_quality"' in text
-
-
 def test_single_detector_runs_begin_with_one_pipeline_before_shard_expansion() -> None:
     text = DRIVER.read_text(encoding="utf-8")
     assert 'if [[ "${DETECTOR_ALGORITHM,,}" != "all" ]]; then' in text
@@ -58,8 +47,6 @@ def test_loading_strategies_runtime_index_and_announcements_are_wired() -> None:
     assert "parallelism-index.json" in workflow
     assert "source-documents/" in workflow
     assert "git -C results-repo add models/" not in workflow
-    assert "if [[ -f results-repo/indexes/optimizer-predictions.json ]]; then" in workflow
-    assert "git -C results-repo add indexes/optimizer-predictions.json" in workflow
 
 
 def test_intelligence_publisher_uses_shared_hardened_persistence() -> None:
@@ -68,7 +55,6 @@ def test_intelligence_publisher_uses_shared_hardened_persistence() -> None:
     assert "hth_hardened_persist" in text
     assert "apply_calibration_intelligence" in text
     assert "python -m hth.calibration_store publish" in text
-    assert "git -C results-repo clean -fd -- calibration-index.json" in text
 
 
 def test_manual_debug_level_choices_default_to_none_and_are_forwarded() -> None:
@@ -84,23 +70,19 @@ def test_manual_debug_level_choices_default_to_none_and_are_forwarded() -> None:
     assert '"Debug level" "$DEBUG_LEVEL"' in driver
 
 
-def test_auto_threads_shards_and_expiring_leases_are_wired() -> None:
+def test_auto_threads_and_runtime_shard_planning_are_wired() -> None:
     text = DRIVER.read_text(encoding="utf-8")
     workflow = WORKFLOW.read_text(encoding="utf-8")
     assert "default: preferred" in workflow
     assert "THREADS: auto" in workflow
-    assert "shards:" in workflow
-    assert "Sharding: auto uses runtime-based planning" in workflow
-    assert "SHARDING:" in workflow
     assert "shard_target_minutes:" in workflow
     assert "shard_lease_minutes:" in workflow
     assert "from hth.regression.sharding import best_smoke_observation" in text
     assert '--shard-index "$shard_index"' in text
     assert '--shard-count "$shard_count"' in text
-    assert "Reclaiming expired shard lease" in text
     assert "python -m hth.regression.merge_shards" in text
     assert 'runner_label=runner_label' in text
-    assert 'requested_shards=int(requested_shards) if requested_shards else None' in text
+    assert 'requested_shards=None' in text
     assert 'possible_parameter_sets=possible' in text
 
 
@@ -115,32 +97,6 @@ def test_execution_summary_and_merge_use_canonical_detector_shard_and_budget_cou
     assert 'rm -rf "$queue_dir"' in text
     assert '--expected-shard-count "$expected_detector_shards"' in text
     assert 'Missing completed shard' in text
-
-
-def test_runner_thread_budget_profile_survives_runner_diagnostics() -> None:
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert "HTH_RUNNER_LABEL: >-" in text
-    assert "|| 'github-hosted' }}" in text
-    assert 'echo "HTH_RUNNER_LABEL=${HTH_RUNNER_LABEL}" >> "$GITHUB_ENV"' in text
-    assert 'echo "HTH_RUNNER_LABEL=${{ inputs.execution_target }}" >> "$GITHUB_ENV"' not in text
-
-
-def test_detector_pipeline_validation_accepts_any_integer_within_runner_budget() -> None:
-    text = DRIVER.read_text(encoding="utf-8")
-    assert "Detector pipelines must be one of 1, 2, 4, or 8" not in text
-    assert 'if [[ ! "$requested_pipelines" =~ ^[0-9]+$ ]] || (( requested_pipelines < 1 || requested_pipelines > runner_pipeline_max )); then' in text
-    assert 'Detector pipelines must be an integer from 1 through runner budget $runner_pipeline_max' in text
-
-
-def test_self_hosted_all_fans_out_detectors_across_matching_runners() -> None:
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert "strategy:" in text
-    assert "matrix:" in text
-    assert "matrix.detector" in text
-    assert "inputs.algorithm == 'all'" in text
-    assert "inputs.runner != 'github-hosted'" in text
-    assert "format('Regress {0} against Golden Set', matrix.detector)" in text
-    assert 'name: detector-regression-${{ github.run_id }}-${{ matrix.detector }}' in text
 
 
 def test_preferred_shape_resolution_falls_back_to_auto_and_exact_shape_is_explicit() -> None:

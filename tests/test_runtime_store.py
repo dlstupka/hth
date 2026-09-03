@@ -39,7 +39,7 @@ def test_runtime_index_keeps_latest_summary(tmp_path: Path) -> None:
         {"observation_id": "1", "detector_id": "d", "wall_clock_seconds": 10, "mode": "smoke", "resolved_strategy": "exhaustive", "configured_threads": 1, "observed_at_utc": "2026-08-01T00:00:00Z"},
         {"observation_id": "2", "detector_id": "d", "wall_clock_seconds": 8, "mode": "smoke", "resolved_strategy": "exhaustive", "configured_threads": 4, "observed_at_utc": "2026-08-01T01:00:00Z"},
     ])
-    payload = json.loads((tmp_path / "runtime-index.json").read_text(encoding="utf-8"))
+    payload = json.loads((tmp_path / "indexes" / "runtime-index.json").read_text(encoding="utf-8"))
     assert payload["latest"]["d"]["wall_clock_seconds"] == 8
     assert len(payload["observations"]) == 2
 
@@ -81,7 +81,7 @@ def test_concurrent_detector_run_ids_do_not_collide(tmp_path: Path) -> None:
 
     assert observations[0]["observation_id"] != observations[1]["observation_id"]
     update_runtime_index(tmp_path / "results", observations)
-    payload = json.loads((tmp_path / "results" / "runtime-index.json").read_text(encoding="utf-8"))
+    payload = json.loads((tmp_path / "results" / "indexes" / "runtime-index.json").read_text(encoding="utf-8"))
     assert {row["detector_id"] for row in payload["observations"]} == {"grabcut", "contour"}
 
 

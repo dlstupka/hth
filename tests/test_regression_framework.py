@@ -18,7 +18,8 @@ def test_run_directory_schema():
 def test_reports_preserve_per_page_observations():
     with TemporaryDirectory() as td:
         root=Path(td); write_raw_results(root/"results.csv",sample()); write_rankings(root/"rankings.csv",sample())
-        rows=list(csv.DictReader((root/"results.csv").open()))
+        with (root / "results.csv").open(encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
         assert len(rows)==1 and rows[0]["global_ordinal"]=="5" and rows[0]["left_error_px"]=="1"
         assert json.loads(rows[0]["parameters_json"])=={"x":1}
 
@@ -29,7 +30,8 @@ def test_raw_report_accepts_null_page_error() -> None:
         result[0]["pages"][0]["error"] = None
         path = Path(td) / "results.csv"
         write_raw_results(path, result)
-        row = next(csv.DictReader(path.open(encoding="utf-8")))
+        with path.open(encoding="utf-8") as handle:
+            row = next(csv.DictReader(handle))
         assert row["error_type"] == ""
         assert row["error_message"] == ""
 

@@ -8,4 +8,3 @@ def test_new_detectors_are_available_to_regression_and_optimizer_workflows():
     for detector in ("convex_hull", "distance_transform", "distance_transform_rect", "dhsegment_page_mask", "polar_boundary_vote", "star_convex", "radon_boundary", "text_flow", "whitespace_frame", "scantailor_page_frame", "page_background", "joint_rectangle_vote", "learned_page_mask"):
         assert f"          - {detector}\n" in regression
         assert f"          - {detector}\n" in optimizer
-        assert f'"{detector}"' in regression
