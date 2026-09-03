@@ -269,7 +269,7 @@ async function loadWorkspace(files){
   else if(!s.collection)throw Error('No reference_collection.json, golden_set.json, or production page-analysis/page-analysis.json was found.');
   if(reviewFile){for(const r of parseCsv(await reviewFile.text())){const o=Number(r.global_ordinal);if(Number.isFinite(o))s.review.add(o)}}
   const firstPath=pathOf(all[0]);s.workspaceRoot=firstPath.includes('/')?firstPath.split('/')[0]:'selected folder';
-  enable(true);rebuild();collectionStatus();load(0)
+  enable(true);syncImageSelectionControls();rebuild();collectionStatus();load(0)
 }
 
 
@@ -441,6 +441,12 @@ function refreshVisibleIndices(){
     const statusName=pageStatus(page);
     if(selectionVisible(page)&&filterVisible(statusName))s.visibleIndices.push(index)
   });
+}
+function syncImageSelectionControls(){
+  const mode=$('imageSelectionMode').value;
+  $('selectionFrom').disabled=mode!=='range';
+  $('selectionTo').disabled=mode!=='range';
+  $('selectionOrdinals').disabled=mode!=='list'
 }
 function nearestVisibleIndex(current,direction){
   refreshVisibleIndices();
@@ -739,13 +745,12 @@ $('usePrediction').onclick=()=>{const c=selectedCandidate();if(!c)return;pushUnd
 $('fit').onclick=fitImage;$('actual').onclick=()=>{s.zoom=1;render();status()};$('compare').onclick=()=>{s.compareMode=!s.compareMode;wrap.classList.toggle('compare',s.compareMode);$('compare').textContent=s.compareMode?'Exit compare':'Compare';fitImage()};
 
 $('imageSelectionMode').onchange=()=>{
-  const mode=$('imageSelectionMode').value;
-  $('selectionFrom').disabled=mode!=='range';
-  $('selectionTo').disabled=mode!=='range';
-  $('selectionOrdinals').disabled=mode!=='list';
+  syncImageSelectionControls();
   rebuild()
 };
-$('selectionFrom').oninput=rebuild;$('selectionTo').oninput=rebuild;$('selectionOrdinals').oninput=rebuild;
+$('selectionFrom').oninput=()=>{$('imageSelectionMode').value='range';syncImageSelectionControls();rebuild()};
+$('selectionTo').oninput=()=>{$('imageSelectionMode').value='range';syncImageSelectionControls();rebuild()};
+$('selectionOrdinals').oninput=()=>{$('imageSelectionMode').value='list';syncImageSelectionControls();rebuild()};
 $('applyImageSelection').onclick=()=>{
   rebuild();
   if(!s.visibleIndices.length){alert('No images match the current selection.');return}
@@ -753,7 +758,7 @@ $('applyImageSelection').onclick=()=>{
 };
 $('showAllImages').onclick=()=>{
   $('imageSelectionMode').value='all';$('selectionFrom').value='';$('selectionTo').value='';$('selectionOrdinals').value='';
-  $('selectionFrom').disabled=true;$('selectionTo').disabled=true;$('selectionOrdinals').disabled=true;
+  syncImageSelectionControls();
   rebuild();if(s.visibleIndices.length&&!s.visibleIndices.includes(s.index))load(s.visibleIndices[0])
 };
 $('calibrationSelected').onchange=()=>{
