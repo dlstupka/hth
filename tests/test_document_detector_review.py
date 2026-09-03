@@ -62,6 +62,16 @@ class DocumentDetectorReviewTests(unittest.TestCase):
     def test_auto_advance_is_limited_to_the_active_image_selection(self):
         text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
         self.assertIn('const ordered=[...s.visibleIndices.filter(i=>i>fromIndex)',text)
-        self.assertIn('for(const i of ordered)if(!Array.isArray(s.pages[i].physical_document_bbox))return i',text)
+        self.assertIn("if(pageStatus(p)!=='approved'||!Array.isArray(p.physical_document_bbox))return i",text)
+        self.assertNotIn("s.review.has(Number(p.global_ordinal))||pageStatus(p)==='fail'",text)
+
+    def test_golden_set_review_state_is_not_inferred_from_detector_triage(self):
+        text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
+        self.assertIn("p.review_status=Array.isArray(p.physical_document_bbox)?'approved':'unreviewed'",text)
+        self.assertIn("const review=!approved",text)
+        self.assertIn("return 'review'",text)
+        self.assertIn('pending human review',text)
+        self.assertIn('detector-triaged',text)
+        self.assertIn("p.review_status==='approved'&&Array.isArray(p.physical_document_bbox)",text)
 
 if __name__=='__main__': unittest.main()

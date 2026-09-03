@@ -239,7 +239,7 @@ function esc(v){return String(v).replaceAll('&','&amp;').replaceAll('<','&lt;').
 function pathOf(f){return (f.webkitRelativePath||f.name).replaceAll('\\','/')}
 function basename(p){const a=p.split('/');return a[a.length-1]}
 function pathScore(path,name){const p=path.toLowerCase(),n=name.toLowerCase();let score=0;if(n==='reference_collection.json')score+=100;if(n==='golden_set.json')score+=90;if(p.includes('/test/latest/'))score+=20;if(p.includes('/config/'))score+=15;return score}
-function normalize(d){if(!d||!Array.isArray(d.pages))throw Error('JSON must contain a pages array');const sourceCollection=String(d.collection_id||d.id||'').toUpperCase().includes('SOURCE'),sourceRepository=d.source_repository||d.source_release?.repository||d.source?.repository||d.pages.find(p=>p.stage2_prediction?.source_repository)?.stage2_prediction?.source_repository||'';d.pages.forEach(p=>{if(!('physical_document_bbox'in p))p.physical_document_bbox=null;if(!p.layout_type)p.layout_type='other';if(!p.label)p.label=`page_${p.global_ordinal}`;if(!p.notes)p.notes='';if(!Array.isArray(p.expected_regions))p.expected_regions=[];if(typeof p.calibration_selected!=='boolean')p.calibration_selected=!sourceCollection});d.golden_set_workflow=d.golden_set_workflow||{status:'draft',golden_set_id:sourceCollection?'':(d.collection_id||d.id||''),canonical_source_repository:sourceRepository,created_by:{name:'',role:''},reviewed_by:{name:'',role:''},approved_by:{name:'',role:''},notes:'',approved_at_utc:null,approved_sha256:null};return d}
+function normalize(d){if(!d||!Array.isArray(d.pages))throw Error('JSON must contain a pages array');const sourceCollection=String(d.collection_id||d.id||'').toUpperCase().includes('SOURCE'),sourceRepository=d.source_repository||d.source_release?.repository||d.source?.repository||d.pages.find(p=>p.stage2_prediction?.source_repository)?.stage2_prediction?.source_repository||'';d.pages.forEach(p=>{if(!('physical_document_bbox'in p))p.physical_document_bbox=null;if(!p.layout_type)p.layout_type='other';if(!p.label)p.label=`page_${p.global_ordinal}`;if(!p.notes)p.notes='';if(!Array.isArray(p.expected_regions))p.expected_regions=[];if(typeof p.calibration_selected!=='boolean')p.calibration_selected=!sourceCollection;if(!p.review_status)p.review_status=Array.isArray(p.physical_document_bbox)?'approved':'unreviewed'});d.golden_set_workflow=d.golden_set_workflow||{status:'draft',golden_set_id:sourceCollection?'':(d.collection_id||d.id||''),canonical_source_repository:sourceRepository,created_by:{name:'',role:''},reviewed_by:{name:'',role:''},approved_by:{name:'',role:''},notes:'',approved_at_utc:null,approved_sha256:null};return d}
 function analysisBBox(r){if(!r)return null;for(const keys of [['page_left_px','page_top_px','page_right_px','page_bottom_px'],['content_left_px','content_top_px','content_right_px','content_bottom_px']]){if(keys.every(k=>Number.isFinite(Number(r[k]))))return keys.map(k=>Number(r[k]))}if(Array.isArray(r.physical_document_bbox)&&r.physical_document_bbox.length===4)return r.physical_document_bbox.map(Number);return null}
 function parseCsv(text){const lines=text.trim().split(/\r?\n/);if(lines.length<2)return[];const head=lines[0].split(',');return lines.slice(1).map(line=>{const vals=line.split(',');const o={};head.forEach((h,i)=>o[h]=vals[i]??'');return o})}
 function synthesizeSourceCollection(data){
@@ -370,8 +370,8 @@ function updateRibbon(){
   const ribbon=$('ribbon');
   if(s.index<0){ribbon.innerHTML='<span class="pill">No page loaded</span>';return}
   const p=s.pages[s.index],r=predictionForCurrent();
-  const approved=Array.isArray(p.physical_document_bbox);
-  const review=s.review.has(Number(p.global_ordinal));
+  const approved=p.review_status==='approved'&&Array.isArray(p.physical_document_bbox);
+  const review=!approved;
   const score=r?Number(r.quality_score??r.confidence??NaN):NaN;
   const pct=Number.isFinite(score)?Math.round(score*100):'—';
   const status=r?.quality_status||'unknown';
@@ -396,13 +396,12 @@ function updateDeltaInfo(){
   $('deltaInfo').innerHTML=parts.join('<br>')
 }
 function pageStatus(page){
-  const approved=Array.isArray(page.physical_document_bbox);
+  const approved=page.review_status==='approved'&&Array.isArray(page.physical_document_bbox);
   const ordinal=Number(page.global_ordinal);
   const analysis=s.analysis.get(ordinal);
   if(approved)return 'approved';
-  if(s.review.has(ordinal))return 'review';
   if(analysis&&analysis.quality_status==='fail')return 'fail';
-  return 'other'
+  return 'review'
 }
 
 function parseOrdinalExpression(text){
@@ -524,9 +523,8 @@ function nextReviewIndex(fromIndex){
   const ordered=[...s.visibleIndices.filter(i=>i>fromIndex),...s.visibleIndices.filter(i=>i<=fromIndex)];
   for(const i of ordered){
     const p=s.pages[i];
-    if(!Array.isArray(p.physical_document_bbox)&&(s.review.has(Number(p.global_ordinal))||pageStatus(p)==='fail'))return i
+    if(pageStatus(p)!=='approved'||!Array.isArray(p.physical_document_bbox))return i
   }
-  for(const i of ordered)if(!Array.isArray(s.pages[i].physical_document_bbox))return i;
   return -1
 }
 function handleSize(){return Math.max(7,10/s.zoom)}
@@ -608,10 +606,10 @@ function status(){
 }
 function collectionStatus(){
   if(!s.collection)return;
-  const done=s.pages.filter(p=>Array.isArray(p.physical_document_bbox)).length;const calibration=s.pages.filter(p=>p.calibration_selected!==false).length;
+  const done=s.pages.filter(p=>p.review_status==='approved'&&Array.isArray(p.physical_document_bbox)).length;const calibration=s.pages.filter(p=>p.calibration_selected!==false).length;
   const workspace=s.workspaceRoot?`<br>Workspace: ${esc(s.workspaceRoot)}`:'';
   $('meta').innerHTML=`<strong>${esc(s.collection.collection_id||'Unnamed')}</strong><br>${esc(s.collection.description||'')}<br>${s.pages.length} reference pages${workspace}`;
-  $('badges').innerHTML=`<span class="badge ok">${done} approved</span><span class="badge warn">${s.pages.length-done} pending</span><span class="badge">${s.images.size} raw images</span><span class="badge">${s.analysis.size} analyzed</span><span class="badge warn">${s.review.size} review</span>`
+  $('badges').innerHTML=`<span class="badge ok">${done} approved</span><span class="badge warn">${s.pages.length-done} pending human review</span><span class="badge">${s.images.size} raw images</span><span class="badge">${s.analysis.size} analyzed</span><span class="badge warn">${s.review.size} detector-triaged</span>`
 }
 function syncBox(){const v=s.box||['','','',''];['left','top','right','bottom'].forEach((id,i)=>$(id).value=v[i])}
 function predictionForCurrent(){if(s.index<0)return null;return s.analysis.get(Number(s.pages[s.index].global_ordinal))||null}
