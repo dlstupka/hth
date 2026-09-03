@@ -41,20 +41,31 @@ PERSISTED_FILES = (
     "reports/calibration-intelligence.json",
 )
 COMPRESSED_RAW_FILES = frozenset({"raw/results.csv", "raw/evidence.jsonl"})
+MAX_GIT_BLOB_BYTES = 95 * 1024 * 1024
 
 
-def _copy_persisted_file(source: Path, target: Path, *, compress: bool = False) -> Path:
+def _copy_persisted_file(
+    source: Path,
+    target: Path,
+    *,
+    compress: bool = False,
+    max_bytes: int | None = None,
+) -> tuple[Path | None, int]:
     """Copy one record file, using deterministic gzip for large raw evidence."""
     if not compress:
         shutil.copy2(source, target)
-        return target
+        return target, target.stat().st_size
     compressed = target.with_name(f"{target.name}.gz")
     with source.open("rb") as input_handle, compressed.open("wb") as output_handle:
         with gzip.GzipFile(
             filename="", mode="wb", fileobj=output_handle, compresslevel=6, mtime=0
         ) as gzip_handle:
             shutil.copyfileobj(input_handle, gzip_handle, length=1024 * 1024)
-    return compressed
+    compressed_bytes = compressed.stat().st_size
+    if max_bytes is not None and compressed_bytes > max_bytes:
+        compressed.unlink()
+        return None, compressed_bytes
+    return compressed, compressed_bytes
 
 
 
@@ -238,6 +249,7 @@ def publish_run(
     mode: str,
     source_fallback: str,
     build: dict[str, Any],
+    max_git_blob_bytes: int = MAX_GIT_BLOB_BYTES,
 ) -> dict[str, Any]:
     intelligence_path = run_dir / "reports" / "calibration-intelligence.json"
     intelligence = _read_json(intelligence_path)
@@ -296,6 +308,7 @@ def publish_run(
     intelligence["persistence"]["record_path"] = relative_dir.as_posix()
     _write_json(intelligence_path, intelligence)
 
+    raw_omitted: dict[str, dict[str, Any]] = {}
     for relative in PERSISTED_FILES:
         source = run_dir / relative
         if source.is_file():
@@ -306,7 +319,27 @@ def publish_run(
                 else destination / Path(relative).name
             )
             target.parent.mkdir(parents=True, exist_ok=True)
-            _copy_persisted_file(source, target, compress=relative in COMPRESSED_RAW_FILES)
+            is_raw = relative in COMPRESSED_RAW_FILES
+            copied, compressed_bytes = _copy_persisted_file(
+                source,
+                target,
+                compress=is_raw,
+                max_bytes=max_git_blob_bytes if is_raw else None,
+            )
+            if is_raw and copied is None:
+                key = "results" if relative.endswith("results.csv") else "evidence"
+                intelligence["persistence"]["raw_evidence"][key] = None
+                raw_omitted[key] = {
+                    "reason": "compressed_blob_exceeds_git_limit",
+                    "source_bytes": source.stat().st_size,
+                    "compressed_bytes": compressed_bytes,
+                    "maximum_git_blob_bytes": max_git_blob_bytes,
+                    "retained_in": "workflow regression artifact",
+                }
+
+    if raw_omitted:
+        intelligence["persistence"]["raw_evidence"]["omitted"] = raw_omitted
+        _write_json(intelligence_path, intelligence)
 
     copied_intelligence = destination / "calibration-intelligence.json"
     _write_json(copied_intelligence, intelligence)

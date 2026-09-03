@@ -116,6 +116,28 @@ class CalibrationStoreTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "does not match run mode"):
                 publish_run(run, root / "results", mode="full", source_fallback="repo", build={})
 
+    def test_oversized_compressed_raw_evidence_is_omitted_from_git_record(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            run = self._run(root, "full", exhaustive=True, mode="full")
+            publish_run(
+                run,
+                root / "results",
+                mode="full",
+                source_fallback="repo",
+                build={},
+                max_git_blob_bytes=8,
+            )
+            intelligence_files = list((root / "results").rglob("calibration-intelligence.json"))
+            self.assertEqual(len(intelligence_files), 1)
+            stored = json.loads(intelligence_files[0].read_text(encoding="utf-8"))
+            raw = stored["persistence"]["raw_evidence"]
+            self.assertIsNone(raw["results"])
+            self.assertIsNone(raw["evidence"])
+            self.assertEqual(raw["omitted"]["results"]["reason"], "compressed_blob_exceeds_git_limit")
+            self.assertEqual(raw["omitted"]["evidence"]["retained_in"], "workflow regression artifact")
+            self.assertFalse(list((root / "results").rglob("raw/*.gz")))
+
     def test_zero_valid_measurements_cannot_be_persisted(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
