@@ -23,17 +23,37 @@ HTH-0001 remains a permanent legacy validation subset even after a broader Golde
 
 HTH-0001 follows the same release contract retroactively. Its canonical source-repository release is `HTH-GOLDEN-0001`, containing `HTH-0001.golden-set.json` and `HTH-0001.freeze.json`. The Golden Set asset must contain the exact existing `config/golden_set.json` bytes (SHA-256 `135c0ff576876ef8911296e2502193ed20d159799079a4f8a58994854fcbba8e`); do not re-export, reformat, or add approval fields to that legacy JSON. The freeze manifest records this canonical release identity.
 
+Create that release from the HTH pipeline checkout after committing the release-contract changes:
+
+```powershell
+python tools/publish-golden-set-release.py `
+  --repository dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898 `
+  --golden-set config/golden_set.json `
+  --freeze config/golden_sets/HTH-0001.freeze.json `
+  --image-root C:\path\to\processed\raw `
+  --source-release-tag HTH-SOURCE-0001 `
+  --source-release-manifest-sha256 <SOURCE-RELEASE-MANIFEST-SHA256> `
+  --finalized-freeze C:\temp\HTH-0001.freeze.json `
+  --target main `
+  --dry-run
+```
+
+Review the reported names and hashes and inspect the finalized freeze manifest. Replace `config/golden_sets/HTH-0001.freeze.json` with that finalized file, run the freeze tests, and commit it. Then repeat without `--dry-run`, pointing `--freeze` and `--finalized-freeze` at the committed finalized manifest. The publisher validates identity, SHA-256, repository, tag, and asset names; preserves the Golden Set bytes; deterministically packages only the selected processed images; and creates `HTH-GOLDEN-0001` with the three contract assets. Do not use `publish-source-release.py`: that tool and `source-release-manifest.json` are specifically for immutable DOCX source masters.
+
 ## Golden Set ownership and releases
 
 Golden Sets are curated claims about a particular source corpus, so the canonical copy belongs in that source repository. Publish each approved set as a separate immutable source-repository release (for example, release/tag `HTH-GOLDEN-0002`) with these assets:
 
 - `HTH-0002.golden-set.json`, exported by the multidetector reference editor;
 - `HTH-0002.freeze.json`, exported immediately afterward from the same approved editor state; and
+- `HTH-0002.images.zip`, a deterministic bundle containing only the exact approved processed images; and
 - an optional human-readable review note or screenshot bundle.
 
 Never replace assets on an established Golden Set release. A membership, approved geometry, acceptance threshold, or source-identity change creates a new Golden Set ID and release. Editorial notes that do not affect the JSON may be added to the release description without changing its identity.
 
-The pipeline repository vendors the exact released JSON and freeze manifest under `config/golden_sets/`. CI validates every `*.freeze.json` file against its pinned Golden Set bytes. `config/golden_set.json` remains the active/default compatibility path used by existing workflows; changing that pointer does not delete or mutate older versioned sets. Calibration and runtime evidence continue to key on both Golden Set ID and SHA-256.
+The pipeline repository vendors the exact released JSON and freeze manifest under `config/golden_sets/`. CI validates every `*.freeze.json` file against its pinned Golden Set bytes and image-bundle membership metadata. `config/golden_set.json` remains the active/default compatibility path used by existing workflows; changing that pointer does not delete or mutate older versioned sets. Calibration and runtime evidence continue to key on both Golden Set ID and SHA-256.
+
+The image bundle is an execution and preservation subset, not another source edition. Its freeze metadata pins the originating `HTH-SOURCE-NNNN` tag and source-release manifest hash, then records the filename, byte size, and SHA-256 of every selected processed image. Regression workflow dispatch can supply `golden_release_repository`, `golden_release_tag`, and `golden_release_freeze`; HTH then downloads and verifies only the bundle instead of checking out an entire processed `raw/` tree.
 
 This division keeps responsibility clear:
 

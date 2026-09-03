@@ -131,6 +131,21 @@ on:
         required: true
         default: test/latest/raw
         type: string
+      golden_release_repository:
+        description: Optional source repository containing an immutable Golden Set image bundle
+        required: false
+        default: ""
+        type: string
+      golden_release_tag:
+        description: Optional immutable Golden Set release tag, e.g. HTH-GOLDEN-0002
+        required: false
+        default: ""
+        type: string
+      golden_release_freeze:
+        description: Pipeline-relative freeze manifest used to verify the image bundle
+        required: false
+        default: ""
+        type: string
       execution_shape:
         description: Execution shape; preferred uses optimizer intelligence and falls back to auto
         required: true
@@ -499,10 +514,31 @@ jobs:
             orli-evidence-index.json
             source-documents
             learned-evidence/orli_page_mask
-            ${{ env.IMAGE_ROOT }}
+            ${{ inputs.golden_release_tag == '' && env.IMAGE_ROOT || '' }}
           sparse-checkout-cone-mode: false
           persist-credentials: false
           token: ${{ github.event_name != 'pull_request' && secrets.HTH_RESULTS_TOKEN || github.token }}
+
+      - name: Materialize immutable Golden Set images
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_release_tag != '' }}
+        id: golden_images
+        shell: bash
+        env:
+          HTH_SOURCE_TOKEN: ${{ secrets.HTH_SOURCE_TOKEN || github.token }}
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          if [[ -z "${{ inputs.golden_release_repository }}" || -z "${{ inputs.golden_release_freeze }}" ]]; then
+            echo "::error::golden_release_repository and golden_release_freeze are required with golden_release_tag"
+            exit 1
+          fi
+          python -m hth.golden_set_release \
+            --repository "${{ inputs.golden_release_repository }}" \
+            --tag "${{ inputs.golden_release_tag }}" \
+            --freeze "hth-pipeline/${{ inputs.golden_release_freeze }}" \
+            --destination "$RUNNER_TEMP/golden-set-images" \
+            --github-output "$GITHUB_OUTPUT"
+          echo "IMAGE_ROOT=$RUNNER_TEMP/golden-set-images/raw" >> "$GITHUB_ENV"
 
       - name: Set up canonical HTH Python runtime
         uses: ./hth-pipeline/.github/actions/setup-hth-python

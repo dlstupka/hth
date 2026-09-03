@@ -35,6 +35,19 @@ def validate_freeze(*, freeze_path: Path, repository_root: Path) -> None:
                 f"invalid canonical_release.{field}: {release.get(field)!r} "
                 f"!= {expected_release[field]!r}"
             )
+    bundle = freeze.get("image_bundle")
+    if bundle is not None:
+        expected_bundle = f"{frozen_id}.images.zip"
+        if release.get("image_bundle_asset") != expected_bundle or bundle.get("asset") != expected_bundle:
+            raise ValueError(f"Golden Set image bundle asset must be {expected_bundle!r}")
+        images = bundle.get("images") or []
+        image_ordinals = [int(item["global_ordinal"]) for item in images]
+        if len(images) != len(set(image_ordinals)):
+            raise ValueError("Golden Set image bundle ordinals must be unique")
+        for record in [bundle, *images]:
+            digest = str(record.get("sha256") or "")
+            if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest.lower()):
+                raise ValueError("Golden Set image bundle contains an invalid SHA-256")
 
     relative = str(freeze.get("golden_set_path") or "").strip()
     if not relative:
@@ -63,6 +76,8 @@ def validate_freeze(*, freeze_path: Path, repository_root: Path) -> None:
         raise ValueError(
             f"frozen Golden Set membership changed: {ordinals} != {expected_ordinals}"
         )
+    if bundle is not None and image_ordinals != ordinals:
+        raise ValueError(f"Golden Set image bundle membership changed: {image_ordinals} != {ordinals}")
 
 
 def main() -> int:
