@@ -15,12 +15,13 @@ from io import BytesIO
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from PIL import Image, ImageEnhance, ImageOps, ImageDraw, ImageFont, UnidentifiedImageError
+from PIL import Image, ImageColor, ImageEnhance, ImageOps, ImageDraw, ImageFont, UnidentifiedImageError
 
 REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 PKG_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
-NS = {"a": DRAWING_NS, "r": REL_NS}
+PICTURE_NS = "http://schemas.openxmlformats.org/drawingml/2006/picture"
+NS = {"a": DRAWING_NS, "r": REL_NS, "pic": PICTURE_NS}
 
 @dataclass
 class ImageRecord:
@@ -36,6 +37,13 @@ class ImageRecord:
     mode: str
     bytes: int
     sha256: str
+    embedded_bytes: int
+    embedded_sha256: str
+    word_crop_left: int
+    word_crop_top: int
+    word_crop_right: int
+    word_crop_bottom: int
+    word_crop_applied: bool
     duplicate_group: str
     analysis_file: str
     thumbnail_file: str
@@ -96,19 +104,56 @@ def rel_map(z: zipfile.ZipFile) -> dict[str, str]:
             out[rid] = target.lstrip("/") if target.startswith("/") else (Path("word") / target).as_posix()
     return out
 
+def _word_crop(src_rect: ET.Element | None) -> tuple[int, int, int, int]:
+    values = tuple(int((src_rect.attrib.get(side) if src_rect is not None else 0) or 0) for side in ("l", "t", "r", "b"))
+    if any(value < -100000 or value > 100000 for value in values):
+        raise ValueError(f"Invalid Word image crop percentages: {values}")
+    left, top, right, bottom = values
+    if left + right >= 100000 or top + bottom >= 100000:
+        raise ValueError(f"Word image crop removes the complete image: {values}")
+    return values
+
+
 def ordered_images(docx: Path):
     with zipfile.ZipFile(docx) as z:
         rels = rel_map(z)
         root = ET.fromstring(z.read("word/document.xml"))
-        rids = []
-        for blip in root.findall(".//a:blip", NS):
+        images = []
+        for picture in root.findall(".//pic:pic", NS):
+            blip = picture.find(".//a:blip", NS)
+            if blip is None:
+                continue
             rid = blip.attrib.get(f"{{{REL_NS}}}embed")
             if rid:
-                rids.append(rid)
-        for rid in rids:
+                images.append((rid, _word_crop(picture.find(".//a:srcRect", NS))))
+        for rid, crop in images:
             media = rels.get(rid)
             if media and media in z.namelist():
-                yield rid, media, z.read(media)
+                yield rid, media, z.read(media), crop
+
+
+def canonical_image(data: bytes, crop: tuple[int, int, int, int]) -> tuple[bytes, str, int, int, str]:
+    fmt, width, height, mode = image_info(data)
+    if not any(crop):
+        return data, fmt, width, height, mode
+    left, top, right, bottom = crop
+    box = (
+        round(width * left / 100000),
+        round(height * top / 100000),
+        width - round(width * right / 100000),
+        height - round(height * bottom / 100000),
+    )
+    with Image.open(BytesIO(data)) as image:
+        image.load()
+        output_width, output_height = box[2] - box[0], box[3] - box[1]
+        if output_width <= 0 or output_height <= 0:
+            raise ValueError(f"Word image crop produced invalid dimensions: {crop}")
+        cropped = Image.new(image.mode, (output_width, output_height), ImageColor.getcolor("white", image.mode))
+        cropped.paste(image, (-box[0], -box[1]))
+        output = BytesIO()
+        cropped.save(output, format=fmt)
+        canonical = output.getvalue()
+        return canonical, fmt, cropped.width, cropped.height, cropped.mode
 
 def image_info(data: bytes):
     try:
@@ -263,8 +308,8 @@ def main():
                 len(chosen),
             )
 
-            for n, (rid, media, data) in enumerate(chosen, start=skip_first+1):
-                fmt, w, h, mode = image_info(data)
+            for n, (rid, media, embedded_data, crop) in enumerate(chosen, start=skip_first+1):
+                data, fmt, w, h, mode = canonical_image(embedded_data, crop)
                 raw_rel = Path("raw") / f"fs_{next_global:04d}{extension(fmt)}"
                 raw_path = args.output / raw_rel
                 raw_path.write_bytes(data)
@@ -287,6 +332,13 @@ def main():
                     mode=mode,
                     bytes=len(data),
                     sha256=hashlib.sha256(data).hexdigest(),
+                    embedded_bytes=len(embedded_data),
+                    embedded_sha256=hashlib.sha256(embedded_data).hexdigest(),
+                    word_crop_left=crop[0],
+                    word_crop_top=crop[1],
+                    word_crop_right=crop[2],
+                    word_crop_bottom=crop[3],
+                    word_crop_applied=any(crop),
                     duplicate_group="",
                     analysis_file=analysis_rel,
                     thumbnail_file=thumb_rel.as_posix(),

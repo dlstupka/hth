@@ -9,8 +9,10 @@ It extracts every embedded image from the DOCX masters in document order and rec
 
 - source DOCX and image ordinal,
 - relationship/media path,
-- pixel dimensions and image format,
-- byte size and SHA-256,
+- canonical pixel dimensions and image format,
+- canonical byte size and SHA-256,
+- original embedded byte size and SHA-256, and
+- Word DrawingML crop percentages and whether they were applied,
 - exact duplicate groups,
 - empty Pass-2 fields for manuscript pages, dates, record numbers, transitions, priests/hands, condition, confidence, and research notes.
 
@@ -23,9 +25,9 @@ Outputs:
 - `summary.json`
 
 ### Images
-It preserves an exact-byte extracted copy in `raw/`.
+It writes the canonical document-view image to `raw/`. When a DOCX image has no DrawingML crop, this remains an exact-byte copy of the embedded image. When Word stores a non-destructive `a:srcRect` crop, preprocessing applies the signed percentage offsets before writing `raw/`; the manifest retains both the embedded-image identity and the canonical output identity.
 
-With `--derive`, it also creates separate analysis PNGs using grayscale and autocontrast. These are derivative working images only; the DOCX and raw extracted image are never changed.
+With `--derive`, it also creates separate analysis PNGs using grayscale and autocontrast. These are derivative working images only; the DOCX is never changed.
 
 It also creates thumbnails and, with `--contact-sheets`, labeled review sheets for quickly finding page-number runs, year transitions, blank/obstructed pages, volume boundaries, and capture errors.
 
