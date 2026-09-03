@@ -53,4 +53,10 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertIn("$('selectionOrdinals').disabled=false",text)
         self.assertIn('enable(true);syncImageSelectionControls();rebuild()',text)
 
+    def test_page_approval_can_auto_advance_without_discard_prompt(self):
+        text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
+        self.assertIn("if(s.pageDirty&&!confirm('Discard unsaved page changes?'))return",text)
+        self.assertIn('s.index=Math.max(0,Math.min(i,s.pages.length-1));s.pageDirty=false',text)
+        self.assertNotIn("if(s.dirty&&!confirm('Discard unsaved changes?'))return",text)
+
 if __name__=='__main__': unittest.main()

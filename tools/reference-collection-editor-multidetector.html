@@ -714,8 +714,8 @@ function render(){
   }
 }
 function load(i){
-  if(!s.pages.length)return;if(s.dirty&&!confirm('Discard unsaved changes?'))return;
-  s.index=Math.max(0,Math.min(i,s.pages.length-1));s.dirty=false;s.compareMode=false;s.undoStack=[];$('undo').disabled=true;wrap.classList.remove('compare');$('compare').textContent='Compare';
+  if(!s.pages.length)return;if(s.pageDirty&&!confirm('Discard unsaved page changes?'))return;
+  s.index=Math.max(0,Math.min(i,s.pages.length-1));s.pageDirty=false;s.compareMode=false;s.undoStack=[];$('undo').disabled=true;wrap.classList.remove('compare');$('compare').textContent='Compare';
   const p=s.pages[s.index];updateGoldenFields();$('pageSelect').value=s.index;$('calibrationSelected').checked=p.calibration_selected!==false;$('ordinal').value=p.global_ordinal;$('label').value=p.label;$('layout').value=p.layout_type;$('notes').value=p.notes;
   s.box=Array.isArray(p.physical_document_bbox)?[...p.physical_document_bbox]:null;s.approvedSnapshot=cloneBox(s.box);syncBox();updatePrediction();updateCanvasHint();updateRibbon();updateDeltaInfo();
   const f=s.images.get(Number(p.global_ordinal));
