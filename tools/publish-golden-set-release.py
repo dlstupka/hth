@@ -98,7 +98,9 @@ def main() -> int:
         freeze_data["source_release"] = {"repository": args.repository, "tag": args.source_release_tag, "manifest_sha256": args.source_release_manifest_sha256, "image_identity": "global_ordinal"}
         freeze_data["image_bundle"] = image_bundle
         freeze_data["canonical_release"]["image_bundle_asset"] = bundle_name
-        staged_freeze.write_text(json.dumps(freeze_data, indent=2) + "\n", encoding="utf-8")
+        staged_freeze.write_bytes(
+            (json.dumps(freeze_data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+        )
         args.finalized_freeze.write_bytes(staged_freeze.read_bytes())
         freeze_sha = sha256(staged_freeze)
         notes = ("Immutable HTH Golden Set release.\n\n" f"- Golden Set SHA-256: `{golden_sha}`\n" f"- Freeze manifest SHA-256: `{freeze_sha}`\n" f"- Image bundle SHA-256: `{image_bundle['sha256']}`\n\n" "Do not replace any asset. Publish a new Golden Set ID for any substantive change.")

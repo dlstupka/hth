@@ -9,7 +9,8 @@
     "repository": "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
     "tag": "HTH-GOLDEN-0001",
     "golden_set_asset": "HTH-0001.golden-set.json",
-    "freeze_asset": "HTH-0001.freeze.json"
+    "freeze_asset": "HTH-0001.freeze.json",
+    "image_bundle_asset": "HTH-0001.images.zip"
   },
   "policy": {
     "immutable_identity": true,
@@ -30,5 +31,49 @@
     "title": "Baptisms: San Antonio. Baptism Records 1788–1824, 1858–1898",
     "image_count": 929
   },
-  "reference_collection_version": "0.6"
+  "reference_collection_version": "0.6",
+  "source_release": {
+    "repository": "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
+    "tag": "HTH-SOURCE-0001",
+    "manifest_sha256": "aeb270cf71a7bb4730bab1cd7ba8c8fb3d1a95316a311370de8b9923b5cb489a",
+    "image_identity": "global_ordinal"
+  },
+  "image_bundle": {
+    "asset": "HTH-0001.images.zip",
+    "format": "zip/store",
+    "size": 6040355,
+    "sha256": "c68e0f9c2d0bc6770f4b6628fd811dae1b0b18eb57f3e6e9f26c1c2550c7ed59",
+    "images": [
+      {
+        "global_ordinal": 1,
+        "path": "raw/fs_0001.png",
+        "size": 1457976,
+        "sha256": "589e40d0d656577c7b214e1edb637ae39940446d6b768d73358071c4592228f3"
+      },
+      {
+        "global_ordinal": 5,
+        "path": "raw/fs_0005.png",
+        "size": 1247853,
+        "sha256": "b48b0c4d0287316f5e6ef9e51f49b1679a426315d35dec2da9b7076e4a4f72b6"
+      },
+      {
+        "global_ordinal": 6,
+        "path": "raw/fs_0006.png",
+        "size": 742998,
+        "sha256": "48ee1a156aa1b9504547ba422852e20ab80c3e8ba0e6a6df8124907045721efe"
+      },
+      {
+        "global_ordinal": 9,
+        "path": "raw/fs_0009.png",
+        "size": 1259054,
+        "sha256": "38c20087d9fc205f54690039285e97008817c1c7df1898179d9729d6f9dcc6f0"
+      },
+      {
+        "global_ordinal": 10,
+        "path": "raw/fs_0010.png",
+        "size": 1331922,
+        "sha256": "a72430079ea1f573ea651b4511e195ef4f71f6351b8c12ee87111a0d6f70ca87"
+      }
+    ]
+  }
 }
