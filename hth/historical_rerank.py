@@ -41,6 +41,8 @@ def _matching_index_entry(results_root: Path, run_id: str) -> dict[str, Any] | N
 def rerank_run(run_dir: Path, results_root: Path, *, top: int = 20) -> dict[str, Any]:
     """Rerank one completed historical run without changing raw evidence."""
     raw_path = run_dir / "raw" / "results.csv"
+    if not raw_path.is_file():
+        raw_path = raw_path.with_name("results.csv.gz")
     summary_path = run_dir / "reports" / "summary.json"
     intelligence_path = run_dir / "reports" / "calibration-intelligence.json"
     if not raw_path.is_file():

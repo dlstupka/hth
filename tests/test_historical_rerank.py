@@ -1,4 +1,5 @@
 import csv
+import gzip
 import json
 import tempfile
 import unittest
@@ -57,6 +58,12 @@ class HistoricalRerankTests(unittest.TestCase):
                 writer = csv.DictWriter(handle, fieldnames=fields)
                 writer.writeheader()
                 writer.writerows(rows)
+            raw_path = run / "raw" / "results.csv"
+            with raw_path.open("rb") as source, gzip.open(
+                raw_path.with_name("results.csv.gz"), "wb"
+            ) as target:
+                target.write(source.read())
+            raw_path.unlink()
 
             _write_json(run/"manifest.json", {"run_id":"run-1","detector":"gradient_vote","strategy":"exhaustive","status":"complete"})
             _write_json(run/"RUN-INFO.json", {"run_id":"run-1","possible_parameter_sets":2})

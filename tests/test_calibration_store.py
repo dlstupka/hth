@@ -1,3 +1,4 @@
+import gzip
 import json
 import tempfile
 import unittest
@@ -94,11 +95,13 @@ class CalibrationStoreTests(unittest.TestCase):
             self.assertEqual(stored["calibration_status"], "authoritative")
             self.assertEqual(stored["run_mode"], "full")
             self.assertEqual(stored["evidence_tier"], "authoritative")
-            self.assertEqual((selected.parent / "raw" / "results.csv").read_text(encoding="utf-8"), "observation\nlossless\n")
-            self.assertEqual(
-                (selected.parent / "raw" / "evidence.jsonl").read_text(encoding="utf-8"),
-                '{"observation":"lossless"}\n',
-            )
+            with gzip.open(selected.parent / "raw" / "results.csv.gz", "rt", encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "observation\nlossless\n")
+            with gzip.open(selected.parent / "raw" / "evidence.jsonl.gz", "rt", encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), '{"observation":"lossless"}\n')
+            self.assertFalse((selected.parent / "raw" / "results.csv").exists())
+            self.assertFalse((selected.parent / "raw" / "evidence.jsonl").exists())
+            self.assertEqual(stored["persistence"]["raw_evidence"]["encoding"], "gzip")
             self.assertEqual(stored["calibration_identity"]["build"]["github_run_id"], "1")
             self.assertEqual(stored["calibration_identity"]["build"]["github_run_number"], "193")
             self.assertEqual(stored["calibration_identity"]["build"]["workflow"], "Regress detectors against Golden Set")

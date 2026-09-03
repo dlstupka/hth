@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import gzip
 import json
 
 from hth.regression.merge_shards import _results_from_raw
@@ -59,6 +60,20 @@ def test_reconstructed_ok_rows_are_counted_as_success(tmp_path) -> None:
     result = _results_from_raw(raw)[0]
     assert result["summary"]["success_count"] == 1
     assert result["summary"]["failure_count"] == 0
+    assert result["summary"]["mean_iou"] == 0.9
+
+
+def test_reconstructed_rows_round_trip_through_persisted_gzip(tmp_path) -> None:
+    raw = tmp_path / "results.csv"
+    _write_raw_row(raw, status="ok", iou=0.9)
+    compressed = raw.with_name("results.csv.gz")
+    with raw.open("rb") as source, gzip.open(compressed, "wb") as target:
+        target.write(source.read())
+
+    result = _results_from_raw(compressed)[0]
+
+    assert result["parameter_set_id"] == "abc"
+    assert result["pages"][0]["status"] == "ok"
     assert result["summary"]["mean_iou"] == 0.9
 
 

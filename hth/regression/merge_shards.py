@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -77,13 +78,12 @@ def _merged_pipeline_context(infos: list[dict[str, Any]], summaries: list[dict[s
 
 
 def _results_from_raw(path: Path) -> list[dict[str, Any]]:
-    evidence_path = path.with_name("evidence.jsonl")
+    compressed = path.suffix == ".gz"
+    evidence_path = path.with_name("evidence.jsonl.gz" if compressed else "evidence.jsonl")
     if evidence_path.is_file():
-        records = [
-            json.loads(line)
-            for line in evidence_path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
+        opener = gzip.open if compressed else open
+        with opener(evidence_path, "rt", encoding="utf-8") as handle:
+            records = [json.loads(line) for line in handle if line.strip()]
         if not all(isinstance(record, dict) for record in records):
             raise ValueError(f"Raw evidence must contain JSON objects: {evidence_path}")
         results = [
@@ -93,7 +93,8 @@ def _results_from_raw(path: Path) -> list[dict[str, Any]]:
         return _finalize_raw_results(results, normalize_optional=False)
 
     grouped: dict[str, dict[str, Any]] = {}
-    with path.open(newline="", encoding="utf-8") as handle:
+    opener = gzip.open if compressed else open
+    with opener(path, "rt", newline="", encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
             result_envelope = json.loads(row.get("result_json") or "null")
             page_envelope = json.loads(row.get("page_json") or "null")

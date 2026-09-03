@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import re
@@ -39,6 +40,21 @@ PERSISTED_FILES = (
     "reports/winner-pages.json",
     "reports/calibration-intelligence.json",
 )
+COMPRESSED_RAW_FILES = frozenset({"raw/results.csv", "raw/evidence.jsonl"})
+
+
+def _copy_persisted_file(source: Path, target: Path, *, compress: bool = False) -> Path:
+    """Copy one record file, using deterministic gzip for large raw evidence."""
+    if not compress:
+        shutil.copy2(source, target)
+        return target
+    compressed = target.with_name(f"{target.name}.gz")
+    with source.open("rb") as input_handle, compressed.open("wb") as output_handle:
+        with gzip.GzipFile(
+            filename="", mode="wb", fileobj=output_handle, compresslevel=6, mtime=0
+        ) as gzip_handle:
+            shutil.copyfileobj(input_handle, gzip_handle, length=1024 * 1024)
+    return compressed
 
 
 
@@ -261,6 +277,11 @@ def publish_run(
         "store": "results-repository",
         "index": "indexes/calibration-index.json",
         "published_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "raw_evidence": {
+            "encoding": "gzip",
+            "results": "raw/results.csv.gz",
+            "evidence": "raw/evidence.jsonl.gz",
+        },
     }
 
     source_id = _source_document_id(intelligence, source_fallback)
@@ -285,7 +306,7 @@ def publish_run(
                 else destination / Path(relative).name
             )
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
+            _copy_persisted_file(source, target, compress=relative in COMPRESSED_RAW_FILES)
 
     copied_intelligence = destination / "calibration-intelligence.json"
     _write_json(copied_intelligence, intelligence)

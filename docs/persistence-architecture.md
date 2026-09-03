@@ -24,6 +24,8 @@ JSON index replacement uses the same atomic-write primitive. Results-repository 
 
 Calibration runs persist their exact calibration intelligence and provenance below `source-documents/.../calibrations/...`. Execution-optimizer runs persist run metadata, shape observations, shard observations, and runner metrics below `execution-optimizer/<detector>/runs/<run-id>/`. Multi-detector scheduling observations are preserved below `execution-history/multidetector/`. Learned Orli evidence remains independently addressable beneath `learned-evidence/orli_page_mask/`.
 
+Lossless calibration page evidence is retained as deterministic gzip streams (`raw/results.csv.gz` and `raw/evidence.jsonl.gz`) so exhaustive runs remain below GitHub's per-blob limit. Workflow artifacts keep their run-local uncompressed files for convenient inspection. Historical readers accept both the compressed durable contract and legacy uncompressed records.
+
 `python -m hth.persistence_rebuild --results-root <results-repo>` deletes the derived indexes and reconstructs them from those durable records. This is both a recovery mechanism and an architectural invariant: deleting an index must not delete research history.
 
 ## Execution-optimizer benchmark contract

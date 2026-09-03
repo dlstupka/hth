@@ -76,8 +76,13 @@ def resolve_runs(
 
 def _eligible_run_dirs(target: Path) -> list[Path]:
     dirs: list[Path] = []
-    for raw in sorted(target.rglob("raw/results.csv")):
+    seen: set[Path] = set()
+    raw_results = set(target.rglob("raw/results.csv")) | set(target.rglob("raw/results.csv.gz"))
+    for raw in sorted(raw_results):
         run_dir = raw.parent.parent
+        if run_dir in seen:
+            continue
+        seen.add(run_dir)
         manifest = run_dir / "manifest.json"
         summary = run_dir / "reports" / "summary.json"
         if not manifest.is_file() or not summary.is_file():
