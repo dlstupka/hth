@@ -43,9 +43,11 @@ def release_assets(
     release = freeze_data.get("canonical_release") or {}
     if release.get("repository") != repository:
         raise ValueError("repository does not match canonical_release.repository")
-    suffix = golden_id.removeprefix("HTH-")
+    # HTH-0001 predates the unified identity convention and remains immutable.
+    # New Golden Sets use the release tag verbatim as their collection identity.
+    tag = golden_id if golden_id.startswith("HTH-GOLDEN-") else f"HTH-GOLDEN-{golden_id.removeprefix('HTH-')}"
     expected = {
-        "tag": f"HTH-GOLDEN-{suffix}",
+        "tag": tag,
         "golden_set_asset": f"{golden_id}.golden-set.json",
         "freeze_asset": f"{golden_id}.freeze.json",
     }

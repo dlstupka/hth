@@ -21,9 +21,10 @@ def validate_freeze(*, freeze_path: Path, repository_root: Path) -> None:
 
     frozen_id = str(freeze.get("golden_set_id") or "").strip()
     release = freeze.get("canonical_release") or {}
+    tag = frozen_id if frozen_id.startswith("HTH-GOLDEN-") else f"HTH-GOLDEN-{frozen_id.removeprefix('HTH-')}"
     expected_release = {
         "repository": None,
-        "tag": f"HTH-GOLDEN-{frozen_id.removeprefix('HTH-')}",
+        "tag": tag,
         "golden_set_asset": f"{frozen_id}.golden-set.json",
         "freeze_asset": f"{frozen_id}.freeze.json",
     }

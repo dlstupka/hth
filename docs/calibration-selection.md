@@ -39,7 +39,7 @@ Authoritative detector choice is resolved from persisted calibration evidence. P
 
 ## Golden Set discipline
 
-Calibration pages tune detector parameters and selection. Frozen Golden Sets give persisted calibration evidence a stable identity and SHA-256. `HTH-0001` is frozen and must never be edited in place; corrected or expanded truth receives a new identity such as `HTH-0002`.
+Calibration pages tune detector parameters and selection. Frozen Golden Sets give persisted calibration evidence a stable identity and SHA-256. `HTH-0001` is the frozen legacy identity and must never be edited in place; corrected or expanded truth receives an identity matching its release tag, such as `HTH-GOLDEN-0002`.
 
 A broader Golden Set should be driven by evidence from full-collection inference: low-confidence pages, structurally distinct capture regimes, detector-disagreement cases, and representative controls. Detector confidence is useful for prioritization but is not ground truth.
 

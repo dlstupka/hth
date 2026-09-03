@@ -35,4 +35,16 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertIn("`${g.golden_set_id}.freeze.json`",text)
         self.assertIn("golden_set_sha256:fileSha",text)
 
+    def test_workbench_can_synthesize_a_source_draft_from_production_analysis(self):
+        text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
+        self.assertIn('function synthesizeSourceCollection(data)',text)
+        self.assertIn("else if(analysisData){s.collection=synthesizeSourceCollection(analysisData)",text)
+        self.assertIn("collection_id:'HTH-SOURCE-DRAFT'",text)
+        self.assertIn("calibration_selected:false",text)
+        self.assertIn('Source release manifest SHA-256',text)
+        self.assertIn("/^HTH-GOLDEN-\\d{4,}$/",text)
+        self.assertIn("tag:g.golden_set_id",text)
+        self.assertIn("/^HTH-SOURCE-\\d{4,}$/",text)
+        self.assertIn("/^[0-9a-f]{64}$/",text)
+
 if __name__=='__main__': unittest.main()

@@ -40,6 +40,27 @@ class GoldenSetReleaseTests(unittest.TestCase):
         self.assertEqual(golden_name, "HTH-0001.golden-set.json")
         self.assertEqual(freeze_name, "HTH-0001.freeze.json")
 
+    def test_new_release_uses_one_identity_for_set_tag_and_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            golden = root / "HTH-GOLDEN-0002.golden-set.json"
+            golden.write_text(json.dumps({"collection_id": "HTH-GOLDEN-0002", "pages": []}) + "\n", encoding="utf-8")
+            freeze = root / "HTH-GOLDEN-0002.freeze.json"
+            freeze.write_text(json.dumps({
+                "golden_set_id": "HTH-GOLDEN-0002",
+                "golden_set_sha256": MODULE.sha256(golden),
+                "canonical_release": {
+                    "repository": "owner/source",
+                    "tag": "HTH-GOLDEN-0002",
+                    "golden_set_asset": "HTH-GOLDEN-0002.golden-set.json",
+                    "freeze_asset": "HTH-GOLDEN-0002.freeze.json",
+                },
+            }), encoding="utf-8")
+            self.assertEqual(
+                MODULE.release_assets(repository="owner/source", golden_set=golden, freeze=freeze),
+                ("HTH-GOLDEN-0002", "HTH-GOLDEN-0002.golden-set.json", "HTH-GOLDEN-0002.freeze.json"),
+            )
+
     def test_wrong_repository_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "canonical_release.repository"):
             MODULE.release_assets(

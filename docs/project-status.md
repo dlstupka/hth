@@ -58,7 +58,7 @@ The next source-quality objective is to reacquire the current FamilySearch colle
 
 1. Complete authorized direct-source acquisition for the reference collection.
 2. Compare direct-source production inference with the bootstrap source edition.
-3. Use full-collection evidence—especially low-confidence and detector-disagreement pages—to decide whether and how to instantiate `HTH-0002`.
+3. Use full-collection evidence—especially low-confidence and detector-disagreement pages—to decide whether and how to instantiate `HTH-GOLDEN-0002`.
 4. Continue downstream transcription, translation, indexing, citation, and historical-research stages.
 5. Keep collection-specific data and immutable source truth outside the reusable HTH engine so additional collections can use the same framework.
 

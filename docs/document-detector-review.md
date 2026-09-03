@@ -10,4 +10,4 @@ To review, download and expand the production build artifact, open `tools/refere
 
 The first complete production run produced candidates for all 928 pages with no detector errors or missing candidates and an average detector confidence of `0.920780`. That confidence is useful for ranking review work, but it is not IoU and is not ground truth.
 
-Use the low-confidence tail, detector-disagreement/rescue diagnostics, capture-regime changes, and representative high-confidence controls to decide what deserves human review and possible inclusion in a future Golden Set. The process does not create `HTH-0002` automatically.
+Use the low-confidence tail, detector-disagreement/rescue diagnostics, capture-regime changes, and representative high-confidence controls to decide what deserves human review and possible inclusion in a future Golden Set. The process does not create `HTH-GOLDEN-0002` automatically.
