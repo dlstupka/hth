@@ -19,6 +19,16 @@ on:
       - ".github/workflows/**"
   workflow_dispatch:
     inputs:
+      source_repository:
+        description: "Source repository owning immutable source Releases"
+        required: true
+        type: string
+        default: "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898"
+      source_release_tag:
+        description: "Immutable source Release tag"
+        required: true
+        type: string
+        default: "HTH-SOURCE-0001"
       runner:
         description: "Execution runner"
         required: true
@@ -49,6 +59,11 @@ on:
         required: true
         type: string
         default: "Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx"
+      image_limit:
+        description: "Maximum images to process from the selected DOCX"
+        required: true
+        type: number
+        default: 10
 
 permissions:
   contents: read
@@ -70,10 +85,11 @@ jobs:
       runner: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'github-hosted' }}
       specific_runner: ${{ github.event_name == 'workflow_dispatch' && inputs.specific_runner || 'any' }}
       custom_runner_label: ${{ github.event_name == 'workflow_dispatch' && inputs.custom_runner_label || '' }}
-      source_repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898
-      source_release_tag: HTH-SOURCE-0001
+      source_repository: ${{ github.event_name == 'workflow_dispatch' && inputs.source_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898' }}
+      source_release_tag: ${{ github.event_name == 'workflow_dispatch' && inputs.source_release_tag || 'HTH-SOURCE-0001' }}
       results_repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
       test_file: ${{ inputs.test_file || 'Baptisms-San-Antonio-Baptism-Records-1788-1824--1858-1898_p91-100.docx' }}
+      image_limit: ${{ github.event_name == 'workflow_dispatch' && inputs.image_limit || 10 }}
       output_directory: hth-pipeline/build/preprocessed-test
       publish_results: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
       upload_full_artifact: true

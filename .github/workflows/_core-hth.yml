@@ -28,6 +28,11 @@ on:
         required: false
         type: string
         default: ""
+      image_limit:
+        description: "Maximum images processed across the selected source; zero processes all images"
+        required: false
+        type: number
+        default: 0
       output_directory:
         description: "Pipeline output directory"
         required: false
@@ -124,6 +129,7 @@ jobs:
       SOURCE_RELEASE_TAG: ${{ inputs.source_release_tag }}
       RESULTS_REPOSITORY: ${{ inputs.results_repository }}
       OUTPUT_DIRECTORY: ${{ inputs.output_directory }}
+      IMAGE_LIMIT: ${{ inputs.image_limit }}
 
     steps:
       ############################################################
@@ -335,6 +341,9 @@ jobs:
             echo "- Recorded source commit: \`$SOURCE_COMMIT\`"
             if [[ "$HTH_MODE" != "production" ]]; then
               echo "- Source file: \`${{ steps.source.outputs.test_file }}\`"
+              if [[ "$IMAGE_LIMIT" -gt 0 ]]; then
+                echo "- Image limit: \`$IMAGE_LIMIT\`"
+              fi
             fi
             echo "- Pipeline repository: \`${GITHUB_REPOSITORY}\`"
             echo "- Pipeline commit: \`$PIPELINE_COMMIT\`"
@@ -400,6 +409,11 @@ jobs:
             INPUT_PATH="${{ steps.source.outputs.input_path }}"
           fi
 
+          LIMIT_ARGS=()
+          if [[ "$IMAGE_LIMIT" -gt 0 ]]; then
+            LIMIT_ARGS+=(--limit "$IMAGE_LIMIT")
+          fi
+
           python hth-pipeline/hth/preprocess.py \
             --input "$INPUT_PATH" \
             --output "$OUTPUT_DIRECTORY" \
@@ -410,7 +424,8 @@ jobs:
             --pipeline-commit "${{ steps.build.outputs.pipeline_commit }}" \
             --derive \
             --contact-sheets \
-            --overwrite
+            --overwrite \
+            "${LIMIT_ARGS[@]}"
 
 
       - name: Complete STAGE_PREPROCESS

@@ -38,6 +38,18 @@ class SourceReleaseContractTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("Download and verify immutable HTH source DOCX masters", completed.stdout)
 
+    def test_preprocess_test_dispatch_can_select_source_release_and_limit(self):
+        workflow = (ROOT / ".github/workflows/preprocess-test.yml").read_text(encoding="utf-8")
+        dispatch = workflow.split("workflow_dispatch:", 1)[1].split("permissions:", 1)[0]
+        self.assertIn("source_repository:", dispatch)
+        self.assertIn("source_release_tag:", dispatch)
+        self.assertIn('default: "HTH-SOURCE-0001"', dispatch)
+        self.assertIn("image_limit:", dispatch)
+        self.assertIn("default: 10", dispatch)
+
+        core = (ROOT / ".github/workflows/_core-hth.yml").read_text(encoding="utf-8")
+        self.assertIn('LIMIT_ARGS+=(--limit "$IMAGE_LIMIT")', core)
+
     def test_pipeline_has_no_binary_tracking_rule(self):
         attrs = (ROOT / ".gitattributes").read_text(encoding="utf-8").lower()
         self.assertNotIn("filter=lfs", attrs)

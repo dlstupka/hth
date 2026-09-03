@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import itertools
 import json
 import logging
 import re
@@ -257,7 +258,11 @@ def main():
         p.add_argument("--derive", action="store_true")
         p.add_argument("--contact-sheets", action="store_true")
         p.add_argument("--overwrite", action="store_true")
+        p.add_argument("--limit", type=int, default=0, help="Maximum number of images to process across all input DOCX files; 0 processes all images.")
         args = p.parse_args()
+
+        if args.limit < 0:
+            p.error("--limit must be zero or a positive integer")
 
         logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
         cfg = load_config(args.config)
@@ -283,9 +288,9 @@ def main():
 
         next_global = int(cfg["global_start"])
         for doc in docs:
+            if args.limit and len(records) >= args.limit:
+                break
             override = cfg["source_overrides"].get(doc.name, {})
-            
-            embedded_images = list(ordered_images(doc))
 
             skip_first = int(override.get("skip_first", 0))
             skip_last = int(override.get("skip_last", 0))
@@ -293,19 +298,23 @@ def main():
             if "global_start" in override:
                 next_global = int(override["global_start"])
 
-            end = (
-                len(embedded_images) - skip_last
-                if skip_last
-                else len(embedded_images)
-            )
-
-            chosen = embedded_images[skip_first:end]
+            remaining = args.limit - len(records) if args.limit else None
+            if skip_last:
+                embedded_images = list(ordered_images(doc))
+                end = len(embedded_images) - skip_last
+                chosen = embedded_images[skip_first:end]
+                if remaining is not None:
+                    chosen = chosen[:remaining]
+                embedded_count = len(embedded_images)
+            else:
+                stop = skip_first + remaining if remaining is not None else None
+                chosen = itertools.islice(ordered_images(doc), skip_first, stop)
+                embedded_count = "at least " + str(skip_first + remaining) if remaining is not None else "all"
 
             logging.info(
-                "%s: %d embedded, %d selected",
+                "%s: %s embedded, processing selected images",
                 doc.name,
-                len(embedded_images),
-                len(chosen),
+                embedded_count,
             )
 
             for n, (rid, media, embedded_data, crop) in enumerate(chosen, start=skip_first+1):
