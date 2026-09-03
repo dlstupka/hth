@@ -59,4 +59,9 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertIn('s.index=Math.max(0,Math.min(i,s.pages.length-1));s.pageDirty=false',text)
         self.assertNotIn("if(s.dirty&&!confirm('Discard unsaved changes?'))return",text)
 
+    def test_auto_advance_is_limited_to_the_active_image_selection(self):
+        text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
+        self.assertIn('const ordered=[...s.visibleIndices.filter(i=>i>fromIndex)',text)
+        self.assertIn('for(const i of ordered)if(!Array.isArray(s.pages[i].physical_document_bbox))return i',text)
+
 if __name__=='__main__': unittest.main()

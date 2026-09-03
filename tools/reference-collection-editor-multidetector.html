@@ -519,16 +519,14 @@ function confidenceDescription(score,status){
   return 'Poor'
 }
 function nextReviewIndex(fromIndex){
-  if(!s.pages.length)return -1;
-  for(let offset=1;offset<=s.pages.length;offset++){
-    const i=(fromIndex+offset)%s.pages.length;
+  refreshVisibleIndices();
+  if(!s.visibleIndices.length)return -1;
+  const ordered=[...s.visibleIndices.filter(i=>i>fromIndex),...s.visibleIndices.filter(i=>i<=fromIndex)];
+  for(const i of ordered){
     const p=s.pages[i];
-    if(!Array.isArray(p.physical_document_bbox)&&(s.review.has(Number(p.global_ordinal))||pageStatus(p)==='fail'))return i;
+    if(!Array.isArray(p.physical_document_bbox)&&(s.review.has(Number(p.global_ordinal))||pageStatus(p)==='fail'))return i
   }
-  for(let offset=1;offset<=s.pages.length;offset++){
-    const i=(fromIndex+offset)%s.pages.length;
-    if(!Array.isArray(s.pages[i].physical_document_bbox))return i;
-  }
+  for(const i of ordered)if(!Array.isArray(s.pages[i].physical_document_bbox))return i;
   return -1
 }
 function handleSize(){return Math.max(7,10/s.zoom)}
