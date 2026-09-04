@@ -427,6 +427,45 @@ jobs:
             --overwrite \
             "${LIMIT_ARGS[@]}"
 
+      - name: Record build identity in generated artifact
+        shell: bash
+        env:
+          SOURCE_COMMIT: ${{ steps.build.outputs.source_commit }}
+          SOURCE_RELEASE_MANIFEST_SHA256: ${{ steps.build.outputs.source_release_manifest_sha256 }}
+          PIPELINE_COMMIT: ${{ steps.build.outputs.pipeline_commit }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          def quote(value: str) -> str:
+              return json.dumps(value, ensure_ascii=False)
+
+          output = Path(os.environ["OUTPUT_DIRECTORY"]) / "BUILD-INFO.yaml"
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(
+              f"""\
+          schema_version: 1
+          build_type: {quote(os.environ["HTH_MODE"])}
+          status: successful
+
+          source:
+            repository: {quote(os.environ["SOURCE_REPOSITORY"])}
+            release: {quote(os.environ["SOURCE_RELEASE_TAG"])}
+            release_manifest_sha256: {quote(os.environ["SOURCE_RELEASE_MANIFEST_SHA256"])}
+            commit: {quote(os.environ["SOURCE_COMMIT"])}
+
+          pipeline:
+            repository: {quote(os.environ["GITHUB_REPOSITORY"])}
+            commit: {quote(os.environ["PIPELINE_COMMIT"])}
+            workflow_run_id: {quote(os.environ["GITHUB_RUN_ID"])}
+          """,
+              encoding="utf-8",
+          )
+          PY
+
 
       - name: Complete STAGE_PREPROCESS
         if: ${{ always() && steps.stage_preprocess_start.outcome != 'skipped' }}

@@ -64,7 +64,7 @@ This division keeps responsibility clear:
 ## Creating HTH-GOLDEN-0002 from SOURCE-0002
 
 1. Expand the SOURCE-0002 production review artifact and open `tools/reference-collection-editor-multidetector.html`. The artifact may contain `page-analysis/page-analysis.json` without a pre-existing reference collection; the editor synthesizes an unselected draft over all analyzed pages and loads images on demand.
-2. Choose **Open results workspace** and select the expanded artifact directory. Enter the exact source release tag (`HTH-SOURCE-0002`) and the SHA-256 of that release's `source-release-manifest.json`; approval is blocked without both values.
+2. Choose **Open results workspace** and select the expanded artifact directory. New artifacts include `BUILD-INFO.yaml`, so the editor automatically imports the exact source release tag (`HTH-SOURCE-0002`) and the SHA-256 of that release's `source-release-manifest.json`. For an older artifact without this record, enter both values manually; approval is blocked without them.
 3. Under **Image selection**, choose **Explicit ordinals**, enter the proposed ordinals, and choose **Apply view**.
 4. Choose **Replace membership with visible**. This makes the visible list the complete set membership; source collections otherwise start with no calibration pages selected.
 5. Review every selected image, correct its box/layout metadata, and choose the per-page **Approve** action.

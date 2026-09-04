@@ -50,6 +50,13 @@ class SourceReleaseContractTests(unittest.TestCase):
         core = (ROOT / ".github/workflows/_core-hth.yml").read_text(encoding="utf-8")
         self.assertIn('LIMIT_ARGS+=(--limit "$IMAGE_LIMIT")', core)
 
+    def test_generated_artifact_contains_canonical_build_info(self):
+        core = (ROOT / ".github/workflows/_core-hth.yml").read_text(encoding="utf-8")
+        self.assertIn("Record build identity in generated artifact", core)
+        self.assertIn('Path(os.environ["OUTPUT_DIRECTORY"]) / "BUILD-INFO.yaml"', core)
+        self.assertIn('release: {quote(os.environ["SOURCE_RELEASE_TAG"])}', core)
+        self.assertIn('release_manifest_sha256: {quote(os.environ["SOURCE_RELEASE_MANIFEST_SHA256"])}', core)
+
     def test_pipeline_has_no_binary_tracking_rule(self):
         attrs = (ROOT / ".gitattributes").read_text(encoding="utf-8").lower()
         self.assertNotIn("filter=lfs", attrs)
