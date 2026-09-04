@@ -26,6 +26,15 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertIn("amsre_doc_ufcn_fusion",text)
         self.assertIn('Fusion Gen3 — AMSRE + Doc-UFCN',text)
 
+    def test_workbench_discovers_and_scrolls_all_loaded_detector_candidates(self):
+        text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
+        self.assertIn('class="detector-list"',text)
+        self.assertIn('max-height:390px;overflow-y:auto',text)
+        self.assertIn('function syncDetectorCatalog()',text)
+        self.assertIn('registerDetector(method,raw)',text)
+        self.assertIn("return detectorAliases[method]||method",text)
+        self.assertIn('Checkboxes add or remove overlays',text)
+
     def test_workbench_supports_safe_versioned_golden_set_approval(self):
         text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
         self.assertIn('Replace membership with visible',text)
