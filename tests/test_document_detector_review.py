@@ -59,6 +59,15 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertIn("/^HTH-SOURCE-\\d{4,}$/",text)
         self.assertIn("/^[0-9a-f]{64}$/",text)
 
+    def test_workspace_inherits_immutable_source_provenance_from_build_info(self):
+        text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
+        self.assertIn('function buildSourceProvenance(text)',text)
+        self.assertIn("yamlScalar(text,'source_release')||yamlScalar(text,'release')",text)
+        self.assertIn("yamlScalar(text,'source_release_manifest_sha256')||yamlScalar(text,'release_manifest_sha256')",text)
+        self.assertIn('mergeSourceProvenance(buildSourceProvenance',text)
+        self.assertIn('current.tag||provenance.tag',text)
+        self.assertIn("rejectGoldenField('goldenSourceReleaseTag'",text)
+
     def test_explicit_ordinal_entry_selects_the_matching_view_mode(self):
         text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
         self.assertIn("$('selectionOrdinals').oninput=()=>{",text)
@@ -90,6 +99,14 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertIn('const writable=await s.referenceExportHandle.createWritable()',text)
         self.assertIn('try{await writable.write(contents)}finally{await writable.close()}',text)
         self.assertIn("button.textContent=result==='written'?'Saved to file ✓':'Downloaded ✓'",text)
+
+    def test_pages_can_be_explicitly_unapproved_or_excluded(self):
+        text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
+        self.assertIn('id="unapprovePage"',text)
+        self.assertIn('id="excludeCurrent"',text)
+        self.assertIn("p.review_status='unreviewed'",text)
+        self.assertIn("invalidateGoldenApproval('Page approval removed')",text)
+        self.assertIn("invalidateGoldenApproval('Page excluded from Golden Set membership')",text)
 
     def test_page_approval_can_auto_advance_without_discard_prompt(self):
         text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')

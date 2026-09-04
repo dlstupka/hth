@@ -136,6 +136,10 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
       <button id="clear" disabled>Clear</button>
       <button id="save" class="good" disabled>Approve</button>
     </div>
+    <div class="grid2" style="margin-top:8px">
+      <button id="unapprovePage" disabled>Unapprove page</button>
+      <button id="excludeCurrent" disabled>Exclude from Golden Set</button>
+    </div>
     <div style="height:8px"></div>
     <label><input id="autoAdvance" type="checkbox" checked disabled> Auto-advance to next page needing review</label>
     <div style="height:8px"></div>
@@ -234,7 +238,7 @@ const s={
   collection:null,pages:[],index:-1,images:new Map(),image:null,zoom:1,fitZoom:1,start:null,
   box:null,dirty:false,pageDirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,thumbnailUrls:new Map(),referenceExportHandle:null,dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false,undoStack:[],approvedSnapshot:null,visibleIndices:[],selectionRebuildTimer:null,detectorDefaults:{amsre_doc_ufcn_fusion:100,contour:75,components:75,ransac:75,hough:75,lsd:75,grabcut:75,approved:100}
 };
-const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther','mutePrediction','undo','opacityGen3','opacityContour','opacityComponents','opacityRansac','opacityHough','opacityLsd','opacityGrabcut','opacityApproved','enableApproved','enableGen3','enableContour','enableComponents','enableRansac','enableHough','enableLsd','enableGrabcut','overlayLineWidth','muteAll','restoreAll','selectedDetector','imageSelectionMode','selectionFrom','selectionTo','selectionOrdinals','applyImageSelection','showAllImages','calibrationSelected','includeVisibleCalibration','excludeVisibleCalibration','replaceCalibrationWithVisible','exportCalibrationManifest','goldenSetId','goldenReleaseRepository','goldenSourceReleaseTag','goldenSourceManifestSha256','goldenCreatedBy','goldenCreatedRole','goldenReviewedBy','goldenReviewedRole','goldenApprovedBy','goldenApprovedRole','goldenApprovalNotes','approveGoldenSet','exportGoldenSet','exportGoldenFreeze'];
+const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','unapprovePage','excludeCurrent','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther','mutePrediction','undo','opacityGen3','opacityContour','opacityComponents','opacityRansac','opacityHough','opacityLsd','opacityGrabcut','opacityApproved','enableApproved','enableGen3','enableContour','enableComponents','enableRansac','enableHough','enableLsd','enableGrabcut','overlayLineWidth','muteAll','restoreAll','selectedDetector','imageSelectionMode','selectionFrom','selectionTo','selectionOrdinals','applyImageSelection','showAllImages','calibrationSelected','includeVisibleCalibration','excludeVisibleCalibration','replaceCalibrationWithVisible','exportCalibrationManifest','goldenSetId','goldenReleaseRepository','goldenSourceReleaseTag','goldenSourceManifestSha256','goldenCreatedBy','goldenCreatedRole','goldenReviewedBy','goldenReviewedRole','goldenApprovedBy','goldenApprovedRole','goldenApprovalNotes','approveGoldenSet','exportGoldenSet','exportGoldenFreeze'];
 function enable(v){ids.forEach(id=>$(id).disabled=!v)}
 function ordinalFromName(n){for(const r of [/fs[_-]?0*(\d+)/i,/(?:^|[_-])p(?:age)?[_-]?0*(\d+)/i,/(?:^|[_-])0*(\d+)(?:\.[^.]+)?$/i]){const m=n.match(r);if(m)return Number(m[1])}return null}
 function esc(v){return String(v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
@@ -244,6 +248,42 @@ function pathScore(path,name){const p=path.toLowerCase(),n=name.toLowerCase();le
 function normalize(d){if(!d||!Array.isArray(d.pages))throw Error('JSON must contain a pages array');const sourceCollection=String(d.collection_id||d.id||'').toUpperCase().includes('SOURCE'),sourceRepository=d.source_repository||d.source_release?.repository||d.source?.repository||d.pages.find(p=>p.stage2_prediction?.source_repository)?.stage2_prediction?.source_repository||'';d.pages.forEach(p=>{if(!('physical_document_bbox'in p))p.physical_document_bbox=null;if(!p.layout_type)p.layout_type='other';if(!p.label)p.label=`page_${p.global_ordinal}`;if(!p.notes)p.notes='';if(!Array.isArray(p.expected_regions))p.expected_regions=[];if(typeof p.calibration_selected!=='boolean')p.calibration_selected=!sourceCollection;if(!p.review_status)p.review_status=Array.isArray(p.physical_document_bbox)?'approved':'unreviewed'});d.golden_set_workflow=d.golden_set_workflow||{status:'draft',golden_set_id:sourceCollection?'':(d.collection_id||d.id||''),canonical_source_repository:sourceRepository,created_by:{name:'',role:''},reviewed_by:{name:'',role:''},approved_by:{name:'',role:''},notes:'',approved_at_utc:null,approved_sha256:null};return d}
 function analysisBBox(r){if(!r)return null;for(const keys of [['page_left_px','page_top_px','page_right_px','page_bottom_px'],['content_left_px','content_top_px','content_right_px','content_bottom_px']]){if(keys.every(k=>Number.isFinite(Number(r[k]))))return keys.map(k=>Number(r[k]))}if(Array.isArray(r.physical_document_bbox)&&r.physical_document_bbox.length===4)return r.physical_document_bbox.map(Number);return null}
 function parseCsv(text){const lines=text.trim().split(/\r?\n/);if(lines.length<2)return[];const head=lines[0].split(',');return lines.slice(1).map(line=>{const vals=line.split(',');const o={};head.forEach((h,i)=>o[h]=vals[i]??'');return o})}
+function yamlScalar(text,key){
+  const match=String(text||'').match(new RegExp(`^\\s*${key}\\s*:\\s*(.+?)\\s*$`,'m'));
+  if(!match)return'';
+  const value=match[1].trim();
+  if((value.startsWith('"')&&value.endsWith('"'))||(value.startsWith("'")&&value.endsWith("'")))return value.slice(1,-1);
+  return value.replace(/\s+#.*$/,'').trim()
+}
+function buildSourceProvenance(text){
+  return {
+    repository:yamlScalar(text,'source_repository')||yamlScalar(text,'repository'),
+    tag:yamlScalar(text,'source_release')||yamlScalar(text,'release'),
+    manifest_sha256:(yamlScalar(text,'source_release_manifest_sha256')||yamlScalar(text,'release_manifest_sha256')).toLowerCase(),
+    source_commit:yamlScalar(text,'source_commit')||yamlScalar(text,'commit')
+  }
+}
+function buildInfoScore(path,analysisPath){
+  const normalized=path.toLowerCase(),analysis=String(analysisPath||'').toLowerCase();let score=0;
+  if(normalized.endsWith('/build-info.yaml')||normalized==='build-info.yaml')score+=10;
+  const expected=analysis.replace(/(?:analysis\/)?page-analysis\.json$/,'build-info.yaml');
+  if(normalized===expected)score+=100;
+  if(analysis.includes('/test/latest/')===normalized.includes('/test/latest/'))score+=20;
+  return score
+}
+function mergeSourceProvenance(provenance){
+  if(!s.collection||!provenance)return;
+  const current=s.collection.source_release||s.collection.source||{};
+  s.collection.source_release={
+    ...current,
+    repository:current.repository||provenance.repository||'',
+    tag:current.tag||provenance.tag||'',
+    manifest_sha256:current.manifest_sha256||provenance.manifest_sha256||'',
+    source_commit:current.source_commit||provenance.source_commit||'',
+    image_identity:current.image_identity||'global_ordinal'
+  };
+  const g=goldenWorkflow();if(!g.canonical_source_repository)g.canonical_source_repository=s.collection.source_release.repository||''
+}
 function synthesizeSourceCollection(data){
   const records=(data.records||[]).filter(r=>Number.isFinite(Number(r.global_ordinal))).sort((a,b)=>Number(a.global_ordinal)-Number(b.global_ordinal));
   if(!records.length)throw Error('page-analysis.json contains no page records.');
@@ -255,13 +295,14 @@ async function loadWorkspace(files){
   const all=[...files];if(!all.length)return;
   for(const url of s.thumbnailUrls.values())URL.revokeObjectURL(url);s.thumbnailUrls.clear();
   s.images.clear();s.analysis.clear();s.review.clear();
-  const refs=[];let analysisFile=null,reviewFile=null;
+  const refs=[],buildInfos=[];let analysisFile=null,analysisPath='',reviewFile=null;
   for(const f of all){
     const path=pathOf(f),name=basename(path);
     if(f.type.startsWith('image/')&&(path.includes('/raw/')||path.startsWith('raw/'))){const o=ordinalFromName(name);if(o!==null&&!s.images.has(o))s.images.set(o,f)}
     if(name==='reference_collection.json'||name==='golden_set.json')refs.push({file:f,path,score:pathScore(path,name)});
-    if(name==='page-analysis.json'&&path.includes('/test/latest/'))analysisFile=f;
-    else if(name==='page-analysis.json'&&!analysisFile)analysisFile=f;
+    if(name.toLowerCase()==='build-info.yaml')buildInfos.push({file:f,path});
+    if(name==='page-analysis.json'&&path.includes('/test/latest/')){analysisFile=f;analysisPath=path}
+    else if(name==='page-analysis.json'&&!analysisFile){analysisFile=f;analysisPath=path}
     if(name==='review-queue.csv'&&path.includes('/test/latest/'))reviewFile=f;
     else if(name==='review-queue.csv'&&!reviewFile)reviewFile=f;
   }
@@ -270,6 +311,7 @@ async function loadWorkspace(files){
   if(refs.length){refs.sort((a,b)=>b.score-a.score);s.collection=normalize(JSON.parse(await refs[0].file.text()));s.pages=s.collection.pages}
   else if(analysisData){s.collection=synthesizeSourceCollection(analysisData);s.pages=s.collection.pages}
   else if(!s.collection)throw Error('No reference_collection.json, golden_set.json, or production page-analysis/page-analysis.json was found.');
+  if(buildInfos.length){buildInfos.sort((a,b)=>buildInfoScore(b.path,analysisPath)-buildInfoScore(a.path,analysisPath));mergeSourceProvenance(buildSourceProvenance(await buildInfos[0].file.text()))}
   if(reviewFile){for(const r of parseCsv(await reviewFile.text())){const o=Number(r.global_ordinal);if(Number.isFinite(o))s.review.add(o)}}
   const firstPath=pathOf(all[0]);s.workspaceRoot=firstPath.includes('/')?firstPath.split('/')[0]:'selected folder';
   enable(true);syncImageSelectionControls();rebuild();collectionStatus();load(0)
@@ -541,12 +583,13 @@ function goldenPayload(includeApproval=true){
   return {schema_version:'1.0',collection_id:workflow.golden_set_id||null,description:s.collection.description||'Manually approved representative pages for Stage 2 regression testing.',acceptance:s.collection.acceptance||{minimum_iou:.95,maximum_edge_error_px:20,near_pass_minimum_iou:.9,near_pass_maximum_edge_error_ratio:.06,require_layout_match:false},golden_set_workflow:workflow,pages:selected,reference_collection_version:s.collection.reference_collection_version||null,source_document:s.collection.source_document||null,source_release:s.collection.source_release||s.collection.source||null}
 }
 async function sha256Hex(value){const bytes=new TextEncoder().encode(value);const digest=await crypto.subtle.digest('SHA-256',bytes);return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('')}
+function rejectGoldenField(id,message){alert(message);const field=$(id);field.scrollIntoView({behavior:'smooth',block:'center'});field.focus();field.select();return false}
 async function approveGoldenSet(){
   if(s.pageDirty)save();const g=readGoldenFields(),selected=s.pages.filter(p=>p.calibration_selected!==false);
-  if(!/^HTH-GOLDEN-\d{4,}$/.test(g.golden_set_id)){alert('Golden Set ID is required and must match its immutable release tag, for example HTH-GOLDEN-0002.');return}
-  if(!/^[^/\s]+\/[^/\s]+$/.test(g.canonical_source_repository)){alert('Canonical source repository is required as owner/repository.');return}
-  if(!/^HTH-SOURCE-\d{4,}$/.test(s.collection.source_release?.tag||'')){alert('Source release tag is required and must look like HTH-SOURCE-0002.');return}
-  if(!/^[0-9a-f]{64}$/.test(s.collection.source_release?.manifest_sha256||'')){alert('Source release manifest SHA-256 is required as 64 hexadecimal characters.');return}
+  if(!/^HTH-GOLDEN-\d{4,}$/.test(g.golden_set_id))return rejectGoldenField('goldenSetId','Golden Set ID is required and must match its immutable release tag, for example HTH-GOLDEN-0002.');
+  if(!/^[^/\s]+\/[^/\s]+$/.test(g.canonical_source_repository))return rejectGoldenField('goldenReleaseRepository','Canonical source repository is required as owner/repository.');
+  if(!/^HTH-SOURCE-\d{4,}$/.test(s.collection.source_release?.tag||''))return rejectGoldenField('goldenSourceReleaseTag','Source release tag is required and must look like HTH-SOURCE-0002.');
+  if(!/^[0-9a-f]{64}$/.test(s.collection.source_release?.manifest_sha256||''))return rejectGoldenField('goldenSourceManifestSha256','Source release manifest SHA-256 is required as 64 hexadecimal characters.');
   if(!selected.length){alert('Select at least one calibration page.');return}
   const missing=selected.filter(p=>!Array.isArray(p.physical_document_bbox)||p.review_status!=='approved').map(p=>p.global_ordinal);
   if(missing.length){alert(`Every selected page must be reviewed and approved. Missing: ${missing.join(', ')}`);return}
@@ -784,10 +827,20 @@ function load(i){
 function dirty(){s.dirty=true;s.pageDirty=true;invalidateGoldenApproval('Golden Set content changed');status()}
 function readInputs(){const v=['left','top','right','bottom'].map(id=>Number($(id).value));if(v.some(x=>!Number.isFinite(x)))return null;let[l,t,r,b]=v;if(r<l)[l,r]=[r,l];if(b<t)[t,b]=[b,t];return[l,t,r,b].map(Math.round)}
 function save(){
-  if(s.index<0)return;invalidateGoldenApproval('Page metadata or geometry changed');const p=s.pages[s.index];
+  if(s.index<0)return;if(!Array.isArray(s.box)){alert('Draw, select, or choose a full-frame physical-document box before approving this page.');return}invalidateGoldenApproval('Page metadata or geometry changed');const p=s.pages[s.index];
   p.global_ordinal=Number($('ordinal').value);p.calibration_selected=$('calibrationSelected').checked;p.label=$('label').value.trim();p.layout_type=$('layout').value;p.notes=$('notes').value;p.physical_document_bbox=s.box?[...s.box]:null;
   p.reviewed_at_utc=new Date().toISOString();p.review_status='approved';
   s.pageDirty=false;s.approvedSnapshot=cloneBox(s.box);rebuild();collectionStatus();status();updateRibbon();updateDeltaInfo();render();if($('autoAdvance').checked){const n=nextReviewIndex(s.index);if(n>=0&&n!==s.index)load(n)}
+}
+function unapprovePage(){
+  if(s.index<0)return;invalidateGoldenApproval('Page approval removed');const p=s.pages[s.index];
+  p.global_ordinal=Number($('ordinal').value);p.calibration_selected=$('calibrationSelected').checked;p.label=$('label').value.trim();p.layout_type=$('layout').value;p.notes=$('notes').value;p.physical_document_bbox=s.box?[...s.box]:null;
+  p.reviewed_at_utc=null;p.review_status='unreviewed';s.dirty=true;s.pageDirty=false;s.approvedSnapshot=null;
+  rebuild();collectionStatus();status();updateRibbon();updateDeltaInfo();render()
+}
+function excludeCurrent(){
+  if(s.index<0)return;const p=s.pages[s.index];p.calibration_selected=false;$('calibrationSelected').checked=false;s.dirty=true;
+  invalidateGoldenApproval('Page excluded from Golden Set membership');rebuild();collectionStatus();status();updateRibbon()
 }
 async function writeReferenceJson(contents){
   if(typeof window.showSaveFilePicker!=='function'){
@@ -827,6 +880,7 @@ $('export').onclick=exportJson;$('prev').onclick=()=>{const i=nearestVisibleInde
 ['left','top','right','bottom'].forEach(id=>{$(id).onfocus=()=>{if(!$(id).dataset.undoArmed){pushUndo();$(id).dataset.undoArmed='1'}};$(id).onblur=()=>{delete $(id).dataset.undoArmed};$(id).oninput=()=>{s.box=readInputs();dirty();render();updateDeltaInfo()}});
 $('full').onclick=()=>{if(!s.image)return;pushUndo();s.box=[0,0,s.image.naturalWidth,s.image.naturalHeight];syncBox();dirty();render()};
 $('clear').onclick=()=>{pushUndo();s.box=null;syncBox();dirty();render()};
+$('unapprovePage').onclick=unapprovePage;$('excludeCurrent').onclick=excludeCurrent;
 $('usePrediction').onclick=()=>{const c=selectedCandidate();if(!c)return;pushUndo();s.box=[...c.bbox];syncBox();dirty();render()};
 $('fit').onclick=fitImage;$('actual').onclick=()=>{s.zoom=1;render();status()};$('compare').onclick=()=>{s.compareMode=!s.compareMode;wrap.classList.toggle('compare',s.compareMode);$('compare').textContent=s.compareMode?'Exit compare':'Compare';fitImage()};
 
