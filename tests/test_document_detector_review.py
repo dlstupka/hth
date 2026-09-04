@@ -75,6 +75,13 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertIn('setTimeout(rebuild,120)',text)
         self.assertIn("const explicitOrdinals=$('imageSelectionMode').value==='list'?parseOrdinalExpression",text)
 
+    def test_json_exports_use_a_repeatable_download_lifecycle(self):
+        text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
+        self.assertIn('function downloadBlob(name,blob)',text)
+        self.assertIn('document.body.appendChild(a);a.click()',text)
+        self.assertIn('setTimeout(()=>{URL.revokeObjectURL(url);a.remove()},1000)',text)
+        self.assertIn("downloadJson('reference_collection.json',s.collection)",text)
+
     def test_page_approval_can_auto_advance_without_discard_prompt(self):
         text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
         self.assertIn("if(s.pageDirty&&!confirm('Discard unsaved page changes?'))return",text)
