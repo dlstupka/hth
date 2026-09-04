@@ -50,7 +50,7 @@ class DocumentDetectorReviewTests(unittest.TestCase):
     def test_workbench_can_synthesize_a_source_draft_from_production_analysis(self):
         text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
         self.assertIn('function synthesizeSourceCollection(data)',text)
-        self.assertIn("else if(analysisData){s.collection=synthesizeSourceCollection(analysisData)",text)
+        self.assertIn("else if(analysisData&&!s.collection){s.collection=synthesizeSourceCollection(analysisData)",text)
         self.assertIn("collection_id:'HTH-SOURCE-DRAFT'",text)
         self.assertIn("calibration_selected:false",text)
         self.assertIn('Source release manifest SHA-256',text)
@@ -67,6 +67,7 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertIn('mergeSourceProvenance(buildSourceProvenance',text)
         self.assertIn('current.tag||provenance.tag',text)
         self.assertIn("rejectGoldenField('goldenSourceReleaseTag'",text)
+        self.assertIn('else if(analysisData&&!s.collection)',text)
 
     def test_explicit_ordinal_entry_selects_the_matching_view_mode(self):
         text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')

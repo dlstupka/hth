@@ -309,7 +309,7 @@ async function loadWorkspace(files){
   if(!s.images.size){for(const f of all){if(f.type.startsWith('image/')){const o=ordinalFromName(f.name);if(o!==null&&!s.images.has(o))s.images.set(o,f)}}}
   let analysisData=null;if(analysisFile){analysisData=JSON.parse(await analysisFile.text());for(const r of analysisData.records||[])s.analysis.set(Number(r.global_ordinal),r);syncDetectorCatalog()}
   if(refs.length){refs.sort((a,b)=>b.score-a.score);s.collection=normalize(JSON.parse(await refs[0].file.text()));s.pages=s.collection.pages}
-  else if(analysisData){s.collection=synthesizeSourceCollection(analysisData);s.pages=s.collection.pages}
+  else if(analysisData&&!s.collection){s.collection=synthesizeSourceCollection(analysisData);s.pages=s.collection.pages}
   else if(!s.collection)throw Error('No reference_collection.json, golden_set.json, or production page-analysis/page-analysis.json was found.');
   if(buildInfos.length){buildInfos.sort((a,b)=>buildInfoScore(b.path,analysisPath)-buildInfoScore(a.path,analysisPath));mergeSourceProvenance(buildSourceProvenance(await buildInfos[0].file.text()))}
   if(reviewFile){for(const r of parseCsv(await reviewFile.text())){const o=Number(r.global_ordinal);if(Number.isFinite(o))s.review.add(o)}}
