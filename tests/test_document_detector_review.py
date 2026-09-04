@@ -82,6 +82,15 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertIn('setTimeout(()=>{URL.revokeObjectURL(url);a.remove()},1000)',text)
         self.assertIn("downloadJson('reference_collection.json',s.collection)",text)
 
+    def test_reference_export_reuses_a_writable_file_handle(self):
+        text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
+        self.assertIn('referenceExportHandle:null',text)
+        self.assertIn("typeof window.showSaveFilePicker!=='function'",text)
+        self.assertIn('s.referenceExportHandle=await window.showSaveFilePicker',text)
+        self.assertIn('const writable=await s.referenceExportHandle.createWritable()',text)
+        self.assertIn('try{await writable.write(contents)}finally{await writable.close()}',text)
+        self.assertIn("button.textContent=result==='written'?'Saved to file ✓':'Downloaded ✓'",text)
+
     def test_page_approval_can_auto_advance_without_discard_prompt(self):
         text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
         self.assertIn("if(s.pageDirty&&!confirm('Discard unsaved page changes?'))return",text)

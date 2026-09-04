@@ -232,7 +232,7 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
 const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d'),wrap=$('canvasWrap');
 const s={
   collection:null,pages:[],index:-1,images:new Map(),image:null,zoom:1,fitZoom:1,start:null,
-  box:null,dirty:false,pageDirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,thumbnailUrls:new Map(),dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false,undoStack:[],approvedSnapshot:null,visibleIndices:[],selectionRebuildTimer:null,detectorDefaults:{amsre_doc_ufcn_fusion:100,contour:75,components:75,ransac:75,hough:75,lsd:75,grabcut:75,approved:100}
+  box:null,dirty:false,pageDirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,thumbnailUrls:new Map(),referenceExportHandle:null,dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false,undoStack:[],approvedSnapshot:null,visibleIndices:[],selectionRebuildTimer:null,detectorDefaults:{amsre_doc_ufcn_fusion:100,contour:75,components:75,ransac:75,hough:75,lsd:75,grabcut:75,approved:100}
 };
 const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther','mutePrediction','undo','opacityGen3','opacityContour','opacityComponents','opacityRansac','opacityHough','opacityLsd','opacityGrabcut','opacityApproved','enableApproved','enableGen3','enableContour','enableComponents','enableRansac','enableHough','enableLsd','enableGrabcut','overlayLineWidth','muteAll','restoreAll','selectedDetector','imageSelectionMode','selectionFrom','selectionTo','selectionOrdinals','applyImageSelection','showAllImages','calibrationSelected','includeVisibleCalibration','excludeVisibleCalibration','replaceCalibrationWithVisible','exportCalibrationManifest','goldenSetId','goldenReleaseRepository','goldenSourceReleaseTag','goldenSourceManifestSha256','goldenCreatedBy','goldenCreatedRole','goldenReviewedBy','goldenReviewedRole','goldenApprovedBy','goldenApprovedRole','goldenApprovalNotes','approveGoldenSet','exportGoldenSet','exportGoldenFreeze'];
 function enable(v){ids.forEach(id=>$(id).disabled=!v)}
@@ -789,10 +789,34 @@ function save(){
   p.reviewed_at_utc=new Date().toISOString();p.review_status='approved';
   s.pageDirty=false;s.approvedSnapshot=cloneBox(s.box);rebuild();collectionStatus();status();updateRibbon();updateDeltaInfo();render();if($('autoAdvance').checked){const n=nextReviewIndex(s.index);if(n>=0&&n!==s.index)load(n)}
 }
-function exportJson(){
+async function writeReferenceJson(contents){
+  if(typeof window.showSaveFilePicker!=='function'){
+    downloadJson('reference_collection.json',s.collection);
+    return 'download'
+  }
+  if(!s.referenceExportHandle){
+    s.referenceExportHandle=await window.showSaveFilePicker({
+      suggestedName:'reference_collection.json',
+      types:[{description:'JSON document',accept:{'application/json':['.json']}}]
+    })
+  }
+  let permission=await s.referenceExportHandle.queryPermission({mode:'readwrite'});
+  if(permission!=='granted')permission=await s.referenceExportHandle.requestPermission({mode:'readwrite'});
+  if(permission!=='granted')throw Error('Write permission was not granted for the selected JSON file.');
+  const writable=await s.referenceExportHandle.createWritable();
+  try{await writable.write(contents)}finally{await writable.close()}
+  return 'written'
+}
+async function exportJson(){
   if(s.pageDirty)save();
-  downloadJson('reference_collection.json',s.collection);
-  const button=$('export');button.textContent='Exported ✓';setTimeout(()=>button.textContent='Export JSON',1200)
+  const button=$('export');button.disabled=true;
+  try{
+    const result=await writeReferenceJson(JSON.stringify(s.collection,null,2)+'\n');
+    button.textContent=result==='written'?'Saved to file ✓':'Downloaded ✓';
+    setTimeout(()=>button.textContent='Export JSON',1200)
+  }catch(error){
+    if(error?.name!=='AbortError')alert(`Could not export JSON: ${error.message}`)
+  }finally{button.disabled=false}
 }
 
 $('workspaceFolder').onchange=async e=>{try{await loadWorkspace(e.target.files)}catch(err){alert(`Could not open workspace: ${err.message}`)}};
