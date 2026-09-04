@@ -61,9 +61,19 @@ class DocumentDetectorReviewTests(unittest.TestCase):
 
     def test_explicit_ordinal_entry_selects_the_matching_view_mode(self):
         text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
-        self.assertIn("$('selectionOrdinals').oninput=()=>{$('imageSelectionMode').value='list'",text)
+        self.assertIn("$('selectionOrdinals').oninput=()=>{",text)
+        self.assertIn("$('imageSelectionMode').value='list';syncImageSelectionControls();",text)
         self.assertIn("$('selectionOrdinals').disabled=false",text)
         self.assertIn('enable(true);syncImageSelectionControls();rebuild()',text)
+
+    def test_ordinal_filter_rebuild_is_bounded_and_does_not_leak_thumbnail_urls(self):
+        text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
+        self.assertIn('thumbnailUrls:new Map()',text)
+        self.assertIn('for(const url of s.thumbnailUrls.values())URL.revokeObjectURL(url)',text)
+        self.assertIn('if(!visible)return;',text)
+        self.assertIn('if(!s.thumbnailUrls.has(ordinal))s.thumbnailUrls.set(ordinal,URL.createObjectURL(f))',text)
+        self.assertIn('setTimeout(rebuild,120)',text)
+        self.assertIn("const explicitOrdinals=$('imageSelectionMode').value==='list'?parseOrdinalExpression",text)
 
     def test_page_approval_can_auto_advance_without_discard_prompt(self):
         text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')

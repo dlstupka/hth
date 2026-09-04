@@ -232,7 +232,7 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
 const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d'),wrap=$('canvasWrap');
 const s={
   collection:null,pages:[],index:-1,images:new Map(),image:null,zoom:1,fitZoom:1,start:null,
-  box:null,dirty:false,pageDirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false,undoStack:[],approvedSnapshot:null,visibleIndices:[],detectorDefaults:{amsre_doc_ufcn_fusion:100,contour:75,components:75,ransac:75,hough:75,lsd:75,grabcut:75,approved:100}
+  box:null,dirty:false,pageDirty:false,workspaceRoot:'',analysis:new Map(),review:new Set(),objectUrl:null,thumbnailUrls:new Map(),dragMode:null,dragOrigin:null,dragStartBox:null,compareMode:false,undoStack:[],approvedSnapshot:null,visibleIndices:[],selectionRebuildTimer:null,detectorDefaults:{amsre_doc_ufcn_fusion:100,contour:75,components:75,ransac:75,hough:75,lsd:75,grabcut:75,approved:100}
 };
 const ids=['export','prev','next','pageSelect','ordinal','label','layout','notes','left','top','right','bottom','full','clear','save','fit','actual','compare','showPrediction','showBox','showMetadata','autoAdvance','filterReview','filterApproved','filterOther','mutePrediction','undo','opacityGen3','opacityContour','opacityComponents','opacityRansac','opacityHough','opacityLsd','opacityGrabcut','opacityApproved','enableApproved','enableGen3','enableContour','enableComponents','enableRansac','enableHough','enableLsd','enableGrabcut','overlayLineWidth','muteAll','restoreAll','selectedDetector','imageSelectionMode','selectionFrom','selectionTo','selectionOrdinals','applyImageSelection','showAllImages','calibrationSelected','includeVisibleCalibration','excludeVisibleCalibration','replaceCalibrationWithVisible','exportCalibrationManifest','goldenSetId','goldenReleaseRepository','goldenSourceReleaseTag','goldenSourceManifestSha256','goldenCreatedBy','goldenCreatedRole','goldenReviewedBy','goldenReviewedRole','goldenApprovedBy','goldenApprovedRole','goldenApprovalNotes','approveGoldenSet','exportGoldenSet','exportGoldenFreeze'];
 function enable(v){ids.forEach(id=>$(id).disabled=!v)}
@@ -253,6 +253,7 @@ function synthesizeSourceCollection(data){
 
 async function loadWorkspace(files){
   const all=[...files];if(!all.length)return;
+  for(const url of s.thumbnailUrls.values())URL.revokeObjectURL(url);s.thumbnailUrls.clear();
   s.images.clear();s.analysis.clear();s.review.clear();
   const refs=[];let analysisFile=null,reviewFile=null;
   for(const f of all){
@@ -472,7 +473,7 @@ function parseOrdinalExpression(text){
   }
   return values
 }
-function selectionVisible(page){
+function selectionVisible(page,explicitOrdinals=null){
   const mode=$('imageSelectionMode').value;
   const ordinal=Number(page.global_ordinal);
   if(mode==='all')return true;
@@ -485,14 +486,15 @@ function selectionVisible(page){
     const to=Number($('selectionTo').value||Number.POSITIVE_INFINITY);
     return ordinal>=from&&ordinal<=to;
   }
-  if(mode==='list')return parseOrdinalExpression($('selectionOrdinals').value).has(ordinal);
+  if(mode==='list')return (explicitOrdinals||parseOrdinalExpression($('selectionOrdinals').value)).has(ordinal);
   return true
 }
 function refreshVisibleIndices(){
   s.visibleIndices=[];
+  const explicitOrdinals=$('imageSelectionMode').value==='list'?parseOrdinalExpression($('selectionOrdinals').value):null;
   s.pages.forEach((page,index)=>{
     const statusName=pageStatus(page);
-    if(selectionVisible(page)&&filterVisible(statusName))s.visibleIndices.push(index)
+    if(selectionVisible(page,explicitOrdinals)&&filterVisible(statusName))s.visibleIndices.push(index)
   });
 }
 function syncImageSelectionControls(){
@@ -630,22 +632,22 @@ function updateCursor(x,y){
 }
 function rebuild(){
   refreshVisibleIndices();
+  const visibleSet=new Set(s.visibleIndices);
   const sel=$('pageSelect');sel.innerHTML='';
   const bar=$('thumbnailBar');bar.innerHTML='';
   s.pages.forEach((p,i)=>{
     const statusName=pageStatus(p);
-    const visible=s.visibleIndices.includes(i);
+    const visible=visibleSet.has(i);
     const approved=statusName==='approved',review=statusName==='review';
-    if(visible){
-      const o=document.createElement('option');o.value=i;
-      o.textContent=`${p.global_ordinal}: ${p.label}${p.calibration_selected===false?' [not calibration]':''}${approved?' ✓':review?' ⚠':''}`;
-      sel.appendChild(o)
-    }
+    if(!visible)return;
+    const o=document.createElement('option');o.value=i;
+    o.textContent=`${p.global_ordinal}: ${p.label}${p.calibration_selected===false?' [not calibration]':''}${approved?' ✓':review?' ⚠':''}`;
+    sel.appendChild(o);
     const t=document.createElement('button');t.type='button';
-    t.className=`thumb ${statusName==='other'?'':statusName}${i===s.index?' active':''}${visible?'':' hidden-by-filter'}`;
+    t.className=`thumb ${statusName==='other'?'':statusName}${i===s.index?' active':''}`;
     const f=s.images.get(Number(p.global_ordinal));
     t.innerHTML=`${f?'<img alt="">':'<div style="height:55px;display:grid;place-items:center;color:#778">no image</div>'}<span class="dot"></span><div class="caption">${p.global_ordinal}${p.calibration_selected===false?' ×':''}</div>`;
-    if(f){const im=t.querySelector('img');im.src=URL.createObjectURL(f)}
+    if(f){const ordinal=Number(p.global_ordinal);if(!s.thumbnailUrls.has(ordinal))s.thumbnailUrls.set(ordinal,URL.createObjectURL(f));t.querySelector('img').src=s.thumbnailUrls.get(ordinal)}
     t.onclick=()=>load(i);bar.appendChild(t)
   });
   if(s.index>=0&&s.visibleIndices.includes(s.index))sel.value=String(s.index)
@@ -801,7 +803,10 @@ $('imageSelectionMode').onchange=()=>{
 };
 $('selectionFrom').oninput=()=>{$('imageSelectionMode').value='range';syncImageSelectionControls();rebuild()};
 $('selectionTo').oninput=()=>{$('imageSelectionMode').value='range';syncImageSelectionControls();rebuild()};
-$('selectionOrdinals').oninput=()=>{$('imageSelectionMode').value='list';syncImageSelectionControls();rebuild()};
+$('selectionOrdinals').oninput=()=>{
+  $('imageSelectionMode').value='list';syncImageSelectionControls();
+  clearTimeout(s.selectionRebuildTimer);s.selectionRebuildTimer=setTimeout(rebuild,120)
+};
 $('applyImageSelection').onclick=()=>{
   rebuild();
   if(!s.visibleIndices.length){alert('No images match the current selection.');return}
