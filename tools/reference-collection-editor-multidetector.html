@@ -102,7 +102,7 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
   </div></div>
 
 
-  <div class="box"><h2>Geometry detectors</h2><div class="body">
+  <div class="box"><h2>Geometry detectors (47)</h2><div class="body">
     <div id="detectorList" class="detector-list">
     <div class="detector-row"><input id="enableGen3" class="detector-toggle" type="checkbox" checked disabled title="Show or hide this overlay"><span class="color-chip" style="background:#ef4444"></span><span class="detector-name">Fusion Gen3 — AMSRE + Doc-UFCN</span><select id="opacityGen3" disabled><option selected>100%</option><option>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
     <div class="detector-row"><input id="enableContour" class="detector-toggle" type="checkbox" checked disabled title="Show or hide this overlay"><span class="color-chip" style="background:#22d3ee"></span><span class="detector-name">Contour (HTH)</span><select id="opacityContour" disabled><option>100%</option><option selected>75%</option><option>50%</option><option>25%</option><option>0%</option></select></div>
@@ -305,6 +305,28 @@ const detectorAliases={
   lsd:'lsd',line_segment_detector:'lsd',line_segments:'lsd',
   grabcut:'grabcut',grab_cut:'grabcut'
 };
+const canonicalDetectorCatalog=[
+  ['contour','Contour (HTH)'],['contour_quad','Contour Quadrilateral (HTH)'],['contour_components','Contour + Components (HTH)'],
+  ['contour_grabcut','Contour + GrabCut (HTH)'],['grabcut_contour','GrabCut + Contour (HTH)'],['contour_projection','Contour + Projection (HTH)'],
+  ['consensus_quad','Consensus Quad (HTH)'],['cross_edge_contour','Cross-Edge Contour (HTH)'],['gradient_vote','Gradient Boundary Voting (HTH)'],
+  ['radial_edge','Radial Edge Search (HTH)'],['adaptive_multi_scale_radial_edge','Adaptive Multi-Scale Radial Edge Search (HTH)'],
+  ['amsre_bfq_spbv_pbg','Fusion Gen2 — AMSRE + BFQ + SPBV + Page Background (HTH)'],['amsre_doc_ufcn_fusion','Fusion Gen3 — AMSRE + Doc-UFCN (HTH)'],
+  ['adaptive_radial_edge','Adaptive Radial Edge Search (HTH)'],['multi_scale_radial_edge','Multi-Scale Radial Edge Search (HTH)'],
+  ['msre_bfq_spbv_pbg','Fusion Gen1 — MSRE + BFQ + SPBV + Page Background (HTH)'],['projective_gradient_vote','Projective Gradient Vote (HTH)'],
+  ['border_fusion_quad','Border Fusion Quad (HTH)'],['border_energy','Border Energy Validator (HTH)'],['edge_contour','Edge-Contour Hybrid (HTH)'],
+  ['convex_hull','Convex Hull Detector (HTH)'],['distance_transform','Distance Transform Detector (HTH)'],['polar_boundary_vote','Polar Boundary Voting (HTH)'],
+  ['signed_polar_boundary_vote','Signed Polar Boundary Voting (HTH)'],['segment_supported_polar_vote','Segment-Supported Polar Voting (HTH)'],
+  ['star_convex','Star-Convex Boundary Optimization (HTH)'],['distance_transform_rect','Distance-Transform Rectangle Proposal (HTH)'],
+  ['radon_boundary','Radon Boundary Projection (HTH)'],['text_flow','Text Flow Envelope (HTH)'],['page_background','Page Background (HTH)'],
+  ['whitespace_frame','Whitespace Frame (HTH)'],['joint_rectangle_vote','Joint Rectangle Voting (HTH)'],
+  ['scantailor_page_frame','ScanTailor Page Frame (ScanTailor concepts / HTH)'],['eynollah_page_mask','Eynollah Page-Mask Detector (SBB Eynollah / HTH)'],
+  ['pagenet_page_mask','PageNet Page-Mask Detector (PageNet / HTH)'],['docextractor_page_mask','docExtractor Page-Mask Detector (docExtractor / HTH)'],
+  ['mask_rcnn_page_mask','Mask R-CNN Page-Mask Detector (HJDataset / LayoutParser / HTH)'],['doc_ufcn_page_mask','Doc-UFCN Page-Mask Detector (Teklia Doc-UFCN / HTH)'],
+  ['dhsegment_page_mask','dhSegment Page-Mask Detector (dhSegment / HTH)'],['kraken_page_mask','Kraken Page-Mask Detector (Kraken BLLA / HTH)'],
+  ['orli_page_mask','Orli Page-Mask Detector (Orli / HTH)'],['learned_page_mask','Learned Page-Mask Detector (PageNet / HTH)'],
+  ['components','Connected Components (OpenCV)'],['ransac','RANSAC (HTH)'],['hough','Hough Lines (OpenCV)'],
+  ['lsd','Line Segment Detector (OpenCV)'],['grabcut','GrabCut (OpenCV)']
+];
 function detectorMethod(raw){
   const method=String(raw?.method||raw?.detector_id||raw?.detector||'').trim().toLowerCase();
   return detectorAliases[method]||method
@@ -330,8 +352,10 @@ function registerDetector(method,raw){
   const option=document.createElement('option');option.value=method;option.textContent=label;$('selectedDetector').append(option)
 }
 function syncDetectorCatalog(){
+  for(const [method,label] of canonicalDetectorCatalog)registerDetector(method,{display_name:label});
   for(const record of s.analysis.values())for(const raw of record.geometry_candidates||[]){const method=detectorMethod(raw);registerDetector(method,raw)}
 }
+syncDetectorCatalog();
 function opacityValue(id){
   const value=parseInt($(id).value,10);
   return Number.isFinite(value)?value/100:0

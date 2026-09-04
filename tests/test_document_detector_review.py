@@ -32,6 +32,9 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertIn('max-height:390px;overflow-y:auto',text)
         self.assertIn('function syncDetectorCatalog()',text)
         self.assertIn('registerDetector(method,raw)',text)
+        self.assertIn('canonicalDetectorCatalog',text)
+        self.assertIn('Geometry detectors (47)',text)
+        self.assertIn('syncDetectorCatalog();',text)
         self.assertIn("return detectorAliases[method]||method",text)
         self.assertIn('Checkboxes add or remove overlays',text)
 
