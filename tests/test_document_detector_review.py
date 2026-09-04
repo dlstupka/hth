@@ -68,6 +68,8 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertIn('current.tag||provenance.tag',text)
         self.assertIn("rejectGoldenField('goldenSourceReleaseTag'",text)
         self.assertIn('else if(analysisData&&!s.collection)',text)
+        self.assertIn("const workspaceProvenance=s.collection?.source_release||s.collection?.source||null",text)
+        self.assertIn("if(workspaceProvenance)mergeSourceProvenance(workspaceProvenance)",text)
 
     def test_explicit_ordinal_entry_selects_the_matching_view_mode(self):
         text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')

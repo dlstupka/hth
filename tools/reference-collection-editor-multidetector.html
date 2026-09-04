@@ -873,7 +873,7 @@ async function exportJson(){
 }
 
 $('workspaceFolder').onchange=async e=>{try{await loadWorkspace(e.target.files)}catch(err){alert(`Could not open workspace: ${err.message}`)}};
-$('jsonFile').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;s.collection=normalize(JSON.parse(await f.text()));s.pages=s.collection.pages;enable(true);rebuild();collectionStatus();load(0)}catch(err){alert(err.message)}};
+$('jsonFile').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;const workspaceProvenance=s.collection?.source_release||s.collection?.source||null;s.collection=normalize(JSON.parse(await f.text()));s.pages=s.collection.pages;if(workspaceProvenance)mergeSourceProvenance(workspaceProvenance);enable(true);rebuild();collectionStatus();load(0)}catch(err){alert(err.message)}};
 $('imageFolder').onchange=e=>{s.images.clear();[...e.target.files].filter(f=>f.type.startsWith('image/')).forEach(f=>{const o=ordinalFromName(f.name);if(o!==null&&!s.images.has(o))s.images.set(o,f)});if(s.index>=0)load(s.index)};
 $('export').onclick=exportJson;$('prev').onclick=()=>{const i=nearestVisibleIndex(s.index,-1);if(i>=0)load(i)};$('next').onclick=()=>{const i=nearestVisibleIndex(s.index,1);if(i>=0)load(i)};$('pageSelect').onchange=e=>load(Number(e.target.value));$('save').onclick=save;
 ['ordinal','label','layout','notes'].forEach(id=>$(id).oninput=dirty);
