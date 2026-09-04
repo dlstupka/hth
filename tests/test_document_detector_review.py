@@ -103,6 +103,14 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertIn('try{await writable.write(contents)}finally{await writable.close()}',text)
         self.assertIn("button.textContent=result==='written'?'Saved to file ✓':'Downloaded ✓'",text)
 
+    def test_freeze_export_opens_save_picker_before_async_hashing(self):
+        text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
+        picker=text.index("handle=await window.showSaveFilePicker({suggestedName:name")
+        digest=text.index("fileSha=await sha256Hex(fileBytes)",picker)
+        self.assertLess(picker,digest)
+        self.assertIn("await writable.write(JSON.stringify(freeze,null,2)+'\\n')",text)
+        self.assertIn("Saved freeze ✓",text)
+
     def test_pages_can_be_explicitly_unapproved_or_excluded(self):
         text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
         self.assertIn('id="unapprovePage"',text)
@@ -122,6 +130,10 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertIn('id="calibrationMembershipStatus"',text)
         self.assertIn('function updateCalibrationMembershipStatus',text)
         self.assertIn('replaced with ${count} visible pages',text)
+
+    def test_page_review_badge_is_not_confused_with_named_reviewer(self):
+        text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
+        self.assertIn("Needs review: ${review?'Yes':'No'}",text)
 
     def test_page_approval_can_auto_advance_without_discard_prompt(self):
         text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')

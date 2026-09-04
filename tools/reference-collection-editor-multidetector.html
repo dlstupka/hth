@@ -479,7 +479,7 @@ function updateRibbon(){
     `<span class="pill">${esc(p.layout_type||'unknown')}</span>`+
     `<span class="pill ${statusClass}">${esc(status.toUpperCase())}</span>`+
     `<span class="pill">Confidence: ${esc(pct)}%</span>`+
-    `<span class="pill ${review?'warn':'ok'}">Review: ${review?'Yes':'No'}</span>`+
+    `<span class="pill ${review?'warn':'ok'}">Needs review: ${review?'Yes':'No'}</span>`+
     `<span class="pill ${approved?'ok':'warn'}">Approved: ${approved?'Yes':'No'}</span>`
 }
 function updateDeltaInfo(){
@@ -607,7 +607,20 @@ function downloadBlob(name,blob){
 }
 function downloadJson(name,payload){downloadBlob(name,new Blob([JSON.stringify(payload,null,2)+'\n'],{type:'application/json'}))}
 function exportGoldenSet(){const payload=goldenPayload(true),g=goldenWorkflow();if(g.status!=='approved'||!g.approved_sha256){alert('Approve the Golden Set before export.');return}downloadJson(`${g.golden_set_id}.golden-set.json`,payload)}
-async function exportGoldenFreeze(){const payload=goldenPayload(true),g=goldenWorkflow();if(g.status!=='approved'||!g.approved_sha256){alert('Approve the Golden Set before exporting its freeze manifest.');return}const ordinals=payload.pages.map(p=>Number(p.global_ordinal)),fileBytes=JSON.stringify(payload,null,2)+'\n',fileSha=await sha256Hex(fileBytes);downloadJson(`${g.golden_set_id}.freeze.json`,{schema_version:'1',golden_set_id:g.golden_set_id,state:'frozen',frozen_at_utc:g.approved_at_utc,golden_set_path:`config/golden_sets/${g.golden_set_id}.golden-set.json`,golden_set_sha256:fileSha,approval_content_sha256:g.approved_sha256,canonical_release:{repository:g.canonical_source_repository,tag:g.golden_set_id,golden_set_asset:`${g.golden_set_id}.golden-set.json`,freeze_asset:`${g.golden_set_id}.freeze.json`},policy:{immutable_identity:true,mutation_rule:'Do not edit a frozen Golden Set in place. Create a new Golden Set ID for membership, truth-geometry, acceptance, or source-identity changes.',legacy_validation_subset:false},membership:{page_count:ordinals.length,global_ordinals:ordinals},source_document:payload.source_document,source_release:payload.source_release,reference_collection_version:payload.reference_collection_version})}
+async function exportGoldenFreeze(){
+  const payload=goldenPayload(true),g=goldenWorkflow();
+  if(g.status!=='approved'||!g.approved_sha256){alert('Approve the Golden Set before exporting its freeze manifest.');return}
+  const name=`${g.golden_set_id}.freeze.json`,button=$('exportGoldenFreeze');let handle=null;
+  try{
+    if(typeof window.showSaveFilePicker==='function')handle=await window.showSaveFilePicker({suggestedName:name,types:[{description:'JSON document',accept:{'application/json':['.json']}}]});
+    button.disabled=true;button.textContent='Preparing freeze…';
+    const ordinals=payload.pages.map(p=>Number(p.global_ordinal)),fileBytes=JSON.stringify(payload,null,2)+'\n',fileSha=await sha256Hex(fileBytes);
+    const freeze={schema_version:'1',golden_set_id:g.golden_set_id,state:'frozen',frozen_at_utc:g.approved_at_utc,golden_set_path:`config/golden_sets/${g.golden_set_id}.golden-set.json`,golden_set_sha256:fileSha,approval_content_sha256:g.approved_sha256,canonical_release:{repository:g.canonical_source_repository,tag:g.golden_set_id,golden_set_asset:`${g.golden_set_id}.golden-set.json`,freeze_asset:name},policy:{immutable_identity:true,mutation_rule:'Do not edit a frozen Golden Set in place. Create a new Golden Set ID for membership, truth-geometry, acceptance, or source-identity changes.',legacy_validation_subset:false},membership:{page_count:ordinals.length,global_ordinals:ordinals},source_document:payload.source_document,source_release:payload.source_release,reference_collection_version:payload.reference_collection_version};
+    if(handle){const writable=await handle.createWritable();try{await writable.write(JSON.stringify(freeze,null,2)+'\n')}finally{await writable.close()}}
+    else downloadJson(name,freeze);
+    button.textContent=handle?'Saved freeze ✓':'Downloaded freeze ✓';setTimeout(()=>button.textContent='Export freeze manifest',1500)
+  }catch(error){if(error?.name!=='AbortError')alert(`Could not export freeze manifest: ${error.message}`)}finally{button.disabled=false}
+}
 function exportCalibrationManifest(){downloadJson('calibration_manifest.json',goldenPayload(true))}
 
 function filterVisible(status){
