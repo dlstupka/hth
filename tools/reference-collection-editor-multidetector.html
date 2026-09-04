@@ -555,10 +555,14 @@ function nearestVisibleIndex(current,direction){
   return next>=0&&next<s.visibleIndices.length?s.visibleIndices[next]:-1
 }
 function goldenWorkflow(){return s.collection.golden_set_workflow||(s.collection.golden_set_workflow={status:'draft',created_by:{name:'',role:''},reviewed_by:{name:'',role:''},approved_by:{name:'',role:''},notes:'',approved_at_utc:null,approved_sha256:null})}
-function invalidateGoldenApproval(reason){
+function invalidateGoldenApproval(reason,refreshFields=true){
   if(!s.collection)return;const g=goldenWorkflow();
   if(g.status==='approved'||g.approved_sha256){g.status='modified';g.approved_at_utc=null;g.approved_sha256=null;g.last_invalidation_reason=reason||'Golden Set changed';g.last_modified_at_utc=new Date().toISOString()}
-  updateGoldenFields()
+  if(refreshFields)updateGoldenFields();else updateGoldenStatus()
+}
+function updateGoldenStatus(){
+  const g=goldenWorkflow(),sha=g.approved_sha256?` · SHA-256 ${g.approved_sha256.slice(0,16)}…`:'',when=g.approved_at_utc?` · ${g.approved_at_utc}`:'';
+  $('goldenApprovalStatus').textContent=`Status: ${(g.status||'draft').toUpperCase()}${when}${sha}`
 }
 function updateGoldenFields(){
   if(!s.collection)return;const g=goldenWorkflow();
@@ -570,9 +574,7 @@ function updateGoldenFields(){
   $('goldenReviewedBy').value=g.reviewed_by?.name||'';$('goldenReviewedRole').value=g.reviewed_by?.role||'';
   $('goldenApprovedBy').value=g.approved_by?.name||'';$('goldenApprovedRole').value=g.approved_by?.role||'';
   $('goldenApprovalNotes').value=g.notes||'';
-  const sha=g.approved_sha256?` · SHA-256 ${g.approved_sha256.slice(0,16)}…`:'';
-  const when=g.approved_at_utc?` · ${g.approved_at_utc}`:'';
-  $('goldenApprovalStatus').textContent=`Status: ${(g.status||'draft').toUpperCase()}${when}${sha}`
+  updateGoldenStatus()
 }
 function readGoldenFields(){const g=goldenWorkflow();g.golden_set_id=$('goldenSetId').value.trim();g.canonical_source_repository=$('goldenReleaseRepository').value.trim();s.collection.source_release={...(s.collection.source_release||{}),repository:g.canonical_source_repository,tag:$('goldenSourceReleaseTag').value.trim(),manifest_sha256:$('goldenSourceManifestSha256').value.trim().toLowerCase(),image_identity:'global_ordinal'};g.created_by={name:$('goldenCreatedBy').value.trim(),role:$('goldenCreatedRole').value.trim()};g.reviewed_by={name:$('goldenReviewedBy').value.trim(),role:$('goldenReviewedRole').value.trim()};g.approved_by={name:$('goldenApprovedBy').value.trim(),role:$('goldenApprovedRole').value.trim()};g.notes=$('goldenApprovalNotes').value.trim();return g}
 function goldenPayload(includeApproval=true){
@@ -912,7 +914,7 @@ $('includeVisibleCalibration').onclick=()=>{refreshVisibleIndices();for(const i 
   $('replaceCalibrationWithVisible').onclick=()=>{refreshVisibleIndices();const visible=new Set(s.visibleIndices);s.pages.forEach((p,i)=>p.calibration_selected=visible.has(i));s.dirty=true;invalidateGoldenApproval('Calibration membership replaced');rebuild();if(s.index>=0)$('calibrationSelected').checked=s.pages[s.index].calibration_selected!==false;status()};
   $('exportCalibrationManifest').onclick=exportCalibrationManifest;
   $('approveGoldenSet').onclick=approveGoldenSet;$('exportGoldenSet').onclick=exportGoldenSet;$('exportGoldenFreeze').onclick=exportGoldenFreeze;
-  ['goldenSetId','goldenReleaseRepository','goldenSourceReleaseTag','goldenSourceManifestSha256','goldenCreatedBy','goldenCreatedRole','goldenReviewedBy','goldenReviewedRole','goldenApprovedBy','goldenApprovedRole','goldenApprovalNotes'].forEach(id=>$(id).oninput=()=>{readGoldenFields();s.dirty=true;invalidateGoldenApproval('Golden Set identity or provenance changed');status()});
+  ['goldenSetId','goldenReleaseRepository','goldenSourceReleaseTag','goldenSourceManifestSha256','goldenCreatedBy','goldenCreatedRole','goldenReviewedBy','goldenReviewedRole','goldenApprovedBy','goldenApprovedRole','goldenApprovalNotes'].forEach(id=>$(id).oninput=()=>{readGoldenFields();s.dirty=true;invalidateGoldenApproval('Golden Set identity or provenance changed',false);status()});
 
 $('showBox').onchange=render;$('showPrediction').onchange=render;$('mutePrediction').onchange=render;$('showMetadata').onchange=updateCanvasHint;$('undo').onclick=undoBox;$('selectedDetector').onchange=()=>{updatePrediction();render()};
 [...Object.values(detectorControls).flatMap(c=>[c.opacity,c.enabled]),'opacityApproved','enableApproved','overlayLineWidth'].forEach(id=>$(id).onchange=render);

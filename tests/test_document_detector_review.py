@@ -111,6 +111,12 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertIn("invalidateGoldenApproval('Page approval removed')",text)
         self.assertIn("invalidateGoldenApproval('Page excluded from Golden Set membership')",text)
 
+    def test_golden_provenance_fields_allow_spaces_while_typing(self):
+        text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
+        self.assertIn('function invalidateGoldenApproval(reason,refreshFields=true)',text)
+        self.assertIn('if(refreshFields)updateGoldenFields();else updateGoldenStatus()',text)
+        self.assertIn("invalidateGoldenApproval('Golden Set identity or provenance changed',false)",text)
+
     def test_page_approval_can_auto_advance_without_discard_prompt(self):
         text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
         self.assertIn("if(s.pageDirty&&!confirm('Discard unsaved page changes?'))return",text)
