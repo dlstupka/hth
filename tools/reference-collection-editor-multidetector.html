@@ -194,6 +194,7 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
       <button id="excludeVisibleCalibration" disabled>Exclude visible</button>
     </div>
     <button id="replaceCalibrationWithVisible" style="width:100%;margin-top:8px" disabled>Replace membership with visible</button>
+    <div id="calibrationMembershipStatus" class="meta" style="margin-top:8px">Golden Set membership: 0 selected</div>
     <button id="exportCalibrationManifest" style="width:100%;margin-top:8px" disabled>Export calibration manifest</button>
     <p class="help">The workbench shows all images by default. Calibration membership is saved in the reference JSON and is independent of the fast test/CI workflow.</p>
   </div></div>
@@ -702,7 +703,12 @@ function rebuild(){
   });
   if(s.index>=0&&s.visibleIndices.includes(s.index))sel.value=String(s.index)
   const visibleCount=s.visibleIndices.length;
-  $('applyImageSelection').textContent=`Apply view (${visibleCount})`
+  $('applyImageSelection').textContent=`Apply view (${visibleCount})`;
+  updateCalibrationMembershipStatus()
+}
+function updateCalibrationMembershipStatus(message=''){
+  const selected=s.pages.filter(p=>p.calibration_selected!==false).length;
+  $('calibrationMembershipStatus').textContent=`Golden Set membership: ${selected} selected${message?` · ${message}`:''}`
 }
 function status(){
   if(s.index<0){$('status').textContent='Open a results workspace, or load the reference JSON and raw image folder separately.';return}
@@ -907,11 +913,11 @@ $('showAllImages').onclick=()=>{
   rebuild();if(s.visibleIndices.length&&!s.visibleIndices.includes(s.index))load(s.visibleIndices[0])
 };
 $('calibrationSelected').onchange=()=>{
-  if(s.index<0)return;s.pages[s.index].calibration_selected=$('calibrationSelected').checked;s.dirty=true;invalidateGoldenApproval('Calibration membership changed');rebuild();status()
+  if(s.index<0)return;s.pages[s.index].calibration_selected=$('calibrationSelected').checked;s.dirty=true;invalidateGoldenApproval('Calibration membership changed');rebuild();updateCalibrationMembershipStatus($('calibrationSelected').checked?'current page included':'current page excluded');status()
 };
-$('includeVisibleCalibration').onclick=()=>{refreshVisibleIndices();for(const i of s.visibleIndices)s.pages[i].calibration_selected=true;s.dirty=true;invalidateGoldenApproval('Calibration membership changed');rebuild();if(s.index>=0)$('calibrationSelected').checked=s.pages[s.index].calibration_selected!==false;status()};
-  $('excludeVisibleCalibration').onclick=()=>{refreshVisibleIndices();for(const i of s.visibleIndices)s.pages[i].calibration_selected=false;s.dirty=true;invalidateGoldenApproval('Calibration membership changed');rebuild();if(s.index>=0)$('calibrationSelected').checked=s.pages[s.index].calibration_selected!==false;status()};
-  $('replaceCalibrationWithVisible').onclick=()=>{refreshVisibleIndices();const visible=new Set(s.visibleIndices);s.pages.forEach((p,i)=>p.calibration_selected=visible.has(i));s.dirty=true;invalidateGoldenApproval('Calibration membership replaced');rebuild();if(s.index>=0)$('calibrationSelected').checked=s.pages[s.index].calibration_selected!==false;status()};
+$('includeVisibleCalibration').onclick=()=>{refreshVisibleIndices();const count=s.visibleIndices.length;for(const i of s.visibleIndices)s.pages[i].calibration_selected=true;s.dirty=true;invalidateGoldenApproval('Calibration membership changed');rebuild();updateCalibrationMembershipStatus(`${count} visible pages included`);if(s.index>=0)$('calibrationSelected').checked=s.pages[s.index].calibration_selected!==false;status()};
+  $('excludeVisibleCalibration').onclick=()=>{refreshVisibleIndices();const count=s.visibleIndices.length;for(const i of s.visibleIndices)s.pages[i].calibration_selected=false;s.dirty=true;invalidateGoldenApproval('Calibration membership changed');rebuild();updateCalibrationMembershipStatus(`${count} visible pages excluded`);if(s.index>=0)$('calibrationSelected').checked=s.pages[s.index].calibration_selected!==false;status()};
+  $('replaceCalibrationWithVisible').onclick=()=>{refreshVisibleIndices();const visible=new Set(s.visibleIndices),count=visible.size;s.pages.forEach((p,i)=>p.calibration_selected=visible.has(i));s.dirty=true;invalidateGoldenApproval('Calibration membership replaced');rebuild();updateCalibrationMembershipStatus(`replaced with ${count} visible pages`);if(s.index>=0)$('calibrationSelected').checked=s.pages[s.index].calibration_selected!==false;status()};
   $('exportCalibrationManifest').onclick=exportCalibrationManifest;
   $('approveGoldenSet').onclick=approveGoldenSet;$('exportGoldenSet').onclick=exportGoldenSet;$('exportGoldenFreeze').onclick=exportGoldenFreeze;
   ['goldenSetId','goldenReleaseRepository','goldenSourceReleaseTag','goldenSourceManifestSha256','goldenCreatedBy','goldenCreatedRole','goldenReviewedBy','goldenReviewedRole','goldenApprovedBy','goldenApprovedRole','goldenApprovalNotes'].forEach(id=>$(id).oninput=()=>{readGoldenFields();s.dirty=true;invalidateGoldenApproval('Golden Set identity or provenance changed',false);status()});

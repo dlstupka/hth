@@ -117,6 +117,12 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertIn('if(refreshFields)updateGoldenFields();else updateGoldenStatus()',text)
         self.assertIn("invalidateGoldenApproval('Golden Set identity or provenance changed',false)",text)
 
+    def test_calibration_membership_actions_have_visible_confirmation(self):
+        text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
+        self.assertIn('id="calibrationMembershipStatus"',text)
+        self.assertIn('function updateCalibrationMembershipStatus',text)
+        self.assertIn('replaced with ${count} visible pages',text)
+
     def test_page_approval_can_auto_advance_without_discard_prompt(self):
         text=(ROOT/'tools/reference-collection-editor-multidetector.html').read_text(encoding='utf-8')
         self.assertIn("if(s.pageDirty&&!confirm('Discard unsaved page changes?'))return",text)
