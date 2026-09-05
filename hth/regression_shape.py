@@ -394,6 +394,14 @@ def resolve_workflow_shape(
     budget = max(1, runner_budget or runner_max_threads(profile.label, profile.logical_cpus))
 
     def exact(pipelines: int, threads: int, source: str, prediction_file: Path | None = None) -> dict[str, Any]:
+        if strategy == "adaptive" and detector not in {"all", "all-without-exhaustive"}:
+            # Adaptive selection has one feedback loop and therefore cannot use
+            # independent pipeline shards. Reclaim the complete runner budget
+            # for its concurrent evaluation batches instead of retaining only
+            # one pipeline's share from a pre-resolved exhaustive shape.
+            pipelines = 1
+            threads = budget
+            source = f"{source}-adaptive-single-pipeline"
         allocated = pipelines * threads
         if allocated > budget:
             raise ValueError(

@@ -204,6 +204,40 @@ class PreferredDispatchTests(unittest.TestCase):
             self.assertEqual(result["runner_budget"], 384)
             self.assertEqual(result["source"], "preferred-dispatch-optimizer")
 
+    def test_adaptive_reclaims_full_budget_when_preferred_shape_has_multiple_pipelines(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            detector_root = root / "detectors"
+            _write_json(detector_root / "amsre_doc_ufcn_fusion.json", {"detector": "amsre_doc_ufcn_fusion"})
+            golden = root / "golden.json"
+            _write_json(golden, {"pages": []})
+            index = root / "parallelism-index.json"
+            _write_json(index, {"observations": []})
+
+            result = resolve_workflow_shape(
+                shape_mode="preferred",
+                regression_mode="full",
+                strategy="adaptive",
+                limit="",
+                detector="amsre_doc_ufcn_fusion",
+                manual_shape="",
+                parallelism_index=index,
+                predictions_index=None,
+                detector_config_root=detector_root,
+                golden_set=golden,
+                max_dimension=1800,
+                profile=RunnerProfile("rh8-al319", "192t", "AMD", 192, 192),
+                runner_budget=384,
+                pre_resolved_pipelines=4,
+                pre_resolved_threads=96,
+                pre_resolved_source="preferred-dispatch-optimizer",
+            )
+            self.assertTrue(result["exact"])
+            self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (1, 384))
+            self.assertEqual(result["allocated_threads"], 384)
+            self.assertEqual(result["runner_budget"], 384)
+            self.assertEqual(result["source"], "preferred-dispatch-optimizer-adaptive-single-pipeline")
+
 
     def test_preferred_dispatch_reuses_shape_after_calibration_grid_change_when_declared_compatible(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
