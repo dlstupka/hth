@@ -8,6 +8,7 @@ from unittest.mock import patch
 import numpy as np
 
 from hth.regression import learned_evidence
+from hth.geometry import detector_orli_page_mask as detector
 
 
 class OrliEvidencePersistenceTests(unittest.TestCase):
@@ -78,6 +79,18 @@ class OrliEvidencePersistenceTests(unittest.TestCase):
             self.assertEqual(entry["page_count"], 1)
             self.assertGreater(entry["size_bytes"], 0)
             self.assertTrue((results / entry["path"]).is_file())
+
+    def test_export_supports_more_pages_than_the_process_cache_limit(self):
+        images = [np.full((3, 3, 3), value, dtype=np.uint8) for value in range(detector._EVIDENCE_CACHE_LIMIT + 2)]
+        frozen = detector._freeze_evidence({
+            "regions": [], "lines": [], "baselines": [], "text_direction": "horizontal-lr",
+        })
+        with tempfile.TemporaryDirectory() as td, patch.object(detector, "_infer_evidence", return_value=frozen):
+            manifest = detector.export_precomputed_golden_set_evidence(images, Path(td))
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+        self.assertEqual(payload["page_count"], detector._EVIDENCE_CACHE_LIMIT + 2)
+        self.assertEqual(len(payload["records"]), detector._EVIDENCE_CACHE_LIMIT + 2)
+        self.assertEqual(len({record["image_key"] for record in payload["records"]}), detector._EVIDENCE_CACHE_LIMIT + 2)
 
 
     def test_regression_driver_always_uses_parent_persistence_for_orli(self):
