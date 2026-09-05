@@ -118,9 +118,9 @@ on:
           - critical
           - binary-refine
       golden_set:
-        description: Golden Set configuration
-        required: true
-        default: config/golden_set.json
+        description: "Override Golden Set configuration; blank selects it from the release tag"
+        required: false
+        default: ""
         type: string
       results_repository:
         description: Repository containing preprocessed images
@@ -139,13 +139,16 @@ on:
         type: string
       golden_release_tag:
         description: Immutable Golden Set release tag
-        required: false
+        required: true
         default: HTH-GOLDEN-0001
-        type: string
+        type: choice
+        options:
+          - HTH-GOLDEN-0001
+          - HTH-GOLDEN-0002
       golden_release_freeze:
-        description: Pipeline-relative freeze manifest used to verify the image bundle
+        description: "Override freeze manifest; blank selects it from the release tag"
         required: false
-        default: config/golden_sets/HTH-0001.freeze.json
+        default: ""
         type: string
       execution_shape:
         description: Execution shape; preferred uses optimizer intelligence and falls back to auto
@@ -430,12 +433,12 @@ jobs:
 
     env:
       DETECTOR_ALGORITHM: ${{ matrix.detector }}
-      GOLDEN_SET: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_set || 'config/golden_set.json' }}
+      GOLDEN_SET: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_set || (github.event_name == 'workflow_dispatch' && inputs.golden_release_tag == 'HTH-GOLDEN-0002' && 'config/golden_sets/HTH-GOLDEN-0002.golden-set.json' || 'config/golden_set.json') }}
       RESULTS_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && inputs.results_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results' }}
       IMAGE_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_root || 'test/latest/raw' }}
       GOLDEN_RELEASE_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_release_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898' }}
       GOLDEN_RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_release_tag || 'HTH-GOLDEN-0001' }}
-      GOLDEN_RELEASE_FREEZE: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_release_freeze || 'config/golden_sets/HTH-0001.freeze.json' }}
+      GOLDEN_RELEASE_FREEZE: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_release_freeze || (github.event_name == 'workflow_dispatch' && inputs.golden_release_tag == 'HTH-GOLDEN-0002' && 'config/golden_sets/HTH-GOLDEN-0002.freeze.json' || 'config/golden_sets/HTH-0001.freeze.json') }}
       REGRESSION_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'smoke' }}
       STRATEGY: ${{ github.event_name == 'workflow_dispatch' && inputs.strategy || 'exhaustive' }}
       LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '' }}

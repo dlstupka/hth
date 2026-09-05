@@ -24,11 +24,27 @@ class GoldenSetReleaseTests(unittest.TestCase):
         self.assertIn("default: HTH-GOLDEN-0001", workflow)
         self.assertIn("if: ${{ env.GOLDEN_RELEASE_TAG != '' }}", workflow)
 
+    def test_regression_workflow_selects_golden_files_from_release_tag_with_overrides(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "regress-detector.yml").read_text(encoding="utf-8")
+        self.assertIn("- HTH-GOLDEN-0001", workflow)
+        self.assertIn("- HTH-GOLDEN-0002", workflow)
+        self.assertIn("inputs.golden_set ||", workflow)
+        self.assertIn("inputs.golden_release_freeze ||", workflow)
+        self.assertIn("inputs.golden_release_tag == 'HTH-GOLDEN-0002' && 'config/golden_sets/HTH-GOLDEN-0002.golden-set.json'", workflow)
+        self.assertIn("inputs.golden_release_tag == 'HTH-GOLDEN-0002' && 'config/golden_sets/HTH-GOLDEN-0002.freeze.json'", workflow)
+        self.assertIn("|| 'config/golden_set.json'", workflow)
+        self.assertIn("|| 'config/golden_sets/HTH-0001.freeze.json'", workflow)
+
     def test_optimizer_workflow_uses_the_same_canonical_release_bundle(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "execution-optimizer.yml").read_text(encoding="utf-8")
         self.assertIn("default: HTH-GOLDEN-0001", workflow)
         self.assertIn("python -m hth.golden_set_release", workflow)
         self.assertIn('IMAGE_ROOT=$RUNNER_TEMP/golden-set-images/raw', workflow)
+        self.assertIn("- HTH-GOLDEN-0002", workflow)
+        self.assertIn("inputs.golden_set ||", workflow)
+        self.assertIn("inputs.golden_release_freeze ||", workflow)
+        self.assertIn("inputs.golden_release_tag == 'HTH-GOLDEN-0002' && 'config/golden_sets/HTH-GOLDEN-0002.golden-set.json'", workflow)
+        self.assertIn("inputs.golden_release_tag == 'HTH-GOLDEN-0002' && 'config/golden_sets/HTH-GOLDEN-0002.freeze.json'", workflow)
 
     def test_hth_0001_release_assets_preserve_frozen_identity(self) -> None:
         tag, golden_name, freeze_name = MODULE.release_assets(

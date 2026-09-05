@@ -142,9 +142,9 @@ on:
         default: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
         type: string
       golden_set:
-        description: Golden Set configuration
-        required: true
-        default: config/golden_set.json
+        description: "Override Golden Set configuration; blank selects it from the release tag"
+        required: false
+        default: ""
         type: string
       image_root:
         description: Image directory inside the results repository
@@ -158,13 +158,16 @@ on:
         type: string
       golden_release_tag:
         description: Immutable Golden Set release tag
-        required: false
+        required: true
         default: HTH-GOLDEN-0001
-        type: string
+        type: choice
+        options:
+          - HTH-GOLDEN-0001
+          - HTH-GOLDEN-0002
       golden_release_freeze:
-        description: Pipeline-relative freeze manifest used to verify the image bundle
+        description: "Override freeze manifest; blank selects it from the release tag"
         required: false
-        default: config/golden_sets/HTH-0001.freeze.json
+        default: ""
         type: string
       max_dimension:
         description: Maximum analysis image dimension
@@ -295,12 +298,12 @@ jobs:
 
     env:
       DETECTOR_ALGORITHM: ${{ inputs.algorithm }}
-      GOLDEN_SET: ${{ inputs.golden_set }}
+      GOLDEN_SET: ${{ inputs.golden_set || (inputs.golden_release_tag == 'HTH-GOLDEN-0002' && 'config/golden_sets/HTH-GOLDEN-0002.golden-set.json' || 'config/golden_set.json') }}
       RESULTS_REPOSITORY: ${{ inputs.results_repository }}
       IMAGE_ROOT: ${{ inputs.image_root }}
       GOLDEN_RELEASE_REPOSITORY: ${{ inputs.golden_release_repository }}
       GOLDEN_RELEASE_TAG: ${{ inputs.golden_release_tag }}
-      GOLDEN_RELEASE_FREEZE: ${{ inputs.golden_release_freeze }}
+      GOLDEN_RELEASE_FREEZE: ${{ inputs.golden_release_freeze || (inputs.golden_release_tag == 'HTH-GOLDEN-0002' && 'config/golden_sets/HTH-GOLDEN-0002.freeze.json' || 'config/golden_sets/HTH-0001.freeze.json') }}
       REGRESSION_MODE: full
       STRATEGY: ${{ inputs.strategy }}
       LIMIT: ${{ inputs.benchmark_parameter_sets }}

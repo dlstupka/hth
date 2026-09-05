@@ -1038,6 +1038,7 @@ def run(args:argparse.Namespace)->Path:
             historic_best_parameters is not None
             and historic_best_key != baseline_key
         )
+        search_budget = None
         if args.limit is not None:
             # The execution limit is a total unique-evaluation budget. Baseline always
             # consumes one slot and a distinct Historic Best consumes one more; the
