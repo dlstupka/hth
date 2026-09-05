@@ -104,6 +104,29 @@ def exhaustive_parameter_sets(config: dict[str, Any], *, include_zombies: bool =
     return [dict(zip(names, combo, strict=True)) for combo in itertools.product(*values)]
 
 
+def adaptive_parameter_sets(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the detector's declared adaptive candidate universe.
+
+    ``adaptive_values`` is deliberately separate from ``values`` so adding finer
+    discovery granularity never changes the identity or reproducibility of the
+    established exhaustive grid.  Parameters without an adaptive domain retain
+    their normal declared values.
+    """
+    specs = _parameter_specs(config, include_zombies=False)
+    names = list(specs)
+    domains: list[list[Any]] = []
+    zombie_names = set(config.get("zombie_parameters", {})) if isinstance(config.get("zombie_parameters"), dict) else set()
+    for name in names:
+        spec = specs[name]
+        values = list(spec.get("values", [])) if name in zombie_names else list(spec.get("adaptive_values", spec.get("values", [])))
+        if not values:
+            raise ValueError(f"Adaptive parameter {name!r} must declare at least one value")
+        if len({json.dumps(value, sort_keys=True) for value in values}) != len(values):
+            raise ValueError(f"Adaptive parameter {name!r} contains duplicate values")
+        domains.append(values)
+    return [dict(zip(names, combo, strict=True)) for combo in itertools.product(*domains)]
+
+
 def value_index(values: list[Any], value: Any) -> int:
     try:
         return values.index(value)
@@ -119,12 +142,14 @@ def canonical_search_space(config: dict[str, Any], strategy: str) -> dict[str, A
     """
     live_count = len(exhaustive_parameter_sets(config, include_zombies=False))
     zombie_count = len(exhaustive_parameter_sets(config, include_zombies=True))
+    adaptive_count = len(adaptive_parameter_sets(config))
     configured_zombies = sorted(
         str(name) for name in (config.get("zombie_parameters", {}) if isinstance(config.get("zombie_parameters"), dict) else {})
     )
     effective_count = (
         zombie_count if strategy == "exhaustive-with-zombies"
         else live_count if strategy in {"exhaustive", "cartesian"}
+        else adaptive_count if strategy == "adaptive"
         else None
     )
     return {
@@ -132,6 +157,7 @@ def canonical_search_space(config: dict[str, Any], strategy: str) -> dict[str, A
         "strategy": strategy,
         "live_exhaustive_parameter_sets": live_count,
         "exhaustive_with_zombies_parameter_sets": zombie_count,
+        "adaptive_candidate_parameter_sets": adaptive_count,
         "effective_parameter_sets": effective_count,
         "configured_zombie_parameters": configured_zombies,
         "denominator": "exhaustive-with-zombies",

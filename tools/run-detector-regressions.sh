@@ -31,7 +31,7 @@ else
 fi
 
 effective_strategy="$STRATEGY"
-if [[ -n "${effective_limit:-}" && "${HTH_BOUNDED_WORKLOAD:-0}" != "1" ]]; then
+if [[ -n "${effective_limit:-}" && "$STRATEGY" != "adaptive" && "${HTH_BOUNDED_WORKLOAD:-0}" != "1" ]]; then
   effective_strategy="exhaustive"
 fi
 
@@ -272,11 +272,10 @@ PYPLAN
   fi
 
   if [[ "$sharding_policy" == "auto" ]]; then
-    if [[ "$effective_strategy" == "binary-refine" ]]; then
-      # Binary refinement is sequential by definition and cannot be partitioned
-      # into independent shards.
+    if [[ "$effective_strategy" == "binary-refine" || "$effective_strategy" == "adaptive" ]]; then
+      # Feedback-directed searches cannot be partitioned into independent shards.
       planned_shards=1
-      plan_source="binary-refine-single-shard"
+      plan_source="${effective_strategy}-single-shard"
     elif (( detector_count == 1 )); then
       # A single-detector run uses one work shard per active pipeline by
       # default.  This keeps the work topology aligned with the execution
@@ -328,6 +327,10 @@ PYSHARDCAP
     else
       plan_source="explicit-${sharding_policy}-shards-per-pipeline"
     fi
+  fi
+  if [[ "$effective_strategy" == "adaptive" && "$planned_shards" != "1" ]]; then
+    planned_shards=1
+    plan_source="adaptive-single-shard"
   fi
   for ((shard_index = 0; shard_index < planned_shards; shard_index++)); do
     task_configs+=("$detector_config")
@@ -563,7 +566,7 @@ PY
   fi
 
   if [[ -n "${effective_limit:-}" ]]; then
-    args+=(--strategy exhaustive --limit "$effective_limit")
+    args+=(--strategy "$effective_strategy" --limit "$effective_limit")
   else
     args+=(--strategy "$STRATEGY")
     if [[ "$STRATEGY" =~ ^(non-dormant|low\+|moderate\+|important\+|critical)$ ]]; then

@@ -1239,7 +1239,7 @@ def build_summary(
             f"- Strategy fallback: `{fallback_reason or 'none'}`",
             f"- Configured threads: `{info.get('threads', summary.get('threads', parameters.get('threads', 'unknown')))}`",
             "",
-            "**Search strategy legend:** `exhaustive` covers the current live declared Cartesian space and keeps configured zombie parameters pinned; `exhaustive-with-zombies` deliberately restores retained zombie value domains for revalidation. Effect-size strategies operate on the current live space.",
+            "**Search strategy legend:** `exhaustive` covers the current live declared Cartesian space and keeps configured zombie parameters pinned; `adaptive` spends a bounded evaluation budget across a separately declared candidate grid using observed IoU, marginal η², interaction coverage, incumbent proximity, and boundary pressure; `exhaustive-with-zombies` deliberately restores retained zombie value domains for revalidation. Effect-size strategies operate on the current live space.",
             "",
         ])
         lines.extend([

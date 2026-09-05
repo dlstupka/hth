@@ -26,7 +26,14 @@ class ShardingPolicyTests(unittest.TestCase):
         with contextlib.redirect_stderr(stderr):
             with self.assertRaises(SystemExit):
                 parse_args(['--detector-config','d.json','--golden-set','g.json','--image-root','i','--output','o','--strategy','binary-refine','--shard-count','2'])
-        self.assertIn('binary-refine cannot be sharded because its search path is sequential', stderr.getvalue())
+        self.assertIn('binary-refine cannot be sharded because its search path is adaptive', stderr.getvalue())
+
+    def test_adaptive_cannot_shard(self):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit):
+                parse_args(['--detector-config','d.json','--golden-set','g.json','--image-root','i','--output','o','--strategy','adaptive','--shard-count','2'])
+        self.assertIn('adaptive cannot be sharded because its search path is adaptive', stderr.getvalue())
 
     def test_optimizer_preserves_policy_and_concrete_shard_realization(self):
         workflow=(ROOT/'.github/workflows/execution-optimizer.yml').read_text()

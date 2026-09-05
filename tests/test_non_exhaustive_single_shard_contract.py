@@ -17,8 +17,8 @@ class AutomaticShardTopologyContractTests(unittest.TestCase):
         self.assertIn('explicit-${sharding_policy}-shards-per-pipeline', DRIVER)
 
     def test_unshardable_and_multidetector_work_keep_safe_exceptions(self):
-        self.assertIn('[[ "$effective_strategy" == "binary-refine" ]]', DRIVER)
-        self.assertIn('plan_source="binary-refine-single-shard"', DRIVER)
+        self.assertIn('"$effective_strategy" == "binary-refine" || "$effective_strategy" == "adaptive"', DRIVER)
+        self.assertIn('plan_source="${effective_strategy}-single-shard"', DRIVER)
         self.assertIn('plan_source="multi-detector-single-shard"', DRIVER)
 
 

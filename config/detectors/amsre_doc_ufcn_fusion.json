@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "detector": "amsre_doc_ufcn_fusion",
-  "description": "Fusion Gen3 uses the calibrated AMSRE winner as primary geometry and calibrated Doc-UFCN as a selective rescue. The second-stage refinement adds AMSRE refined-ray support as the discriminating gate: prior evidence shows the false rescues on Golden Set pages 1/5 retained ~80% refined support while the legitimate rescues on pages 9/10 retained 0%/~56%. The search therefore preserves the incumbent behavior at a 1.0 support ceiling while testing tighter measured-support ceilings, with the previously characterized AMSRE score and Doc-UFCN confidence pinned and corner disagreement kept local.",
+  "description": "Fusion Gen3 uses the calibrated AMSRE winner as primary geometry and calibrated Doc-UFCN as a selective rescue. The second-stage refinement adds AMSRE refined-ray support as the discriminating gate: prior evidence shows the false rescues on Golden Set pages 1/5 retained ~80% refined support while the legitimate rescues on pages 9/10 retained 0%/~56%. The established exhaustive grid preserves the previously characterized score/confidence scope; the adaptive grid independently varies those gates and searches finer support/corner domains so influence and interactions can be identified without changing the exhaustive oracle.",
   "child_calibrations": {
     "adaptive_multi_scale_radial_edge": {
       "parameter_set_id": "21ea516c3c5a",
@@ -36,12 +36,27 @@
       "type": "float",
       "values": [
         0.95
+      ],
+      "adaptive_values": [
+        0.75,
+        0.8,
+        0.85,
+        0.9,
+        0.95,
+        1.0
       ]
     },
     "doc_ufcn_minimum_confidence": {
       "type": "float",
       "values": [
         0.9
+      ],
+      "adaptive_values": [
+        0.75,
+        0.8,
+        0.85,
+        0.9,
+        0.95
       ]
     },
     "minimum_corner_disagreement_fraction": {
@@ -51,6 +66,14 @@
         0.01,
         0.0125,
         0.015
+      ],
+      "adaptive_values": [
+        0.005,
+        0.0075,
+        0.01,
+        0.0125,
+        0.015,
+        0.02
       ]
     },
     "maximum_amsre_refined_support_fraction": {
@@ -63,12 +86,34 @@
         0.65,
         0.7,
         1.0
+      ],
+      "adaptive_values": [
+        0.4,
+        0.45,
+        0.5,
+        0.55,
+        0.6,
+        0.65,
+        0.7,
+        0.75,
+        0.8,
+        0.85,
+        0.9,
+        0.95,
+        1.0
       ]
     }
   },
   "binary_refine": {
     "passes": 3,
     "local_exhaustive_radius": 1
+  },
+  "adaptive_search": {
+    "initial_parameter_sets": 12,
+    "batch_size": 6,
+    "max_parameter_sets": 48,
+    "candidate_space_policy": "declared-adaptive-cartesian",
+    "selection_policy": "space-filling then eta-weighted coverage/incumbent/boundary refinement"
   },
   "regression": {
     "debug_artifacts": "winner",

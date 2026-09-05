@@ -22,11 +22,12 @@ from .adapters.ransac import (
 )
 from .io import create_run_directory, environment_info, utc_now, write_json
 from .metrics import bbox_iou, edge_errors
-from .parameter_space import canonical_parameters, parameter_set_id, canonical_search_space
+from .parameter_space import adaptive_parameter_sets, canonical_parameters, parameter_set_id, canonical_search_space
 from .parameter_provenance import attach_identity, build_provenance
 from .reports import ranking_key, write_rankings
 from .strategies.cartesian import generate as cartesian_generate
 from .strategies.binary_refine import search as binary_search
+from .strategies.adaptive import search as adaptive_search
 from .progress import ProgressReporter
 from .performance import PerformanceSampler, peak_rss_bytes
 from .materialization import (
@@ -275,7 +276,7 @@ def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
     p.add_argument("--golden-set",type=Path,required=True)
     p.add_argument("--image-root",type=Path,required=True)
     p.add_argument("--output",type=Path,required=True,help="Regression root; a detector/run-* directory is created below it.")
-    p.add_argument("--strategy",choices=("exhaustive","exhaustive-with-zombies","binary-refine","non-dormant","low+","moderate+","important+","critical"),default="exhaustive")
+    p.add_argument("--strategy",choices=("exhaustive","exhaustive-with-zombies","adaptive","binary-refine","non-dormant","low+","moderate+","important+","critical"),default="exhaustive")
     p.add_argument("--run-mode", choices=("smoke", "full"), default="full")
     p.add_argument("--calibration-intelligence",type=Path,default=None,help="Prior calibration-intelligence.json used for effect-size-domain strategies.")
     p.add_argument("--historic-best",type=Path,default=None,help="Exact historic best-known parameter reference injected into every regression.")
@@ -305,8 +306,8 @@ def parse_args(argv: list[str] | None=None) -> argparse.Namespace:
         p.error(f"--threads must be within [{MIN_THREAD_COUNT}, {MAX_THREAD_COUNT}]")
     if args.shard_count < 1 or not 0 <= args.shard_index < args.shard_count:
         p.error("--shard-index must be within [0, --shard-count)")
-    if args.shard_count > 1 and args.strategy == "binary-refine":
-        p.error("binary-refine cannot be sharded because its search path is sequential")
+    if args.shard_count > 1 and args.strategy in {"adaptive", "binary-refine"}:
+        p.error(f"{args.strategy} cannot be sharded because its search path is adaptive")
     return args
 
 def find_image(root:Path, ordinal:int)->Path:
@@ -876,7 +877,7 @@ def print_parameter_scope(*, strategy: str, possible_sets: int, planned_sets: in
     label_width = max(len(label) for label, _ in rows)
     for label, value in rows:
         print(f"{label:<{label_width}} : {value}")
-    print("Search strategy legend   : exhaustive=live declared space; exhaustive-with-zombies=live space plus retained zombie domains")
+    print("Search strategy legend   : exhaustive=live declared grid; adaptive=budgeted IoU-guided search of the declared adaptive grid; exhaustive-with-zombies=live grid plus retained zombie domains")
     print(" ")
 
 
@@ -1007,7 +1008,11 @@ def run(args:argparse.Namespace)->Path:
         declared_search_space = canonical_search_space(config, args.strategy)
         live_possible_parameter_set_count = int(declared_search_space["live_exhaustive_parameter_sets"])
         zombie_possible_parameter_set_count = int(declared_search_space["exhaustive_with_zombies_parameter_sets"])
-        all_parameter_sets=cartesian_generate(config, include_zombies=include_zombies)
+        all_parameter_sets=(
+            adaptive_parameter_sets(config)
+            if args.strategy == "adaptive"
+            else cartesian_generate(config, include_zombies=include_zombies)
+        )
         possible_parameter_set_count=len(all_parameter_sets)
         calibration_metadata = None
         if args.calibration_intelligence and args.calibration_intelligence.is_file():
@@ -1043,7 +1048,8 @@ def run(args:argparse.Namespace)->Path:
                 args.limit,
                 historic_best_distinct=historic_best_distinct,
             )
-            exhaustive_candidates=exhaustive_candidates[:search_budget]
+            if effective_strategy != "adaptive":
+                exhaustive_candidates=exhaustive_candidates[:search_budget]
         full_exhaustive_candidate_count=len(exhaustive_candidates)
         if args.shard_count > 1:
             exhaustive_candidates=[
@@ -1054,10 +1060,17 @@ def run(args:argparse.Namespace)->Path:
             args.shard_index == 0
             and historic_best_distinct
         )
+        adaptive_candidate_budget = min(
+            len(exhaustive_candidates),
+            int(config.get("adaptive_search", {}).get("max_parameter_sets", 64)),
+            search_budget if search_budget is not None else len(exhaustive_candidates),
+        ) if effective_strategy == "adaptive" else None
         planned_parameter_set_count=(
             1 + historic_best_planned + len(exhaustive_candidates)
             if effective_strategy in {"exhaustive", "exhaustive-with-zombies"} or effective_strategy in EFFECT_STRATEGY_KEYS else None
         )
+        if effective_strategy == "adaptive":
+            planned_parameter_set_count = 1 + historic_best_planned + int(adaptive_candidate_budget or 0)
         estimated_total=len(exhaustive_candidates) if effective_strategy in {"exhaustive", "exhaustive-with-zombies"} or effective_strategy in EFFECT_STRATEGY_KEYS else max(0,possible_parameter_set_count-1)
 
         print_environment_banner(environment=environment,detector=name,golden_set=args.golden_set,golden_set_sha256=golden_set_sha256,source_commit=source_commit)
@@ -1149,6 +1162,7 @@ def run(args:argparse.Namespace)->Path:
             historic_best_result["historic_reference"] = historic_best_reference
             progress.observe(historic_best_result, "historic-best")
 
+        adaptive_telemetry = None
         if effective_strategy in {"exhaustive", "exhaustive-with-zombies"} or effective_strategy in EFFECT_STRATEGY_KEYS:
             if args.threads == 1:
                 candidate_results=[evaluate(p) for p in exhaustive_candidates]
@@ -1171,6 +1185,43 @@ def run(args:argparse.Namespace)->Path:
             if historic_best_result is not None:
                 results.append(historic_best_result)
             results.extend(candidate_results)
+        elif effective_strategy == "adaptive":
+            seed_results = [baseline_result]
+            if historic_best_result is not None:
+                seed_results.append(historic_best_result)
+
+            def evaluate_adaptive_batch(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
+                if args.threads == 1 or len(batch) == 1:
+                    return [evaluate(parameters) for parameters in batch]
+                indexed: list[dict[str, Any] | None] = [None] * len(batch)
+                with ThreadPoolExecutor(max_workers=min(args.threads, len(batch)), thread_name_prefix="adaptive") as executor:
+                    futures = {
+                        executor.submit(evaluate, parameters, observe=False): index
+                        for index, parameters in enumerate(batch)
+                    }
+                    for future in as_completed(futures):
+                        index = futures[future]
+                        result = future.result()
+                        indexed[index] = result
+                        progress.observe(result, profiles.get(canonical_parameters(result["parameters"])))
+                return [result for result in indexed if result is not None]
+
+            adaptive_outcome = adaptive_search(
+                config,
+                exhaustive_candidates,
+                evaluate_adaptive_batch,
+                ranking_key,
+                seed_results=seed_results,
+                budget=adaptive_candidate_budget,
+            )
+            adaptive_telemetry = adaptive_outcome.telemetry
+            write_json(run_dir / "adaptive-search.json", adaptive_telemetry)
+            results = list(seed_results)
+            for result in adaptive_outcome.results:
+                result["reference_roles"] = []
+                result["requested_search_member"] = True
+                result["search_space_member"] = True
+                results.append(result)
         else:
             results=binary_search(config,evaluate,ranking_key)
             for result in results:
@@ -1241,7 +1292,7 @@ def run(args:argparse.Namespace)->Path:
         locally_evaluated_parameter_sets = max(0, len(results) - 1) + (0 if baseline_reused else 1)
         locally_evaluated_page_evaluations = locally_evaluated_parameter_sets * len(pages)
         shard_context = {"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved","full_candidate_count":full_exhaustive_candidate_count}
-        parameter_space = {"possible_parameter_sets":possible_parameter_set_count,"live_possible_parameter_sets":live_possible_parameter_set_count,"zombie_possible_parameter_sets":zombie_possible_parameter_set_count,"canonical_search_space":search_space_contract,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ordered),"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ordered)*len(pages),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated","shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count}
+        parameter_space = {"possible_parameter_sets":possible_parameter_set_count,"live_possible_parameter_sets":live_possible_parameter_set_count,"zombie_possible_parameter_sets":zombie_possible_parameter_set_count,"canonical_search_space":search_space_contract,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ordered),"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ordered)*len(pages),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated","shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"adaptive_search":adaptive_telemetry}
         performance_payload = {"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl","precomputed_evidence":name in PRECOMPUTED_EVIDENCE_PREPARERS,"evidence_source":evidence_source,"evidence_precompute_seconds":round(evidence_precompute_seconds,6) if evidence_precompute_seconds is not None else None}
         progress_payload = {"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes if winner else 0,"baseline_surpassed":baseline_surpassed(winner,baseline),"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds if winner else None,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds if winner else None,"winner_history":progress_snapshot.winner_history if winner else [],"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}
         summary = build_canonical_summary(
@@ -1314,7 +1365,7 @@ def run(args:argparse.Namespace)->Path:
             started_at_utc=started,
             finished_at_utc=finished,
             shard=shard_context,
-            additional_outputs=("logs/runner-performance.jsonl",),
+            additional_outputs=("logs/runner-performance.jsonl",) + (("adaptive-search.json",) if adaptive_telemetry is not None else ()),
             debug_outputs=debug_outputs,
         )
         write_json(run_dir/"manifest.json",manifest)

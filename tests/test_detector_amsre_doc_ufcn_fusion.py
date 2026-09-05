@@ -8,7 +8,7 @@ import numpy as np
 from hth.geometry import detector_amsre_doc_ufcn_fusion as detector
 from hth.geometry.model import Candidate
 from hth.geometry.registry import detector_names
-from hth.regression.parameter_space import exhaustive_parameter_sets, parameter_set_id
+from hth.regression.parameter_space import adaptive_parameter_sets, exhaustive_parameter_sets, parameter_set_id
 from hth.regression.runner import PRECOMPUTED_EVIDENCE_LOADERS, PRECOMPUTED_EVIDENCE_PREPARERS
 
 
@@ -25,6 +25,7 @@ class FusionGen3Tests(unittest.TestCase):
         self.assertEqual(payload["child_calibrations"], detector.CHILD_CALIBRATIONS)
         self.assertEqual(payload["profiles"]["baseline"], detector.BASELINE_PARAMETERS)
         self.assertEqual(len(exhaustive_parameter_sets(payload)), 28)
+        self.assertEqual(len(adaptive_parameter_sets(payload)), 2340)
         self.assertEqual(payload["parameters"]["doc_ufcn_minimum_confidence"]["values"], [0.9])
         self.assertEqual(payload["parameters"]["amsre_rescue_score_ceiling"]["values"], [0.95])
         self.assertIn(0.01, payload["parameters"]["minimum_corner_disagreement_fraction"]["values"])

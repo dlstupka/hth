@@ -110,6 +110,7 @@ on:
         options:
           - exhaustive
           - exhaustive-with-zombies
+          - adaptive
           - non-dormant
           - low+
           - moderate+
@@ -196,7 +197,7 @@ on:
         default: false
         type: boolean
       limit:
-        description: "Advanced — exhaustive parameter-set limit; blank means no limit"
+        description: "Advanced — parameter-set limit/budget; blank uses the strategy default"
         required: false
         default: ""
         type: string

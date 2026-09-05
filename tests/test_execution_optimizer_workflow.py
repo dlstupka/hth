@@ -162,7 +162,7 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn('effective_pipelines="$requested_pipelines"', text)
         self.assertIn('planned_shards="$effective_pipelines"', text)
         self.assertIn('auto-one-shard-per-pipeline', text)
-        self.assertIn('binary-refine-single-shard', text)
+        self.assertIn('plan_source="${effective_strategy}-single-shard"', text)
         self.assertIn('multi-detector-single-shard', text)
         self.assertIn('Exact execution shape requested ${requested_pipelines} pipelines but executor resolved', text)
 
