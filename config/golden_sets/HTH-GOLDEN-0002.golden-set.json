@@ -1,0 +1,425 @@
+{
+  "schema_version": "1.0",
+  "collection_id": "HTH-GOLDEN-0002",
+  "description": "Golden Set candidate workspace synthesized from Baptisms: San Antonio. Baptism Records 1788–1824, 1858–1898.",
+  "acceptance": {
+    "minimum_iou": 0.95,
+    "maximum_edge_error_px": 20,
+    "near_pass_minimum_iou": 0.9,
+    "near_pass_maximum_edge_error_ratio": 0.06,
+    "require_layout_match": false
+  },
+  "golden_set_workflow": {
+    "status": "approved",
+    "golden_set_id": "HTH-GOLDEN-0002",
+    "canonical_source_repository": "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
+    "created_by": {
+      "name": "Dan Stupka",
+      "role": "HTH Developer"
+    },
+    "reviewed_by": {
+      "name": "ChatGPT",
+      "role": "Technical Reviewer"
+    },
+    "approved_by": {
+      "name": "Dan Stupka",
+      "role": "HTH Developer"
+    },
+    "notes": "This Golden Set includes carefully selected pages from the newly captured HTH-SOURCE-0002 source release. After completing the initial document page detector integration; the refined intake process was used to perform re-acquisition and a new Golden Set is required.",
+    "approved_at_utc": "2026-09-05T03:58:08.435Z",
+    "approved_sha256": "1c42f082cd3fd72ee9d9bed86b263342b833e80498d8744bf7d3c5abdc65e11e",
+    "last_invalidation_reason": null
+  },
+  "pages": [
+    {
+      "global_ordinal": 3,
+      "label": "page_3",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        66,
+        26,
+        1117,
+        1346
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 3,
+      "image_sha256": "50cfee1a71d75a354a66be69bdf8725ecdfef5fa00942174c54ea500d87de392",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T16:16:59.435Z"
+    },
+    {
+      "global_ordinal": 64,
+      "label": "page_64",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        89,
+        66,
+        1550,
+        1221
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 64,
+      "image_sha256": "188ba397f84e901b4ccf5355cc74ebaa6af083372506b2c915f532205b49e65a",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T16:17:34.203Z"
+    },
+    {
+      "global_ordinal": 65,
+      "label": "page_65",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        135,
+        23,
+        1657,
+        1216
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 65,
+      "image_sha256": "98949736e4e64f61f7d02c802e529646bb8c34ed41f8b34b9e9ddf97980ecc2a",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T16:18:09.355Z"
+    },
+    {
+      "global_ordinal": 95,
+      "label": "page_95",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        148,
+        21,
+        1637,
+        1347
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 95,
+      "image_sha256": "866b3559a4d943dc3918709c4b76a9b12d949e752b84bf3fd6633a21078089ab",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T16:18:40.051Z"
+    },
+    {
+      "global_ordinal": 100,
+      "label": "page_100",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        44,
+        44,
+        1511,
+        1334
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 100,
+      "image_sha256": "da1e308b7a04d32b8953833028bc8f8cf6d8fc2be34dbb77ea36e46582ccb64f",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T16:19:34.250Z"
+    },
+    {
+      "global_ordinal": 101,
+      "label": "page_101",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        65,
+        41,
+        1489,
+        1291
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 101,
+      "image_sha256": "44827f741f88a026189198c12086a8b72e9da0f1bcc3be0073858ce81dbd67d9",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T16:20:03.739Z"
+    },
+    {
+      "global_ordinal": 155,
+      "label": "page_155",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        95,
+        79,
+        1453,
+        1301
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 155,
+      "image_sha256": "88b503b70a8d3a53719e138bb58ea5c818b6be00e0da409ec87e06fa2e3f813f",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T16:20:32.347Z"
+    },
+    {
+      "global_ordinal": 197,
+      "label": "page_197",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        139,
+        80,
+        1520,
+        1306
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 197,
+      "image_sha256": "04580dad5d687210c562703c3e89e5ad8205c4838d0682a56518886098b33791",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T16:21:00.386Z"
+    },
+    {
+      "global_ordinal": 251,
+      "label": "page_251",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        153,
+        65,
+        1540,
+        1297
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 251,
+      "image_sha256": "d5ebbb010ceb3ec24cec30b1c2eccc34177e8ea6aad6328af260cab08bb941c7",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T16:21:28.755Z"
+    },
+    {
+      "global_ordinal": 298,
+      "label": "page_298",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        135,
+        66,
+        1523,
+        1300
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 298,
+      "image_sha256": "ad05f0225c4b15a5612e4027cf413017a6089bdd2e39b36fe0439bef03dde80c",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T16:22:02.403Z"
+    },
+    {
+      "global_ordinal": 380,
+      "label": "page_380",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        177,
+        59,
+        1558,
+        1309
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 380,
+      "image_sha256": "3a95d628879018669f40bbcc6aa260a2711973dad254ff0eab23cb8903ad7224",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T16:49:39.970Z"
+    },
+    {
+      "global_ordinal": 381,
+      "label": "page_381",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        185,
+        55,
+        1558,
+        1321
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 381,
+      "image_sha256": "b6eb1a5192a3a4c5f0dcb123049ffd6b78faf07f044d4ec807224c11546a0d5f",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T16:50:09.850Z"
+    },
+    {
+      "global_ordinal": 400,
+      "label": "page_400",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        72,
+        67,
+        1585,
+        1304
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 400,
+      "image_sha256": "b6acce104be74f9b1717936a0a5ea8716b402c97cc2c94825602c5d3a9cae973",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T16:50:51.626Z"
+    },
+    {
+      "global_ordinal": 500,
+      "label": "page_500",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        41,
+        89,
+        1518,
+        1301
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 500,
+      "image_sha256": "b2f8f67e37955373c7a23816a855186c86b247b68245dae86603f79a9304de03",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T17:02:15.442Z"
+    },
+    {
+      "global_ordinal": 710,
+      "label": "page_710",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        61,
+        38,
+        1497,
+        1342
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 710,
+      "image_sha256": "534abe0ba5c1c92b5a3ef856868b89ef5d71ceea0c28f864661d43b19b3855a9",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T17:19:38.305Z"
+    },
+    {
+      "global_ordinal": 728,
+      "label": "page_728",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        128,
+        86,
+        1454,
+        1310
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 728,
+      "image_sha256": "7446bc76d2bccff0ec0b3ba48c838bb6c76ecfba36e07496472b3a6f7aaf3c38",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T17:26:56.489Z"
+    },
+    {
+      "global_ordinal": 821,
+      "label": "page_821",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        146,
+        72,
+        1460,
+        1290
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 821,
+      "image_sha256": "6f1e8f4e56f690131a1d68b0ac9edf9de2d4d85a27a089d529f1cdaf1ca34e4e",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T17:30:40.585Z"
+    },
+    {
+      "global_ordinal": 920,
+      "label": "page_920",
+      "layout_type": "other",
+      "notes": "",
+      "physical_document_bbox": [
+        134,
+        73,
+        1463,
+        1286
+      ],
+      "expected_regions": [],
+      "calibration_selected": true,
+      "review_status": "approved",
+      "source_docx": "Baptisms_San_Antonio_Baptism_Records_1788-1824_1858-1898.docx",
+      "source_ordinal": 920,
+      "image_sha256": "801bbcfc2a24159f9cf6dbe556f35527c4c8df32d990ac6b08a5aaf831b1fa89",
+      "width": null,
+      "height": null,
+      "reviewed_at_utc": "2026-09-04T17:36:27.065Z"
+    }
+  ],
+  "reference_collection_version": "1.0",
+  "source_document": {
+    "title": "Baptisms: San Antonio. Baptism Records 1788–1824, 1858–1898",
+    "image_count": 929
+  },
+  "source_release": {
+    "repository": "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
+    "tag": "HTH-SOURCE-0002",
+    "manifest_sha256": "871caffe1b6b09a14d3db130be220db6537cbd3746faeecb9f2efd3bfbcd7123",
+    "source_commit": "61efff529fb7330a92f8d423c40c45bc60bb841c",
+    "image_identity": "global_ordinal"
+  }
+}

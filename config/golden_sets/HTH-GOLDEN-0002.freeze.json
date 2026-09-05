@@ -1,0 +1,171 @@
+{
+  "schema_version": "1",
+  "golden_set_id": "HTH-GOLDEN-0002",
+  "state": "frozen",
+  "frozen_at_utc": "2026-09-05T03:58:08.435Z",
+  "golden_set_path": "config/golden_sets/HTH-GOLDEN-0002.golden-set.json",
+  "golden_set_sha256": "00a8b142ecd24f49637af5c5e5e31e5b17f64065c33d91a5f4fbeccaaa04a6ee",
+  "approval_content_sha256": "1c42f082cd3fd72ee9d9bed86b263342b833e80498d8744bf7d3c5abdc65e11e",
+  "canonical_release": {
+    "repository": "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
+    "tag": "HTH-GOLDEN-0002",
+    "golden_set_asset": "HTH-GOLDEN-0002.golden-set.json",
+    "freeze_asset": "HTH-GOLDEN-0002.freeze.json",
+    "image_bundle_asset": "HTH-GOLDEN-0002.images.zip"
+  },
+  "policy": {
+    "immutable_identity": true,
+    "mutation_rule": "Do not edit a frozen Golden Set in place. Create a new Golden Set ID for membership, truth-geometry, acceptance, or source-identity changes.",
+    "legacy_validation_subset": false
+  },
+  "membership": {
+    "page_count": 18,
+    "global_ordinals": [
+      3,
+      64,
+      65,
+      95,
+      100,
+      101,
+      155,
+      197,
+      251,
+      298,
+      380,
+      381,
+      400,
+      500,
+      710,
+      728,
+      821,
+      920
+    ]
+  },
+  "source_document": {
+    "title": "Baptisms: San Antonio. Baptism Records 1788–1824, 1858–1898",
+    "image_count": 929
+  },
+  "source_release": {
+    "repository": "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
+    "tag": "HTH-SOURCE-0002",
+    "manifest_sha256": "871caffe1b6b09a14d3db130be220db6537cbd3746faeecb9f2efd3bfbcd7123",
+    "image_identity": "global_ordinal"
+  },
+  "reference_collection_version": "1.0",
+  "image_bundle": {
+    "asset": "HTH-GOLDEN-0002.images.zip",
+    "format": "zip/store",
+    "size": 37619784,
+    "sha256": "2fe505a3c0cd6485eea1f5a9d9c4e4d47f7cec3784188f9438e75ef89f690a19",
+    "images": [
+      {
+        "global_ordinal": 3,
+        "path": "raw/fs_0003.png",
+        "size": 967137,
+        "sha256": "50cfee1a71d75a354a66be69bdf8725ecdfef5fa00942174c54ea500d87de392"
+      },
+      {
+        "global_ordinal": 64,
+        "path": "raw/fs_0064.png",
+        "size": 1956161,
+        "sha256": "188ba397f84e901b4ccf5355cc74ebaa6af083372506b2c915f532205b49e65a"
+      },
+      {
+        "global_ordinal": 65,
+        "path": "raw/fs_0065.png",
+        "size": 2115878,
+        "sha256": "98949736e4e64f61f7d02c802e529646bb8c34ed41f8b34b9e9ddf97980ecc2a"
+      },
+      {
+        "global_ordinal": 95,
+        "path": "raw/fs_0095.png",
+        "size": 2401965,
+        "sha256": "866b3559a4d943dc3918709c4b76a9b12d949e752b84bf3fd6633a21078089ab"
+      },
+      {
+        "global_ordinal": 100,
+        "path": "raw/fs_0100.png",
+        "size": 2773207,
+        "sha256": "da1e308b7a04d32b8953833028bc8f8cf6d8fc2be34dbb77ea36e46582ccb64f"
+      },
+      {
+        "global_ordinal": 101,
+        "path": "raw/fs_0101.png",
+        "size": 2629517,
+        "sha256": "44827f741f88a026189198c12086a8b72e9da0f1bcc3be0073858ce81dbd67d9"
+      },
+      {
+        "global_ordinal": 155,
+        "path": "raw/fs_0155.png",
+        "size": 2420343,
+        "sha256": "88b503b70a8d3a53719e138bb58ea5c818b6be00e0da409ec87e06fa2e3f813f"
+      },
+      {
+        "global_ordinal": 197,
+        "path": "raw/fs_0197.png",
+        "size": 2390777,
+        "sha256": "04580dad5d687210c562703c3e89e5ad8205c4838d0682a56518886098b33791"
+      },
+      {
+        "global_ordinal": 251,
+        "path": "raw/fs_0251.png",
+        "size": 2467878,
+        "sha256": "d5ebbb010ceb3ec24cec30b1c2eccc34177e8ea6aad6328af260cab08bb941c7"
+      },
+      {
+        "global_ordinal": 298,
+        "path": "raw/fs_0298.png",
+        "size": 2603245,
+        "sha256": "ad05f0225c4b15a5612e4027cf413017a6089bdd2e39b36fe0439bef03dde80c"
+      },
+      {
+        "global_ordinal": 380,
+        "path": "raw/fs_0380.png",
+        "size": 1412890,
+        "sha256": "3a95d628879018669f40bbcc6aa260a2711973dad254ff0eab23cb8903ad7224"
+      },
+      {
+        "global_ordinal": 381,
+        "path": "raw/fs_0381.png",
+        "size": 774180,
+        "sha256": "b6eb1a5192a3a4c5f0dcb123049ffd6b78faf07f044d4ec807224c11546a0d5f"
+      },
+      {
+        "global_ordinal": 400,
+        "path": "raw/fs_0400.png",
+        "size": 2324367,
+        "sha256": "b6acce104be74f9b1717936a0a5ea8716b402c97cc2c94825602c5d3a9cae973"
+      },
+      {
+        "global_ordinal": 500,
+        "path": "raw/fs_0500.png",
+        "size": 2277826,
+        "sha256": "b2f8f67e37955373c7a23816a855186c86b247b68245dae86603f79a9304de03"
+      },
+      {
+        "global_ordinal": 710,
+        "path": "raw/fs_0710.png",
+        "size": 2395462,
+        "sha256": "534abe0ba5c1c92b5a3ef856868b89ef5d71ceea0c28f864661d43b19b3855a9"
+      },
+      {
+        "global_ordinal": 728,
+        "path": "raw/fs_0728.png",
+        "size": 2059911,
+        "sha256": "7446bc76d2bccff0ec0b3ba48c838bb6c76ecfba36e07496472b3a6f7aaf3c38"
+      },
+      {
+        "global_ordinal": 821,
+        "path": "raw/fs_0821.png",
+        "size": 1813990,
+        "sha256": "6f1e8f4e56f690131a1d68b0ac9edf9de2d4d85a27a089d529f1cdaf1ca34e4e"
+      },
+      {
+        "global_ordinal": 920,
+        "path": "raw/fs_0920.png",
+        "size": 1833120,
+        "sha256": "801bbcfc2a24159f9cf6dbe556f35527c4c8df32d990ac6b08a5aaf831b1fa89"
+      }
+    ]
+  }
+}
