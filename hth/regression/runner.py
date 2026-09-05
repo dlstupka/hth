@@ -877,7 +877,7 @@ def print_parameter_scope(*, strategy: str, possible_sets: int, planned_sets: in
     label_width = max(len(label) for label, _ in rows)
     for label, value in rows:
         print(f"{label:<{label_width}} : {value}")
-    print("Search strategy legend   : exhaustive=live declared grid; adaptive=budgeted IoU-guided search of the declared adaptive grid; exhaustive-with-zombies=live grid plus retained zombie domains")
+    print("Search strategy legend   : exhaustive=live declared grid; adaptive=budgeted IoU-guided seed-grid search with optional bounded midpoint refinement; exhaustive-with-zombies=live grid plus retained zombie domains")
     print(" ")
 
 

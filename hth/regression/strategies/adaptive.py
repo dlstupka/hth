@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import itertools
 import math
 from typing import Any, Callable, Iterable
 
@@ -23,6 +24,10 @@ def _score(result: Result) -> float:
 def _coordinates(parameters: dict[str, Any], domains: dict[str, list[Any]]) -> tuple[float, ...]:
     coordinates: list[float] = []
     for name, values in domains.items():
+        if values and all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in values):
+            low, high = float(min(values)), float(max(values))
+            coordinates.append(0.0 if high == low else (float(parameters[name]) - low) / (high - low))
+            continue
         try:
             index = values.index(parameters[name])
         except ValueError:
@@ -80,6 +85,59 @@ def _initial_design(
     return selected
 
 
+def _dynamic_refinement_candidates(
+    config: dict[str, Any],
+    incumbent: dict[str, Any],
+    eta: dict[str, float],
+    refinement_domains: dict[str, list[Any]],
+) -> tuple[list[dict[str, Any]], dict[str, list[Any]]]:
+    """Generate bounded local midpoints around the incumbent's influential dimensions."""
+    settings = dict((config.get("adaptive_search") or {}).get("dynamic_refinement") or {})
+    if not settings.get("enabled", False):
+        return [], {}
+    minimum_eta = float(settings.get("minimum_eta_squared", 0.02))
+    maximum_dimensions = max(1, int(settings.get("maximum_dimensions", 2)))
+    names = [
+        name for name, _ in sorted(eta.items(), key=lambda item: (-item[1], item[0]))
+        if eta[name] >= minimum_eta
+        and name in incumbent
+        and str(config.get("parameters", {}).get(name, {}).get("type")) in {"float", "int"}
+    ][:maximum_dimensions]
+    generated_values: dict[str, list[Any]] = {}
+    for name in names:
+        values = sorted({float(value) for value in refinement_domains[name]})
+        center = float(incumbent[name])
+        lower = max((value for value in values if value < center), default=None)
+        upper = min((value for value in values if value > center), default=None)
+        midpoints = []
+        for neighbor in (lower, upper):
+            if neighbor is None:
+                continue
+            midpoint = round((center + neighbor) / 2.0, 12)
+            if str(config["parameters"][name].get("type")) == "int":
+                midpoint = int(round(midpoint))
+            if midpoint != center and midpoint not in refinement_domains[name]:
+                midpoints.append(midpoint)
+        if midpoints:
+            generated_values[name] = sorted(set(midpoints))
+            refinement_domains[name] = sorted(set(refinement_domains[name]) | set(midpoints))
+
+    candidates: list[dict[str, Any]] = []
+    for name, values in generated_values.items():
+        for value in values:
+            candidate = dict(incumbent)
+            candidate[name] = value
+            candidates.append(candidate)
+    interacting = list(generated_values)
+    if len(interacting) > 1:
+        for combo in itertools.product(*(generated_values[name] for name in interacting)):
+            candidate = dict(incumbent)
+            candidate.update(dict(zip(interacting, combo, strict=True)))
+            candidates.append(candidate)
+    unique = {canonical_parameters(candidate): candidate for candidate in candidates}
+    return [unique[key] for key in sorted(unique)], generated_values
+
+
 def search(
     config: dict[str, Any],
     candidates: list[dict[str, Any]],
@@ -95,7 +153,8 @@ def search(
     balance coverage, incumbent-local refinement, marginal eta-squared influence,
     unseen values/pairs, and boundary pressure.  The search never treats prior
     evidence as an implicit bound and never invents values outside the declared
-    adaptive candidate universe.
+    adaptive candidate universe. Optional dynamic refinement may add numeric
+    midpoint candidates inside the declared adaptive bounds.
     """
     settings = dict(config.get("adaptive_search") or {})
     unique = {canonical_parameters(row): dict(row) for row in candidates}
@@ -109,6 +168,7 @@ def search(
         name: list(config["parameters"][name].get("adaptive_values", config["parameters"][name].get("values", [])))
         for name in names
     }
+    refinement_domains = {name: list(values) for name, values in domains.items()}
     coordinates = {canonical_parameters(row): _coordinates(row, domains) for row in ordered}
     initial_count = min(target, int(settings.get("initial_parameter_sets", max(6, 2 * len(names) + 1))))
     batch_size = max(1, int(settings.get("batch_size", 4)))
@@ -117,6 +177,8 @@ def search(
     learning: list[Result] = [dict(row) for row in seed_results]
     evaluated_keys = {canonical_parameters(row.get("parameters") or {}) for row in learning}
     rounds: list[dict[str, Any]] = []
+    generated_keys: set[str] = set()
+    generated_values: dict[str, set[Any]] = {name: set() for name in names}
 
     while pending and len(evaluated) < target:
         pending = [row for row in pending if canonical_parameters(row) not in evaluated_keys]
@@ -128,18 +190,38 @@ def search(
         learning.extend(new_results)
         evaluated_keys.update(canonical_parameters(row.get("parameters") or {}) for row in new_results)
         eta = {name: _eta_squared(learning, name) for name in names}
-        rounds.append({
+        round_record = {
             "round": len(rounds) + 1,
             "evaluated_parameter_sets": len(new_results),
             "cumulative_parameter_sets": len(evaluated),
             "best_mean_iou": max((_score(row) for row in learning), default=None),
             "eta_squared": eta,
-        })
-        remaining = [row for row in ordered if canonical_parameters(row) not in evaluated_keys]
-        if not remaining or len(evaluated) >= target:
+        }
+        rounds.append(round_record)
+        if len(evaluated) >= target:
             break
         ranked = sorted(learning, key=ranking_key)
         elite = ranked[: max(1, min(3, len(ranked)))]
+        incumbent = dict(elite[0].get("parameters") or {})
+        refined, new_values = _dynamic_refinement_candidates(
+            config, incumbent, eta, refinement_domains,
+        )
+        added = []
+        for row in refined:
+            key = canonical_parameters(row)
+            if key not in unique and key not in evaluated_keys:
+                unique[key] = row
+                ordered.append(row)
+                coordinates[key] = _coordinates(row, domains)
+                generated_keys.add(key)
+                added.append(row)
+        for name, values in new_values.items():
+            generated_values[name].update(values)
+        round_record["generated_refinement_candidates"] = len(added)
+        round_record["generated_values"] = new_values
+        remaining = [row for row in ordered if canonical_parameters(row) not in evaluated_keys]
+        if not remaining:
+            break
         max_eta = max(eta.values(), default=0.0)
         weights = [0.15 + (eta[name] / max_eta if max_eta > 0 else 1.0) for name in names]
         observed_coordinates = [coordinates[key] for key in evaluated_keys if key in coordinates]
@@ -148,7 +230,6 @@ def search(
             for row in elite
             if all(name in (row.get("parameters") or {}) for name in names)
         ]
-        incumbent = elite[0].get("parameters") or {}
         boundary_targets: dict[str, float] = {}
         for index, name in enumerate(names):
             if name not in incumbent or eta[name] <= 0:
@@ -192,20 +273,34 @@ def search(
                 canonical_parameters(row),
             )
 
-        pending = sorted(remaining, key=acquisition, reverse=True)[: min(batch_size, target - len(evaluated))]
+        next_count = min(batch_size, target - len(evaluated))
+        refinement_share = max(0.0, min(1.0, float(settings.get("dynamic_refinement", {}).get("batch_share", 0.5))))
+        refinement_count = min(len(generated_keys), math.ceil(next_count * refinement_share))
+        generated_remaining = [row for row in remaining if canonical_parameters(row) in generated_keys]
+        base_remaining = [row for row in remaining if canonical_parameters(row) not in generated_keys]
+        selected = sorted(generated_remaining, key=acquisition, reverse=True)[:refinement_count]
+        selected_keys = {canonical_parameters(row) for row in selected}
+        selected.extend(
+            row for row in sorted(base_remaining + generated_remaining, key=acquisition, reverse=True)
+            if canonical_parameters(row) not in selected_keys
+        )
+        pending = selected[:next_count]
 
     final_eta = {name: _eta_squared(learning, name) for name in names}
     telemetry = {
         "schema_version": "1.0",
         "strategy": "adaptive",
         "candidate_parameter_sets": len(ordered),
+        "initial_candidate_parameter_sets": len(candidates),
+        "generated_refinement_parameter_sets": len(generated_keys),
+        "generated_values": {name: sorted(values) for name, values in generated_values.items() if values},
         "budget": target,
         "evaluated_parameter_sets": len(evaluated),
         "initial_parameter_sets": initial_count,
         "batch_size": batch_size,
         "eta_squared": final_eta,
         "rounds": rounds,
-        "selection_policy": "space-filling then eta-weighted coverage/incumbent/boundary refinement",
+        "selection_policy": "space-filling then eta-weighted coverage/incumbent/boundary refinement with bounded dynamic midpoints",
         "deterministic": True,
     }
     return AdaptiveSearchOutcome(evaluated, telemetry)

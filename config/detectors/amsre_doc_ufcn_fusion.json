@@ -112,8 +112,14 @@
     "initial_parameter_sets": 12,
     "batch_size": 6,
     "max_parameter_sets": 48,
-    "candidate_space_policy": "declared-adaptive-cartesian",
-    "selection_policy": "space-filling then eta-weighted coverage/incumbent/boundary refinement"
+    "candidate_space_policy": "declared-adaptive-cartesian-plus-bounded-midpoints",
+    "selection_policy": "space-filling then eta-weighted coverage/incumbent/boundary refinement with bounded dynamic midpoints",
+    "dynamic_refinement": {
+      "enabled": true,
+      "minimum_eta_squared": 0.02,
+      "maximum_dimensions": 2,
+      "batch_share": 0.5
+    }
   },
   "regression": {
     "debug_artifacts": "winner",

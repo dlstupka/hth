@@ -60,6 +60,45 @@ class AdaptiveSearchTests(unittest.TestCase):
         self.assertEqual(len(exhaustive_parameter_sets(self.config)), 4)
         self.assertEqual(len(adaptive_parameter_sets(self.config)), 15)
 
+    def test_dynamic_refinement_generates_bounded_midpoints_near_influential_incumbent(self):
+        config = {
+            "parameters": {
+                "threshold": {
+                    "type": "float",
+                    "values": [0.0, 10.0],
+                    "adaptive_values": [0.0, 2.0, 4.0, 6.0, 8.0, 10.0],
+                },
+            },
+            "profiles": {"baseline": {"threshold": 0.0}},
+            "adaptive_search": {
+                "initial_parameter_sets": 3,
+                "batch_size": 2,
+                "max_parameter_sets": 6,
+                "dynamic_refinement": {
+                    "enabled": True,
+                    "minimum_eta_squared": 0.0,
+                    "maximum_dimensions": 1,
+                    "batch_share": 1.0,
+                },
+            },
+        }
+
+        def evaluate_batch(parameters):
+            return [result(row, 1.0 - abs(row["threshold"] - 3.0) * 0.1) for row in parameters]
+
+        outcome = search(
+            config,
+            adaptive_parameter_sets(config),
+            evaluate_batch,
+            ranking_key,
+            seed_results=[result(config["profiles"]["baseline"], 0.5)],
+        )
+        evaluated_values = {row["parameters"]["threshold"] for row in outcome.results}
+        self.assertIn(3.0, evaluated_values)
+        self.assertIn(3.0, outcome.telemetry["generated_values"]["threshold"])
+        self.assertGreater(outcome.telemetry["generated_refinement_parameter_sets"], 0)
+        self.assertTrue(all(0.0 <= value <= 10.0 for value in evaluated_values))
+
 
 class Gen3AdaptiveConfigurationTests(unittest.TestCase):
     def test_gen3_retains_small_exhaustive_oracle_and_declares_dense_adaptive_space(self):
