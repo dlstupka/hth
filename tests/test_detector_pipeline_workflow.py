@@ -173,6 +173,12 @@ def test_results_repository_checkout_is_shallow_and_sparse() -> None:
     assert "            learned-evidence/orli_page_mask\n" in text
 
 
+def test_smoke_jobs_have_a_two_hour_timeout() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "github.event_name != 'workflow_dispatch' && 120" in text
+    assert "inputs.mode == 'smoke' && 120" in text
+
+
 def test_regression_driver_preserves_absolute_release_image_root() -> None:
     script = (ROOT / "tools" / "run-detector-regressions.sh").read_text(encoding="utf-8")
     assert 'if [[ "$IMAGE_ROOT" == /* || "$IMAGE_ROOT" =~ ^[A-Za-z]:[\\\\/] ]]; then' in script

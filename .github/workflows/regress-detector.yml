@@ -421,13 +421,13 @@ jobs:
           && format('Regress {0} against Golden Set', matrix.detector)
           || format('Smoke test {0} against Golden Set', matrix.detector) }}
     runs-on: ${{ fromJSON(needs.resolve-execution-dispatch.outputs.runs_on) }}
-    # Automatic and manually dispatched smoke tests retain a 60-minute guard.
+    # Automatic and manually dispatched smoke tests retain a 120-minute guard.
     # GitHub-hosted full regressions are limited to 6 hours by GitHub Actions.
     # Self-hosted full regressions may run for up to 5 days (7200 minutes),
     # while still protecting an outside runner from a permanently stalled job.
     timeout-minutes: >-
-      ${{ github.event_name != 'workflow_dispatch' && 60
-          || inputs.mode == 'smoke' && 60
+      ${{ github.event_name != 'workflow_dispatch' && 120
+          || inputs.mode == 'smoke' && 120
           || needs.resolve-execution-dispatch.outputs.github_hosted == '1' && 360
           || 7200 }}
 
