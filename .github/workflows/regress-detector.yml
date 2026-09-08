@@ -614,6 +614,7 @@ jobs:
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
+          HTH_MIRROR_TOKEN: ${{ secrets.HTH_MIRROR_TOKEN }}
         run: |
           bash hth-pipeline/tools/run-detector-regressions.sh
 

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from hth.model_variants import ModelSource, resolve_model_variant
 from hth.network_retry import is_transient_network_error
+from hth.artifact_mirror import MirrorArtifact, download as download_mirror, publish as publish_mirror
 
 PAGENET_REPOSITORY="https://github.com/ctensmeyer/pagenet"
 PAGENET_LICENSE="BSD-3-Clause"
@@ -39,6 +40,15 @@ ORLI_PACKAGE_VERSION="0.0.2"
 ORLI_MODEL_ID="orli-base-2026"
 ORLI_MODEL_URL="https://zenodo.org/records/20558179/files/orli_base.safetensors?download=1"
 ORLI_MODEL_DOI="10.5281/zenodo.20558179"
+ORLI_MODEL_MIRROR=MirrorArtifact(
+    repository="dlstupka/hth-mirror",
+    tag="HTH-MIRROR-ORLI-BASE-2026",
+    asset_name="orli_base.safetensors",
+    artifact_id=ORLI_MODEL_ID,
+    authoritative_repository="https://zenodo.org/records/20558179",
+    authoritative_reference=ORLI_MODEL_DOI,
+    license=ORLI_LICENSE,
+)
 ORLI_MODEL_SOURCES=(
     ModelSource(
         site="Zenodo record download",
@@ -260,7 +270,7 @@ def _download_model_source(source, target, *, validator=None):
     else:
         _download(url,target,validator=validator)
 
-def _download_from_sources(sources, target, *, artifact, variant, validator=None, reuse_existing=False):
+def _download_from_sources(sources, target, *, artifact, variant, validator=None, reuse_existing=False, mirror=None):
     sources=tuple(sources or ())
     if len(sources) > MODEL_DOWNLOAD_SOURCE_LIMIT:
         raise ValueError(
@@ -276,6 +286,15 @@ def _download_from_sources(sources, target, *, artifact, variant, validator=None
             check(target)
         print(f"Model cache hit: variant={variant} artifact={artifact} path={target}")
         return {"site":"cache","url":None,"reference":None,"attempt":0}
+    if mirror is not None:
+        print(f"Model mirror lookup: variant={variant} artifact={artifact} repository={mirror.repository} tag={mirror.tag}")
+        try:
+            selected=download_mirror(mirror,target,fetch=_download,validator=validator)
+        except Exception as exc:
+            print(f"Model mirror miss: variant={variant} artifact={artifact} error={type(exc).__name__}: {exc}; action=try-authoritative-sources")
+        else:
+            print(f"Model download succeeded: variant={variant} artifact={artifact} site={selected['site']}")
+            return selected
     failures=[]
     for source_number,source in enumerate(sources,1):
         if isinstance(source,ModelSource):
@@ -309,7 +328,14 @@ def _download_from_sources(sources, target, *, artifact, variant, validator=None
                 failures.append(f"{site}: {detail}")
                 break
             print(f"Model download succeeded: variant={variant} artifact={artifact} site={site}")
-            return {"site":site,"url":url,"reference":reference,"attempt":source_number}
+            selected={"site":site,"url":url,"reference":reference,"attempt":source_number,"tier":"authoritative"}
+            if mirror is not None:
+                try:
+                    mirror_status=publish_mirror(mirror,target,authoritative_source=selected)
+                    print(f"Model mirror publication: variant={variant} artifact={artifact} status={mirror_status}")
+                except Exception as exc:
+                    print(f"::warning::Model mirror publication failed: variant={variant} artifact={artifact} error={type(exc).__name__}: {exc}")
+            return selected
     raise RuntimeError(
         f"All {artifact} download sources failed for {variant}: " + "; ".join(failures)
     )
@@ -795,6 +821,7 @@ def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
         model_source=_download_from_sources(
             ORLI_MODEL_SOURCES, model, artifact="model", variant="orli_page_mask",
             validator=_validate_safetensors_file, reuse_existing=(policy!="refresh"),
+            mirror=ORLI_MODEL_MIRROR,
         )
         payload={
             "schema_version":"1.1", "model_id":ORLI_MODEL_ID, "model_family":"Orli",
@@ -807,6 +834,12 @@ def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
                 {"site":source.site,"url":source.url,"reference":source.reference}
                 for source in ORLI_MODEL_SOURCES
             ],
+            "mirror": {
+                "repository": ORLI_MODEL_MIRROR.repository,
+                "tag": ORLI_MODEL_MIRROR.tag,
+                "asset_name": ORLI_MODEL_MIRROR.asset_name,
+                "trust_role": "non-authoritative redundancy mirror",
+            },
             "model_filename":model.name, "model_sha256":_sha256(model),
             "prepared_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),
             "inference_backend":"orli.pred.segment", "serving_contract":"PIL image -> ordered baseline segmentation",

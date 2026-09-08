@@ -134,6 +134,12 @@ def test_regression_output_is_cleaned_before_each_matrix_run():
     assert "rm -f regression-summary.md" in block
 
 
+def test_regression_execution_can_populate_redundancy_mirror():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    execute = text.split("- name: Run detector regressions", 1)[1]
+    assert "HTH_MIRROR_TOKEN: ${{ secrets.HTH_MIRROR_TOKEN }}" in execute.split("- name:", 1)[0]
+
+
 
 
 def test_single_and_multi_shard_paths_share_one_finalizer():

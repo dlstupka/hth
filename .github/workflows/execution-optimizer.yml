@@ -653,6 +653,7 @@ jobs:
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
+          HTH_MIRROR_TOKEN: ${{ secrets.HTH_MIRROR_TOKEN }}
           PIPELINES: ${{ steps.plan.outputs.pipelines }}
           PIPELINE_MIN: ${{ steps.plan.outputs.pipeline_min }}
           PIPELINE_MAX: ${{ steps.plan.outputs.pipeline_max }}

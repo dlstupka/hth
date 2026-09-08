@@ -92,6 +92,14 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn("python -m hth.golden_set_release", checkout)
         self.assertNotIn("/*\n", checkout)
 
+    def test_optimizer_execution_can_populate_redundancy_mirror(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        optimize = text.split("- name: Optimize detector execution shapes", 1)[1]
+        self.assertIn(
+            "HTH_MIRROR_TOKEN: ${{ secrets.HTH_MIRROR_TOKEN }}",
+            optimize.split("run: |", 1)[0],
+        )
+
     def test_execution_optimizer_dispatch_checkout_only_materializes_optimizer_index(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         dispatch_job = text.split("  dispatch-detectors:", 1)[1].split("  optimize:", 1)[0]

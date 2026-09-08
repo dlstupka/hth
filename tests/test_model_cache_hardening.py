@@ -98,6 +98,7 @@ class ModelCacheHardeningTests(unittest.TestCase):
                 patch("hth.detector_lifecycle.importlib.util.find_spec", return_value=object()),
                 patch("hth.detector_lifecycle.importlib.metadata.version", return_value=ORLI_PACKAGE_VERSION),
                 patch("hth.detector_lifecycle._download", side_effect=fake_download),
+                patch("hth.detector_lifecycle.download_mirror", side_effect=OSError("empty mirror")),
                 contextlib.redirect_stdout(output),
             ):
                 payload = _prepare_orli_page_mask_hook(
@@ -131,6 +132,7 @@ class ModelCacheHardeningTests(unittest.TestCase):
                 patch("hth.detector_lifecycle.importlib.util.find_spec", return_value=object()),
                 patch("hth.detector_lifecycle.importlib.metadata.version", return_value=ORLI_PACKAGE_VERSION),
                 patch("hth.detector_lifecycle._download", side_effect=fake_download),
+                patch("hth.detector_lifecycle.download_mirror", side_effect=OSError("empty mirror")),
                 patch("hth.detector_lifecycle.time.sleep"),
             ):
                 payload = _prepare_orli_page_mask_hook(

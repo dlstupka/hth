@@ -8,11 +8,46 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
+from hth.artifact_mirror import MirrorArtifact
 from hth.detector_lifecycle import MODEL_DOWNLOAD_SOURCE_LIMIT, _download_from_sources
 from hth.model_variants import ModelSource
 
 
 class ModelDownloadFallbackTests(unittest.TestCase):
+    mirror = MirrorArtifact("owner/mirror", "HTH-MIRROR-TEST", "model.pth", "model", "upstream", "ref", "MIT")
+
+    def test_verified_mirror_precedes_authoritative_sources(self):
+        source = ModelSource("upstream", "https://upstream.example/model")
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "hth.detector_lifecycle.download_mirror",
+            return_value={"site": "HTH non-authoritative mirror", "tier": "mirror"},
+        ) as mirror_download, patch("hth.detector_lifecycle._download_model_source") as upstream:
+            selected = _download_from_sources(
+                (source,), Path(temp) / "model.pth", artifact="model",
+                variant="test_variant", mirror=self.mirror,
+            )
+        mirror_download.assert_called_once()
+        upstream.assert_not_called()
+        self.assertEqual(selected["tier"], "mirror")
+
+    def test_mirror_miss_falls_back_to_authoritative_and_publishes(self):
+        source = ModelSource("upstream", "https://upstream.example/model", "source-ref")
+
+        def authoritative(_source, target, *, validator=None):
+            Path(target).write_bytes(b"model")
+
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "hth.detector_lifecycle.download_mirror", side_effect=OSError("mirror unavailable")
+        ), patch(
+            "hth.detector_lifecycle._download_model_source", side_effect=authoritative
+        ), patch("hth.detector_lifecycle.publish_mirror", return_value="published") as publication:
+            selected = _download_from_sources(
+                (source,), Path(temp) / "model.pth", artifact="model",
+                variant="test_variant", mirror=self.mirror,
+            )
+        self.assertEqual(selected["tier"], "authoritative")
+        publication.assert_called_once()
+
     def test_validation_failure_retries_the_same_source_before_fallback(self):
         source = ModelSource("primary.example", "https://primary.example/model")
         calls = []
