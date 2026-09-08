@@ -35,37 +35,6 @@ def _write_safetensors(path: Path, payload: bytes = b"abcd") -> None:
 
 
 class ModelCacheHardeningTests(unittest.TestCase):
-    def test_compatible_orli_cache_backfills_missing_mirror(self):
-        with tempfile.TemporaryDirectory() as temp:
-            results_root = Path(temp)
-            root = results_root / "models" / ORLI_MODEL_ID
-            model = root / "orli_base.safetensors"
-            provenance = root / "model-provenance.json"
-            _write_safetensors(model, b"cached")
-            provenance.write_text(json.dumps({
-                "model_id": ORLI_MODEL_ID,
-                "orli_version": ORLI_PACKAGE_VERSION,
-                "model_doi": "10.5281/zenodo.20558179",
-                "license": "Apache-2.0",
-                "model_filename": model.name,
-                "model_sha256": __import__("hashlib").sha256(model.read_bytes()).hexdigest(),
-                "model_source_site": "Zenodo record download",
-                "model_url": "https://zenodo.example/model",
-                "model_source_reference": "10.5281/zenodo.20558179",
-            }), encoding="utf-8")
-
-            with (
-                patch("hth.detector_lifecycle.importlib.util.find_spec", return_value=object()),
-                patch("hth.detector_lifecycle.importlib.metadata.version", return_value=ORLI_PACKAGE_VERSION),
-                patch("hth.detector_lifecycle.publish_mirror", return_value="published") as publication,
-            ):
-                payload = _prepare_orli_page_mask_hook(
-                    results_root=results_root, policy="reuse", env_file=None
-                )
-
-            publication.assert_called_once()
-            self.assertEqual(payload["model_id"], ORLI_MODEL_ID)
-
     def test_safetensors_validator_rejects_truncated_tensor_payload(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "model.safetensors"

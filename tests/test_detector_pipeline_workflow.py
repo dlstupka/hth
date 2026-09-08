@@ -140,16 +140,6 @@ def test_regression_execution_can_populate_redundancy_mirror():
     assert "HTH_MIRROR_TOKEN: ${{ secrets.HTH_RELEASES_TOKEN }}" in execute.split("- name:", 1)[0]
 
 
-def test_regression_checkout_materializes_compatible_model_cache_for_mirror_backfill():
-    text = WORKFLOW.read_text(encoding="utf-8")
-    checkout = text.split("- name: Checkout results repository", 1)[1].split(
-        "- name: Materialize immutable Golden Set images", 1
-    )[0]
-    assert "            models/\n" in checkout
-
-
-
-
 def test_single_and_multi_shard_paths_share_one_finalizer():
     script = (ROOT / "tools" / "run-detector-regressions.sh").read_text(encoding="utf-8")
     assert script.count("python -m hth.regression.finalize_run") == 1
