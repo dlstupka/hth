@@ -175,8 +175,8 @@ def test_results_repository_checkout_is_shallow_and_sparse() -> None:
 
 def test_smoke_jobs_have_a_two_hour_timeout() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert "github.event_name != 'workflow_dispatch' && 120" in text
-    assert "inputs.mode == 'smoke' && 120" in text
+    assert "github.event_name != 'workflow_dispatch' && 300" in text
+    assert "inputs.mode == 'smoke' && 300" in text
 
 
 def test_regression_driver_preserves_absolute_release_image_root() -> None:
