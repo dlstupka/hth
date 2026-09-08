@@ -340,6 +340,40 @@ def _download_from_sources(sources, target, *, artifact, variant, validator=None
         f"All {artifact} download sources failed for {variant}: " + "; ".join(failures)
     )
 
+def _backfill_mirror_from_cache(mirror,artifact,*,variant,provenance,required_provenance):
+    mismatches=[]
+    for key,expected in required_provenance.items():
+        actual=provenance.get(key)
+        if actual != expected:
+            mismatches.append(f"{key}=expected {expected!r}, got {actual!r}")
+    if mismatches:
+        print(
+            f"Model mirror cache backfill skipped: variant={variant} artifact={Path(artifact).name} "
+            f"reason=incompatible-provenance details={'; '.join(mismatches)}"
+        )
+        return "skipped-incompatible-provenance"
+    authoritative_source={
+        "site":provenance.get("model_source_site") or "validated compatible cache",
+        "url":provenance.get("model_url"),
+        "reference":provenance.get("model_source_reference") or provenance.get("model_doi"),
+        "cache_provenance_sha256":_sha256(Path(artifact).with_name("model-provenance.json")),
+    }
+    try:
+        status=publish_mirror(
+            mirror,Path(artifact),authoritative_source=authoritative_source
+        )
+    except Exception as exc:
+        print(
+            f"::warning::Model mirror cache backfill failed: variant={variant} "
+            f"artifact={Path(artifact).name} error={type(exc).__name__}: {exc}"
+        )
+        return "failed"
+    print(
+        f"Model mirror cache backfill: variant={variant} artifact={Path(artifact).name} "
+        f"status={status}"
+    )
+    return status
+
 def _strip_named_layer(text,name):
     pattern=re.compile(r'layer\s*\{\s*name:\s*"'+re.escape(name)+r'".*?^\}',re.MULTILINE|re.DOTALL)
     return pattern.sub("",text)
@@ -854,6 +888,17 @@ def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
     )
     if problem is not None:
         raise RuntimeError(f"Orli base model cache validation failed after preparation: {problem}")
+    if complete and policy != "refresh":
+        _backfill_mirror_from_cache(
+            ORLI_MODEL_MIRROR,model,variant="orli_page_mask",provenance=payload,
+            required_provenance={
+                "model_id":ORLI_MODEL_ID,
+                "orli_version":ORLI_PACKAGE_VERSION,
+                "model_doi":ORLI_MODEL_DOI,
+                "license":ORLI_LICENSE,
+                "model_filename":model.name,
+            },
+        )
     env={"HTH_ORLI_PAGE_MODEL":model.resolve().as_posix(), "HTH_ORLI_PAGE_PROVENANCE":provenance.resolve().as_posix(), "CUDA_VISIBLE_DEVICES":"-1"}
     _write_env(env_file,env); os.environ.update(env)
     print(f"Orli Page-Mask ready: model={ORLI_MODEL_ID} orli={installed_version} model_sha256={str(payload.get('model_sha256') or '')[:12]}")

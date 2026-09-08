@@ -522,6 +522,7 @@ jobs:
             optimizer-predictions.json
             indexes/orli-evidence-index.json
             orli-evidence-index.json
+            models/
             source-documents
             learned-evidence/orli_page_mask
             ${{ env.GOLDEN_RELEASE_TAG == '' && env.IMAGE_ROOT || '' }}
