@@ -15,12 +15,16 @@ def _pages(result: dict[str, Any]) -> list[dict[str, Any]]:
     return [page for page in pages if isinstance(page, dict)] if isinstance(pages, list) else []
 
 
+def _is_successful_page(page: dict[str, Any]) -> bool:
+    return str(page.get("status") or "").strip().lower() in SUCCESS_STATUSES
+
+
 def result_success_count(result: dict[str, Any]) -> int:
     """Return the number of valid page measurements represented by a result."""
     pages = _pages(result)
     if pages:
         return sum(
-            str(page.get("status") or "").strip().lower() in SUCCESS_STATUSES
+            _is_successful_page(page)
             for page in pages
         )
     summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
@@ -59,10 +63,13 @@ def classify_measurements(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
     pages = [page for result in result_list for page in _pages(result)]
     successful = [
         page for page in pages
-        if str(page.get("status") or "").strip().lower() in SUCCESS_STATUSES
+        if _is_successful_page(page)
     ]
     positive = [page for page in successful if float(page.get("iou") or 0.0) > 0.0]
-    reasons = Counter(_failure_reason(page) for page in pages if page not in successful)
+    # Test status directly. Checking ``page not in successful`` performs a
+    # linear list search for every failed page and made merged exhaustive runs
+    # quadratic in their page-evidence count (870k rows could take >38 hours).
+    reasons = Counter(_failure_reason(page) for page in pages if not _is_successful_page(page))
     eligible_count = sum(is_winner_eligible(result) for result in result_list)
 
     legacy_positive = not pages and any(is_winner_eligible(result) for result in result_list)

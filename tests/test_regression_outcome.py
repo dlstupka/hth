@@ -62,3 +62,20 @@ def test_measurement_state_counts_all_pages_across_parameter_sets():
     assert state["eligible_parameter_set_count"] == 2
     assert state["successful_page_evaluation_count"] == 2
     assert state["positive_iou_page_evaluation_count"] == 1
+
+
+def test_failure_classification_does_not_compare_pages_by_list_membership():
+    class EqualityCountingPage(dict):
+        comparisons = 0
+
+        def __eq__(self, other):
+            type(self).comparisons += 1
+            return super().__eq__(other)
+
+    pages = [EqualityCountingPage(status="ok", iou=0.5) for _ in range(20)]
+    pages.extend(EqualityCountingPage(status="error", error={"type": "ValueError"}) for _ in range(20))
+
+    state = classify_measurements([_result("a", pages)])
+
+    assert state["failure_reason_counts"] == {"ValueError": 20}
+    assert EqualityCountingPage.comparisons == 0
