@@ -731,6 +731,13 @@ jobs:
 
       - name: Upload regression run
         if: ${{ always() }}
+        # The authoritative calibration payload is committed before this step.
+        # Action dependencies are downloaded before a composite action starts,
+        # so the retry wrapper cannot catch a transient codeload failure while
+        # resolving actions/upload-artifact itself.  Once durable persistence
+        # succeeded, treat that delivery-only failure as degraded, not as a
+        # failed detector regression.
+        continue-on-error: ${{ steps.persistence.outcome == 'success' }}
         uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
         with:
           name: detector-regression-${{ github.run_id }}-${{ matrix.detector }}

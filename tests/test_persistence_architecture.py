@@ -118,6 +118,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
         self.assertIn("::warning::Artifact service failed after three attempts", action)
         regression = (WORKFLOWS / "regress-detector.yml").read_text(encoding="utf-8")
         self.assertIn("durable-persistence-confirmed: ${{ steps.persistence.outcome == 'success' }}", regression)
+        self.assertIn("continue-on-error: ${{ steps.persistence.outcome == 'success' }}", regression)
 
     def test_prediction_observation_writer_migrates_through_canonical_index_boundary(self):
         with tempfile.TemporaryDirectory() as td:
