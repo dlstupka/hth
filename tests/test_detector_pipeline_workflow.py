@@ -137,7 +137,7 @@ def test_regression_output_is_cleaned_before_each_matrix_run():
 def test_regression_execution_can_populate_redundancy_mirror():
     text = WORKFLOW.read_text(encoding="utf-8")
     execute = text.split("- name: Run detector regressions", 1)[1]
-    assert "HTH_MIRROR_TOKEN: ${{ secrets.HTH_MIRROR_TOKEN }}" in execute.split("- name:", 1)[0]
+    assert "HTH_MIRROR_TOKEN: ${{ secrets.HTH_RELEASES_TOKEN }}" in execute.split("- name:", 1)[0]
 
 
 
