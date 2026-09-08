@@ -27,7 +27,7 @@ from .parameter_provenance import attach_identity, build_provenance
 from .reports import ranking_key, write_rankings
 from .strategies.cartesian import generate as cartesian_generate
 from .strategies.binary_refine import search as binary_search
-from .strategies.adaptive import search as adaptive_search
+from .strategies.adaptive import default_parameter_budget as adaptive_default_parameter_budget, search as adaptive_search
 from .progress import ProgressReporter
 from .performance import PerformanceSampler, peak_rss_bytes
 from .materialization import (
@@ -877,7 +877,7 @@ def print_parameter_scope(*, strategy: str, possible_sets: int, planned_sets: in
     label_width = max(len(label) for label, _ in rows)
     for label, value in rows:
         print(f"{label:<{label_width}} : {value}")
-    print("Search strategy legend   : exhaustive=live declared grid; adaptive=budgeted IoU-guided seed-grid search with optional bounded midpoint refinement; exhaustive-with-zombies=live grid plus retained zombie domains")
+    print("Search strategy legend   : exhaustive=live declared grid; adaptive=budgeted IoU-guided space-filling search with bounded global and multi-elite midpoint refinement; exhaustive-with-zombies=live grid plus retained zombie domains")
     print(" ")
 
 
@@ -1062,8 +1062,7 @@ def run(args:argparse.Namespace)->Path:
             and historic_best_distinct
         )
         adaptive_candidate_budget = min(
-            len(exhaustive_candidates),
-            int(config.get("adaptive_search", {}).get("max_parameter_sets", 64)),
+            adaptive_default_parameter_budget(config, len(exhaustive_candidates)),
             search_budget if search_budget is not None else len(exhaustive_candidates),
         ) if effective_strategy == "adaptive" else None
         planned_parameter_set_count=(

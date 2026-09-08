@@ -4,7 +4,7 @@ from pathlib import Path
 
 from hth.regression.parameter_space import adaptive_parameter_sets, exhaustive_parameter_sets
 from hth.regression.reports import ranking_key
-from hth.regression.strategies.adaptive import search
+from hth.regression.strategies.adaptive import default_parameter_budget, search
 
 
 def result(parameters, score):
@@ -99,6 +99,37 @@ class AdaptiveSearchTests(unittest.TestCase):
         self.assertGreater(outcome.telemetry["generated_refinement_parameter_sets"], 0)
         self.assertTrue(all(0.0 <= value <= 10.0 for value in evaluated_values))
 
+    def test_sparse_grid_gets_dynamic_refinement_without_detector_specific_opt_in(self):
+        config = {
+            "parameters": {
+                "x": {"type": "float", "values": [0.0, 4.0, 8.0]},
+                "y": {"type": "float", "values": [0.0, 4.0, 8.0]},
+                "z": {"type": "float", "values": [0.0, 4.0, 8.0]},
+            },
+            "profiles": {"baseline": {"x": 0.0, "y": 0.0, "z": 0.0}},
+        }
+
+        def evaluate_batch(parameters):
+            return [
+                result(row, 1.0 - abs(row["x"] - 6.0) * 0.1 - abs(row["y"] - 4.0) * 0.01 - abs(row["z"] - 4.0) * 0.01)
+                for row in parameters
+            ]
+
+        outcome = search(
+            config,
+            adaptive_parameter_sets(config),
+            evaluate_batch,
+            ranking_key,
+            seed_results=[result(config["profiles"]["baseline"], 0.0)],
+        )
+
+        self.assertIn(6.0, outcome.telemetry["generated_values"]["x"])
+        self.assertEqual(outcome.results[0]["parameters"].keys(), config["parameters"].keys())
+        self.assertEqual(
+            max(row["summary"]["mean_iou"] for row in outcome.results),
+            1.0,
+        )
+
 
 class Gen3AdaptiveConfigurationTests(unittest.TestCase):
     def test_gen3_retains_small_exhaustive_oracle_and_declares_dense_adaptive_space(self):
@@ -107,6 +138,11 @@ class Gen3AdaptiveConfigurationTests(unittest.TestCase):
         self.assertEqual(len(adaptive_parameter_sets(config)), 2340)
         self.assertEqual(config["adaptive_search"]["max_parameter_sets"], 48)
         self.assertIn(0.8, config["parameters"]["maximum_amsre_refined_support_fraction"]["adaptive_values"])
+
+    def test_shared_default_budget_scales_with_numeric_dimensions(self):
+        config = json.loads(Path("config/detectors/page_background.json").read_text(encoding="utf-8"))
+        candidates = adaptive_parameter_sets(config)
+        self.assertEqual(default_parameter_budget(config, len(candidates)), 120)
 
 
 if __name__ == "__main__":
