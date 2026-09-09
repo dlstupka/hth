@@ -884,6 +884,24 @@ for worker_pid in "${worker_pids[@]}"; do
 done
 printf 'end\t%s\n' "$(date +%s.%N)" >> "$telemetry_root/batch.tsv"
 
+# Validate the worker queue before consuming per-task run directories.  When a
+# detector command fails it intentionally has no completed run-directory
+# marker; attempting finalization first masks that original failure as a
+# misleading "Missing completed shard" error.
+while IFS= read -r queue_file; do
+  cat "$queue_file"
+done < <(find "$queue_dir/logs" -maxdepth 1 -type f -name '*.log' | sort) \
+  > "$OUTPUT_DIR/runner-output.log"
+
+completed_count="$(find "$queue_dir/done" -maxdepth 1 -type f | wc -l | tr -d ' ')"
+failed_count="$(find "$queue_dir/failed" -maxdepth 1 -type f | wc -l | tr -d ' ')"
+echo "Detector queue complete: $completed_count completed, $failed_count failed."
+
+if (( queue_failed != 0 || failed_count != 0 || completed_count != ${#detector_configs[@]} )); then
+  echo "::error::Detector pipeline queue did not complete successfully"
+  exit 1
+fi
+
 if [[ "${DETECTOR_ALGORITHM,,}" == "all" ]]; then
   multidetector_observation_id="${GITHUB_RUN_ID:-local}:${GITHUB_RUN_ATTEMPT:-1}:${REGRESSION_MODE}:${effective_strategy}:${detector_count}"
   python -m hth.multidetector_store finalize \
@@ -988,20 +1006,6 @@ PYOUTCOME
   fi
   rm -rf "$finalization_root"
 done
-while IFS= read -r queue_file; do
-  cat "$queue_file"
-done < <(find "$queue_dir/logs" -maxdepth 1 -type f -name '*.log' | sort) \
-  > "$OUTPUT_DIR/runner-output.log"
-
-completed_count="$(find "$queue_dir/done" -maxdepth 1 -type f | wc -l | tr -d ' ')"
-failed_count="$(find "$queue_dir/failed" -maxdepth 1 -type f | wc -l | tr -d ' ')"
-echo "Detector queue complete: $completed_count completed, $failed_count failed."
-
-if (( queue_failed != 0 || failed_count != 0 || completed_count != ${#detector_configs[@]} )); then
-  echo "::error::Detector pipeline queue did not complete successfully"
-  exit 1
-fi
-
 # Finalize each detector exactly once after all of its shards/runs are complete.
 for detector_config in "${lifecycle_configs[@]}"; do
   python -m hth.detector_lifecycle finalize-config \

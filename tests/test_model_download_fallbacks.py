@@ -42,6 +42,25 @@ class ModelDownloadFallbackTests(unittest.TestCase):
             self.assertFalse((root / "partial.bin").exists())
             self.assertEqual((root / "model.bin").read_bytes(), b"verified")
 
+    def test_model_bundle_restore_validates_extracted_contents_before_install(self):
+        bundle = MirrorArtifact("owner/mirror", "TAG", "model.zip", "model", "upstream", "ref", "MIT")
+
+        def restore(_spec, target, *, fetch, validator):
+            with zipfile.ZipFile(target, "w") as archive:
+                archive.writestr("model-provenance.json", "{}")
+                archive.writestr("saved_model.pb", b"corrupt")
+            validator(target)
+
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "hth.detector_lifecycle.download_mirror", side_effect=restore
+        ):
+            root = Path(temp) / "model"
+            accepted = _restore_model_bundle_from_mirror(
+                bundle, root, root_validator=lambda _root: (_ for _ in ()).throw(RuntimeError("bad model"))
+            )
+        self.assertFalse(accepted)
+        self.assertFalse(root.exists())
+
     def test_fresh_model_bundle_is_published_without_runtime_bytecode(self):
         bundle = MirrorArtifact("owner/mirror", "TAG", "model.zip", "model", "upstream", "ref", "MIT")
         members = []

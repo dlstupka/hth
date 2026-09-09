@@ -99,6 +99,13 @@ def test_execution_summary_and_merge_use_canonical_detector_shard_and_budget_cou
     assert 'Missing completed shard' in text
 
 
+def test_worker_queue_is_validated_before_shard_finalization() -> None:
+    text = DRIVER.read_text(encoding="utf-8")
+    queue_failure = text.index('Detector pipeline queue did not complete successfully')
+    shard_finalization = text.index('# Finalize each detector exactly once')
+    assert queue_failure < shard_finalization
+
+
 def test_preferred_shape_resolution_falls_back_to_auto_and_exact_shape_is_explicit() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "Resolve regression execution shape" in text

@@ -29,7 +29,8 @@ class DhSegmentRuntimeQuietingTests(unittest.TestCase):
             }
             try:
                 with patch.object(lifecycle, "_download", side_effect=fake_download), \
-                     patch.object(lifecycle.importlib.util, "find_spec", return_value=object()):
+                     patch.object(lifecycle.importlib.util, "find_spec", return_value=object()), \
+                     patch.object(lifecycle, "_validate_dhsegment_saved_model"):
                     lifecycle._prepare_dhsegment_page_mask_hook(
                         results_root=root,
                         policy="reuse",

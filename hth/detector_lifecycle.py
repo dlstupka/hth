@@ -502,7 +502,7 @@ def _log_model_cache_provenance(model_id, provenance, payload):
         f"source_reference={source.get('reference') or 'unknown'} sha256={sha}"
     )
 
-def _restore_model_bundle_from_mirror(spec, root):
+def _restore_model_bundle_from_mirror(spec, root, *, root_validator=None):
     """Restore one verified model-directory bundle; leave no partial cache behind."""
     root=Path(root)
     root.parent.mkdir(parents=True,exist_ok=True)
@@ -515,6 +515,8 @@ def _restore_model_bundle_from_mirror(spec, root):
             _safe_extract_zip(archive,restored)
             if not (restored/"model-provenance.json").is_file():
                 raise RuntimeError("mirror bundle contains no model-provenance.json")
+            if root_validator is not None:
+                root_validator(restored)
             if root.exists():
                 shutil.rmtree(root)
             restored.replace(root)
@@ -716,6 +718,41 @@ def _find_saved_model(root):
         raise RuntimeError(f"dhSegment release contains no TensorFlow SavedModel beneath {root}")
     return candidates[0]
 
+
+def _validate_dhsegment_saved_model(model_dir):
+    """Load the SavedModel graph so pointer/truncated files never reach a run."""
+    import tensorflow as tf
+
+    graph=tf.Graph()
+    session=tf.compat.v1.Session(graph=graph)
+    try:
+        with graph.as_default():
+            meta_graph=tf.compat.v1.saved_model.loader.load(
+                session,
+                [tf.compat.v1.saved_model.tag_constants.SERVING],
+                str(Path(model_dir)),
+            )
+        if not meta_graph.signature_def:
+            raise RuntimeError("dhSegment SavedModel has no serving signatures")
+    except Exception as exc:
+        raise RuntimeError(f"dhSegment SavedModel cannot be loaded: {exc}") from exc
+    finally:
+        session.close()
+
+
+def _validate_dhsegment_cache_root(root):
+    root=Path(root)
+    provenance=root/"model-provenance.json"
+    payload=json.loads(provenance.read_text(encoding="utf-8"))
+    model_dir=root/str(payload["saved_model_relative_path"])
+    saved_model=model_dir/"saved_model.pb"
+    if not saved_model.is_file():
+        raise RuntimeError("dhSegment SavedModel is missing")
+    expected_sha=payload.get("saved_model_sha256")
+    if expected_sha and _sha256(saved_model) != expected_sha:
+        raise RuntimeError("dhSegment saved_model.pb SHA mismatch")
+    _validate_dhsegment_saved_model(model_dir)
+
 def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
     if policy not in {"reuse","refresh"}:
         raise ValueError(f"Unsupported lifecycle policy: {policy}")
@@ -731,10 +768,22 @@ def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
     provenance=root/"model-provenance.json"
 
     complete=provenance.is_file() and extracted.is_dir()
+    if complete and policy != "refresh":
+        try:
+            _validate_dhsegment_cache_root(root)
+        except Exception as exc:
+            _log_cache_repair(
+                detector="dhsegment_page_mask", artifact="saved_model.pb", path=root,
+                reason=f"{type(exc).__name__}: {exc}",
+            )
+            shutil.rmtree(root)
+            complete=False
     _log_model_cache_lookup(DHSEGMENT_MODEL_ID,root,provenance,complete)
     prepared_fresh=False
     if policy!="refresh" and not complete:
-        _restore_model_bundle_from_mirror(DHSEGMENT_MODEL_MIRROR,root)
+        _restore_model_bundle_from_mirror(
+            DHSEGMENT_MODEL_MIRROR,root,root_validator=_validate_dhsegment_cache_root,
+        )
         complete=provenance.is_file() and extracted.is_dir()
     if policy=="refresh" or not complete:
         prepared_fresh=True
@@ -746,6 +795,7 @@ def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
             shutil.rmtree(extracted)
         _safe_extract_zip(archive,extracted)
         model_dir=_find_saved_model(extracted)
+        _validate_dhsegment_saved_model(model_dir)
         payload={
             "schema_version":"1.0",
             "model_id":DHSEGMENT_MODEL_ID,
@@ -757,6 +807,7 @@ def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
             "model_source":model_source,
             "registered_model_sources":[{"site":x.site,"url":x.url,"reference":x.reference} for x in DHSEGMENT_MODEL_SOURCES],
             "archive_sha256":_sha256(archive),
+            "saved_model_sha256":_sha256(model_dir/"saved_model.pb"),
             "saved_model_relative_path":model_dir.relative_to(root).as_posix(),
             "prepared_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),
             "inference_backend":"tensorflow-savedmodel",
@@ -771,6 +822,8 @@ def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
     model_dir=root/str(payload["saved_model_relative_path"])
     if not (model_dir/"saved_model.pb").is_file():
         raise RuntimeError("dhSegment SavedModel is missing after preparation")
+    if payload.get("saved_model_sha256") and payload["saved_model_sha256"] != _sha256(model_dir/"saved_model.pb"):
+        raise RuntimeError("dhSegment saved_model.pb SHA mismatch after preparation")
     if prepared_fresh:
         _publish_model_bundle_to_mirror(DHSEGMENT_MODEL_MIRROR,root,model_source)
     else:
