@@ -1,12 +1,13 @@
 # detector lifecycle
 from __future__ import annotations
-import argparse, hashlib, importlib.metadata, importlib.resources, importlib.util, json, os, re, shlex, shutil, struct, tempfile, time, urllib.error, urllib.request, zipfile
+import argparse, hashlib, importlib.metadata, importlib.resources, importlib.util, json, logging, os, re, shlex, shutil, struct, tempfile, time, urllib.error, urllib.request, zipfile
 import cv2
 import numpy as np
 from datetime import datetime, timezone
 from pathlib import Path
 from hth.model_variants import ModelSource, resolve_model_variant
 from hth.network_retry import is_transient_network_error
+from hth.thread_safe_stderr import suppress_native_stderr
 from hth.artifact_mirror import (
     MirrorArtifact,
     download as download_mirror,
@@ -151,6 +152,17 @@ DOCEXTRACTOR_MODEL_MIRROR=MirrorArtifact(
     "docextractor-default-icfhr2020.zip", DOCEXTRACTOR_MODEL_ID,
     DOCEXTRACTOR_REPOSITORY, "1.1", DOCEXTRACTOR_LICENSE,
 )
+
+MODEL_PROVENANCE_FALLBACKS={
+    PAGENET_MODEL_ID:{"site":"GitHub / PageNet","url":PAGENET_WEIGHTS_URL,"reference":"master"},
+    DHSEGMENT_MODEL_ID:{"site":"GitHub Releases / dhSegment","url":DHSEGMENT_MODEL_URL,"reference":"v0.2"},
+    KRAKEN_MODEL_ID:{"site":"installed Kraken package resource","url":f"https://pypi.org/project/kraken/{KRAKEN_PACKAGE_VERSION}/","reference":KRAKEN_PACKAGE_VERSION},
+    ORLI_MODEL_ID:{"site":"Zenodo record download","url":ORLI_MODEL_URL,"reference":ORLI_MODEL_DOI},
+    DOC_UFCN_MODEL_ID:{"site":"Hugging Face / Teklia","url":DOC_UFCN_MODEL_URL,"reference":"main"},
+    MASK_RCNN_MODEL_ID:{"site":"Hugging Face / LayoutParser","url":MASK_RCNN_MODEL_URL,"reference":"main"},
+    EYNOLLAH_MODEL_ID:{"site":"Hugging Face / SBB","url":f"{EYNOLLAH_HF_REPOSITORY}/resolve/main/saved_model.pb","reference":"main"},
+    DOCEXTRACTOR_MODEL_ID:{"site":"ENPC / docExtractor","url":DOCEXTRACTOR_MODEL_URL,"reference":"ICFHR2020"},
+}
 
 def _sha256(path):
     h=hashlib.sha256()
@@ -457,6 +469,7 @@ def _log_model_cache_lookup(model_id, root, provenance, complete):
 
 def _provenance_source(payload):
     candidates=[
+        payload.get("artifact_source"),
         payload.get("model_source"), payload.get("weights_source"),
         payload.get("prototxt_source"), payload.get("parameters_source"),
         payload.get("source_source"),
@@ -467,13 +480,68 @@ def _provenance_source(payload):
             meta.get("source") for meta in files.values() if isinstance(meta,dict)
         )
     for source in candidates:
-        if isinstance(source,dict) and source.get("site"):
-            return source
-    return {
+        if (
+            isinstance(source,dict) and source.get("site")
+            and source.get("url") and source.get("reference")
+        ):
+            return {
+                **source,
+                "provenance_status":source.get("provenance_status") or "selected-download",
+            }
+    # Older seeded manifests recorded the allowed source lists but not the
+    # selected-source object.  A sole registered source is unambiguous; do not
+    # make this inference when the manifest lists multiple alternatives.
+    for key in (
+        "registered_model_sources", "registered_weights_sources",
+        "registered_prototxt_sources",
+    ):
+        registered=payload.get(key)
+        if (
+            isinstance(registered,list) and len(registered) == 1
+            and isinstance(registered[0],dict) and registered[0].get("site")
+        ):
+            return {
+                **registered[0],
+                "provenance_status":"known-authoritative-source",
+            }
+    fallback={
         "site":payload.get("model_source_site") or "recorded-provenance",
-        "url":payload.get("model_url") or payload.get("upstream_repository"),
-        "reference":payload.get("model_source_reference") or payload.get("model_doi"),
+        "url":(
+            payload.get("model_url") or payload.get("weights_url")
+            or payload.get("upstream_repository")
+        ),
+        "reference":(
+            payload.get("model_source_reference")
+            or payload.get("model_doi")
+            or payload.get("model_release_version")
+            or payload.get("doc_ufcn_version")
+            or payload.get("orli_version")
+        ),
+        "provenance_status":"legacy-recorded-fields",
     }
+    if fallback["url"] and fallback["reference"]:
+        return fallback
+    defined=MODEL_PROVENANCE_FALLBACKS.get(payload.get("model_id"))
+    if defined:
+        return {**defined,"provenance_status":"known-authoritative-source"}
+    return {
+        "site":fallback["site"] or "unclassified legacy model provenance",
+        "url":fallback["url"] or "not-recorded",
+        "reference":fallback["reference"] or payload.get("schema_version") or "not-recorded",
+        "provenance_status":"legacy-manifest-incomplete",
+    }
+
+
+def _write_model_provenance(path, payload):
+    """Persist a canonical primary-artifact origin plus per-file provenance."""
+    path=Path(path)
+    source=_provenance_source(payload)
+    payload["artifact_source"]={
+        key:source[key]
+        for key in ("site","url","reference","provenance_status")
+    }
+    path.parent.mkdir(parents=True,exist_ok=True)
+    path.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
 
 
 def _log_model_cache_fill(model_id, root, provenance, payload):
@@ -481,7 +549,8 @@ def _log_model_cache_fill(model_id, root, provenance, payload):
     origin="local-artifact-cache" if source.get("site") == "cache" else "authoritative"
     print(
         f"Model cache fill: model={model_id} source={origin} "
-        f"site={source.get('site') or 'unknown'} reference={source.get('reference') or 'unknown'} "
+        f"site={source['site']} url={source['url']} reference={source['reference']} "
+        f"source_record={source['provenance_status']} "
         f"path={Path(root)} provenance={Path(provenance)}"
     )
 
@@ -498,8 +567,8 @@ def _log_model_cache_provenance(model_id, provenance, payload):
             sha=str(saved_model["sha256"])
     print(
         f"Model cache provenance: model={model_id} manifest={Path(provenance)} "
-        f"source_site={source.get('site') or 'unknown'} "
-        f"source_reference={source.get('reference') or 'unknown'} sha256={sha}"
+        f"source_site={source['site']} source_url={source['url']} "
+        f"source_reference={source['reference']} source_record={source['provenance_status']} sha256={sha}"
     )
 
 def _restore_model_bundle_from_mirror(spec, root, *, root_validator=None):
@@ -558,15 +627,7 @@ def _publish_model_bundle_to_mirror(spec, root, authoritative_source):
 
 
 def _cache_backfill_source(payload):
-    source=payload.get("model_source")
-    if isinstance(source,dict) and source.get("site") not in {None,"cache"}:
-        selected=dict(source)
-    else:
-        selected={
-            "site":payload.get("model_source_site") or "validated persistent runner cache",
-            "url":payload.get("model_url") or payload.get("upstream_repository"),
-            "reference":payload.get("model_source_reference") or payload.get("model_doi"),
-        }
+    selected=dict(_provenance_source(payload))
     selected["cache_backfill"]=True
     selected["model_id"]=payload.get("model_id")
     return selected
@@ -647,7 +708,7 @@ def prepare_detector_legacy(detector,*,results_root,policy="reuse",github_env=No
             "train_prototxt_sha256":_sha256(train),"deploy_prototxt_sha256":_sha256(deploy),
             "weights_sha256":_sha256(weights),"inference_backend":"opencv-dnn-caffe",
             "input_contract":"BGR 256x256; 0.0039 * (pixel - 127)","output_blob":"out"}
-        provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+        _write_model_provenance(provenance,payload)
         _log_model_cache_fill(PAGENET_MODEL_ID,root,provenance,payload)
     payload=json.loads(provenance.read_text(encoding="utf-8"))
     if payload["deploy_prototxt_sha256"]!=_sha256(deploy): raise RuntimeError("deploy prototxt SHA mismatch")
@@ -721,22 +782,33 @@ def _find_saved_model(root):
 
 def _validate_dhsegment_saved_model(model_dir):
     """Load the SavedModel graph so pointer/truncated files never reach a run."""
+    # These must precede the first TensorFlow import. Keep oneDNN enabled for
+    # canonical CPU performance while suppressing informational native logs.
+    os.environ["TF_ENABLE_ONEDNN_OPTS"]="1"
+    os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
+    os.environ["ABSL_MIN_LOG_LEVEL"]="3"
+    os.environ["GLOG_minloglevel"]="3"
     import tensorflow as tf
 
     graph=tf.Graph()
     session=tf.compat.v1.Session(graph=graph)
+    tf_logger=tf.get_logger()
+    previous_level=tf_logger.level
     try:
-        with graph.as_default():
-            meta_graph=tf.compat.v1.saved_model.loader.load(
-                session,
-                [tf.compat.v1.saved_model.tag_constants.SERVING],
-                str(Path(model_dir)),
-            )
+        tf_logger.setLevel(logging.ERROR)
+        with suppress_native_stderr():
+            with graph.as_default():
+                meta_graph=tf.compat.v1.saved_model.loader.load(
+                    session,
+                    [tf.compat.v1.saved_model.tag_constants.SERVING],
+                    str(Path(model_dir)),
+                )
         if not meta_graph.signature_def:
             raise RuntimeError("dhSegment SavedModel has no serving signatures")
     except Exception as exc:
         raise RuntimeError(f"dhSegment SavedModel cannot be loaded: {exc}") from exc
     finally:
+        tf_logger.setLevel(previous_level)
         session.close()
 
 
@@ -813,7 +885,7 @@ def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
             "inference_backend":"tensorflow-savedmodel",
             "serving_contract":"filename -> probs, original_shape",
         }
-        provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+        _write_model_provenance(provenance,payload)
         _log_model_cache_fill(DHSEGMENT_MODEL_ID,root,provenance,payload)
 
     payload=json.loads(provenance.read_text(encoding="utf-8"))
@@ -836,6 +908,7 @@ def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
         # dhSegment v0.2 is CPU inference in HTH. Keep TensorFlow/absl legacy
         # loader chatter out of regression logs while preserving HTH diagnostics.
         "TF_CPP_MIN_LOG_LEVEL":"3",
+        "TF_ENABLE_ONEDNN_OPTS":"1",
         "ABSL_MIN_LOG_LEVEL":"3",
         "GLOG_minloglevel":"3",
         "CUDA_VISIBLE_DEVICES":"-1",
@@ -899,6 +972,11 @@ def _prepare_kraken_page_mask_hook(*,results_root,policy,env_file):
             "model_family":"Kraken BLLA",
             "variant":"bundled default baseline/region segmentation model",
             "kraken_version":installed_version,
+            "model_source":{
+                "site":"installed Kraken package resource",
+                "url":f"https://pypi.org/project/kraken/{installed_version}/",
+                "reference":installed_version,
+            },
             "upstream_repository":KRAKEN_REPOSITORY,
             "license":KRAKEN_LICENSE,
             "model_filename":"blla.mlmodel",
@@ -908,7 +986,7 @@ def _prepare_kraken_page_mask_hook(*,results_root,policy,env_file):
             "serving_contract":"PIL image -> Segmentation(regions, lines)",
             "device":"cpu",
         }
-        provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+        _write_model_provenance(provenance,payload)
         _log_model_cache_fill(KRAKEN_MODEL_ID,root,provenance,payload)
 
     payload=json.loads(provenance.read_text(encoding="utf-8"))
@@ -999,7 +1077,7 @@ def _prepare_mask_rcnn_page_mask_hook(*,results_root,policy,env_file):
             "inference_backend":"detectron2-default-predictor","serving_contract":"BGR image -> Mask R-CNN instances",
             "training_domain":"HJDataset historical Japanese documents","device":"cpu",
         }
-        provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+        _write_model_provenance(provenance,payload)
         _log_model_cache_fill(variant.model_id,root,provenance,payload)
     payload=json.loads(provenance.read_text(encoding="utf-8"))
     if payload.get("model_sha256") != _sha256(model): raise RuntimeError("Mask R-CNN HJDataset model SHA mismatch")
@@ -1091,7 +1169,7 @@ def _prepare_doc_ufcn_page_mask_hook(*,results_root,policy,env_file):
             "serving_contract":"RGB image -> class page polygons",
             "device":"cpu",
         }
-        provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+        _write_model_provenance(provenance,payload)
         _log_model_cache_fill(DOC_UFCN_MODEL_ID,root,provenance,payload)
     payload=json.loads(provenance.read_text(encoding="utf-8"))
     if payload.get("model_sha256") != _sha256(model):
@@ -1190,7 +1268,7 @@ def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
             "inference_backend":"orli.pred.segment", "serving_contract":"PIL image -> ordered baseline segmentation",
             "device":"cpu",
         }
-        provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+        _write_model_provenance(provenance,payload)
         _log_model_cache_fill(ORLI_MODEL_ID,root,provenance,payload)
     else:
         payload=json.loads(provenance.read_text(encoding="utf-8"))
@@ -1271,7 +1349,7 @@ def _prepare_eynollah_page_mask_hook(*,results_root,policy,env_file):
                 f"Eynollah saved_model.pb SHA mismatch: expected {EYNOLLAH_SAVED_MODEL_SHA256}, found {saved_model_sha256}"
             )
         payload={"schema_version":"1.0","model_id":EYNOLLAH_MODEL_ID,"model_family":"Eynollah","variant":"page-extraction/2021-04-25","upstream_repository":EYNOLLAH_REPOSITORY,"model_repository":EYNOLLAH_HF_REPOSITORY,"license":EYNOLLAH_LICENSE,"expected_saved_model_sha256":EYNOLLAH_SAVED_MODEL_SHA256,"prepared_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),"files":{rel:{"sha256":_sha256(model_dir/rel),"source":used[rel]} for rel in files},"inference_backend":"tensorflow-savedmodel-cpu"}
-        provenance.parent.mkdir(parents=True,exist_ok=True); provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+        _write_model_provenance(provenance,payload)
         _log_model_cache_fill(EYNOLLAH_MODEL_ID,root,provenance,payload)
     payload=json.loads(provenance.read_text(encoding="utf-8"))
     for rel,meta in payload.get("files",{}).items():
@@ -1325,7 +1403,7 @@ def _prepare_docextractor_page_mask_hook(*,results_root,policy,env_file):
         if not extracted_dirs: raise RuntimeError("docExtractor source archive is empty")
         repo_dir=extracted_dirs[0]
         payload={"schema_version":"1.1","model_id":DOCEXTRACTOR_MODEL_ID,"model_family":"docExtractor ResUNet","upstream_repository":DOCEXTRACTOR_REPOSITORY,"license":DOCEXTRACTOR_LICENSE,"source_archive_sha256":_sha256(source_archive),"model_archive_sha256":_sha256(model_archive),"model_sha256":_sha256(model_path),"model_relative_path":model_path.relative_to(root).as_posix(),"source_relative_path":repo_dir.relative_to(root).as_posix(),"source_source":source_source,"model_source":model_source,"registered_source_sources":[{"site":x.site,"url":x.url,"reference":x.reference} for x in DOCEXTRACTOR_SOURCE_SOURCES],"registered_model_sources":[{"site":x.site,"url":x.url,"reference":x.reference} for x in DOCEXTRACTOR_MODEL_SOURCES],"prepared_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),"inference_backend":"pytorch-cpu"}
-        provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+        _write_model_provenance(provenance,payload)
         _log_model_cache_fill(DOCEXTRACTOR_MODEL_ID,root,provenance,payload)
     payload=json.loads(provenance.read_text(encoding="utf-8")); model_path=root/payload["model_relative_path"]; repo_dir=root/payload["source_relative_path"]
     if _sha256(model_path)!=payload.get("model_sha256"): raise RuntimeError("docExtractor model SHA mismatch")

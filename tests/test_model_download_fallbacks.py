@@ -12,16 +12,85 @@ from unittest.mock import patch
 from hth.artifact_mirror import MirrorArtifact
 from hth.detector_lifecycle import (
     MODEL_DOWNLOAD_SOURCE_LIMIT,
+    MODEL_PROVENANCE_FALLBACKS,
     _download_from_sources,
+    _provenance_source,
     _publish_model_bundle_to_mirror,
     _publish_cached_model_bundle_if_missing,
     _restore_model_bundle_from_mirror,
+    _write_model_provenance,
 )
 from hth.model_variants import ModelSource
 
 
 class ModelDownloadFallbackTests(unittest.TestCase):
     mirror = MirrorArtifact("owner/mirror", "HTH-MIRROR-TEST", "model.pth", "model", "upstream", "ref", "MIT")
+
+    def test_legacy_provenance_uses_recorded_model_release_as_reference(self):
+        source = _provenance_source({
+            "model_url": "https://example.invalid/model.pth",
+            "model_release_version": "0.0.2",
+        })
+        self.assertEqual(source["site"], "recorded-provenance")
+        self.assertEqual(source["reference"], "0.0.2")
+
+    def test_legacy_pagenet_provenance_uses_sole_registered_source(self):
+        source = _provenance_source({
+            "weights_sha256": "abc",
+            "registered_weights_sources": [{
+                "site": "GitHub / PageNet",
+                "url": "https://raw.githubusercontent.com/ctensmeyer/pagenet/master/model",
+                "reference": "master",
+            }],
+        })
+        self.assertEqual(source["site"], "GitHub / PageNet")
+        self.assertEqual(source["reference"], "master")
+
+    def test_legacy_kraken_provenance_identifies_bundled_package_resource(self):
+        source = _provenance_source({
+            "model_id": "kraken-blla-default-7.0.2",
+            "kraken_version": "7.0.2",
+            "upstream_repository": "https://github.com/mittagessen/kraken",
+        })
+        self.assertEqual(source["site"], "installed Kraken package resource")
+        self.assertEqual(source["url"], "https://pypi.org/project/kraken/7.0.2/")
+        self.assertEqual(source["reference"], "7.0.2")
+
+    def test_multiple_registered_sources_are_not_reported_as_selected(self):
+        source = _provenance_source({
+            "model_release_version": "0.0.2",
+            "registered_model_sources": [
+                {"site": "primary", "reference": "main"},
+                {"site": "fallback", "reference": "commit"},
+            ],
+        })
+        self.assertEqual(source["site"], "recorded-provenance")
+        self.assertEqual(source["reference"], "0.0.2")
+
+    def test_every_registered_model_has_complete_legacy_fallback_provenance(self):
+        self.assertEqual(len(MODEL_PROVENANCE_FALLBACKS), 8)
+        for model_id, expected in MODEL_PROVENANCE_FALLBACKS.items():
+            source = _provenance_source({"model_id": model_id})
+            self.assertEqual(source["site"], expected["site"])
+            self.assertTrue(source["url"], model_id)
+            self.assertTrue(source["reference"], model_id)
+            self.assertEqual(source["provenance_status"], "known-authoritative-source")
+
+    def test_new_provenance_persists_selected_source_url_and_reference(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "model-provenance.json"
+            _write_model_provenance(path, {
+                "model_id": "test-model",
+                "model_source": {
+                    "site": "authoritative",
+                    "url": "https://example.invalid/exact-model.bin",
+                    "reference": "commit-sha",
+                },
+            })
+            payload = __import__("json").loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["artifact_source"]["url"], "https://example.invalid/exact-model.bin")
+        self.assertEqual(payload["artifact_source"]["reference"], "commit-sha")
+        self.assertEqual(payload["artifact_source"]["provenance_status"], "selected-download")
 
     def test_model_bundle_restore_replaces_partial_cache(self):
         bundle = MirrorArtifact("owner/mirror", "TAG", "model.zip", "model", "upstream", "ref", "MIT")

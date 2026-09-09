@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Canonical TensorFlow CPU policy. oneDNN remains enabled for performance;
+# routine native startup notices stay out of preflight logs.
+export TF_ENABLE_ONEDNN_OPTS=1
+export TF_CPP_MIN_LOG_LEVEL=3
+export ABSL_MIN_LOG_LEVEL=3
+export GLOG_minloglevel=3
+
 : "${HTH_VENV:?HTH_VENV is required}"
 : "${HTH_BOOTSTRAP_PYTHON:?HTH_BOOTSTRAP_PYTHON is required}"
 

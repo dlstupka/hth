@@ -22,6 +22,7 @@ class DhSegmentRuntimeQuietingTests(unittest.TestCase):
                 key: os.environ.get(key)
                 for key in (
                     "TF_CPP_MIN_LOG_LEVEL",
+                    "TF_ENABLE_ONEDNN_OPTS",
                     "ABSL_MIN_LOG_LEVEL",
                     "GLOG_minloglevel",
                     "CUDA_VISIBLE_DEVICES",
@@ -37,6 +38,7 @@ class DhSegmentRuntimeQuietingTests(unittest.TestCase):
                         env_file=None,
                     )
                 self.assertEqual(os.environ["TF_CPP_MIN_LOG_LEVEL"], "3")
+                self.assertEqual(os.environ["TF_ENABLE_ONEDNN_OPTS"], "1")
                 self.assertEqual(os.environ["ABSL_MIN_LOG_LEVEL"], "3")
                 self.assertEqual(os.environ["GLOG_minloglevel"], "3")
                 self.assertEqual(os.environ["CUDA_VISIBLE_DEVICES"], "-1")
@@ -61,6 +63,22 @@ class DhSegmentRuntimeQuietingTests(unittest.TestCase):
             text = Path(rel).read_text(encoding="utf-8")
             self.assertIn("uses: ./hth-pipeline/.github/actions/setup-hth-managed-runtime", text, rel)
             self.assertIn("need-dhsegment:", text, rel)
+
+    def test_managed_runtime_quiets_tensorflow_without_disabling_onednn(self):
+        manager = Path("tools/ensure-managed-runtime.sh").read_text(encoding="utf-8")
+        action = Path(".github/actions/setup-hth-managed-runtime/action.yml").read_text(encoding="utf-8")
+        for text in (manager, action):
+            self.assertIn("TF_ENABLE_ONEDNN_OPTS=1", text)
+            self.assertIn("TF_CPP_MIN_LOG_LEVEL=3", text)
+            self.assertIn("ABSL_MIN_LOG_LEVEL=3", text)
+            self.assertIn("GLOG_minloglevel=3", text)
+
+    def test_saved_model_validator_suppresses_legacy_loader_chatter(self):
+        text = Path("hth/detector_lifecycle.py").read_text(encoding="utf-8")
+        validator = text.split("def _validate_dhsegment_saved_model", 1)[1].split("def ", 1)[0]
+        self.assertIn("tf_logger.setLevel(logging.ERROR)", validator)
+        self.assertIn("with suppress_native_stderr():", validator)
+        self.assertIn("tf_logger.setLevel(previous_level)", validator)
 
     def test_legacy_loader_suppresses_python_warning_chatter_locally(self):
         text = Path("hth/geometry/detector_dhsegment_page_mask.py").read_text(encoding="utf-8")

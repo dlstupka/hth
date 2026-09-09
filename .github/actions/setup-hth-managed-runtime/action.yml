@@ -53,6 +53,10 @@ runs:
         fi
         mkdir -p "$model_cache_root"
         echo "HTH_MODEL_CACHE_ROOT=$model_cache_root" >> "$GITHUB_ENV"
+        echo "TF_ENABLE_ONEDNN_OPTS=1" >> "$GITHUB_ENV"
+        echo "TF_CPP_MIN_LOG_LEVEL=3" >> "$GITHUB_ENV"
+        echo "ABSL_MIN_LOG_LEVEL=3" >> "$GITHUB_ENV"
+        echo "GLOG_minloglevel=3" >> "$GITHUB_ENV"
         echo "Detector model cache: $model_cache_root"
 
     - name: Verify / Install complete managed runtime
