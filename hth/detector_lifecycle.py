@@ -20,6 +20,10 @@ PAGENET_PROTOTXT_SOURCES=(
 PAGENET_WEIGHTS_SOURCES=(
     ModelSource("GitHub / PageNet", PAGENET_WEIGHTS_URL, "master"),
 )
+PAGENET_MODEL_MIRROR=MirrorArtifact(
+    "dlstupka/hth-mirror", "HTH-MIRROR-PAGENET-OHIO", "pagenet-ohio.zip",
+    PAGENET_MODEL_ID, PAGENET_REPOSITORY, "1.0", PAGENET_LICENSE,
+)
 
 DHSEGMENT_REPOSITORY="https://github.com/dhlab-epfl/dhSegment"
 DHSEGMENT_LICENSE="GPL-3.0"
@@ -33,6 +37,11 @@ KRAKEN_REPOSITORY="https://github.com/mittagessen/kraken"
 KRAKEN_LICENSE="Apache-2.0"
 KRAKEN_PACKAGE_VERSION="7.0.2"
 KRAKEN_MODEL_ID="kraken-blla-default-7.0.2"
+KRAKEN_MODEL_MIRROR=MirrorArtifact(
+    "dlstupka/hth-mirror", "HTH-MIRROR-KRAKEN-BLLA-DEFAULT-7-0-2",
+    "kraken-blla-default-7.0.2.zip", KRAKEN_MODEL_ID, KRAKEN_REPOSITORY,
+    "1.0", KRAKEN_LICENSE,
+)
 
 ORLI_REPOSITORY="https://pypi.org/project/orli/"
 ORLI_LICENSE="Apache-2.0"
@@ -82,6 +91,11 @@ DOC_UFCN_MODEL_SOURCES=(
 DOC_UFCN_PARAMETERS_SOURCES=(
     ModelSource("Hugging Face / Teklia", DOC_UFCN_PARAMETERS_URL, "main"),
     ModelSource("Hugging Face / Teklia pinned release", f"https://huggingface.co/Teklia/doc-ufcn-generic-page/resolve/{DOC_UFCN_RELEASE_REF}/parameters.yml?download=true", DOC_UFCN_RELEASE_REF),
+)
+DOC_UFCN_MODEL_MIRROR=MirrorArtifact(
+    "dlstupka/hth-mirror", "HTH-MIRROR-DOC-UFCN-GENERIC-PAGE",
+    "doc-ufcn-generic-page.zip", DOC_UFCN_MODEL_ID, DOC_UFCN_MODEL_REPOSITORY,
+    "0.0.2", DOC_UFCN_LICENSE,
 )
 
 MASK_RCNN_REPOSITORY="https://github.com/Layout-Parser/layout-parser"
@@ -388,15 +402,44 @@ def _write_env(path,values):
         for k,v in values.items():
             h.write(f"{k}={shlex.quote(str(v))}\n")
 
+def _model_cache_root(results_root):
+    configured=os.environ.get("HTH_MODEL_CACHE_ROOT")
+    return Path(configured) if configured else Path(results_root)/"models"
+
+def _restore_model_bundle_from_mirror(spec, root):
+    """Restore one verified model-directory bundle; leave no partial cache behind."""
+    root=Path(root)
+    root.parent.mkdir(parents=True,exist_ok=True)
+    try:
+        with tempfile.TemporaryDirectory(dir=root.parent) as temp:
+            temp_root=Path(temp)
+            archive=temp_root/spec.asset_name
+            restored=temp_root/"restored"
+            download_mirror(spec,archive,fetch=_download,validator=_validate_zip_file)
+            _safe_extract_zip(archive,restored)
+            if not (restored/"model-provenance.json").is_file():
+                raise RuntimeError("mirror bundle contains no model-provenance.json")
+            if root.exists():
+                shutil.rmtree(root)
+            restored.replace(root)
+        print(f"Model mirror restore succeeded: model={spec.artifact_id} tag={spec.tag}")
+        return True
+    except Exception as exc:
+        print(f"Model mirror restore missed: model={spec.artifact_id} error={type(exc).__name__}: {exc}")
+        return False
+
 def prepare_detector_legacy(detector,*,results_root,policy="reuse",github_env=None):
     detector=detector.strip().lower()
     if detector!="learned_page_mask":
         print(f"Detector lifecycle prepare: {detector} has no pre-exec hook")
         return {"detector":detector,"prepared":False}
     if policy not in {"reuse","refresh"}: raise ValueError(f"Unsupported lifecycle policy: {policy}")
-    root=Path(results_root)/"models"/PAGENET_MODEL_ID
+    root=_model_cache_root(results_root)/PAGENET_MODEL_ID
     train=root/"ohio_train_val.prototxt"; deploy=root/"ohio_deploy.prototxt"; weights=root/"ohio_weights.caffemodel"; provenance=root/"model-provenance.json"
     complete=deploy.is_file() and weights.is_file() and provenance.is_file()
+    if policy!="refresh" and not complete:
+        _restore_model_bundle_from_mirror(PAGENET_MODEL_MIRROR,root)
+        complete=deploy.is_file() and weights.is_file() and provenance.is_file()
     if policy=="refresh" or not complete:
         root.mkdir(parents=True,exist_ok=True)
         prototxt_source=None; weights_source=None
@@ -451,7 +494,7 @@ def finalize_detector_legacy(detector,*,results_root):
     if detector!="learned_page_mask":
         print(f"Detector lifecycle finalize: {detector} has no post-exec hook")
         return {"detector":detector,"finalized":False}
-    p=Path(results_root)/"models"/PAGENET_MODEL_ID/"model-provenance.json"
+    p=_model_cache_root(results_root)/PAGENET_MODEL_ID/"model-provenance.json"
     if not p.is_file(): raise RuntimeError("Learned Page-Mask model provenance missing")
     payload=json.loads(p.read_text(encoding="utf-8"))
     print(f"Detector lifecycle finalize: {detector} weights_sha256={str(payload.get('weights_sha256') or '')[:12]}")
@@ -488,7 +531,7 @@ def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
             "must install the detector-specific runtime before PREPARE"
         )
 
-    root=Path(results_root)/"models"/DHSEGMENT_MODEL_ID
+    root=_model_cache_root(results_root)/DHSEGMENT_MODEL_ID
     archive=root/"model.zip"
     extracted=root/"model"
     provenance=root/"model-provenance.json"
@@ -546,7 +589,7 @@ def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
     return payload
 
 def _finalize_dhsegment_page_mask_hook(*,results_root):
-    provenance=Path(results_root)/"models"/DHSEGMENT_MODEL_ID/"model-provenance.json"
+    provenance=_model_cache_root(results_root)/DHSEGMENT_MODEL_ID/"model-provenance.json"
     if not provenance.is_file():
         raise RuntimeError("dhSegment Page-Mask model provenance missing")
     payload=json.loads(provenance.read_text(encoding="utf-8"))
@@ -576,10 +619,14 @@ def _prepare_kraken_page_mask_hook(*,results_root,policy,env_file):
     if not packaged_model.is_file():
         raise RuntimeError(f"Kraken default BLLA model is missing: {packaged_model}")
 
-    root=Path(results_root)/"models"/KRAKEN_MODEL_ID
+    root=_model_cache_root(results_root)/KRAKEN_MODEL_ID
     model=root/"blla.mlmodel"
     provenance=root/"model-provenance.json"
     complete=model.is_file() and provenance.is_file()
+
+    if policy!="refresh" and not complete:
+        _restore_model_bundle_from_mirror(KRAKEN_MODEL_MIRROR,root)
+        complete=model.is_file() and provenance.is_file()
 
     if policy=="refresh" or not complete:
         root.mkdir(parents=True,exist_ok=True)
@@ -619,7 +666,7 @@ def _prepare_kraken_page_mask_hook(*,results_root,policy,env_file):
 
 
 def _finalize_kraken_page_mask_hook(*,results_root):
-    provenance=Path(results_root)/"models"/KRAKEN_MODEL_ID/"model-provenance.json"
+    provenance=_model_cache_root(results_root)/KRAKEN_MODEL_ID/"model-provenance.json"
     if not provenance.is_file():
         raise RuntimeError("Kraken Page-Mask model provenance missing")
     payload=json.loads(provenance.read_text(encoding="utf-8"))
@@ -645,7 +692,7 @@ def _prepare_mask_rcnn_page_mask_hook(*,results_root,policy,env_file):
     if importlib.util.find_spec("detectron2") is None:
         raise RuntimeError("mask_rcnn_page_mask requires Detectron2; the managed runtime must install the detector-specific runtime before PREPARE")
     variant=_mask_rcnn_variant()
-    root=Path(results_root)/"models"/variant.model_id
+    root=_model_cache_root(results_root)/variant.model_id
     model=root/"model_final.pth"
     config=root/"config.yml"
     provenance=root/"model-provenance.json"
@@ -705,7 +752,7 @@ def _finalize_mask_rcnn_page_mask_hook(*,results_root):
         provenance=Path(provenance_raw)
     else:
         variant=_mask_rcnn_variant()
-        provenance=Path(results_root)/"models"/variant.model_id/"model-provenance.json"
+        provenance=_model_cache_root(results_root)/variant.model_id/"model-provenance.json"
     if not provenance.is_file(): raise RuntimeError("Mask R-CNN Page-Mask model provenance missing")
     payload=json.loads(provenance.read_text(encoding="utf-8"))
     print(f"Detector lifecycle finalize: mask_rcnn_page_mask variant={payload.get('model_variant','unknown')} model_sha256={str(payload.get('model_sha256') or '')[:12]}")
@@ -718,11 +765,14 @@ def _prepare_doc_ufcn_page_mask_hook(*,results_root,policy,env_file):
         raise RuntimeError("doc_ufcn_page_mask requires Doc-UFCN; the managed runtime must install the detector-specific runtime before PREPARE")
     installed_version=DOC_UFCN_PACKAGE_VERSION
 
-    root=Path(results_root)/"models"/DOC_UFCN_MODEL_ID
+    root=_model_cache_root(results_root)/DOC_UFCN_MODEL_ID
     model=root/"model.pth"
     parameters=root/"parameters.yml"
     provenance=root/"model-provenance.json"
     complete=model.is_file() and parameters.is_file() and provenance.is_file()
+    if policy!="refresh" and not complete:
+        _restore_model_bundle_from_mirror(DOC_UFCN_MODEL_MIRROR,root)
+        complete=model.is_file() and parameters.is_file() and provenance.is_file()
     if policy=="refresh" or not complete:
         root.mkdir(parents=True,exist_ok=True)
         model_source=_download_from_sources(DOC_UFCN_MODEL_SOURCES,model,artifact="model",variant="doc_ufcn_page_mask",reuse_existing=(policy!="refresh"))
@@ -771,7 +821,7 @@ def _prepare_doc_ufcn_page_mask_hook(*,results_root,policy,env_file):
     return payload
 
 def _finalize_doc_ufcn_page_mask_hook(*,results_root):
-    provenance=Path(results_root)/"models"/DOC_UFCN_MODEL_ID/"model-provenance.json"
+    provenance=_model_cache_root(results_root)/DOC_UFCN_MODEL_ID/"model-provenance.json"
     if not provenance.is_file():
         raise RuntimeError("Doc-UFCN Page-Mask model provenance missing")
     payload=json.loads(provenance.read_text(encoding="utf-8"))
@@ -787,7 +837,7 @@ def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
     if installed_version != ORLI_PACKAGE_VERSION:
         raise RuntimeError(f"orli_page_mask requires Orli {ORLI_PACKAGE_VERSION}; found {installed_version}")
 
-    root=Path(results_root)/"models"/ORLI_MODEL_ID
+    root=_model_cache_root(results_root)/ORLI_MODEL_ID
     model=root/"orli_base.safetensors"
     provenance=root/"model-provenance.json"
     payload=None
@@ -860,7 +910,7 @@ def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
     return payload
 
 def _finalize_orli_page_mask_hook(*,results_root):
-    provenance=Path(results_root)/"models"/ORLI_MODEL_ID/"model-provenance.json"
+    provenance=_model_cache_root(results_root)/ORLI_MODEL_ID/"model-provenance.json"
     if not provenance.is_file():
         raise RuntimeError("Orli Page-Mask model provenance missing")
     payload=json.loads(provenance.read_text(encoding="utf-8"))
@@ -901,7 +951,7 @@ def _eynollah_sources(relative):
 def _prepare_eynollah_page_mask_hook(*,results_root,policy,env_file):
     if policy not in {"reuse","refresh"}: raise ValueError(f"Unsupported lifecycle policy: {policy}")
     if importlib.util.find_spec("tensorflow") is None: raise RuntimeError("eynollah_page_mask requires the managed TensorFlow runtime")
-    root=Path(results_root)/"models"/EYNOLLAH_MODEL_ID; model_dir=root/"saved_model"; provenance=root/"model-provenance.json"
+    root=_model_cache_root(results_root)/EYNOLLAH_MODEL_ID; model_dir=root/"saved_model"; provenance=root/"model-provenance.json"
     files=("saved_model.pb","keras_metadata.pb","variables/variables.index","variables/variables.data-00000-of-00001")
     complete=provenance.is_file() and all((model_dir/f).is_file() for f in files)
     used={}
@@ -927,7 +977,7 @@ def _prepare_eynollah_page_mask_hook(*,results_root,policy,env_file):
     return payload
 
 def _finalize_eynollah_page_mask_hook(*,results_root):
-    p=Path(results_root)/"models"/EYNOLLAH_MODEL_ID/"model-provenance.json"
+    p=_model_cache_root(results_root)/EYNOLLAH_MODEL_ID/"model-provenance.json"
     if not p.is_file(): raise RuntimeError("Eynollah Page-Mask model provenance missing")
     return json.loads(p.read_text(encoding="utf-8"))
 
@@ -935,7 +985,7 @@ def _prepare_docextractor_page_mask_hook(*,results_root,policy,env_file):
     if policy not in {"reuse","refresh"}: raise ValueError(f"Unsupported lifecycle policy: {policy}")
     try: import torch  # noqa: F401
     except Exception as exc: raise RuntimeError("docextractor_page_mask requires the managed PyTorch runtime") from exc
-    root=Path(results_root)/"models"/DOCEXTRACTOR_MODEL_ID; source_archive=root/"source.zip"; source_root=root/"source"; model_archive=root/"models.zip"; provenance=root/"model-provenance.json"
+    root=_model_cache_root(results_root)/DOCEXTRACTOR_MODEL_ID; source_archive=root/"source.zip"; source_root=root/"source"; model_archive=root/"models.zip"; provenance=root/"model-provenance.json"
     model_path=next(iter(root.glob("models/default/model.pkl")),None)
     complete=provenance.is_file() and source_root.is_dir() and model_path is not None and model_path.is_file()
     if policy=="refresh" or not complete:
@@ -962,7 +1012,7 @@ def _prepare_docextractor_page_mask_hook(*,results_root,policy,env_file):
     return payload
 
 def _finalize_docextractor_page_mask_hook(*,results_root):
-    p=Path(results_root)/"models"/DOCEXTRACTOR_MODEL_ID/"model-provenance.json"
+    p=_model_cache_root(results_root)/DOCEXTRACTOR_MODEL_ID/"model-provenance.json"
     if not p.is_file(): raise RuntimeError("docExtractor Page-Mask model provenance missing")
     return json.loads(p.read_text(encoding="utf-8"))
 

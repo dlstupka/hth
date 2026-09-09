@@ -40,6 +40,21 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Configure detector model cache
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ -n "${HTH_MODEL_CACHE_ROOT:-}" ]]; then
+          model_cache_root="$HTH_MODEL_CACHE_ROOT"
+        elif [[ "${RUNNER_ENVIRONMENT:-}" == "self-hosted" ]]; then
+          model_cache_root="/tmp/.ar/.hth-model-cache"
+        else
+          model_cache_root="$RUNNER_TEMP/hth-model-cache"
+        fi
+        mkdir -p "$model_cache_root"
+        echo "HTH_MODEL_CACHE_ROOT=$model_cache_root" >> "$GITHUB_ENV"
+        echo "Detector model cache: $model_cache_root"
+
     - name: Verify / Install complete managed runtime
       shell: bash
       env:

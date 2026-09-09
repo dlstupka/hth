@@ -11,14 +11,15 @@ import re
 import subprocess
 import sys
 import tempfile
+import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from hth.artifact_mirror import MirrorArtifact, publish
-from hth.detector_lifecycle import ORLI_MODEL_ID, ORLI_MODEL_MIRROR, _validate_safetensors_file
+from hth.artifact_mirror import MirrorArtifact, download as download_mirror, publish
+from hth.detector_lifecycle import ORLI_MODEL_ID, ORLI_MODEL_MIRROR, _validate_safetensors_file, _validate_zip_file
 
 
 HASH_FILES = {
@@ -108,6 +109,28 @@ def mirror_spec(model_dir: Path, provenance: dict[str, object], bundle: Path | N
     )
 
 
+def fetch(url: str, target: Path) -> None:
+    request = urllib.request.Request(url, headers={"User-Agent": "HTH-results-model-migration/1"})
+    with urllib.request.urlopen(request) as response, Path(target).open("wb") as handle:
+        while chunk := response.read(1024 * 1024):
+            handle.write(chunk)
+
+
+def verify_published_mirror(model_dir: Path, spec: MirrorArtifact, expected_artifact: Path) -> None:
+    """Download the published artifact and validate both transport and model contents."""
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        downloaded = temp_root / spec.asset_name
+        validator = _validate_safetensors_file if model_dir.name == ORLI_MODEL_ID else _validate_zip_file
+        download_mirror(spec, downloaded, fetch=fetch, validator=validator)
+        if sha256(downloaded) != sha256(expected_artifact):
+            raise RuntimeError(f"{model_dir.name}: published artifact differs from verified local source")
+        if model_dir.name != ORLI_MODEL_ID:
+            extracted = temp_root / model_dir.name
+            extracted.mkdir()
+            with zipfile.ZipFile(downloaded) as archive:
+                archive.extractall(extracted)
+            validate_model_dir(extracted)
 def seed(results_repo: Path, *, token: str | None, dry_run: bool, selected_models: list[str] | None = None) -> None:
     model_root = results_repo / "models"
     model_dirs = sorted(path for path in model_root.iterdir() if path.is_dir())
@@ -158,6 +181,8 @@ def seed(results_repo: Path, *, token: str | None, dry_run: bool, selected_model
             if status == "skipped-no-token":
                 raise RuntimeError("HTH_RELEASES_TOKEN is required to seed hth-mirror")
             print(f"Published {model_dir.name}: status={status}")
+            verify_published_mirror(model_dir, spec, artifact)
+            print(f"Verified published mirror retrieval: model={model_dir.name} sha256={sha256(artifact)}")
 
 
 def git(results_repo: Path, *args: str, capture: bool = False) -> str:
@@ -168,11 +193,50 @@ def git(results_repo: Path, *args: str, capture: bool = False) -> str:
     return process.stdout if capture else ""
 
 
+def verify_current_mirrors(results_repo: Path, selected_models: list[str] | None = None) -> None:
+    model_root = results_repo / "models"
+    model_dirs = sorted(path for path in model_root.iterdir() if path.is_dir())
+    if selected_models:
+        requested = set(selected_models)
+        model_dirs = [path for path in model_dirs if path.name in requested]
+        missing = requested - {path.name for path in model_dirs}
+        if missing:
+            raise RuntimeError("Requested model cache(s) not found: " + ", ".join(sorted(missing)))
+    verified = 0
+    for model_dir in model_dirs:
+        substantive = [
+            path for path in model_dir.rglob("*")
+            if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
+        ]
+        if not substantive:
+            print(f"Ignoring bytecode-only cache during mirror verification: {model_dir.name}")
+            continue
+        result = validate_model_dir(model_dir)
+        provenance = result["provenance"]
+        with tempfile.TemporaryDirectory() as temp:
+            if model_dir.name == ORLI_MODEL_ID:
+                artifact = model_dir / ORLI_MODEL_MIRROR.asset_name
+                bundle = None
+            else:
+                artifact = Path(temp) / f"{model_dir.name}.zip"
+                deterministic_bundle(model_dir, artifact)
+                bundle = artifact
+            spec = mirror_spec(model_dir, provenance, bundle)
+            verify_published_mirror(model_dir, spec, artifact)
+        verified += 1
+        print(f"Verified downloadable mirror: model={model_dir.name}")
+    if not verified:
+        raise RuntimeError("No substantive model caches were verified")
+
+
 def purge(results_repo: Path, *, confirmation: str, backup: Path) -> None:
     if confirmation != "PURGE-MODELS-AND-HISTORY":
         raise RuntimeError("--purge requires --confirm PURGE-MODELS-AND-HISTORY")
     if git(results_repo, "status", "--porcelain", capture=True).strip():
         raise RuntimeError("Results repository must have a clean working tree before history rewrite")
+    # The destructive phase cannot start until every substantive current model
+    # cache has a byte-identical, downloadable, provenance-valid mirror copy.
+    verify_current_mirrors(results_repo)
     backup.parent.mkdir(parents=True, exist_ok=True)
     git(results_repo, "bundle", "create", str(backup), "--all")
     git(
@@ -198,6 +262,7 @@ def main() -> int:
     parser.add_argument("--results-repo", type=Path, required=True)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--seed", action="store_true")
+    mode.add_argument("--verify", action="store_true", help="Verify current caches against downloadable mirror releases")
     mode.add_argument("--purge", action="store_true")
     parser.add_argument("--dry-run", action="store_true", help="Validate and show seed plan without publishing")
     parser.add_argument("--model", action="append", default=[], help="Seed only this model ID; repeat as needed")
@@ -210,6 +275,10 @@ def main() -> int:
             results_repo, token=os.environ.get("HTH_RELEASES_TOKEN"),
             dry_run=args.dry_run, selected_models=args.model,
         )
+    elif args.verify:
+        if args.dry_run:
+            raise RuntimeError("--dry-run is not meaningful with --verify")
+        verify_current_mirrors(results_repo, selected_models=args.model)
     else:
         if args.dry_run:
             raise RuntimeError("--dry-run applies only to --seed; --purge requires explicit confirmation")

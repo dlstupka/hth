@@ -21,7 +21,7 @@ class LifecycleTests(unittest.TestCase):
             net=Mock()
             net.getUnconnectedOutLayersNames.return_value=("baselines_7_prob_0",)
             net.forward.return_value=__import__("numpy").zeros((1,1,256,256),dtype=__import__("numpy").float32)
-            with patch.object(lifecycle,"_download",side_effect=fake), patch.object(lifecycle.cv2.dnn,"readNet",return_value=net):
+            with patch.object(lifecycle,"download_mirror",side_effect=OSError("offline")), patch.object(lifecycle,"_download",side_effect=fake), patch.object(lifecycle.cv2.dnn,"readNet",return_value=net):
                 lifecycle.prepare_detector("learned_page_mask",results_root=root)
                 lifecycle.prepare_detector("learned_page_mask",results_root=root)
             self.assertEqual(len(calls),2)

@@ -185,8 +185,9 @@ jobs:
           ref: main
           token: ${{ secrets.HTH_RESULTS_TOKEN }}
           fetch-depth: 1
-          # Preprocess needs publication surfaces plus the same reusable model /
-          # intelligence caches used by regression and optimizer.  Keep the
+          # Preprocess needs publication surfaces plus the reusable intelligence
+          # caches used by regression and optimizer. Detector models live in the
+          # runner-local cache configured by setup-hth-managed-runtime. Keep the
           # working tree shallow and materialize only paths this job reads or
           # updates; tracked paths outside the sparse tree remain untouched.
           sparse-checkout: |
@@ -208,7 +209,6 @@ jobs:
             /multidetector-index.json
             /indexes/orli-evidence-index.json
             /orli-evidence-index.json
-            /models/
             /learned-evidence/
             /source-documents/
             /metadata/
@@ -526,11 +526,10 @@ jobs:
           set -euo pipefail
           if [[ -d results-repo/.git ]]; then
             lifecycle_root="results-repo"
-            echo "Using persisted detector/model cache from results repository."
           else
             lifecycle_root="$OUTPUT_DIRECTORY/detector-runtime"
-            echo "Results repository is unavailable; using run-local detector/model cache."
           fi
+          echo "Using detector model cache: $HTH_MODEL_CACHE_ROOT"
 
           python hth-pipeline/hth/run_document_detector.py \
             --manifest "$OUTPUT_DIRECTORY/metadata/image_manifest.json" \

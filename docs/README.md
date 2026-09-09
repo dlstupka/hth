@@ -342,9 +342,9 @@ Their calibration JSON files define the complete discrete search grids used by e
 - Each unique detector is prepared exactly once before any shard/pipeline worker starts and finalized exactly once after all of its shards are complete. Ordinary detectors with no lifecycle declaration are no-ops; model-backed detectors may provision and validate external assets.
 - `orli_page_mask` uses a fixed managed Orli historical-document base model. Its calibration parameters consume immutable model evidence rather than modifying or retraining the neural model; compatible learned evidence is persisted in the results repository and indexed by `indexes/orli-evidence-index.json`. See [Orli learned-evidence persistence](orli-evidence-persistence.md).
 - `learned_page_mask` uses the released PageNet Ohio Death Records model from `ctensmeyer/pagenet` (BSD-3-Clause). HTH does not train on the Golden Set, avoiding evaluation leakage.
-- On first execution the prepare hook checks `results-repo/models/pagenet-ohio/`; when absent it downloads the released prototxt and weights, derives an inference-only OpenCV-DNN prototxt, records SHA-256 provenance, exports the asset paths, and continues through the ordinary detector flow.
+- On first execution the prepare hook checks the configured runner model cache; when absent it downloads the released prototxt and weights, derives an inference-only OpenCV-DNN prototxt, records SHA-256 provenance, exports the asset paths, and continues through the ordinary detector flow.
 - Subsequent executions validate and reuse the persisted model. Calibration tunes only deterministic mask-to-boundary post-processing.
-- The finalize hook revalidates provenance, and normal results persistence includes `models/` so the first successful run makes later executions self-contained.
+- The finalize hook revalidates provenance. Model payloads remain outside results persistence; self-hosted runners reuse their validated local cache and portable redundancy artifacts live in `hth-mirror`.
 
 
 - [Fusion Gen1 — MSRE + BFQ + SPBV + Page Background](detector-msre-bfq-spbv-pbg.md)

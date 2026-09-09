@@ -5,16 +5,36 @@ import io
 import tempfile
 import unittest
 import urllib.error
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
 from hth.artifact_mirror import MirrorArtifact
-from hth.detector_lifecycle import MODEL_DOWNLOAD_SOURCE_LIMIT, _download_from_sources
+from hth.detector_lifecycle import MODEL_DOWNLOAD_SOURCE_LIMIT, _download_from_sources, _restore_model_bundle_from_mirror
 from hth.model_variants import ModelSource
 
 
 class ModelDownloadFallbackTests(unittest.TestCase):
     mirror = MirrorArtifact("owner/mirror", "HTH-MIRROR-TEST", "model.pth", "model", "upstream", "ref", "MIT")
+
+    def test_model_bundle_restore_replaces_partial_cache(self):
+        bundle = MirrorArtifact("owner/mirror", "TAG", "model.zip", "model", "upstream", "ref", "MIT")
+
+        def restore(_spec, target, *, fetch, validator):
+            with zipfile.ZipFile(target, "w") as archive:
+                archive.writestr("model-provenance.json", "{}")
+                archive.writestr("model.bin", b"verified")
+            validator(target)
+
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "hth.detector_lifecycle.download_mirror", side_effect=restore
+        ):
+            root = Path(temp) / "model"
+            root.mkdir()
+            (root / "partial.bin").write_bytes(b"partial")
+            self.assertTrue(_restore_model_bundle_from_mirror(bundle, root))
+            self.assertFalse((root / "partial.bin").exists())
+            self.assertEqual((root / "model.bin").read_bytes(), b"verified")
 
     def test_verified_mirror_precedes_authoritative_sources(self):
         source = ModelSource("upstream", "https://upstream.example/model")

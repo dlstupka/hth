@@ -18,7 +18,7 @@ class PreprocessExecutionParityTests(unittest.TestCase):
         self.assertNotIn("fetch-depth: 0", block)
         self.assertIn("sparse-checkout:", block)
         self.assertIn("sparse-checkout-cone-mode: false", block)
-        self.assertIn("/models/", block)
+        self.assertNotIn("/models/", block)
         self.assertIn("/learned-evidence/", block)
         self.assertIn("/source-documents/", block)
         self.assertIn("/metadata/", block)
@@ -35,13 +35,13 @@ class PreprocessExecutionParityTests(unittest.TestCase):
         self.assertNotIn("- name: Install dependencies\n", self.text)
         self.assertNotIn("- name: Install managed detector runtime for document inference", self.text)
 
-    def test_document_inference_reuses_results_model_cache(self):
+    def test_document_inference_uses_runner_model_cache(self):
         block = self.text.split("- name: Run approved detector over production collection", 1)[1].split(
             "# STAGE_DETECT_CANDIDATES", 1
         )[0]
         self.assertIn('lifecycle_root="results-repo"', block)
         self.assertIn('--lifecycle-root "$lifecycle_root"', block)
-        self.assertIn("run-local detector/model cache", block)
+        self.assertIn("Using detector model cache: $HTH_MODEL_CACHE_ROOT", block)
 
 
 if __name__ == "__main__":

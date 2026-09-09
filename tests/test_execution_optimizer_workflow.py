@@ -83,7 +83,6 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
             "/parallelism-index.json",
             "/optimizer-index.json",
             "${{ env.GOLDEN_RELEASE_TAG == '' && format('/{0}/', env.IMAGE_ROOT) || '' }}",
-            "/models/",
             "/learned-evidence/",
             "/execution-optimizer/",
         ):

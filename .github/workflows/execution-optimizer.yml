@@ -372,7 +372,7 @@ jobs:
           fetch-depth: 100
           persist-credentials: false
           token: ${{ github.event_name != 'pull_request' && secrets.HTH_RESULTS_TOKEN || github.token }}
-          # Optimizer runs need the current image set, model/evidence caches,
+          # Optimizer runs need the current image set and evidence caches,
           # optimizer history, and root intelligence indexes, but not tens of
           # thousands of historical regression/debug files. Keep the shallow
           # checkout and materialize only the paths the optimizer can read or
@@ -395,7 +395,6 @@ jobs:
             /indexes/orli-evidence-index.json
             /orli-evidence-index.json
             ${{ env.GOLDEN_RELEASE_TAG == '' && format('/{0}/', env.IMAGE_ROOT) || '' }}
-            /models/
             /learned-evidence/
             /execution-optimizer/
           sparse-checkout-cone-mode: false
@@ -1028,9 +1027,6 @@ jobs:
               "execution-optimizer/$DETECTOR_ALGORITHM/summary.md" \
               "execution-optimizer/$DETECTOR_ALGORITHM/heatmap.svg" \
               "execution-optimizer/$DETECTOR_ALGORITHM/runs/"
-            if [[ -d results-repo/models ]]; then
-              hth_results_stage results-repo models/
-            fi
             if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
               hth_results_stage results-repo learned-evidence/orli_page_mask indexes/orli-evidence-index.json
             fi
