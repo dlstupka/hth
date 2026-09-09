@@ -98,6 +98,10 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
             "HTH_RELEASES_TOKEN: ${{ secrets.HTH_RELEASES_TOKEN }}",
             optimize.split("run: |", 1)[0],
         )
+        self.assertIn(
+            'HTH_ENABLE_MIRROR_PUBLICATION: "1"',
+            optimize.split("run: |", 1)[0],
+        )
 
     def test_execution_optimizer_dispatch_checkout_only_materializes_optimizer_index(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")

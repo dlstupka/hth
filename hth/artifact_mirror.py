@@ -118,7 +118,10 @@ def publish(
     token: str | None = None,
 ) -> str:
     """Best-effort publication after a verified authoritative acquisition."""
-    token = token or os.environ.get("HTH_RELEASES_TOKEN")
+    if token is None:
+        if os.environ.get("HTH_ENABLE_MIRROR_PUBLICATION") != "1":
+            return "skipped-not-enabled"
+        token = os.environ.get("HTH_RELEASES_TOKEN")
     if not token:
         return "skipped-no-token"
     artifact = Path(artifact)

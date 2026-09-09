@@ -78,12 +78,25 @@ class ArtifactMirrorTests(unittest.TestCase):
                 download(SPEC, Path(temp) / "model.bin", fetch=fetch)
 
     def test_publish_without_token_is_an_explicit_noop(self):
-        with tempfile.TemporaryDirectory() as temp, patch.dict("os.environ", {}, clear=True):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(
+            "os.environ", {"HTH_ENABLE_MIRROR_PUBLICATION": "1"}, clear=True
+        ):
             artifact = Path(temp) / "model.bin"
             artifact.write_bytes(b"model")
             self.assertEqual(
                 publish(SPEC, artifact, authoritative_source={"site": "upstream"}),
                 "skipped-no-token",
+            )
+
+    def test_ambient_token_cannot_publish_without_explicit_enablement(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(
+            "os.environ", {"HTH_RELEASES_TOKEN": "real-looking-token"}, clear=True
+        ):
+            artifact = Path(temp) / "model.bin"
+            artifact.write_bytes(b"model")
+            self.assertEqual(
+                publish(SPEC, artifact, authoritative_source={"site": "upstream"}),
+                "skipped-not-enabled",
             )
 
 

@@ -138,6 +138,7 @@ def test_regression_execution_can_populate_redundancy_mirror():
     text = WORKFLOW.read_text(encoding="utf-8")
     execute = text.split("- name: Run detector regressions", 1)[1]
     assert "HTH_RELEASES_TOKEN: ${{ secrets.HTH_RELEASES_TOKEN }}" in execute.split("- name:", 1)[0]
+    assert 'HTH_ENABLE_MIRROR_PUBLICATION: "1"' in execute.split("- name:", 1)[0]
     assert "HTH_MIRROR_TOKEN" not in execute.split("- name:", 1)[0]
 
 

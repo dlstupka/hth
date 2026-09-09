@@ -227,6 +227,17 @@ def _validate_safetensors_file(path):
         )
 
 
+def _validate_orli_model_file(path):
+    """Require both an intact container and a loadable Kraken segmentation model."""
+    _validate_safetensors_file(path)
+    try:
+        from kraken.models.loaders import load_models
+
+        load_models(str(Path(path)), tasks=["segmentation"])
+    except Exception as exc:
+        raise RuntimeError(f"ORLI model is not loadable as a Kraken segmentation model: {exc}") from exc
+
+
 def _validator_for_path(path):
     suffix=Path(path).suffix.lower()
     if suffix == ".safetensors":
@@ -927,7 +938,7 @@ def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
 
     expected_sha=(payload or {}).get("model_sha256")
     model_problem=_cached_artifact_problem(
-        model, expected_sha256=expected_sha, validator=_validate_safetensors_file
+        model, expected_sha256=expected_sha, validator=_validate_orli_model_file
     )
     if policy != "refresh" and model_problem not in {None,"missing"}:
         _log_cache_repair(
@@ -944,7 +955,7 @@ def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
         root.mkdir(parents=True,exist_ok=True)
         model_source=_download_from_sources(
             ORLI_MODEL_SOURCES, model, artifact="model", variant="orli_page_mask",
-            validator=_validate_safetensors_file, reuse_existing=(policy!="refresh"),
+            validator=_validate_orli_model_file, reuse_existing=(policy!="refresh"),
             mirror=ORLI_MODEL_MIRROR,
         )
         payload={
@@ -974,7 +985,7 @@ def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
         payload=json.loads(provenance.read_text(encoding="utf-8"))
 
     problem=_cached_artifact_problem(
-        model, expected_sha256=payload.get("model_sha256"), validator=_validate_safetensors_file
+        model, expected_sha256=payload.get("model_sha256"), validator=_validate_orli_model_file
     )
     if problem is not None:
         raise RuntimeError(f"Orli base model cache validation failed after preparation: {problem}")
