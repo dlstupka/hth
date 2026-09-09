@@ -14,6 +14,7 @@ from hth.detector_lifecycle import (
     MODEL_DOWNLOAD_SOURCE_LIMIT,
     MODEL_PROVENANCE_FALLBACKS,
     _download_from_sources,
+    _log_model_cache_fill,
     _provenance_source,
     _publish_model_bundle_to_mirror,
     _publish_cached_model_bundle_if_missing,
@@ -91,6 +92,20 @@ class ModelDownloadFallbackTests(unittest.TestCase):
         self.assertEqual(payload["artifact_source"]["url"], "https://example.invalid/exact-model.bin")
         self.assertEqual(payload["artifact_source"]["reference"], "commit-sha")
         self.assertEqual(payload["artifact_source"]["provenance_status"], "selected-download")
+
+    def test_mirror_cache_fill_is_not_labeled_authoritative(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            _log_model_cache_fill("model", "/cache/model", "/cache/model/provenance.json", {
+                "model_source": {
+                    "site": "HTH non-authoritative mirror",
+                    "url": "https://github.com/owner/mirror/releases/download/TAG/model.bin",
+                    "reference": "TAG",
+                    "tier": "mirror",
+                },
+            })
+        self.assertIn("source=mirror", output.getvalue())
+        self.assertIn("source_record=selected-download", output.getvalue())
 
     def test_model_bundle_restore_replaces_partial_cache(self):
         bundle = MirrorArtifact("owner/mirror", "TAG", "model.zip", "model", "upstream", "ref", "MIT")

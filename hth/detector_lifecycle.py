@@ -517,7 +517,7 @@ def _provenance_source(payload):
             or payload.get("doc_ufcn_version")
             or payload.get("orli_version")
         ),
-        "provenance_status":"legacy-recorded-fields",
+        "provenance_status":"known-authoritative-source",
     }
     if fallback["url"] and fallback["reference"]:
         return fallback
@@ -546,7 +546,12 @@ def _write_model_provenance(path, payload):
 
 def _log_model_cache_fill(model_id, root, provenance, payload):
     source=_provenance_source(payload)
-    origin="local-artifact-cache" if source.get("site") == "cache" else "authoritative"
+    if source.get("tier") == "mirror" or source.get("site") == "HTH non-authoritative mirror":
+        origin="mirror"
+    elif source.get("site") == "cache":
+        origin="local-artifact-cache"
+    else:
+        origin="authoritative"
     print(
         f"Model cache fill: model={model_id} source={origin} "
         f"site={source['site']} url={source['url']} reference={source['reference']} "
@@ -1251,6 +1256,7 @@ def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
             "variant":"2026 high-resolution historical-document base model",
             "orli_version":installed_version, "upstream_repository":ORLI_REPOSITORY,
             "model_doi":ORLI_MODEL_DOI, "license":ORLI_LICENSE,
+            "model_source":model_source,
             "model_url":model_source["url"], "model_source_site":model_source["site"],
             "model_source_reference":model_source.get("reference"),
             "registered_model_sources":[
