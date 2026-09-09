@@ -95,7 +95,7 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         text = WORKFLOW.read_text(encoding="utf-8")
         optimize = text.split("- name: Optimize detector execution shapes", 1)[1]
         self.assertIn(
-            "HTH_RELEASES_TOKEN: ${{ secrets.HTH_RELEASES_TOKEN }}",
+            "HTH_RESULTS_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN }}",
             optimize.split("run: |", 1)[0],
         )
         self.assertIn(

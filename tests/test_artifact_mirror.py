@@ -110,7 +110,7 @@ class ArtifactMirrorTests(unittest.TestCase):
 
     def test_ambient_token_cannot_publish_without_explicit_enablement(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(
-            "os.environ", {"HTH_RELEASES_TOKEN": "real-looking-token"}, clear=True
+            "os.environ", {"HTH_RESULTS_TOKEN": "real-looking-token"}, clear=True
         ):
             artifact = Path(temp) / "model.bin"
             artifact.write_bytes(b"model")

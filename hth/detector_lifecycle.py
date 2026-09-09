@@ -509,7 +509,7 @@ def _reconcile_cached_model_bundle(spec, root, payload):
     """Backfill a missing mirror from a fully validated persistent cache entry."""
     if os.environ.get("HTH_ENABLE_MIRROR_PUBLICATION") != "1":
         return "skipped-not-enabled"
-    if not os.environ.get("HTH_RELEASES_TOKEN"):
+    if not os.environ.get("HTH_RESULTS_TOKEN"):
         print(f"Model mirror reconciliation: model={spec.artifact_id} status=skipped-no-token")
         return "skipped-no-token"
     try:
@@ -530,7 +530,7 @@ def _reconcile_cached_model_artifact(spec, artifact, payload):
     """Backfill a missing single-file mirror from a validated cache entry."""
     if os.environ.get("HTH_ENABLE_MIRROR_PUBLICATION") != "1":
         return "skipped-not-enabled"
-    if not os.environ.get("HTH_RELEASES_TOKEN"):
+    if not os.environ.get("HTH_RESULTS_TOKEN"):
         print(f"Model mirror reconciliation: model={spec.artifact_id} status=skipped-no-token")
         return "skipped-no-token"
     try:

@@ -192,7 +192,7 @@ def seed(results_repo: Path | None = None, *, model_root: Path | None = None, to
                 },
             )
             if status == "skipped-no-token":
-                raise RuntimeError("HTH_RELEASES_TOKEN is required to seed hth-mirror")
+                raise RuntimeError("HTH_RESULTS_TOKEN is required to seed hth-mirror")
             print(f"Published {model_dir.name}: status={status}")
             verify_published_mirror(model_dir, spec, artifact)
             print(f"Verified published mirror retrieval: model={model_dir.name} sha256={sha256(artifact)}")
@@ -291,7 +291,7 @@ def main() -> int:
         parser.error("--seed/--verify require --model-root or --results-repo")
     if args.seed:
         seed(
-            results_repo, model_root=model_root, token=os.environ.get("HTH_RELEASES_TOKEN"),
+            results_repo, model_root=model_root, token=os.environ.get("HTH_RESULTS_TOKEN"),
             dry_run=args.dry_run, selected_models=args.model,
         )
     elif args.verify:

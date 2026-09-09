@@ -151,7 +151,7 @@ def publish(
     if token is None:
         if os.environ.get("HTH_ENABLE_MIRROR_PUBLICATION") != "1":
             return "skipped-not-enabled"
-        token = os.environ.get("HTH_RELEASES_TOKEN")
+        token = os.environ.get("HTH_RESULTS_TOKEN")
     if not token:
         return "skipped-no-token"
     artifact = Path(artifact)

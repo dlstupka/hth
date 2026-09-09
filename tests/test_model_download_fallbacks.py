@@ -69,7 +69,7 @@ class ModelDownloadFallbackTests(unittest.TestCase):
         bundle = MirrorArtifact("owner/mirror", "TAG", "model.zip", "model", "upstream", "ref", "MIT")
         with tempfile.TemporaryDirectory() as temp, patch.dict(
             "os.environ",
-            {"HTH_ENABLE_MIRROR_PUBLICATION": "1", "HTH_RELEASES_TOKEN": "token"},
+            {"HTH_ENABLE_MIRROR_PUBLICATION": "1", "HTH_RESULTS_TOKEN": "token"},
             clear=True,
         ), patch(
             "hth.detector_lifecycle.mirror_exists", return_value=False
@@ -86,7 +86,7 @@ class ModelDownloadFallbackTests(unittest.TestCase):
         bundle = MirrorArtifact("owner/mirror", "TAG", "model.zip", "model", "upstream", "ref", "MIT")
         with tempfile.TemporaryDirectory() as temp, patch.dict(
             "os.environ",
-            {"HTH_ENABLE_MIRROR_PUBLICATION": "1", "HTH_RELEASES_TOKEN": "token"},
+            {"HTH_ENABLE_MIRROR_PUBLICATION": "1", "HTH_RESULTS_TOKEN": "token"},
             clear=True,
         ), patch(
             "hth.detector_lifecycle.mirror_exists", return_value=True
