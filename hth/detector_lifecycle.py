@@ -7,7 +7,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from hth.model_variants import ModelSource, resolve_model_variant
 from hth.network_retry import is_transient_network_error
-from hth.artifact_mirror import MirrorArtifact, download as download_mirror, publish as publish_mirror
+from hth.artifact_mirror import (
+    MirrorArtifact,
+    download as download_mirror,
+    exists as mirror_exists,
+    publish as publish_mirror,
+)
 
 PAGENET_REPOSITORY="https://github.com/ctensmeyer/pagenet"
 PAGENET_LICENSE="BSD-3-Clause"
@@ -479,8 +484,67 @@ def _publish_model_bundle_to_mirror(spec, root, authoritative_source):
                 spec,archive,authoritative_source=authoritative_source,
             )
         print(f"Model mirror publication: model={spec.artifact_id} status={status}")
+        return status
     except Exception as exc:
         print(f"::warning::Model mirror publication failed: model={spec.artifact_id} error={type(exc).__name__}: {exc}")
+        return "failed"
+
+
+def _cache_backfill_source(payload):
+    source=payload.get("model_source")
+    if isinstance(source,dict) and source.get("site") not in {None,"cache"}:
+        selected=dict(source)
+    else:
+        selected={
+            "site":payload.get("model_source_site") or "validated persistent runner cache",
+            "url":payload.get("model_url") or payload.get("upstream_repository"),
+            "reference":payload.get("model_source_reference") or payload.get("model_doi"),
+        }
+    selected["cache_backfill"]=True
+    selected["model_id"]=payload.get("model_id")
+    return selected
+
+
+def _reconcile_cached_model_bundle(spec, root, payload):
+    """Backfill a missing mirror from a fully validated persistent cache entry."""
+    if os.environ.get("HTH_ENABLE_MIRROR_PUBLICATION") != "1":
+        return "skipped-not-enabled"
+    if not os.environ.get("HTH_RELEASES_TOKEN"):
+        print(f"Model mirror reconciliation: model={spec.artifact_id} status=skipped-no-token")
+        return "skipped-no-token"
+    try:
+        if mirror_exists(spec):
+            status="already-present"
+        else:
+            status=_publish_model_bundle_to_mirror(
+                spec,root,_cache_backfill_source(payload),
+            )
+        print(f"Model mirror reconciliation: model={spec.artifact_id} status={status}")
+        return status
+    except Exception as exc:
+        print(f"::warning::Model mirror reconciliation failed: model={spec.artifact_id} error={type(exc).__name__}: {exc}")
+        return "failed"
+
+
+def _reconcile_cached_model_artifact(spec, artifact, payload):
+    """Backfill a missing single-file mirror from a validated cache entry."""
+    if os.environ.get("HTH_ENABLE_MIRROR_PUBLICATION") != "1":
+        return "skipped-not-enabled"
+    if not os.environ.get("HTH_RELEASES_TOKEN"):
+        print(f"Model mirror reconciliation: model={spec.artifact_id} status=skipped-no-token")
+        return "skipped-no-token"
+    try:
+        if mirror_exists(spec):
+            status="already-present"
+        else:
+            status=publish_mirror(
+                spec,artifact,authoritative_source=_cache_backfill_source(payload),
+            )
+        print(f"Model mirror reconciliation: model={spec.artifact_id} status={status}")
+        return status
+    except Exception as exc:
+        print(f"::warning::Model mirror reconciliation failed: model={spec.artifact_id} error={type(exc).__name__}: {exc}")
+        return "failed"
 
 def prepare_detector_legacy(detector,*,results_root,policy="reuse",github_env=None):
     detector=detector.strip().lower()
@@ -539,6 +603,8 @@ def prepare_detector_legacy(detector,*,results_root,policy="reuse",github_env=No
         _publish_model_bundle_to_mirror(PAGENET_MODEL_MIRROR,root,{
             "site":"GitHub / PageNet","url":PAGENET_REPOSITORY,"reference":"master",
         })
+    else:
+        _reconcile_cached_model_bundle(PAGENET_MODEL_MIRROR,root,payload)
     env={
         "HTH_LEARNED_PAGE_MASK_PROTOTXT":deploy.resolve().as_posix(),
         "HTH_LEARNED_PAGE_MASK_WEIGHTS":weights.resolve().as_posix(),
@@ -637,6 +703,8 @@ def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
         raise RuntimeError("dhSegment SavedModel is missing after preparation")
     if prepared_fresh:
         _publish_model_bundle_to_mirror(DHSEGMENT_MODEL_MIRROR,root,model_source)
+    else:
+        _reconcile_cached_model_bundle(DHSEGMENT_MODEL_MIRROR,root,payload)
 
     env={
         "HTH_DHSEGMENT_PAGE_MODEL_DIR":model_dir.resolve().as_posix(),
@@ -725,6 +793,8 @@ def _prepare_kraken_page_mask_hook(*,results_root,policy,env_file):
             "site":"installed Kraken package","url":KRAKEN_REPOSITORY,
             "reference":installed_version,
         })
+    else:
+        _reconcile_cached_model_bundle(KRAKEN_MODEL_MIRROR,root,payload)
 
     env={
         "HTH_KRAKEN_PAGE_MODEL":model.resolve().as_posix(),
@@ -810,6 +880,8 @@ def _prepare_mask_rcnn_page_mask_hook(*,results_root,policy,env_file):
         raise RuntimeError(f"Mask R-CNN model variant provenance mismatch: expected {variant.key}, found {recorded_variant}")
     if prepared_fresh:
         _publish_model_bundle_to_mirror(MASK_RCNN_MODEL_MIRROR,root,model_source)
+    else:
+        _reconcile_cached_model_bundle(MASK_RCNN_MODEL_MIRROR,root,payload)
     env={
         "HTH_MASK_RCNN_PAGE_MODEL":model.resolve().as_posix(),
         "HTH_MASK_RCNN_PAGE_CONFIG":config.resolve().as_posix(),
@@ -896,6 +968,8 @@ def _prepare_doc_ufcn_page_mask_hook(*,results_root,policy,env_file):
         raise RuntimeError("Doc-UFCN generic page parameters SHA mismatch")
     if prepared_fresh:
         _publish_model_bundle_to_mirror(DOC_UFCN_MODEL_MIRROR,root,model_source)
+    else:
+        _reconcile_cached_model_bundle(DOC_UFCN_MODEL_MIRROR,root,payload)
     env={
         "HTH_DOC_UFCN_PAGE_MODEL":model.resolve().as_posix(),
         "HTH_DOC_UFCN_PAGE_PROVENANCE":provenance.resolve().as_posix(),
@@ -951,7 +1025,9 @@ def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
         payload=None
 
     complete=model.is_file() and provenance.is_file() and model_problem is None
+    acquired=False
     if policy=="refresh" or not complete:
+        acquired=True
         root.mkdir(parents=True,exist_ok=True)
         model_source=_download_from_sources(
             ORLI_MODEL_SOURCES, model, artifact="model", variant="orli_page_mask",
@@ -989,6 +1065,8 @@ def _prepare_orli_page_mask_hook(*,results_root,policy,env_file):
     )
     if problem is not None:
         raise RuntimeError(f"Orli base model cache validation failed after preparation: {problem}")
+    if not acquired:
+        _reconcile_cached_model_artifact(ORLI_MODEL_MIRROR,model,payload)
     env={"HTH_ORLI_PAGE_MODEL":model.resolve().as_posix(), "HTH_ORLI_PAGE_PROVENANCE":provenance.resolve().as_posix(), "CUDA_VISIBLE_DEVICES":"-1"}
     _write_env(env_file,env); os.environ.update(env)
     print(f"Orli Page-Mask ready: model={ORLI_MODEL_ID} orli={installed_version} model_sha256={str(payload.get('model_sha256') or '')[:12]}")
@@ -1067,6 +1145,8 @@ def _prepare_eynollah_page_mask_hook(*,results_root,policy,env_file):
             "site":"Hugging Face / SBB","url":EYNOLLAH_HF_REPOSITORY,
             "reference":"2021-04-25",
         })
+    else:
+        _reconcile_cached_model_bundle(EYNOLLAH_MODEL_MIRROR,root,payload)
     env={"HTH_EYNOLLAH_PAGE_MODEL_DIR":model_dir.resolve().as_posix(),"HTH_EYNOLLAH_PAGE_PROVENANCE":provenance.resolve().as_posix(),"CUDA_VISIBLE_DEVICES":"-1"}; _write_env(env_file,env); os.environ.update(env)
     print(f"Eynollah Page-Mask ready: model={EYNOLLAH_MODEL_ID} saved_model_sha256={payload['files']['saved_model.pb']['sha256'][:12]}")
     return payload
@@ -1110,6 +1190,8 @@ def _prepare_docextractor_page_mask_hook(*,results_root,policy,env_file):
     if _sha256(model_path)!=payload.get("model_sha256"): raise RuntimeError("docExtractor model SHA mismatch")
     if prepared_fresh:
         _publish_model_bundle_to_mirror(DOCEXTRACTOR_MODEL_MIRROR,root,model_source)
+    else:
+        _reconcile_cached_model_bundle(DOCEXTRACTOR_MODEL_MIRROR,root,payload)
     env={"HTH_DOCEXTRACTOR_PAGE_MODEL":model_path.resolve().as_posix(),"HTH_DOCEXTRACTOR_PAGE_SOURCE":repo_dir.resolve().as_posix(),"HTH_DOCEXTRACTOR_PAGE_PROVENANCE":provenance.resolve().as_posix(),"CUDA_VISIBLE_DEVICES":"-1"}; _write_env(env_file,env); os.environ.update(env)
     print(f"docExtractor Page-Mask ready: model={DOCEXTRACTOR_MODEL_ID} model_sha256={payload['model_sha256'][:12]}")
     return payload

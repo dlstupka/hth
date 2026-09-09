@@ -4,10 +4,11 @@ import hashlib
 import json
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
-from hth.artifact_mirror import MirrorArtifact, download, publish
+from hth.artifact_mirror import MirrorArtifact, download, exists, publish
 
 
 SPEC = MirrorArtifact(
@@ -37,6 +38,25 @@ def _manifest(payload: bytes) -> dict[str, object]:
 
 
 class ArtifactMirrorTests(unittest.TestCase):
+    def test_exists_accepts_an_identity_matching_manifest(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def read(self):
+                return json.dumps(_manifest(b"model")).encode("utf-8")
+
+        with patch("hth.artifact_mirror.urllib.request.urlopen", return_value=Response()):
+            self.assertTrue(exists(SPEC))
+
+    def test_exists_reports_a_missing_release(self):
+        missing = urllib.error.HTTPError(SPEC.manifest_url, 404, "missing", {}, None)
+        with patch("hth.artifact_mirror.urllib.request.urlopen", side_effect=missing):
+            self.assertFalse(exists(SPEC))
+
     def test_download_requires_matching_manifest_and_sha(self):
         payload = b"verified model"
 

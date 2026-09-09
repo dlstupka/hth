@@ -10,7 +10,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from hth.artifact_mirror import MirrorArtifact
-from hth.detector_lifecycle import MODEL_DOWNLOAD_SOURCE_LIMIT, _download_from_sources, _publish_model_bundle_to_mirror, _restore_model_bundle_from_mirror
+from hth.detector_lifecycle import (
+    MODEL_DOWNLOAD_SOURCE_LIMIT,
+    _download_from_sources,
+    _publish_model_bundle_to_mirror,
+    _reconcile_cached_model_bundle,
+    _restore_model_bundle_from_mirror,
+)
 from hth.model_variants import ModelSource
 
 
@@ -58,6 +64,36 @@ class ModelDownloadFallbackTests(unittest.TestCase):
             _publish_model_bundle_to_mirror(bundle, root, {"site": "upstream"})
 
         self.assertEqual(members, ["model-provenance.json", "model.bin"])
+
+    def test_valid_cache_backfills_a_missing_mirror(self):
+        bundle = MirrorArtifact("owner/mirror", "TAG", "model.zip", "model", "upstream", "ref", "MIT")
+        with tempfile.TemporaryDirectory() as temp, patch.dict(
+            "os.environ",
+            {"HTH_ENABLE_MIRROR_PUBLICATION": "1", "HTH_RELEASES_TOKEN": "token"},
+            clear=True,
+        ), patch(
+            "hth.detector_lifecycle.mirror_exists", return_value=False
+        ), patch(
+            "hth.detector_lifecycle._publish_model_bundle_to_mirror", return_value="published"
+        ) as publication:
+            status = _reconcile_cached_model_bundle(
+                bundle, Path(temp), {"model_id": "model", "model_source": {"site": "upstream"}}
+            )
+        self.assertEqual(status, "published")
+        publication.assert_called_once()
+
+    def test_valid_cache_does_not_republish_an_existing_mirror(self):
+        bundle = MirrorArtifact("owner/mirror", "TAG", "model.zip", "model", "upstream", "ref", "MIT")
+        with tempfile.TemporaryDirectory() as temp, patch.dict(
+            "os.environ",
+            {"HTH_ENABLE_MIRROR_PUBLICATION": "1", "HTH_RELEASES_TOKEN": "token"},
+            clear=True,
+        ), patch(
+            "hth.detector_lifecycle.mirror_exists", return_value=True
+        ), patch("hth.detector_lifecycle._publish_model_bundle_to_mirror") as publication:
+            status = _reconcile_cached_model_bundle(bundle, Path(temp), {"model_id": "model"})
+        self.assertEqual(status, "already-present")
+        publication.assert_not_called()
 
     def test_verified_mirror_precedes_authoritative_sources(self):
         source = ModelSource("upstream", "https://upstream.example/model")

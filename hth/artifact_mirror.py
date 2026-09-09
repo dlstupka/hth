@@ -93,6 +93,36 @@ def _github_json(request: urllib.request.Request) -> dict[str, Any]:
         return json.loads(response.read().decode("utf-8"))
 
 
+def exists(spec: MirrorArtifact) -> bool:
+    """Return whether a complete, identity-matching mirror release exists."""
+    try:
+        with urllib.request.urlopen(spec.manifest_url) as response:
+            manifest = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return False
+        raise
+    required = {
+        "schema_version": "1",
+        "artifact_id": spec.artifact_id,
+        "mirror_repository": spec.repository,
+        "mirror_tag": spec.tag,
+        "asset_name": spec.asset_name,
+        "authoritative_repository": spec.authoritative_repository,
+        "authoritative_reference": spec.authoritative_reference,
+        "license": spec.license,
+        "trust_role": "non-authoritative redundancy mirror",
+    }
+    for key, expected in required.items():
+        if manifest.get(key) != expected:
+            raise RuntimeError(
+                f"Mirror manifest {key} mismatch: expected {expected!r}, got {manifest.get(key)!r}"
+            )
+    if len(str(manifest.get("sha256") or "")) != 64:
+        raise RuntimeError("Mirror manifest has no valid SHA-256")
+    return True
+
+
 def _upload(url: str, name: str, content: bytes, content_type: str, token: str) -> None:
     separator = "&" if "?" in url else "?"
     request = urllib.request.Request(
