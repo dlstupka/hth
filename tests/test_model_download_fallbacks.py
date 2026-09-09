@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from hth.artifact_mirror import MirrorArtifact
-from hth.detector_lifecycle import MODEL_DOWNLOAD_SOURCE_LIMIT, _download_from_sources, _restore_model_bundle_from_mirror
+from hth.detector_lifecycle import MODEL_DOWNLOAD_SOURCE_LIMIT, _download_from_sources, _publish_model_bundle_to_mirror, _restore_model_bundle_from_mirror
 from hth.model_variants import ModelSource
 
 
@@ -35,6 +35,29 @@ class ModelDownloadFallbackTests(unittest.TestCase):
             self.assertTrue(_restore_model_bundle_from_mirror(bundle, root))
             self.assertFalse((root / "partial.bin").exists())
             self.assertEqual((root / "model.bin").read_bytes(), b"verified")
+
+    def test_fresh_model_bundle_is_published_without_runtime_bytecode(self):
+        bundle = MirrorArtifact("owner/mirror", "TAG", "model.zip", "model", "upstream", "ref", "MIT")
+        members = []
+
+        def publish(_spec, artifact, *, authoritative_source):
+            with zipfile.ZipFile(artifact) as archive:
+                members.extend(archive.namelist())
+            return "published"
+
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "hth.detector_lifecycle.publish_mirror", side_effect=publish
+        ):
+            root = Path(temp) / "model"
+            root.mkdir()
+            (root / "model-provenance.json").write_text("{}", encoding="utf-8")
+            (root / "model.bin").write_bytes(b"verified")
+            bytecode = root / "__pycache__"
+            bytecode.mkdir()
+            (bytecode / "generated.pyc").write_bytes(b"ignore")
+            _publish_model_bundle_to_mirror(bundle, root, {"site": "upstream"})
+
+        self.assertEqual(members, ["model-provenance.json", "model.bin"])
 
     def test_verified_mirror_precedes_authoritative_sources(self):
         source = ModelSource("upstream", "https://upstream.example/model")

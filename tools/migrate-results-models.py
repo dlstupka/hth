@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and seed legacy results-repository models, or purge their Git history."""
+"""Validate/seed runner or legacy model caches, or purge results Git history."""
 from __future__ import annotations
 
 import argparse
@@ -30,6 +30,8 @@ HASH_FILES = {
     "weights_sha256": "ohio_weights.caffemodel",
     "archive_sha256": "model.zip",
     "source_archive_sha256": "source.zip",
+    "model_archive_sha256": "models.zip",
+    "config_sha256": "config_filename",
 }
 
 
@@ -57,7 +59,12 @@ def validate_model_dir(model_dir: Path) -> dict[str, object]:
         expected = provenance.get(hash_field)
         if not expected:
             continue
-        filename = provenance.get(filename_field) if filename_field == "model_filename" else filename_field
+        if hash_field == "model_sha256" and provenance.get("model_relative_path"):
+            filename = provenance.get("model_relative_path")
+        elif filename_field in {"model_filename", "config_filename"}:
+            filename = provenance.get(filename_field)
+        else:
+            filename = filename_field
         if not filename:
             raise RuntimeError(f"{model_dir.name}: {filename_field} is missing")
         artifact = model_dir / str(filename)
@@ -69,6 +76,12 @@ def validate_model_dir(model_dir: Path) -> dict[str, object]:
                 f"{model_dir.name}: {filename} SHA-256 mismatch; expected={expected} actual={actual}"
             )
         verified.append(str(filename))
+    for filename, metadata in dict(provenance.get("files") or {}).items():
+        expected = metadata.get("sha256") if isinstance(metadata, dict) else None
+        artifact = model_dir / "saved_model" / filename
+        if not expected or not artifact.is_file() or sha256(artifact) != expected:
+            raise RuntimeError(f"{model_dir.name}: nested artifact {filename} failed provenance validation")
+        verified.append(f"saved_model/{filename}")
     if not verified:
         raise RuntimeError(f"{model_dir.name}: provenance contains no verifiable artifact hashes")
     if model_dir.name == ORLI_MODEL_ID:
@@ -131,8 +144,8 @@ def verify_published_mirror(model_dir: Path, spec: MirrorArtifact, expected_arti
             with zipfile.ZipFile(downloaded) as archive:
                 archive.extractall(extracted)
             validate_model_dir(extracted)
-def seed(results_repo: Path, *, token: str | None, dry_run: bool, selected_models: list[str] | None = None) -> None:
-    model_root = results_repo / "models"
+def seed(results_repo: Path | None = None, *, model_root: Path | None = None, token: str | None, dry_run: bool, selected_models: list[str] | None = None) -> None:
+    model_root = Path(model_root) if model_root is not None else Path(results_repo) / "models"
     model_dirs = sorted(path for path in model_root.iterdir() if path.is_dir())
     if selected_models:
         requested = set(selected_models)
@@ -193,8 +206,8 @@ def git(results_repo: Path, *args: str, capture: bool = False) -> str:
     return process.stdout if capture else ""
 
 
-def verify_current_mirrors(results_repo: Path, selected_models: list[str] | None = None) -> None:
-    model_root = results_repo / "models"
+def verify_current_mirrors(results_repo: Path | None = None, selected_models: list[str] | None = None, *, model_root: Path | None = None) -> None:
+    model_root = Path(model_root) if model_root is not None else Path(results_repo) / "models"
     model_dirs = sorted(path for path in model_root.iterdir() if path.is_dir())
     if selected_models:
         requested = set(selected_models)
@@ -259,26 +272,32 @@ def purge(results_repo: Path, *, confirmation: str, backup: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--results-repo", type=Path, required=True)
+    parser.add_argument("--results-repo", type=Path, help="Results checkout (required for --purge; legacy model source for seed/verify)")
+    parser.add_argument("--model-root", type=Path, help="Explicit runner model-cache root for --seed or --verify")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--seed", action="store_true")
     mode.add_argument("--verify", action="store_true", help="Verify current caches against downloadable mirror releases")
     mode.add_argument("--purge", action="store_true")
     parser.add_argument("--dry-run", action="store_true", help="Validate and show seed plan without publishing")
-    parser.add_argument("--model", action="append", default=[], help="Seed only this model ID; repeat as needed")
+    parser.add_argument("--model", action="append", default=[], help="Operate on only this model ID; repeat as needed")
     parser.add_argument("--confirm", default="", help="Required literal for destructive history purge")
     parser.add_argument("--backup", type=Path, help="Recovery bundle path for --purge")
     args = parser.parse_args()
-    results_repo = args.results_repo.resolve()
+    results_repo = args.results_repo.resolve() if args.results_repo else None
+    model_root = args.model_root.resolve() if args.model_root else None
+    if args.purge and results_repo is None:
+        parser.error("--purge requires --results-repo")
+    if not args.purge and results_repo is None and model_root is None:
+        parser.error("--seed/--verify require --model-root or --results-repo")
     if args.seed:
         seed(
-            results_repo, token=os.environ.get("HTH_RELEASES_TOKEN"),
+            results_repo, model_root=model_root, token=os.environ.get("HTH_RELEASES_TOKEN"),
             dry_run=args.dry_run, selected_models=args.model,
         )
     elif args.verify:
         if args.dry_run:
             raise RuntimeError("--dry-run is not meaningful with --verify")
-        verify_current_mirrors(results_repo, selected_models=args.model)
+        verify_current_mirrors(results_repo, selected_models=args.model, model_root=model_root)
     else:
         if args.dry_run:
             raise RuntimeError("--dry-run applies only to --seed; --purge requires explicit confirmation")

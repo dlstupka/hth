@@ -70,6 +70,34 @@ class MigrateResultsModelsTests(unittest.TestCase):
             self.assertEqual(first.read_bytes(), second.read_bytes())
             self.assertNotIn(b"generated.pyc", first.read_bytes())
 
+    def test_explicit_model_root_is_supported(self):
+        with tempfile.TemporaryDirectory() as temp:
+            model_root = Path(temp) / "cache"
+            model_dir = model_root / "example-model"
+            model_dir.mkdir(parents=True)
+            model = model_dir / "model.bin"
+            model.write_bytes(b"model")
+            (model_dir / "model-provenance.json").write_text(json.dumps({
+                "schema_version": "1.0", "model_id": model_dir.name,
+                "model_filename": model.name, "model_sha256": MODULE.sha256(model),
+                "license": "MIT", "upstream_repository": "https://example.invalid/model",
+            }), encoding="utf-8")
+            MODULE.seed(model_root=model_root, token=None, dry_run=True, selected_models=[model_dir.name])
+
+    def test_validation_accepts_nested_model_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            model_dir = Path(temp) / "eynollah"
+            artifact = model_dir / "saved_model" / "variables" / "variables.index"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_bytes(b"index")
+            (model_dir / "model-provenance.json").write_text(json.dumps({
+                "model_id": model_dir.name, "license": "Apache-2.0",
+                "model_repository": "https://example.invalid/model",
+                "files": {"variables/variables.index": {"sha256": MODULE.sha256(artifact)}},
+            }), encoding="utf-8")
+            result = MODULE.validate_model_dir(model_dir)
+            self.assertEqual(result["verified_files"], ["saved_model/variables/variables.index"])
+
 
 if __name__ == "__main__":
     unittest.main()

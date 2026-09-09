@@ -32,6 +32,11 @@ DHSEGMENT_MODEL_URL="https://github.com/dhlab-epfl/dhSegment/releases/download/v
 DHSEGMENT_MODEL_SOURCES=(
     ModelSource("GitHub Releases / dhSegment", DHSEGMENT_MODEL_URL, "v0.2"),
 )
+DHSEGMENT_MODEL_MIRROR=MirrorArtifact(
+    "dlstupka/hth-mirror", "HTH-MIRROR-DHSEGMENT-PAGE-V0-2",
+    "dhsegment-page-v0.2.zip", DHSEGMENT_MODEL_ID, DHSEGMENT_REPOSITORY,
+    "1.0", DHSEGMENT_LICENSE,
+)
 
 KRAKEN_REPOSITORY="https://github.com/mittagessen/kraken"
 KRAKEN_LICENSE="Apache-2.0"
@@ -104,6 +109,11 @@ MASK_RCNN_MODEL_ID="hjdataset-mask-rcnn-r50-fpn-3x"
 MASK_RCNN_MODEL_URL="https://huggingface.co/layoutparser/detectron2/resolve/main/HJDataset/mask_rcnn_R_50_FPN_3x/model_final.pth?download=true"
 MASK_RCNN_CONFIG_URL="https://huggingface.co/layoutparser/detectron2/resolve/main/HJDataset/mask_rcnn_R_50_FPN_3x/config.yml?download=true"
 MASK_RCNN_MODEL_REPOSITORY="https://huggingface.co/layoutparser/detectron2/tree/main/HJDataset/mask_rcnn_R_50_FPN_3x"
+MASK_RCNN_MODEL_MIRROR=MirrorArtifact(
+    "dlstupka/hth-mirror", "HTH-MIRROR-HJDATASET-MASK-RCNN-R50-FPN-3X",
+    "hjdataset-mask-rcnn-r50-fpn-3x.zip", MASK_RCNN_MODEL_ID,
+    MASK_RCNN_MODEL_REPOSITORY, "main", MASK_RCNN_LICENSE,
+)
 
 EYNOLLAH_REPOSITORY="https://github.com/qurator-spk/eynollah"
 EYNOLLAH_LICENSE="Apache-2.0"
@@ -112,6 +122,11 @@ EYNOLLAH_HF_REPOSITORY="https://huggingface.co/SBB/eynollah-page-extraction"
 EYNOLLAH_HF_REFS=("main","fd3ea7df60462d97796520916326929e7e42c2fb")
 EYNOLLAH_HF_LEGACY_REF="d2b86773d6a43eac8e18101ed1e5109565ea057e"
 EYNOLLAH_SAVED_MODEL_SHA256="6a9639d6f77afec409d0fdb18f41ab3978ff1686eae10a0ce262ebfbd9f689a0"
+EYNOLLAH_MODEL_MIRROR=MirrorArtifact(
+    "dlstupka/hth-mirror", "HTH-MIRROR-EYNOLLAH-PAGE-EXTRACTION-2021-04-25",
+    "eynollah-page-extraction-2021-04-25.zip", EYNOLLAH_MODEL_ID,
+    EYNOLLAH_HF_REPOSITORY, "1.0", EYNOLLAH_LICENSE,
+)
 
 DOCEXTRACTOR_REPOSITORY="https://github.com/monniert/docExtractor"
 DOCEXTRACTOR_LICENSE="MIT"
@@ -125,6 +140,11 @@ DOCEXTRACTOR_SOURCE_SOURCES=(
 DOCEXTRACTOR_MODEL_SOURCES=(
     ModelSource("ENPC / docExtractor", DOCEXTRACTOR_MODEL_URL, "ICFHR2020"),
     ModelSource("Google Drive / docExtractor", f"gdrive://{DOCEXTRACTOR_GDRIVE_ID}", DOCEXTRACTOR_GDRIVE_ID),
+)
+DOCEXTRACTOR_MODEL_MIRROR=MirrorArtifact(
+    "dlstupka/hth-mirror", "HTH-MIRROR-DOCEXTRACTOR-DEFAULT-ICFHR2020",
+    "docextractor-default-icfhr2020.zip", DOCEXTRACTOR_MODEL_ID,
+    DOCEXTRACTOR_REPOSITORY, "1.1", DOCEXTRACTOR_LICENSE,
 )
 
 def _sha256(path):
@@ -428,6 +448,29 @@ def _restore_model_bundle_from_mirror(spec, root):
         print(f"Model mirror restore missed: model={spec.artifact_id} error={type(exc).__name__}: {exc}")
         return False
 
+def _publish_model_bundle_to_mirror(spec, root, authoritative_source):
+    """Publish a freshly prepared, verified model directory as one immutable bundle."""
+    root=Path(root)
+    try:
+        with tempfile.TemporaryDirectory() as temp:
+            archive=Path(temp)/spec.asset_name
+            files=sorted(
+                path for path in root.rglob("*")
+                if path.is_file() and "__pycache__" not in path.parts and path.suffix!=".pyc"
+            )
+            with zipfile.ZipFile(archive,"w",compression=zipfile.ZIP_DEFLATED) as bundle:
+                for path in files:
+                    info=zipfile.ZipInfo(path.relative_to(root).as_posix(),(1980,1,1,0,0,0))
+                    info.compress_type=zipfile.ZIP_DEFLATED
+                    info.external_attr=0o100644 << 16
+                    bundle.writestr(info,path.read_bytes())
+            status=publish_mirror(
+                spec,archive,authoritative_source=authoritative_source,
+            )
+        print(f"Model mirror publication: model={spec.artifact_id} status={status}")
+    except Exception as exc:
+        print(f"::warning::Model mirror publication failed: model={spec.artifact_id} error={type(exc).__name__}: {exc}")
+
 def prepare_detector_legacy(detector,*,results_root,policy="reuse",github_env=None):
     detector=detector.strip().lower()
     if detector!="learned_page_mask":
@@ -437,10 +480,12 @@ def prepare_detector_legacy(detector,*,results_root,policy="reuse",github_env=No
     root=_model_cache_root(results_root)/PAGENET_MODEL_ID
     train=root/"ohio_train_val.prototxt"; deploy=root/"ohio_deploy.prototxt"; weights=root/"ohio_weights.caffemodel"; provenance=root/"model-provenance.json"
     complete=deploy.is_file() and weights.is_file() and provenance.is_file()
+    prepared_fresh=False
     if policy!="refresh" and not complete:
         _restore_model_bundle_from_mirror(PAGENET_MODEL_MIRROR,root)
         complete=deploy.is_file() and weights.is_file() and provenance.is_file()
     if policy=="refresh" or not complete:
+        prepared_fresh=True
         root.mkdir(parents=True,exist_ok=True)
         prototxt_source=None; weights_source=None
         if policy=="refresh" or not train.is_file():
@@ -479,6 +524,10 @@ def prepare_detector_legacy(detector,*,results_root,policy="reuse",github_env=No
         raise RuntimeError(
             f"Learned Page-Mask PageNet validation failed with OpenCV {cv2.__version__}: {exc}"
         ) from exc
+    if prepared_fresh:
+        _publish_model_bundle_to_mirror(PAGENET_MODEL_MIRROR,root,{
+            "site":"GitHub / PageNet","url":PAGENET_REPOSITORY,"reference":"master",
+        })
     env={
         "HTH_LEARNED_PAGE_MASK_PROTOTXT":deploy.resolve().as_posix(),
         "HTH_LEARNED_PAGE_MASK_WEIGHTS":weights.resolve().as_posix(),
@@ -537,7 +586,12 @@ def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
     provenance=root/"model-provenance.json"
 
     complete=provenance.is_file() and extracted.is_dir()
+    prepared_fresh=False
+    if policy!="refresh" and not complete:
+        _restore_model_bundle_from_mirror(DHSEGMENT_MODEL_MIRROR,root)
+        complete=provenance.is_file() and extracted.is_dir()
     if policy=="refresh" or not complete:
+        prepared_fresh=True
         root.mkdir(parents=True,exist_ok=True)
         model_source=None
         if policy=="refresh" or not archive.is_file():
@@ -570,6 +624,8 @@ def _prepare_dhsegment_page_mask_hook(*,results_root,policy,env_file):
     model_dir=root/str(payload["saved_model_relative_path"])
     if not (model_dir/"saved_model.pb").is_file():
         raise RuntimeError("dhSegment SavedModel is missing after preparation")
+    if prepared_fresh:
+        _publish_model_bundle_to_mirror(DHSEGMENT_MODEL_MIRROR,root,model_source)
 
     env={
         "HTH_DHSEGMENT_PAGE_MODEL_DIR":model_dir.resolve().as_posix(),
@@ -623,12 +679,14 @@ def _prepare_kraken_page_mask_hook(*,results_root,policy,env_file):
     model=root/"blla.mlmodel"
     provenance=root/"model-provenance.json"
     complete=model.is_file() and provenance.is_file()
+    prepared_fresh=False
 
     if policy!="refresh" and not complete:
         _restore_model_bundle_from_mirror(KRAKEN_MODEL_MIRROR,root)
         complete=model.is_file() and provenance.is_file()
 
     if policy=="refresh" or not complete:
+        prepared_fresh=True
         root.mkdir(parents=True,exist_ok=True)
         shutil.copy2(packaged_model,model)
         payload={
@@ -651,6 +709,11 @@ def _prepare_kraken_page_mask_hook(*,results_root,policy,env_file):
     payload=json.loads(provenance.read_text(encoding="utf-8"))
     if payload.get("model_sha256") != _sha256(model):
         raise RuntimeError("Kraken default BLLA model SHA mismatch")
+    if prepared_fresh:
+        _publish_model_bundle_to_mirror(KRAKEN_MODEL_MIRROR,root,{
+            "site":"installed Kraken package","url":KRAKEN_REPOSITORY,
+            "reference":installed_version,
+        })
 
     env={
         "HTH_KRAKEN_PAGE_MODEL":model.resolve().as_posix(),
@@ -697,7 +760,12 @@ def _prepare_mask_rcnn_page_mask_hook(*,results_root,policy,env_file):
     config=root/"config.yml"
     provenance=root/"model-provenance.json"
     complete=model.is_file() and config.is_file() and provenance.is_file()
+    prepared_fresh=False
+    if policy!="refresh" and not complete:
+        _restore_model_bundle_from_mirror(MASK_RCNN_MODEL_MIRROR,root)
+        complete=model.is_file() and config.is_file() and provenance.is_file()
     if policy=="refresh" or not complete:
+        prepared_fresh=True
         root.mkdir(parents=True,exist_ok=True)
         model_source=_download_from_sources(
             variant.model_sources,model,artifact="model",variant=variant.key,
@@ -729,6 +797,8 @@ def _prepare_mask_rcnn_page_mask_hook(*,results_root,policy,env_file):
     recorded_variant=str(payload.get("model_variant") or variant.key)
     if recorded_variant != variant.key:
         raise RuntimeError(f"Mask R-CNN model variant provenance mismatch: expected {variant.key}, found {recorded_variant}")
+    if prepared_fresh:
+        _publish_model_bundle_to_mirror(MASK_RCNN_MODEL_MIRROR,root,model_source)
     env={
         "HTH_MASK_RCNN_PAGE_MODEL":model.resolve().as_posix(),
         "HTH_MASK_RCNN_PAGE_CONFIG":config.resolve().as_posix(),
@@ -770,10 +840,12 @@ def _prepare_doc_ufcn_page_mask_hook(*,results_root,policy,env_file):
     parameters=root/"parameters.yml"
     provenance=root/"model-provenance.json"
     complete=model.is_file() and parameters.is_file() and provenance.is_file()
+    prepared_fresh=False
     if policy!="refresh" and not complete:
         _restore_model_bundle_from_mirror(DOC_UFCN_MODEL_MIRROR,root)
         complete=model.is_file() and parameters.is_file() and provenance.is_file()
     if policy=="refresh" or not complete:
+        prepared_fresh=True
         root.mkdir(parents=True,exist_ok=True)
         model_source=_download_from_sources(DOC_UFCN_MODEL_SOURCES,model,artifact="model",variant="doc_ufcn_page_mask",reuse_existing=(policy!="refresh"))
         parameters_source=_download_from_sources(DOC_UFCN_PARAMETERS_SOURCES,parameters,artifact="parameters",variant="doc_ufcn_page_mask",reuse_existing=(policy!="refresh"))
@@ -811,6 +883,8 @@ def _prepare_doc_ufcn_page_mask_hook(*,results_root,policy,env_file):
         raise RuntimeError("Doc-UFCN generic page model SHA mismatch")
     if payload.get("parameters_sha256") != _sha256(parameters):
         raise RuntimeError("Doc-UFCN generic page parameters SHA mismatch")
+    if prepared_fresh:
+        _publish_model_bundle_to_mirror(DOC_UFCN_MODEL_MIRROR,root,model_source)
     env={
         "HTH_DOC_UFCN_PAGE_MODEL":model.resolve().as_posix(),
         "HTH_DOC_UFCN_PAGE_PROVENANCE":provenance.resolve().as_posix(),
@@ -954,8 +1028,13 @@ def _prepare_eynollah_page_mask_hook(*,results_root,policy,env_file):
     root=_model_cache_root(results_root)/EYNOLLAH_MODEL_ID; model_dir=root/"saved_model"; provenance=root/"model-provenance.json"
     files=("saved_model.pb","keras_metadata.pb","variables/variables.index","variables/variables.data-00000-of-00001")
     complete=provenance.is_file() and all((model_dir/f).is_file() for f in files)
+    prepared_fresh=False
+    if policy!="refresh" and not complete:
+        _restore_model_bundle_from_mirror(EYNOLLAH_MODEL_MIRROR,root)
+        complete=provenance.is_file() and all((model_dir/f).is_file() for f in files)
     used={}
     if policy=="refresh" or not complete:
+        prepared_fresh=True
         if policy=="refresh" and model_dir.exists(): shutil.rmtree(model_dir)
         for rel in files:
             target=model_dir/rel
@@ -972,6 +1051,11 @@ def _prepare_eynollah_page_mask_hook(*,results_root,policy,env_file):
         if _sha256(model_dir/rel)!=meta.get("sha256"): raise RuntimeError(f"Eynollah model SHA mismatch: {rel}")
     if _sha256(model_dir/"saved_model.pb") != EYNOLLAH_SAVED_MODEL_SHA256:
         raise RuntimeError("Eynollah released saved_model.pb does not match the published model-card SHA-256")
+    if prepared_fresh:
+        _publish_model_bundle_to_mirror(EYNOLLAH_MODEL_MIRROR,root,{
+            "site":"Hugging Face / SBB","url":EYNOLLAH_HF_REPOSITORY,
+            "reference":"2021-04-25",
+        })
     env={"HTH_EYNOLLAH_PAGE_MODEL_DIR":model_dir.resolve().as_posix(),"HTH_EYNOLLAH_PAGE_PROVENANCE":provenance.resolve().as_posix(),"CUDA_VISIBLE_DEVICES":"-1"}; _write_env(env_file,env); os.environ.update(env)
     print(f"Eynollah Page-Mask ready: model={EYNOLLAH_MODEL_ID} saved_model_sha256={payload['files']['saved_model.pb']['sha256'][:12]}")
     return payload
@@ -988,7 +1072,13 @@ def _prepare_docextractor_page_mask_hook(*,results_root,policy,env_file):
     root=_model_cache_root(results_root)/DOCEXTRACTOR_MODEL_ID; source_archive=root/"source.zip"; source_root=root/"source"; model_archive=root/"models.zip"; provenance=root/"model-provenance.json"
     model_path=next(iter(root.glob("models/default/model.pkl")),None)
     complete=provenance.is_file() and source_root.is_dir() and model_path is not None and model_path.is_file()
+    prepared_fresh=False
+    if policy!="refresh" and not complete:
+        _restore_model_bundle_from_mirror(DOCEXTRACTOR_MODEL_MIRROR,root)
+        model_path=next(iter(root.glob("models/default/model.pkl")),None)
+        complete=provenance.is_file() and source_root.is_dir() and model_path is not None and model_path.is_file()
     if policy=="refresh" or not complete:
+        prepared_fresh=True
         root.mkdir(parents=True,exist_ok=True)
         source_source=_download_from_sources(DOCEXTRACTOR_SOURCE_SOURCES,source_archive,artifact="source.zip",variant="docextractor_page_mask",validator=_validate_zip_file,reuse_existing=(policy!="refresh"))
         if source_root.exists(): shutil.rmtree(source_root)
@@ -1007,6 +1097,8 @@ def _prepare_docextractor_page_mask_hook(*,results_root,policy,env_file):
         provenance.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
     payload=json.loads(provenance.read_text(encoding="utf-8")); model_path=root/payload["model_relative_path"]; repo_dir=root/payload["source_relative_path"]
     if _sha256(model_path)!=payload.get("model_sha256"): raise RuntimeError("docExtractor model SHA mismatch")
+    if prepared_fresh:
+        _publish_model_bundle_to_mirror(DOCEXTRACTOR_MODEL_MIRROR,root,model_source)
     env={"HTH_DOCEXTRACTOR_PAGE_MODEL":model_path.resolve().as_posix(),"HTH_DOCEXTRACTOR_PAGE_SOURCE":repo_dir.resolve().as_posix(),"HTH_DOCEXTRACTOR_PAGE_PROVENANCE":provenance.resolve().as_posix(),"CUDA_VISIBLE_DEVICES":"-1"}; _write_env(env_file,env); os.environ.update(env)
     print(f"docExtractor Page-Mask ready: model={DOCEXTRACTOR_MODEL_ID} model_sha256={payload['model_sha256'][:12]}")
     return payload

@@ -345,6 +345,7 @@ Their calibration JSON files define the complete discrete search grids used by e
 - On first execution the prepare hook checks the configured runner model cache; when absent it downloads the released prototxt and weights, derives an inference-only OpenCV-DNN prototxt, records SHA-256 provenance, exports the asset paths, and continues through the ordinary detector flow.
 - Subsequent executions validate and reuse the persisted model. Calibration tunes only deterministic mask-to-boundary post-processing.
 - The finalize hook revalidates provenance. Model payloads remain outside results persistence; self-hosted runners reuse their validated local cache and portable redundancy artifacts live in `hth-mirror`.
+- For recovery and administration, `tools/migrate-results-models.py --model-root <cache>` can explicitly validate, seed, or verify a runner cache. Normal builds do not require this tool: a successful authoritative acquisition publishes its verified bundle automatically.
 
 
 - [Fusion Gen1 — MSRE + BFQ + SPBV + Page Background](detector-msre-bfq-spbv-pbg.md)
