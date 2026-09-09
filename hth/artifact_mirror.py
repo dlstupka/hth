@@ -118,7 +118,7 @@ def publish(
     token: str | None = None,
 ) -> str:
     """Best-effort publication after a verified authoritative acquisition."""
-    token = token or os.environ.get("HTH_MIRROR_TOKEN")
+    token = token or os.environ.get("HTH_RELEASES_TOKEN")
     if not token:
         return "skipped-no-token"
     artifact = Path(artifact)
