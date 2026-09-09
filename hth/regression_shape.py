@@ -457,6 +457,7 @@ def resolve_workflow_shape(
         for key in (
             "predicted_makespan_seconds", "evidence_detector_count",
             "detector_count", "candidate_count", "leading_candidates",
+            "evidence_build_id", "evidence_golden_set_relation",
         ):
             if key in preferred_multi:
                 result[key] = preferred_multi[key]
@@ -620,6 +621,8 @@ def main() -> int:
                     f"predicted_makespan={float(result['predicted_makespan_seconds']):.1f}s "
                     f"evidence={int(result.get('evidence_detector_count') or 0)}/"
                     f"{int(result.get('detector_count') or 0)} detectors "
+                    f"build={result.get('evidence_build_id') or 'unknown'} "
+                    f"golden_set={result.get('evidence_golden_set_relation') or 'unknown'} "
                     f"candidates={int(result.get('candidate_count') or 0)} "
                     f"leading=[{alternatives}]"
                 )

@@ -54,6 +54,7 @@ class MultiDetectorPreferredShapeTests(unittest.TestCase):
                     "configured_threads": 8, "max_dimension": 1800,
                     "wall_clock_seconds": seconds, "observed_at_utc": "2026-09-09T00:00:00Z",
                     "runner": {"runner_labels": ["24t"]},
+                    "build": {"github_run_id": "complete-build"},
                 })
             runtime = base / "runtime-index.json"
             runtime.write_text(json.dumps({"observations": rows}), encoding="utf-8")

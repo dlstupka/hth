@@ -117,6 +117,43 @@ def optimize_lpt_schedule(
     observations = [row for row in payload.get("observations", []) if isinstance(row, dict)]
     if not observations or not detector_ids:
         return None
+    wanted = set(detector_ids)
+    builds: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in observations:
+        detector = str(row.get("detector_id") or "")
+        if detector not in wanted or str(row.get("mode") or "") != str(mode):
+            continue
+        resolved_strategy = str(row.get("resolved_strategy") or row.get("requested_strategy") or "")
+        if resolved_strategy != str(strategy):
+            continue
+        build = row.get("build") if isinstance(row.get("build"), dict) else {}
+        build_id = str(build.get("github_run_id") or "").strip()
+        if not build_id:
+            continue
+        prior = builds.setdefault(build_id, {}).get(detector)
+        if prior is None or str(row.get("observed_at_utc") or "") > str(prior.get("observed_at_utc") or ""):
+            builds[build_id][detector] = row
+
+    coherent: list[tuple[bool, str, str, list[dict[str, Any]]]] = []
+    for build_id, by_id in builds.items():
+        if set(by_id) != wanted:
+            continue
+        rows = list(by_id.values())
+        latest = max(str(row.get("observed_at_utc") or "") for row in rows)
+        exact_golden = bool(golden_set_sha256) and all(
+            str(row.get("golden_set_sha256") or "") == str(golden_set_sha256)
+            for row in rows
+        )
+        coherent.append((exact_golden, latest, build_id, rows))
+    if not coherent:
+        return None
+    # Multi-detector scheduling learns relative executor cost and queue balance.
+    # Fresh complete smoke evidence is more reliable than an older same-Golden-
+    # Set run, especially after executor fixes. Golden Set relation remains
+    # visible provenance, but does not outrank completion and recency.
+    selected = max(coherent, key=lambda item: (item[1], item[2]))
+    selected_exact_golden, _, evidence_build_id, observations = selected
+
     by_detector: dict[str, list[dict[str, Any]]] = {}
     for row in observations:
         detector = str(row.get("detector_id") or "")
@@ -151,6 +188,8 @@ def optimize_lpt_schedule(
             "evidence_detector_count": len(known),
             "detector_count": len(detector_ids),
             "source": "runtime-index-lpt-optimizer",
+            "evidence_build_id": evidence_build_id,
+            "evidence_golden_set_relation": "exact" if selected_exact_golden else "latest-compatible",
         })
     if not candidates:
         return None
