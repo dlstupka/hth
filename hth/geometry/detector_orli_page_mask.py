@@ -43,6 +43,10 @@ _MODEL_KEY = None
 _MODEL_LOCK = threading.Lock()
 _INFERENCE_LOCK = threading.Lock()
 _EVIDENCE_CACHE: OrderedDict[str, dict[str, Any]] = OrderedDict()
+# A parent-precomputed Golden Set is an explicit whole-collection contract.
+# Keep it separate from the bounded ad-hoc inference LRU so collections larger
+# than the LRU cannot evict one another and trigger neural inference repeatedly.
+_PRECOMPUTED_EVIDENCE: dict[str, dict[str, Any]] = {}
 _EVIDENCE_CACHE_LOCK = threading.Lock()
 _EVIDENCE_CACHE_LIMIT = 16
 
@@ -254,6 +258,9 @@ def _freeze_evidence(evidence):
 def _infer_evidence(image_bgr):
     key = _image_key(image_bgr)
     with _EVIDENCE_CACHE_LOCK:
+        precomputed = _PRECOMPUTED_EVIDENCE.get(key)
+        if precomputed is not None:
+            return precomputed
         cached = _EVIDENCE_CACHE.get(key)
         if cached is not None:
             _EVIDENCE_CACHE.move_to_end(key)
@@ -264,6 +271,9 @@ def _infer_evidence(image_bgr):
     # the now-populated immutable snapshot instead of repeating model.predict().
     with _INFERENCE_LOCK:
         with _EVIDENCE_CACHE_LOCK:
+            precomputed = _PRECOMPUTED_EVIDENCE.get(key)
+            if precomputed is not None:
+                return precomputed
             cached = _EVIDENCE_CACHE.get(key)
             if cached is not None:
                 _EVIDENCE_CACHE.move_to_end(key)
@@ -357,12 +367,10 @@ def load_precomputed_golden_set_evidence(output_dir, images):
     if missing:
         raise ValueError(f"Shared Orli evidence is missing {len(missing)} Golden Set page(s)")
     with _EVIDENCE_CACHE_LOCK:
+        _PRECOMPUTED_EVIDENCE.clear()
         for key in expected:
             evidence = _freeze_evidence(records[key]["evidence"])
-            _EVIDENCE_CACHE[key] = evidence
-            _EVIDENCE_CACHE.move_to_end(key)
-            while len(_EVIDENCE_CACHE) > _EVIDENCE_CACHE_LIMIT:
-                _EVIDENCE_CACHE.popitem(last=False)
+            _PRECOMPUTED_EVIDENCE[key] = evidence
             diagnostics = records[key].get("runtime_diagnostics")
             if isinstance(diagnostics, dict):
                 _store_runtime_diagnostics(key, diagnostics)

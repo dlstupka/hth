@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.domain.multidetector_schedule import plan_lpt_workers, preferred_short_schedule, recommended_schedule, workload_class
+from hth.domain.multidetector_schedule import optimize_lpt_schedule, plan_lpt_workers, preferred_short_schedule, recommended_schedule, workload_class
 
 
 class MultiDetectorScheduleTests(unittest.TestCase):
@@ -70,6 +70,30 @@ class MultiDetectorScheduleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             result = preferred_short_schedule(index_path=self._index(Path(td), worker_utilization=0.62, final_tail_seconds=180.0), detector_count=39, runner_thread_budget=384, runner_label="384t", golden_set_sha256="gold")
             self.assertEqual(result["pipelines"], 5)
+
+    def test_optimizer_scores_every_feasible_lpt_worker_count(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "runtime-index.json"
+            rows = []
+            for detector, seconds in (("slow", 100.0), ("medium", 40.0), ("fast", 10.0)):
+                rows.append({
+                    "detector_id": detector, "mode": "smoke", "resolved_strategy": "exhaustive",
+                    "configured_threads": 8, "max_dimension": 1800, "golden_set_sha256": "gold",
+                    "wall_clock_seconds": seconds, "observed_at_utc": "2026-09-09T00:00:00Z",
+                    "runner": {"runner_labels": ["24t"]},
+                })
+            path.write_text(json.dumps({"observations": rows}), encoding="utf-8")
+            result = optimize_lpt_schedule(
+                runtime_index_path=path, detector_ids=["slow", "medium", "fast"],
+                runner_thread_budget=24, runner_label="24t", golden_set_sha256="gold",
+                mode="smoke", strategy="exhaustive", max_dimension=1800,
+            )
+            self.assertIsNotNone(result)
+            self.assertEqual(result["source"], "runtime-index-lpt-optimizer")
+            self.assertEqual(result["evidence_detector_count"], 3)
+            self.assertGreaterEqual(result["pipelines"], 2)
+            self.assertEqual(result["candidate_count"], 3)
+            self.assertGreaterEqual(len(result["leading_candidates"]), 2)
 
 
 if __name__ == "__main__":

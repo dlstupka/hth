@@ -593,6 +593,7 @@ jobs:
             --parallelism-index results-repo/indexes/parallelism-index.json \
             --predictions-index results-repo/indexes/optimizer-predictions.json \
             --multidetector-index results-repo/indexes/multidetector-index.json \
+            --runtime-index results-repo/indexes/runtime-index.json \
             --detector-config-root hth-pipeline/config/detectors \
             --golden-set "hth-pipeline/$GOLDEN_SET" \
             --max-dimension "$MAX_DIMENSION" \

@@ -389,6 +389,7 @@ def resolve_workflow_shape(
     multidetector_index: Path | None = None,
     runner_budget: int | None = None, pre_resolved_pipelines: int | None = None,
     pre_resolved_threads: int | None = None, pre_resolved_source: str | None = None,
+    runtime_index: Path | None = None,
 ) -> dict[str, Any]:
     """Resolve all workflow shape policy in Python; YAML only supplies inputs."""
     budget = max(1, runner_budget or runner_max_threads(profile.label, profile.logical_cpus))
@@ -435,14 +436,17 @@ def resolve_workflow_shape(
         raise ValueError(f"Unknown execution shape mode: {shape_mode}")
 
     is_multidetector = detector in {"all", "all-without-exhaustive"}
-    if is_multidetector and workload_class(regression_mode, strategy, limit) == "short":
+    if is_multidetector:
         golden_sha = hashlib.sha256(golden_set.read_bytes()).hexdigest() if golden_set.is_file() else None
-        detector_count = len(list(detector_config_root.glob("*.json")))
+        detector_configs = sorted(detector_config_root.glob("*.json"))
+        detector_ids = [str(_read_json(path).get("detector") or path.stem) for path in detector_configs]
+        detector_count = len(detector_ids)
         preferred_multi = recommended_schedule(
             index_path=multidetector_index, detector_count=detector_count,
             runner_thread_budget=budget, runner_label=profile.label,
             golden_set_sha256=golden_sha, mode=regression_mode,
-            strategy=strategy, limit=limit,
+            strategy=strategy, limit=limit, runtime_index_path=runtime_index,
+            detector_ids=detector_ids, max_dimension=max_dimension,
         )
         result = exact(
             int(preferred_multi["pipelines"]), int(preferred_multi["threads_per_pipeline"]),
@@ -450,13 +454,16 @@ def resolve_workflow_shape(
         )
         result["multidetector"] = True
         result["evidence_observation_id"] = preferred_multi.get("evidence_observation_id")
+        for key in (
+            "predicted_makespan_seconds", "evidence_detector_count",
+            "detector_count", "candidate_count", "leading_candidates",
+        ):
+            if key in preferred_multi:
+                result[key] = preferred_multi[key]
         return result
 
     if regression_mode != "full":
         return {"exact": False, "source": "auto-fallback-non-full-regression", "runner_budget": budget}
-    if is_multidetector:
-        return {"exact": False, "source": "auto-fallback-all-full-exhaustive", "runner_budget": budget}
-
     detector_config = detector_config_root / f"{detector}.json"
     detector_id, optimizer_rows = compatible_optimizer_rows(
         parallelism_index=parallelism_index,
@@ -546,6 +553,7 @@ def main() -> int:
     workflow.add_argument("--parallelism-index", type=Path, required=True)
     workflow.add_argument("--predictions-index", type=Path)
     workflow.add_argument("--multidetector-index", type=Path)
+    workflow.add_argument("--runtime-index", type=Path)
     workflow.add_argument("--detector-config-root", type=Path, required=True)
     workflow.add_argument("--golden-set", type=Path, required=True)
     workflow.add_argument("--max-dimension", type=int, required=True)
@@ -584,6 +592,7 @@ def main() -> int:
             strategy=args.strategy, limit=args.limit, detector=args.detector,
             manual_shape=args.manual_shape, parallelism_index=args.parallelism_index,
             predictions_index=args.predictions_index, multidetector_index=args.multidetector_index,
+            runtime_index=args.runtime_index,
             detector_config_root=args.detector_config_root, golden_set=args.golden_set,
             max_dimension=args.max_dimension, profile=profile,
             runner_budget=args.runner_budget,
@@ -600,6 +609,20 @@ def main() -> int:
                 f"{result['allocated_threads']} allocated / {result['runner_budget']} max; "
                 f"{free_threads} free)"
             )
+            if result.get("predicted_makespan_seconds") is not None:
+                alternatives = ", ".join(
+                    f"{row['pipelines']}p/{row['threads_per_pipeline']}t="
+                    f"{float(row['predicted_makespan_seconds']):.1f}s"
+                    for row in result.get("leading_candidates", [])
+                )
+                print(
+                    "LPT shape optimization: "
+                    f"predicted_makespan={float(result['predicted_makespan_seconds']):.1f}s "
+                    f"evidence={int(result.get('evidence_detector_count') or 0)}/"
+                    f"{int(result.get('detector_count') or 0)} detectors "
+                    f"candidates={int(result.get('candidate_count') or 0)} "
+                    f"leading=[{alternatives}]"
+                )
         else:
             print(f"Execution shape: auto planner ({result['source']})")
         return 0

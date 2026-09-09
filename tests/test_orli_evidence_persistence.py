@@ -92,6 +92,28 @@ class OrliEvidencePersistenceTests(unittest.TestCase):
         self.assertEqual(len(payload["records"]), detector._EVIDENCE_CACHE_LIMIT + 2)
         self.assertEqual(len({record["image_key"] for record in payload["records"]}), detector._EVIDENCE_CACHE_LIMIT + 2)
 
+    def test_loaded_collection_larger_than_lru_never_falls_back_to_inference(self):
+        images = [np.full((3, 3, 3), value, dtype=np.uint8) for value in range(detector._EVIDENCE_CACHE_LIMIT + 2)]
+        evidence = {"regions": [], "lines": [], "baselines": [], "text_direction": "horizontal-lr"}
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            records = [{"image_key": detector._image_key(image), "evidence": evidence} for image in images]
+            (root / "manifest.json").write_text(json.dumps({
+                "detector": "orli_page_mask", "page_count": len(records), "records": records,
+            }), encoding="utf-8")
+            try:
+                detector.load_precomputed_golden_set_evidence(root, images)
+                # Two complete passes reproduce the prior sequential LRU-thrash
+                # pattern. The test environment intentionally has no Orli module,
+                # so any fallback to neural inference also fails the test.
+                for _ in range(2):
+                    for image in images:
+                        detector._infer_evidence(image)
+                self.assertEqual(len(detector._PRECOMPUTED_EVIDENCE), len(images))
+            finally:
+                with detector._EVIDENCE_CACHE_LOCK:
+                    detector._PRECOMPUTED_EVIDENCE.clear()
+
 
     def test_regression_driver_always_uses_parent_persistence_for_orli(self):
         text = Path("tools/run-detector-regressions.sh").read_text(encoding="utf-8")

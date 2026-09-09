@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 MIN_THREADS_PER_LPT_WORKER = 48
+DEFAULT_THREAD_SCALING_EXPONENT = 0.5
 
 
 def plan_lpt_workers(detector_count: int, runner_thread_budget: int) -> int:
@@ -50,6 +51,124 @@ def plan_static_lpt_tasks(
         schedules[target]["task_indexes"].append(task_index)
         schedules[target]["estimated_seconds"] = float(schedules[target]["estimated_seconds"]) + seconds
     return [row for row in schedules if row["task_indexes"]]
+
+
+def _runtime_context_score(
+    row: dict[str, Any], *, mode: str, strategy: str,
+    max_dimension: int, golden_set_sha256: str | None, runner_label: str,
+) -> int:
+    score = 0
+    if str(row.get("mode") or "") == str(mode):
+        score += 32
+    if str(row.get("resolved_strategy") or row.get("requested_strategy") or "") == str(strategy):
+        score += 16
+    if _as_int(row.get("max_dimension")) == int(max_dimension):
+        score += 8
+    if golden_set_sha256 and str(row.get("golden_set_sha256") or "") == str(golden_set_sha256):
+        score += 4
+    runner = row.get("runner") if isinstance(row.get("runner"), dict) else {}
+    labels = runner.get("runner_labels") if isinstance(runner.get("runner_labels"), list) else []
+    if runner_label and runner_label in labels:
+        score += 2
+    return score
+
+
+def _predicted_runtime(
+    rows: list[dict[str, Any]], *, threads: int, mode: str, strategy: str,
+    max_dimension: int, golden_set_sha256: str | None, runner_label: str,
+) -> float | None:
+    candidates: list[tuple[int, float, str, float]] = []
+    for row in rows:
+        seconds = _as_float(row.get("scheduler_wall_clock_seconds"))
+        if seconds is None:
+            seconds = _as_float(row.get("wall_clock_seconds"))
+        observed_threads = _as_int(row.get("configured_threads"))
+        if seconds is None or seconds <= 0 or observed_threads is None or observed_threads <= 0:
+            continue
+        context = _runtime_context_score(
+            row, mode=mode, strategy=strategy, max_dimension=max_dimension,
+            golden_set_sha256=golden_set_sha256, runner_label=runner_label,
+        )
+        distance = abs(math.log(max(1, threads) / observed_threads))
+        # Until a detector has a fitted scaling curve, use the same conservative
+        # square-root scaling assumption as regression sharding. Exact observed
+        # thread counts remain exact predictions.
+        predicted = seconds * math.pow(observed_threads / max(1, threads), DEFAULT_THREAD_SCALING_EXPONENT)
+        candidates.append((context, -distance, str(row.get("observed_at_utc") or ""), predicted))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: (item[0], item[1], item[2]))[3]
+
+
+def optimize_lpt_schedule(
+    *, runtime_index_path: Path | None, detector_ids: list[str],
+    runner_thread_budget: int, runner_label: str, golden_set_sha256: str | None,
+    mode: str, strategy: str, max_dimension: int,
+) -> dict[str, Any] | None:
+    """Jointly choose worker count and its deterministic LPT assignment.
+
+    Every feasible worker count is evaluated. Detector runtimes are projected
+    from the closest compatible persisted observation, then assigned with the
+    executable static LPT planner. Unknown detectors receive the largest known
+    estimate, preventing missing history from making a shape look artificially
+    cheap.
+    """
+    payload = _read_index(runtime_index_path)
+    observations = [row for row in payload.get("observations", []) if isinstance(row, dict)]
+    if not observations or not detector_ids:
+        return None
+    by_detector: dict[str, list[dict[str, Any]]] = {}
+    for row in observations:
+        detector = str(row.get("detector_id") or "")
+        if detector:
+            by_detector.setdefault(detector, []).append(row)
+
+    budget = max(1, int(runner_thread_budget))
+    candidates: list[dict[str, Any]] = []
+    for pipelines in range(1, min(len(detector_ids), budget) + 1):
+        threads = max(1, budget // pipelines)
+        estimates = [
+            _predicted_runtime(
+                by_detector.get(detector, []), threads=threads, mode=mode,
+                strategy=strategy, max_dimension=max_dimension,
+                golden_set_sha256=golden_set_sha256, runner_label=runner_label,
+            )
+            for detector in detector_ids
+        ]
+        known = [value for value in estimates if value is not None]
+        if not known:
+            continue
+        unknown_estimate = max(known)
+        complete = [value if value is not None else unknown_estimate for value in estimates]
+        schedule = plan_static_lpt_tasks(complete, pipelines)
+        makespan = max(float(row["estimated_seconds"]) for row in schedule)
+        candidates.append({
+            "pipelines": pipelines,
+            "threads_per_pipeline": threads,
+            "allocated_threads": pipelines * threads,
+            "runner_budget": budget,
+            "predicted_makespan_seconds": makespan,
+            "evidence_detector_count": len(known),
+            "detector_count": len(detector_ids),
+            "source": "runtime-index-lpt-optimizer",
+        })
+    if not candidates:
+        return None
+    # Prefer the simpler shape only when predictions are effectively tied.
+    best_time = min(float(row["predicted_makespan_seconds"]) for row in candidates)
+    near_best = [row for row in candidates if float(row["predicted_makespan_seconds"]) <= best_time * 1.01]
+    selected = min(near_best, key=lambda row: int(row["pipelines"]))
+    ranked = sorted(candidates, key=lambda row: (float(row["predicted_makespan_seconds"]), int(row["pipelines"])))
+    selected["candidate_count"] = len(candidates)
+    selected["leading_candidates"] = [
+        {
+            "pipelines": int(row["pipelines"]),
+            "threads_per_pipeline": int(row["threads_per_pipeline"]),
+            "predicted_makespan_seconds": float(row["predicted_makespan_seconds"]),
+        }
+        for row in ranked[:3]
+    ]
+    return selected
 
 
 def workload_class(mode: str, strategy: str, limit: str | None) -> str:
@@ -177,6 +296,9 @@ def recommended_schedule(
     mode: str,
     strategy: str,
     limit: str | None,
+    runtime_index_path: Path | None = None,
+    detector_ids: list[str] | None = None,
+    max_dimension: int = 0,
 ) -> dict[str, Any]:
     """Return the canonical multi-detector schedule recommendation.
 
@@ -188,6 +310,14 @@ def recommended_schedule(
     """
     detectors = max(1, int(detector_count))
     budget = max(1, int(runner_thread_budget))
+    optimized = optimize_lpt_schedule(
+        runtime_index_path=runtime_index_path,
+        detector_ids=list(detector_ids or []), runner_thread_budget=budget,
+        runner_label=runner_label, golden_set_sha256=golden_set_sha256,
+        mode=mode, strategy=strategy, max_dimension=max_dimension,
+    )
+    if optimized:
+        return optimized
     if workload_class(mode, strategy, limit) == "short":
         measured = preferred_short_schedule(
             index_path=index_path,
@@ -207,4 +337,3 @@ def recommended_schedule(
         "runner_budget": budget,
         "source": "canonical-lpt-planner",
     }
-
