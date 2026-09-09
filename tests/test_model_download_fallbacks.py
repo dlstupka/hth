@@ -14,7 +14,7 @@ from hth.detector_lifecycle import (
     MODEL_DOWNLOAD_SOURCE_LIMIT,
     _download_from_sources,
     _publish_model_bundle_to_mirror,
-    _reconcile_cached_model_bundle,
+    _publish_cached_model_bundle_if_missing,
     _restore_model_bundle_from_mirror,
 )
 from hth.model_variants import ModelSource
@@ -76,7 +76,7 @@ class ModelDownloadFallbackTests(unittest.TestCase):
         ), patch(
             "hth.detector_lifecycle._publish_model_bundle_to_mirror", return_value="published"
         ) as publication:
-            status = _reconcile_cached_model_bundle(
+            status = _publish_cached_model_bundle_if_missing(
                 bundle, Path(temp), {"model_id": "model", "model_source": {"site": "upstream"}}
             )
         self.assertEqual(status, "published")
@@ -91,7 +91,7 @@ class ModelDownloadFallbackTests(unittest.TestCase):
         ), patch(
             "hth.detector_lifecycle.mirror_exists", return_value=True
         ), patch("hth.detector_lifecycle._publish_model_bundle_to_mirror") as publication:
-            status = _reconcile_cached_model_bundle(bundle, Path(temp), {"model_id": "model"})
+            status = _publish_cached_model_bundle_if_missing(bundle, Path(temp), {"model_id": "model"})
         self.assertEqual(status, "already-present")
         publication.assert_not_called()
 
