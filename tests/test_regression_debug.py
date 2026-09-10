@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -20,6 +21,60 @@ from hth.regression.runner import write_debug_artifacts
 
 
 class RegressionDebugTests(unittest.TestCase):
+    def test_debug_renderer_failure_is_recorded_without_losing_regression(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image_path = root / "source.jpg"
+            image = np.zeros((120, 180, 3), dtype=np.uint8)
+            cv2.imwrite(str(image_path), image)
+            page = {
+                "global_ordinal": 6,
+                "image_path": str(image_path),
+                "mask": np.zeros((120, 180), dtype=np.uint8),
+                "approved_bbox": [10, 10, 170, 110],
+            }
+            result = {
+                "parameter_set_id": "baseline123",
+                "pages": [{
+                    "global_ordinal": 6,
+                    "status": "no_candidate",
+                    "candidate": {"method": "contour"},
+                }],
+            }
+
+            with patch(
+                "hth.regression.runner._write_debug_page",
+                side_effect=RuntimeError("synthetic renderer failure"),
+            ):
+                outputs = write_debug_artifacts(
+                    root,
+                    "contour",
+                    "run-test",
+                    policy="winner",
+                    ranked=[result],
+                    pages=[page],
+                )
+
+            debug_root = root / "debug" / "contour" / "run-test"
+            error_path = (
+                debug_root
+                / "baseline123"
+                / "page-0006"
+                / "debug-render-error.json"
+            )
+            failure = json.loads(error_path.read_text(encoding="utf-8"))
+            self.assertEqual(failure["status"], "debug-render-failed")
+            self.assertEqual(failure["error"]["type"], "RuntimeError")
+            self.assertIn("synthetic renderer failure", failure["error"]["message"])
+            self.assertIn(
+                "debug/contour/run-test/baseline123/page-0006/debug-render-error.json",
+                outputs,
+            )
+            readme = (debug_root / "README.txt").read_text(encoding="utf-8")
+            self.assertIn("Pages selected: 1", readme)
+            self.assertIn("Pages rendered: 0", readme)
+            self.assertIn("Render failures: 1", readme)
+
     def test_run_forwards_selected_debug_level_to_artifact_writer(self) -> None:
         from hth.regression.runner import run
 

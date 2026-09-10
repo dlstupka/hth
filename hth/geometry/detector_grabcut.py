@@ -267,9 +267,24 @@ def debug_images(*, image_bgr: np.ndarray, mask: np.ndarray, parameters: Mapping
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
         definite_foreground = cv2.erode((mask > 0).astype(np.uint8), kernel, iterations=erosion_iterations)
         gc_mask[definite_foreground > 0] = cv2.GC_FGD
-    background_model = np.zeros((1, 65), np.float64)
-    foreground_model = np.zeros((1, 65), np.float64)
-    cv2.grabCut(image_bgr, gc_mask, None, background_model, foreground_model, int(params["grabcut_iterations"]), cv2.GC_INIT_WITH_MASK)
+    has_foreground_seed = np.any(
+        (gc_mask == cv2.GC_FGD) | (gc_mask == cv2.GC_PR_FGD)
+    )
+    has_background_seed = np.any(
+        (gc_mask == cv2.GC_BGD) | (gc_mask == cv2.GC_PR_BGD)
+    )
+    if has_foreground_seed and has_background_seed:
+        background_model = np.zeros((1, 65), np.float64)
+        foreground_model = np.zeros((1, 65), np.float64)
+        cv2.grabCut(
+            image_bgr,
+            gc_mask,
+            None,
+            background_model,
+            foreground_model,
+            int(params["grabcut_iterations"]),
+            cv2.GC_INIT_WITH_MASK,
+        )
     refined = np.where((gc_mask == cv2.GC_FGD) | (gc_mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
     overlay = image_bgr.copy() if image_bgr.ndim == 3 else cv2.cvtColor(image_bgr, cv2.COLOR_GRAY2BGR)
     if candidate_corners is not None:

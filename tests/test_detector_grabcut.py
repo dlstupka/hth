@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import unittest
 
-from hth.geometry.detector_grabcut import BASELINE_PARAMETERS, detect
+from hth.geometry.detector_grabcut import BASELINE_PARAMETERS, debug_images, detect
 
 class GrabCutDetectorTests(unittest.TestCase):
 
@@ -53,3 +53,23 @@ class GrabCutDetectorTests(unittest.TestCase):
         candidate = detect(image_bgr=image, mask=mask)
         assert candidate.bbox is None
         assert candidate.diagnostics["reason"] == "insufficient_initial_foreground"
+
+    def test_debug_images_cleanly_render_empty_seed(self) -> None:
+        image = np.zeros((200, 300, 3), dtype=np.uint8)
+        mask = np.zeros((200, 300), dtype=np.uint8)
+
+        images = debug_images(
+            image_bgr=image,
+            mask=mask,
+            candidate_corners=None,
+            verbose=True,
+        )
+
+        assert set(images) == {
+            "grabcut-mask.png",
+            "selected-region.png",
+            "grabcut-labels.png",
+            "definite-foreground-seed.png",
+            "grabcut-contours.png",
+        }
+        assert not np.any(images["grabcut-mask.png"])

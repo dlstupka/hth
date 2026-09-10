@@ -786,6 +786,8 @@ def write_debug_artifacts(
         if policy == "failures":
             selected = [item for item in selected if item[1].get("status") != "ok"]
 
+    rendered_count = 0
+    render_failures: list[dict[str, Any]] = []
     for parameter_set, page_result in selected:
         candidate = page_result.get("candidate") if isinstance(page_result.get("candidate"), dict) else {}
         candidate_method = str(candidate.get("method") or "")
@@ -794,21 +796,52 @@ def write_debug_artifacts(
                 f"Debug artifact detector mismatch: run={detector!r}, "
                 f"candidate={candidate_method!r}, page={page_result.get('global_ordinal')}"
             )
-        page = page_by_ordinal[int(page_result["global_ordinal"])]
-        _write_debug_page(
-            debug_root,
-            page=page,
-            result=page_result,
-            parameter_set_id_value=str(parameter_set["parameter_set_id"]),
-            debug_level=debug_level,
-        )
+        ordinal = int(page_result["global_ordinal"])
+        page = page_by_ordinal[ordinal]
+        parameter_set_id_value = str(parameter_set["parameter_set_id"])
+        try:
+            _write_debug_page(
+                debug_root,
+                page=page,
+                result=page_result,
+                parameter_set_id_value=parameter_set_id_value,
+                debug_level=debug_level,
+            )
+            rendered_count += 1
+        except Exception as exc:
+            failure = {
+                "schema_version": "1",
+                "status": "debug-render-failed",
+                "detector": detector,
+                "run_id": run_id,
+                "parameter_set_id": parameter_set_id_value,
+                "global_ordinal": ordinal,
+                "image_path": page.get("image_path"),
+                "error": {"type": type(exc).__name__, "message": str(exc)},
+            }
+            render_failures.append(failure)
+            failure_dir = (
+                debug_root
+                / _safe_name(parameter_set_id_value)
+                / f"page-{ordinal:04d}"
+            )
+            failure_dir.mkdir(parents=True, exist_ok=True)
+            write_json(failure_dir / "debug-render-error.json", failure)
+            print(
+                "Warning: debug artifact rendering failed; "
+                f"detector={detector} parameter_set={parameter_set_id_value} "
+                f"page={ordinal} error={type(exc).__name__}: {exc}; "
+                "action=record-and-continue"
+            )
 
     readme = [
         "HTH detector regression debug artifacts",
         "",
         f"Policy: {policy}",
         f"Debug level: {debug_level}",
-        f"Pages written: {len(selected)}",
+        f"Pages selected: {len(selected)}",
+        f"Pages rendered: {rendered_count}",
+        f"Render failures: {len(render_failures)}",
         "",
         "Each page directory uses numeric prefixes to preserve analysis order.",
         "Common files:",
