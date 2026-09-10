@@ -72,6 +72,8 @@ class ProgressSnapshot:
 class ProgressReporter:
     """Emit one fixed-width heartbeat line per interval plus sparse milestones."""
 
+    STALL_MISSED_COMPLETIONS = 3
+
     COLUMN_WIDTHS = {
         "elapsed": 8,
         "eta": 8,
@@ -193,9 +195,10 @@ class ProgressReporter:
             with self._lock:
                 now = self.clock()
                 stalled_for = now - self._last_progress_at
-                if stalled_for >= 2 * self.interval_seconds and (
+                warning_interval = self._stall_warning_interval()
+                if warning_interval is not None and stalled_for >= warning_interval and (
                     self._last_stall_warning_at is None
-                    or now - self._last_stall_warning_at >= 2 * self.interval_seconds
+                    or now - self._last_stall_warning_at >= warning_interval
                 ):
                     print(
                         f"{_duration(now - self.started)} >>> No forward progress for "
@@ -205,6 +208,29 @@ class ProgressReporter:
                     )
                     self._last_stall_warning_at = now
                 self.emit(force=True)
+
+    def _stall_warning_interval(self) -> float | None:
+        """Return the rate-aware time represented by three missed completions.
+
+        The completion rate is measured at the last completed parameter set so
+        an active stall cannot continuously lower the rate and move its own
+        warning threshold farther into the future.
+        """
+        if (
+            self.completed <= 0
+            or self._search_started_at is None
+            or self._last_progress_at <= self._search_started_at
+        ):
+            return None
+        completed_elapsed = self._last_progress_at - self._search_started_at
+        average_rate = self.completed / completed_elapsed
+        if average_rate <= 0:
+            return None
+        missed_completion_interval = self.STALL_MISSED_COMPLETIONS / average_rate
+        return max(
+            self.STALL_MISSED_COMPLETIONS * self.interval_seconds,
+            missed_completion_interval,
+        )
 
     @staticmethod
     def _normalize_profile(profile: str) -> str:

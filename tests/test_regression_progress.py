@@ -15,6 +15,43 @@ class FakeClock:
 
 
 class RegressionProgressTests(unittest.TestCase):
+    def test_stall_warning_requires_three_rate_expected_completions(self) -> None:
+        clock = FakeClock()
+        reporter = ProgressReporter(
+            total=10,
+            interval_seconds=60,
+            stream=io.StringIO(),
+            clock=clock,
+        )
+
+        self.assertIsNone(reporter._stall_warning_interval())
+
+        reporter.start()
+        clock.value = 60
+        reporter.observe_baseline({
+            "parameter_set_id": "baseline",
+            "summary": {
+                "mean_iou": 0.8,
+                "minimum_iou": 0.6,
+                "stddev_iou": 0.061,
+                "failure_count": 0,
+            },
+        })
+        self.assertEqual(reporter._stall_warning_interval(), 180.0)
+
+        clock.value = 240
+        reporter.observe({
+            "parameter_set_id": "slow",
+            "summary": {
+                "mean_iou": 0.8,
+                "minimum_iou": 0.6,
+                "stddev_iou": 0.061,
+                "failure_count": 0,
+            },
+        })
+        self.assertEqual(reporter._stall_warning_interval(), 360.0)
+        reporter.finish()
+
     def test_eta_starts_after_first_completion_and_columns_align(self) -> None:
         clock = FakeClock()
         stream = io.StringIO()
