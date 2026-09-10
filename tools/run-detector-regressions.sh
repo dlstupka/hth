@@ -301,11 +301,23 @@ PYSHARDCAP
         plan_source="${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-optimizer}-${plan_source}"
       fi
     else
-      # In multi-detector runs the active pipelines are detector workers, so
-      # each detector remains one task; multiplying every detector by the full
-      # worker count would overshard the aggregate queue.
-      planned_shards=1
-      plan_source="multi-detector-single-shard"
+      # The preferred LPT shape may split only the long detectors when doing
+      # so lowers aggregate makespan materially on a flexible runner.
+      planned_shards="$(python - "$detector_name" "${HTH_DETECTOR_SHARD_COUNTS_JSON:-{}}" <<'PYSHARDPLAN'
+import json, sys
+
+try:
+    counts = json.loads(sys.argv[2])
+except (TypeError, ValueError, json.JSONDecodeError):
+    counts = {}
+print(max(1, int(counts.get(sys.argv[1], 1))))
+PYSHARDPLAN
+      )"
+      if (( planned_shards > 1 )); then
+        plan_source="capacity-lpt-10m-material-improvement"
+      else
+        plan_source="multi-detector-single-shard"
+      fi
     fi
   else
     shard_pipeline_count="$effective_pipelines"
@@ -332,9 +344,17 @@ PYSHARDCAP
     planned_shards=1
     plan_source="adaptive-single-shard"
   fi
+  detector_task_estimate="${detector_estimates[$detector_index]:-$serial_estimate}"
+  if [[ "$detector_task_estimate" =~ ^[0-9]+([.][0-9]+)?$ ]] && (( planned_shards > 1 )); then
+    detector_task_estimate="$(python - "$detector_task_estimate" "$planned_shards" <<'PYSHARDESTIMATE'
+import sys
+print(f"{float(sys.argv[1]) / int(sys.argv[2]):.3f}")
+PYSHARDESTIMATE
+    )"
+  fi
   for ((shard_index = 0; shard_index < planned_shards; shard_index++)); do
     task_configs+=("$detector_config")
-    task_estimates+=("${detector_estimates[$detector_index]:-$serial_estimate}")
+    task_estimates+=("$detector_task_estimate")
     task_estimate_sources+=("${detector_estimate_sources[$detector_index]:-$plan_source}")
     task_quality+=("${detector_quality[$detector_index]:-unknown}")
     task_shard_indexes+=("$shard_index")

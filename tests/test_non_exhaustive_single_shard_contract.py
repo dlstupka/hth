@@ -20,6 +20,8 @@ class AutomaticShardTopologyContractTests(unittest.TestCase):
         self.assertIn('"$effective_strategy" == "binary-refine" || "$effective_strategy" == "adaptive"', DRIVER)
         self.assertIn('plan_source="${effective_strategy}-single-shard"', DRIVER)
         self.assertIn('plan_source="multi-detector-single-shard"', DRIVER)
+        self.assertIn('HTH_DETECTOR_SHARD_COUNTS_JSON', DRIVER)
+        self.assertIn('plan_source="capacity-lpt-10m-material-improvement"', DRIVER)
 
 
 if __name__ == "__main__":

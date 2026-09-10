@@ -3,12 +3,64 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.domain.multidetector_schedule import optimize_lpt_schedule, plan_lpt_workers, recommended_schedule, workload_class
+from hth.domain.multidetector_schedule import (
+    optimize_lpt_schedule,
+    plan_capacity_shards,
+    plan_lpt_workers,
+    recommended_schedule,
+    workload_class,
+)
 
 
 class MultiDetectorScheduleTests(unittest.TestCase):
     def test_large_384_thread_host(self):
         self.assertEqual(plan_lpt_workers(39, 384), 39)
+
+    def test_capacity_sharding_splits_long_detectors_to_ten_minute_jobs(self):
+        estimates = [1980, 606, 769, 699, 1183, 671] + [60] * 41
+        plan = plan_capacity_shards(estimates, 192)
+        self.assertTrue(plan["applied"])
+        self.assertEqual(plan["shard_counts"][:6], [4, 2, 2, 2, 2, 2])
+        self.assertEqual(plan["task_count"], 55)
+        self.assertEqual(plan["pipelines"], 55)
+        self.assertLessEqual(plan["predicted_makespan_seconds"], 600)
+
+    def test_github_sized_optimizer_does_not_change_existing_topology(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "runtime-index.json"
+            path.write_text(json.dumps({"observations": [
+                {
+                    "detector_id": detector, "mode": "smoke", "resolved_strategy": "exhaustive",
+                    "wall_clock_seconds": seconds, "observed_at_utc": "2026-09-09T00:00:00Z",
+                    "build": {"github_run_id": "complete"},
+                }
+                for detector, seconds in (("a", 1980), ("b", 769), ("c", 699), ("d", 60))
+            ]}), encoding="utf-8")
+            result = optimize_lpt_schedule(
+                runtime_index_path=path, detector_ids=["a", "b", "c", "d"],
+                runner_thread_budget=8, runner_label="github-hosted", golden_set_sha256=None,
+                mode="smoke", strategy="exhaustive", max_dimension=1800,
+            )
+            self.assertFalse(result["sharding_applied"])
+            self.assertEqual(result["detector_shard_counts"], {"a": 1, "b": 1, "c": 1, "d": 1})
+            self.assertLessEqual(result["pipelines"], 4)
+
+    def test_merged_shard_serial_work_prevents_next_run_whipsaw(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "runtime-index.json"
+            path.write_text(json.dumps({"observations": [{
+                "detector_id": "slow", "mode": "smoke", "resolved_strategy": "exhaustive",
+                "wall_clock_seconds": 495.0, "estimated_serial_runtime_seconds": 1980.0,
+                "observed_at_utc": "2026-09-10T00:00:00Z",
+                "build": {"github_run_id": "sharded"},
+            }]}), encoding="utf-8")
+            result = optimize_lpt_schedule(
+                runtime_index_path=path, detector_ids=["slow"], runner_thread_budget=384,
+                runner_label="192t", golden_set_sha256=None, mode="smoke",
+                strategy="exhaustive", max_dimension=1800,
+            )
+            self.assertTrue(result["sharding_applied"])
+            self.assertEqual(result["detector_shard_counts"], {"slow": 4})
 
     def test_workload_classes_keep_smoke_separate_from_full_exhaustive(self):
         self.assertEqual(workload_class("smoke", "exhaustive", "10"), "short")
@@ -176,8 +228,9 @@ class MultiDetectorScheduleTests(unittest.TestCase):
                 runner_thread_budget=384, runner_label="192t", golden_set_sha256=None,
                 mode="smoke", strategy="exhaustive", max_dimension=1800,
             )
-            self.assertEqual(result["pipelines"], 2)
-            self.assertEqual(result["threads_per_pipeline"], 192)
+            self.assertEqual(result["pipelines"], 4)
+            self.assertEqual(result["threads_per_pipeline"], 96)
+            self.assertEqual(result["detector_shard_counts"], {"a": 2, "b": 1, "c": 1})
 
 
 if __name__ == "__main__":

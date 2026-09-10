@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 MAX_FLOOR_OVERRUN = 0.20
+DEFAULT_SHARD_TARGET_SECONDS = 10 * 60
+MIN_SHARD_MAKESPAN_IMPROVEMENT = 0.20
 
 
 def plan_lpt_workers(detector_count: int, runner_thread_budget: int) -> int:
@@ -73,6 +75,53 @@ def select_lpt_pipeline_count(
     return ceiling
 
 
+def plan_capacity_shards(
+    estimates: list[float | int | None],
+    max_pipelines: int,
+    *,
+    target_shard_seconds: float = DEFAULT_SHARD_TARGET_SECONDS,
+    minimum_makespan_improvement: float = MIN_SHARD_MAKESPAN_IMPROVEMENT,
+) -> dict[str, Any]:
+    """Split long LPT jobs only when runner capacity materially lowers makespan."""
+    if not estimates:
+        return {"shard_counts": [], "pipelines": 1, "applied": False}
+    known = [value for value in (_as_float(raw) for raw in estimates) if value is not None and value > 0]
+    fallback = max(known) if known else 0.0
+    complete = [
+        value if value is not None and value > 0 else fallback
+        for value in (_as_float(raw) for raw in estimates)
+    ]
+    capacity = max(1, int(max_pipelines))
+    unsharded_pipelines = min(len(complete), capacity)
+    unsharded_schedule = plan_static_lpt_tasks(complete, unsharded_pipelines)
+    unsharded_makespan = max(float(row["estimated_seconds"]) for row in unsharded_schedule)
+    target = max(1.0, float(target_shard_seconds))
+    proposed_counts = [max(1, math.ceil(seconds / target)) for seconds in complete]
+    proposed_estimates = [
+        seconds / count
+        for seconds, count in zip(complete, proposed_counts)
+        for _ in range(count)
+    ]
+    proposed_pipelines = min(len(proposed_estimates), capacity)
+    proposed_schedule = plan_static_lpt_tasks(proposed_estimates, proposed_pipelines)
+    proposed_makespan = max(float(row["estimated_seconds"]) for row in proposed_schedule)
+    improvement = (
+        (unsharded_makespan - proposed_makespan) / unsharded_makespan
+        if unsharded_makespan > 0 else 0.0
+    )
+    applied = improvement >= max(0.0, float(minimum_makespan_improvement))
+    return {
+        "shard_counts": proposed_counts if applied else [1] * len(complete),
+        "pipelines": proposed_pipelines if applied else unsharded_pipelines,
+        "applied": applied,
+        "unsharded_makespan_seconds": unsharded_makespan,
+        "predicted_makespan_seconds": proposed_makespan if applied else unsharded_makespan,
+        "makespan_improvement": improvement if applied else 0.0,
+        "task_count": len(proposed_estimates) if applied else len(complete),
+        "target_shard_seconds": target,
+    }
+
+
 def _runtime_context_score(
     row: dict[str, Any], *, mode: str, strategy: str,
     max_dimension: int, golden_set_sha256: str | None, runner_label: str,
@@ -99,7 +148,9 @@ def _predicted_runtime(
 ) -> float | None:
     candidates: list[tuple[int, float, str, float]] = []
     for row in rows:
-        seconds = _as_float(row.get("scheduler_wall_clock_seconds"))
+        seconds = _as_float(row.get("estimated_serial_runtime_seconds"))
+        if seconds is None:
+            seconds = _as_float(row.get("scheduler_wall_clock_seconds"))
         if seconds is None:
             seconds = _as_float(row.get("wall_clock_seconds"))
         if seconds is None or seconds <= 0:
@@ -192,7 +243,10 @@ def optimize_lpt_schedule(
 
     budget = max(1, int(runner_thread_budget))
     candidates: list[dict[str, Any]] = []
-    max_pipelines = plan_lpt_workers(len(detector_ids), budget)
+    # Sharding may create more runnable jobs than detectors, so preserve the
+    # runner's full pipeline capacity here instead of capping it at detector
+    # count before the shard plan is known.
+    max_pipelines = max(1, budget // 2)
     measured = [
         _predicted_runtime(
             by_detector.get(detector, []), mode=mode, strategy=strategy,
@@ -207,12 +261,31 @@ def optimize_lpt_schedule(
     unknown_estimate = max(known)
     complete = [value if value is not None else unknown_estimate for value in measured]
     floor_seconds = max(complete)
-    selected_pipeline_count = select_lpt_pipeline_count(complete, max_pipelines)
+    shard_plan = (
+        plan_capacity_shards(complete, max_pipelines)
+        if max_pipelines > 4 and strategy in {"exhaustive", "exhaustive-with-zombies"}
+        else None
+    )
+    if shard_plan and shard_plan["applied"]:
+        shard_counts = list(shard_plan["shard_counts"])
+        scheduled_estimates = [
+            seconds / count
+            for seconds, count in zip(complete, shard_counts)
+            for _ in range(count)
+        ]
+        selected_pipeline_count = int(shard_plan["pipelines"])
+        floor_seconds = max(scheduled_estimates)
+        max_pipelines = selected_pipeline_count
+    else:
+        shard_counts = [1] * len(complete)
+        scheduled_estimates = complete
+        selected_pipeline_count = select_lpt_pipeline_count(complete, max_pipelines)
+        max_pipelines = min(len(complete), max_pipelines)
     for pipelines in range(1, max_pipelines + 1):
         threads = max(1, budget // pipelines)
-        schedule = plan_static_lpt_tasks(complete, pipelines)
+        schedule = plan_static_lpt_tasks(scheduled_estimates, pipelines)
         makespan = max(float(row["estimated_seconds"]) for row in schedule)
-        utilization = sum(complete) / (pipelines * makespan)
+        utilization = sum(scheduled_estimates) / (pipelines * makespan)
         candidates.append({
             "pipelines": pipelines,
             "threads_per_pipeline": threads,
@@ -232,6 +305,17 @@ def optimize_lpt_schedule(
     selected = next(row for row in candidates if int(row["pipelines"]) == selected_pipeline_count)
     ranked = sorted(candidates, key=lambda row: (float(row["predicted_makespan_seconds"]), int(row["pipelines"])))
     selected["candidate_count"] = len(candidates)
+    selected["detector_shard_counts"] = {
+        detector: count for detector, count in zip(detector_ids, shard_counts)
+    }
+    selected["sharding_applied"] = bool(shard_plan and shard_plan["applied"])
+    selected["shard_target_seconds"] = DEFAULT_SHARD_TARGET_SECONDS
+    selected["unsharded_makespan_seconds"] = (
+        float(shard_plan["unsharded_makespan_seconds"]) if shard_plan else selected["predicted_makespan_seconds"]
+    )
+    selected["sharding_makespan_improvement"] = (
+        float(shard_plan["makespan_improvement"]) if shard_plan else 0.0
+    )
     selected["leading_candidates"] = [
         {
             "pipelines": int(row["pipelines"]),

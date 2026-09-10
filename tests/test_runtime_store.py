@@ -44,11 +44,11 @@ def test_runtime_index_keeps_latest_summary(tmp_path: Path) -> None:
     assert len(payload["observations"]) == 2
 
 
-def _runtime_run(path: Path, detector: str, run_id: str) -> Path:
+def _runtime_run(path: Path, detector: str, run_id: str, *, serial_seconds: float | None = None) -> Path:
     (path / "reports").mkdir(parents=True)
     config = path / f"{detector}.json"
     config.write_text(json.dumps({"detector": detector}), encoding="utf-8")
-    (path / "RUN-INFO.json").write_text(json.dumps({
+    info = {
         "run_id": run_id,
         "detector": detector,
         "detector_config": str(config),
@@ -56,7 +56,10 @@ def _runtime_run(path: Path, detector: str, run_id: str) -> Path:
         "threads": 2,
         "golden_set_sha256": "gold",
         "strategy": "exhaustive",
-    }), encoding="utf-8")
+    }
+    if serial_seconds is not None:
+        info["estimated_serial_runtime_seconds"] = serial_seconds
+    (path / "RUN-INFO.json").write_text(json.dumps(info), encoding="utf-8")
     (path / "parameters.json").write_text(json.dumps({
         "detector": detector,
         "strategy": "exhaustive",
@@ -83,6 +86,26 @@ def test_concurrent_detector_run_ids_do_not_collide(tmp_path: Path) -> None:
     update_runtime_index(tmp_path / "results", observations)
     payload = json.loads((tmp_path / "results" / "indexes" / "runtime-index.json").read_text(encoding="utf-8"))
     assert {row["detector_id"] for row in payload["observations"]} == {"grabcut", "contour"}
+
+
+def test_merged_shard_serial_work_is_persisted_and_used_for_lpt(tmp_path: Path) -> None:
+    run = _runtime_run(
+        tmp_path / "slow" / "run-merged", "slow", "run-20260910-120000",
+        serial_seconds=1980.0,
+    )
+    observation = observation_from_run(run, build={"github_run_id": "244", "mode": "smoke"})
+    assert observation["wall_clock_seconds"] == 10.0
+    assert observation["estimated_serial_runtime_seconds"] == 1980.0
+    runtime = tmp_path / "runtime-index.json"
+    runtime.write_text(json.dumps({"observations": [observation]}), encoding="utf-8")
+    rows = order_configs(
+        [_config(tmp_path / "slow.json", "slow")], loading_strategy="lpt",
+        runtime_index_path=runtime, calibration_index_path=None, mode="smoke",
+        search_strategy="exhaustive", threads=2, max_dimension=1800,
+        golden_set_sha256="gold", runner_label="",
+    )
+    assert rows[0][1] == 1980.0
+    assert rows[0][2].endswith("+merged-shard-serial-work")
 
 
 def test_order_supplements_missing_runtime_detector_from_persisted_calibration(tmp_path: Path) -> None:

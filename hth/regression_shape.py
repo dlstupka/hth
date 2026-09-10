@@ -430,7 +430,11 @@ def resolve_workflow_shape(
         result = exact(int(pipelines), max(1, budget // int(pipelines)), "reset-bootstrap-max-pipelines")
         result["multidetector"] = True
         return result
-    if pre_resolved_pipelines and pre_resolved_threads and not str(pre_resolved_source or "").startswith("predicted-"):
+    if (
+        pre_resolved_pipelines and pre_resolved_threads
+        and not str(pre_resolved_source or "").startswith("predicted-")
+        and not (mode == "preferred" and is_multidetector)
+    ):
         return exact(
             int(pre_resolved_pipelines), int(pre_resolved_threads),
             str(pre_resolved_source or "preferred-dispatch"),
@@ -470,6 +474,8 @@ def resolve_workflow_shape(
             "detector_count", "candidate_count", "leading_candidates",
             "evidence_build_id", "evidence_golden_set_relation",
             "longest_detector_floor_seconds", "predicted_pipeline_utilization",
+            "detector_shard_counts", "sharding_applied", "shard_target_seconds",
+            "unsharded_makespan_seconds", "sharding_makespan_improvement",
         ):
             if key in preferred_multi:
                 result[key] = preferred_multi[key]
@@ -514,6 +520,10 @@ def workflow_shape_env(result: dict[str, Any]) -> dict[str, Any]:
             "HTH_EXACT_EXECUTION_SHAPE": "1",
             "HTH_ALLOW_THREAD_OVERSUBSCRIPTION": "false",
         })
+    if result.get("detector_shard_counts"):
+        env["HTH_DETECTOR_SHARD_COUNTS_JSON"] = json.dumps(
+            result["detector_shard_counts"], sort_keys=True, separators=(",", ":")
+        )
     return env
 
 

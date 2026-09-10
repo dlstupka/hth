@@ -100,6 +100,10 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
         "golden_set_pages": pages,
         "actual_page_evaluations": page_evaluations,
         "wall_clock_seconds": elapsed,
+        # Merged shard runs finish in parallel, so elapsed time is their
+        # makespan. Preserve the summed serial-equivalent work as the durable
+        # input for deciding whether the detector should remain sharded.
+        "estimated_serial_runtime_seconds": _as_float(info.get("estimated_serial_runtime_seconds")),
         "parameter_sets_per_second": eval_rate,
         "max_dimension": _as_int(params.get("max_dimension")),
         "configured_threads": _as_int(info.get("threads") or params.get("threads")),
@@ -242,6 +246,9 @@ def estimate_runtime(
     )
     if not best:
         return None, source
+    serial_cost = _as_float(best.get("estimated_serial_runtime_seconds"))
+    if serial_cost is not None:
+        return serial_cost, f"{source}+merged-shard-serial-work"
     scheduler_cost = _as_float(best.get("scheduler_wall_clock_seconds"))
     if scheduler_cost is not None:
         return scheduler_cost, f"{source}+scheduler-slot"

@@ -7,6 +7,48 @@ from hth.regression_shape import RunnerProfile, resolve_workflow_shape, workflow
 
 
 class MultiDetectorPreferredShapeTests(unittest.TestCase):
+    def test_preferred_self_hosted_shape_exports_material_capacity_shards(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            configs = base / "configs"
+            configs.mkdir()
+            durations = [1980, 606, 769, 699, 1183, 671] + [60] * 41
+            rows = []
+            for index, seconds in enumerate(durations):
+                detector = f"d{index:02d}"
+                (configs / f"{detector}.json").write_text(
+                    json.dumps({"detector": detector}), encoding="utf-8"
+                )
+                rows.append({
+                    "detector_id": detector, "mode": "smoke", "resolved_strategy": "exhaustive",
+                    "max_dimension": 1800, "wall_clock_seconds": seconds,
+                    "observed_at_utc": "2026-09-10T00:00:00Z",
+                    "runner": {"runner_labels": ["192t"]},
+                    "build": {"github_run_id": "complete"},
+                })
+            runtime = base / "runtime-index.json"
+            runtime.write_text(json.dumps({"observations": rows}), encoding="utf-8")
+            golden = base / "golden.json"
+            golden.write_text("{}", encoding="utf-8")
+            profile = RunnerProfile(
+                name="e9k", label="192t", cpu_model="x", physical_cores=192, logical_cpus=192
+            )
+            result = resolve_workflow_shape(
+                shape_mode="preferred", regression_mode="smoke", strategy="exhaustive", limit="10",
+                detector="all", manual_shape=None, parallelism_index=base / "parallelism.json",
+                predictions_index=None, multidetector_index=None, runtime_index=runtime,
+                detector_config_root=configs, golden_set=golden, max_dimension=1800,
+                profile=profile, runner_budget=384,
+                pre_resolved_pipelines=3, pre_resolved_threads=128,
+                pre_resolved_source="preferred-dispatch",
+            )
+            self.assertEqual(result["pipelines"], 55)
+            self.assertEqual(result["threads_per_pipeline"], 6)
+            self.assertTrue(result["sharding_applied"])
+            env = workflow_shape_env(result)
+            counts = json.loads(env["HTH_DETECTOR_SHARD_COUNTS_JSON"])
+            self.assertEqual([counts[f"d{i:02d}"] for i in range(6)], [4, 2, 2, 2, 2, 2])
+
     def test_reset_bootstraps_at_max_pipeline_count(self):
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
