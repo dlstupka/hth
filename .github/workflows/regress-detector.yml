@@ -151,12 +151,13 @@ on:
         default: ""
         type: string
       execution_shape:
-        description: Execution shape; preferred uses optimizer intelligence and falls back to auto
+        description: Execution shape; reset bootstraps multidetector runs at max pipelines without deleting history
         required: true
         default: preferred
         type: choice
         options:
           - preferred
+          - reset
           - auto
           - manual
       manual_execution_shape:

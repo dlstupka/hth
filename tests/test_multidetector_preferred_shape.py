@@ -7,6 +7,26 @@ from hth.regression_shape import RunnerProfile, resolve_workflow_shape, workflow
 
 
 class MultiDetectorPreferredShapeTests(unittest.TestCase):
+    def test_reset_bootstraps_at_max_pipeline_count(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            configs = base / "configs"
+            configs.mkdir()
+            for i in range(47):
+                (configs / f"d{i}.json").write_text(json.dumps({"detector": f"d{i}"}), encoding="utf-8")
+            golden = base / "golden.json"
+            golden.write_text("{}", encoding="utf-8")
+            profile = RunnerProfile(name="e9k", label="192t", cpu_model="x", physical_cores=192, logical_cpus=192)
+            result = resolve_workflow_shape(
+                shape_mode="reset", regression_mode="smoke", strategy="exhaustive", limit="10", detector="all",
+                manual_shape=None, parallelism_index=base / "parallelism.json", predictions_index=None,
+                multidetector_index=None, runtime_index=None, detector_config_root=configs,
+                golden_set=golden, max_dimension=1800, profile=profile, runner_budget=384,
+            )
+            self.assertEqual(result["pipelines"], 47)
+            self.assertEqual(result["threads_per_pipeline"], 8)
+            self.assertEqual(result["source"], "reset-bootstrap-max-pipelines")
+
     def test_preferred_short_all_uses_occupancy_history_without_forcing_shards(self):
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
@@ -34,10 +54,10 @@ class MultiDetectorPreferredShapeTests(unittest.TestCase):
             )
             self.assertTrue(result["exact"])
             self.assertTrue(result["multidetector"])
-            self.assertEqual(result["pipelines"], 6)
+            self.assertEqual(result["pipelines"], 39)
             env = workflow_shape_env(result)
-            self.assertEqual(env["DETECTOR_PIPELINES"], 6)
-            self.assertEqual(env["THREADS"], 64)
+            self.assertEqual(env["DETECTOR_PIPELINES"], 39)
+            self.assertEqual(env["THREADS"], 9)
             self.assertNotIn("SHARDS", env)
             self.assertNotIn("SHARDING", env)
 

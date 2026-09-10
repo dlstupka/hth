@@ -3,12 +3,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.domain.multidetector_schedule import optimize_lpt_schedule, plan_lpt_workers, preferred_short_schedule, recommended_schedule, workload_class
+from hth.domain.multidetector_schedule import optimize_lpt_schedule, plan_lpt_workers, recommended_schedule, workload_class
 
 
 class MultiDetectorScheduleTests(unittest.TestCase):
     def test_large_384_thread_host(self):
-        self.assertEqual(plan_lpt_workers(39, 384), 6)
+        self.assertEqual(plan_lpt_workers(39, 384), 39)
 
     def test_workload_classes_keep_smoke_separate_from_full_exhaustive(self):
         self.assertEqual(workload_class("smoke", "exhaustive", "10"), "short")
@@ -27,34 +27,15 @@ class MultiDetectorScheduleTests(unittest.TestCase):
         path.write_text(json.dumps({"schema_version": 1, "observations": [row]}), encoding="utf-8")
         return path
 
-    def test_preferred_short_keeps_measured_shape_on_same_large_host(self):
-        with tempfile.TemporaryDirectory() as td:
-            result = preferred_short_schedule(index_path=self._index(Path(td)), detector_count=39, runner_thread_budget=384, runner_label="384t", golden_set_sha256="gold")
-            self.assertEqual(result["pipelines"], 6)
-            self.assertEqual(result["threads_per_pipeline"], 64)
-
-    def test_preferred_short_scales_threads_per_worker_across_large_hosts(self):
-        with tempfile.TemporaryDirectory() as td:
-            index = self._index(Path(td))
-            small = preferred_short_schedule(index_path=index, detector_count=39, runner_thread_budget=192, runner_label="192t", golden_set_sha256="gold")
-            large = preferred_short_schedule(index_path=index, detector_count=39, runner_thread_budget=768, runner_label="768t", golden_set_sha256="gold")
-            self.assertEqual(small["pipelines"], 3)
-            self.assertEqual(large["pipelines"], 12)
-
-    def test_low_tail_high_utilization_explores_one_more_worker(self):
-        with tempfile.TemporaryDirectory() as td:
-            result = preferred_short_schedule(index_path=self._index(Path(td), worker_utilization=0.94, final_tail_seconds=40.0), detector_count=39, runner_thread_budget=384, runner_label="384t", golden_set_sha256="gold")
-            self.assertEqual(result["pipelines"], 7)
-
-    def test_recommended_schedule_uses_persisted_short_occupation_for_smoke(self):
+    def test_multidetector_summary_without_runtime_rows_uses_bootstrap(self):
         with tempfile.TemporaryDirectory() as td:
             result = recommended_schedule(
                 index_path=self._index(Path(td)), detector_count=39,
                 runner_thread_budget=384, runner_label="384t", golden_set_sha256="gold",
                 mode="smoke", strategy="exhaustive", limit="10",
             )
-            self.assertEqual(result["source"], "multidetector-short-occupancy")
-            self.assertEqual(result["pipelines"], 6)
+            self.assertEqual(result["source"], "canonical-lpt-planner")
+            self.assertEqual(result["pipelines"], 39)
 
     def test_recommended_schedule_uses_same_canonical_lpt_fallback_as_launcher(self):
         result = recommended_schedule(
@@ -64,12 +45,7 @@ class MultiDetectorScheduleTests(unittest.TestCase):
         )
         self.assertEqual(result["source"], "canonical-lpt-planner")
         self.assertEqual(result["pipelines"], plan_lpt_workers(39, 384))
-        self.assertEqual(result["threads_per_pipeline"], 64)
-
-    def test_long_tail_returns_one_workers_budget_to_long_work(self):
-        with tempfile.TemporaryDirectory() as td:
-            result = preferred_short_schedule(index_path=self._index(Path(td), worker_utilization=0.62, final_tail_seconds=180.0), detector_count=39, runner_thread_budget=384, runner_label="384t", golden_set_sha256="gold")
-            self.assertEqual(result["pipelines"], 5)
+        self.assertEqual(result["threads_per_pipeline"], 9)
 
     def test_optimizer_scores_every_feasible_lpt_worker_count(self):
         with tempfile.TemporaryDirectory() as td:
@@ -96,6 +72,26 @@ class MultiDetectorScheduleTests(unittest.TestCase):
             self.assertEqual(result["candidate_count"], 3)
             self.assertGreaterEqual(len(result["leading_candidates"]), 2)
 
+    def test_optimizer_uses_smallest_pipeline_count_within_twenty_percent_of_floor(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "runtime-index.json"
+            path.write_text(json.dumps({"observations": [
+                {
+                    "detector_id": detector, "mode": "smoke", "resolved_strategy": "exhaustive",
+                    "wall_clock_seconds": seconds, "observed_at_utc": "2026-09-09T00:00:00Z",
+                    "build": {"github_run_id": "complete"},
+                }
+                for detector, seconds in (("a", 100.0), ("b", 60.0), ("c", 55.0), ("d", 5.0))
+            ]}), encoding="utf-8")
+            result = optimize_lpt_schedule(
+                runtime_index_path=path, detector_ids=["a", "b", "c", "d"],
+                runner_thread_budget=16, runner_label="8t", golden_set_sha256=None,
+                mode="smoke", strategy="exhaustive", max_dimension=1800,
+            )
+            self.assertEqual(result["pipelines"], 2)
+            self.assertEqual(result["predicted_makespan_seconds"], 115.0)
+            self.assertEqual(result["longest_detector_floor_seconds"], 100.0)
+
     def test_optimizer_uses_latest_complete_cross_golden_build_when_exact_is_partial(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "runtime-index.json"
@@ -121,13 +117,67 @@ class MultiDetectorScheduleTests(unittest.TestCase):
                     "build": {"github_run_id": "older-complete-target"},
                 })
             path.write_text(json.dumps({"observations": rows}), encoding="utf-8")
+            completed = Path(td) / "multidetector-index.json"
+            completed.write_text(json.dumps({"observations": [{
+                "github_run_id": "complete-other", "mode": "smoke", "strategy": "exhaustive",
+                "detector_count": 3, "task_count": 3,
+            }]}), encoding="utf-8")
             result = optimize_lpt_schedule(
                 runtime_index_path=path, detector_ids=["a", "b", "c"], runner_thread_budget=24,
                 runner_label="24t", golden_set_sha256="target", mode="smoke",
-                strategy="exhaustive", max_dimension=1800,
+                strategy="exhaustive", max_dimension=1800, completion_index_path=completed,
             )
             self.assertEqual(result["evidence_build_id"], "complete-other")
             self.assertEqual(result["evidence_golden_set_relation"], "latest-compatible")
+
+    def test_optimizer_prefers_valid_complete_exact_golden_build(self):
+        with tempfile.TemporaryDirectory() as td:
+            runtime = Path(td) / "runtime-index.json"
+            rows = []
+            for build_id, golden, observed in (
+                ("exact", "target", "2026-09-08T00:00:00Z"),
+                ("newer-other", "other", "2026-09-09T00:00:00Z"),
+            ):
+                for detector in ("a", "b"):
+                    rows.append({
+                        "detector_id": detector, "mode": "smoke", "resolved_strategy": "exhaustive",
+                        "configured_threads": 8, "max_dimension": 1800, "golden_set_sha256": golden,
+                        "wall_clock_seconds": 10.0, "observed_at_utc": observed,
+                        "build": {"github_run_id": build_id},
+                    })
+            runtime.write_text(json.dumps({"observations": rows}), encoding="utf-8")
+            completed = Path(td) / "multidetector-index.json"
+            completed.write_text(json.dumps({"observations": [
+                {"github_run_id": build_id, "mode": "smoke", "strategy": "exhaustive", "detector_count": 2, "task_count": 2}
+                for build_id in ("exact", "newer-other")
+            ]}), encoding="utf-8")
+            result = optimize_lpt_schedule(
+                runtime_index_path=runtime, completion_index_path=completed,
+                detector_ids=["a", "b"], runner_thread_budget=16, runner_label="16t",
+                golden_set_sha256="target", mode="smoke", strategy="exhaustive", max_dimension=1800,
+            )
+            self.assertEqual(result["evidence_build_id"], "exact")
+            self.assertEqual(result["evidence_golden_set_relation"], "exact")
+
+    def test_smoke_limit_does_not_cap_execution_threads(self):
+        with tempfile.TemporaryDirectory() as td:
+            runtime = Path(td) / "runtime-index.json"
+            runtime.write_text(json.dumps({"observations": [
+                {
+                    "detector_id": detector, "mode": "smoke", "resolved_strategy": "exhaustive",
+                    "configured_threads": 192, "actual_parameter_sets": 10,
+                    "wall_clock_seconds": seconds, "observed_at_utc": "2026-09-09T00:00:00Z",
+                    "build": {"github_run_id": "complete"},
+                }
+                for detector, seconds in (("a", 1200.0), ("b", 300.0), ("c", 100.0))
+            ]}), encoding="utf-8")
+            result = optimize_lpt_schedule(
+                runtime_index_path=runtime, detector_ids=["a", "b", "c"],
+                runner_thread_budget=384, runner_label="192t", golden_set_sha256=None,
+                mode="smoke", strategy="exhaustive", max_dimension=1800,
+            )
+            self.assertEqual(result["pipelines"], 2)
+            self.assertEqual(result["threads_per_pipeline"], 192)
 
 
 if __name__ == "__main__":

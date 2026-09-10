@@ -418,6 +418,18 @@ def resolve_workflow_shape(
         return result
 
     mode = (shape_mode or "auto").strip().lower()
+    is_multidetector = detector in {"all", "all-without-exhaustive"}
+    if mode == "reset" and is_multidetector:
+        detector_count = len(list(detector_config_root.glob("*.json")))
+        pipelines = recommended_schedule(
+            index_path=None, detector_count=detector_count,
+            runner_thread_budget=budget, runner_label=profile.label,
+            golden_set_sha256=None, mode=regression_mode, strategy=strategy,
+            limit=limit,
+        )["pipelines"]
+        result = exact(int(pipelines), max(1, budget // int(pipelines)), "reset-bootstrap-max-pipelines")
+        result["multidetector"] = True
+        return result
     if pre_resolved_pipelines and pre_resolved_threads and not str(pre_resolved_source or "").startswith("predicted-"):
         return exact(
             int(pre_resolved_pipelines), int(pre_resolved_threads),
@@ -435,7 +447,6 @@ def resolve_workflow_shape(
     if mode != "preferred":
         raise ValueError(f"Unknown execution shape mode: {shape_mode}")
 
-    is_multidetector = detector in {"all", "all-without-exhaustive"}
     if is_multidetector:
         golden_sha = hashlib.sha256(golden_set.read_bytes()).hexdigest() if golden_set.is_file() else None
         detector_configs = sorted(detector_config_root.glob("*.json"))
@@ -458,6 +469,7 @@ def resolve_workflow_shape(
             "predicted_makespan_seconds", "evidence_detector_count",
             "detector_count", "candidate_count", "leading_candidates",
             "evidence_build_id", "evidence_golden_set_relation",
+            "longest_detector_floor_seconds", "predicted_pipeline_utilization",
         ):
             if key in preferred_multi:
                 result[key] = preferred_multi[key]
