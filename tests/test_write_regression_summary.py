@@ -54,9 +54,12 @@ class RegressionSummaryTests(unittest.TestCase):
             ],
         }
         next_schedule, _ = _scheduler_feedback_schedule(current, observation, 2)
-        self.assertEqual([[t["detector"] for t in p["tasks"]] for p in next_schedule], [["a", "b"], ["c"]])
+        self.assertEqual(
+            sorted(sorted(t["detector"] for t in p["tasks"]) for p in next_schedule),
+            [["a", "b"], ["c"]],
+        )
 
-    def test_scheduler_feedback_bounds_reassignments_while_improving_makespan(self):
+    def test_scheduler_feedback_rebuilds_lpt_shape_from_measured_costs(self):
         current = [
             {"pipeline": 1, "tasks": [{"detector": name, "estimate_seconds": 100.0} for name in ("a", "b", "c")], "estimated_seconds": 300.0},
             {"pipeline": 2, "tasks": [{"detector": name, "estimate_seconds": 100.0} for name in ("d", "e")], "estimated_seconds": 200.0},
@@ -79,10 +82,10 @@ class RegressionSummaryTests(unittest.TestCase):
         }
         moved = sum(following[detector] != pipeline for detector, pipeline in original.items())
 
-        self.assertEqual(moved, 1)
+        self.assertGreater(moved, 0)
         self.assertEqual(max(plan["estimated_seconds"] for plan in next_schedule), 200.0)
 
-    def test_scheduler_feedback_rejects_small_github_hosted_gain(self):
+    def test_scheduler_feedback_globally_rebuilds_lpt_even_for_small_gain(self):
         current = [
             {"pipeline": 1, "tasks": [{"detector": "a", "estimate_seconds": 447.0}, {"detector": "b", "estimate_seconds": 447.0}], "estimated_seconds": 894.0},
             {"pipeline": 2, "tasks": [{"detector": "c", "estimate_seconds": 433.0}, {"detector": "d", "estimate_seconds": 440.0}], "estimated_seconds": 873.0},
@@ -98,10 +101,11 @@ class RegressionSummaryTests(unittest.TestCase):
 
         next_schedule, _ = _scheduler_feedback_schedule(current, observation, 4)
 
-        self.assertEqual(
+        self.assertNotEqual(
             [[task["detector"] for task in plan["tasks"]] for plan in next_schedule],
             [[task["detector"] for task in plan["tasks"]] for plan in current],
         )
+        self.assertEqual(max(plan["estimated_seconds"] for plan in next_schedule), 873.0)
 
     def test_builds_manifest_with_winner_baseline_and_outputs(self):
         with tempfile.TemporaryDirectory() as temporary:

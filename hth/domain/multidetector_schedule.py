@@ -51,6 +51,28 @@ def plan_static_lpt_tasks(
     return [row for row in schedules if row["task_indexes"]]
 
 
+def select_lpt_pipeline_count(
+    estimates: list[float | int | None], max_pipelines: int,
+) -> int:
+    """Choose the smallest LPT shape within 20% of its longest-task floor."""
+    usable = [value for value in (_as_float(raw) for raw in estimates) if value is not None and value > 0]
+    if not usable:
+        return max(1, min(len(estimates) or 1, int(max_pipelines)))
+    unknown = max(usable)
+    complete = [
+        value if value is not None and value > 0 else unknown
+        for value in (_as_float(raw) for raw in estimates)
+    ]
+    floor_seconds = max(complete)
+    ceiling = max(1, min(len(complete), int(max_pipelines)))
+    for pipelines in range(1, ceiling + 1):
+        schedule = plan_static_lpt_tasks(complete, pipelines)
+        makespan = max(float(row["estimated_seconds"]) for row in schedule)
+        if makespan <= floor_seconds * (1.0 + MAX_FLOOR_OVERRUN):
+            return pipelines
+    return ceiling
+
+
 def _runtime_context_score(
     row: dict[str, Any], *, mode: str, strategy: str,
     max_dimension: int, golden_set_sha256: str | None, runner_label: str,
@@ -185,6 +207,7 @@ def optimize_lpt_schedule(
     unknown_estimate = max(known)
     complete = [value if value is not None else unknown_estimate for value in measured]
     floor_seconds = max(complete)
+    selected_pipeline_count = select_lpt_pipeline_count(complete, max_pipelines)
     for pipelines in range(1, max_pipelines + 1):
         threads = max(1, budget // pipelines)
         schedule = plan_static_lpt_tasks(complete, pipelines)
@@ -206,11 +229,7 @@ def optimize_lpt_schedule(
         })
     if not candidates:
         return None
-    acceptable = [
-        row for row in candidates
-        if float(row["predicted_makespan_seconds"]) <= floor_seconds * (1.0 + MAX_FLOOR_OVERRUN)
-    ]
-    selected = min(acceptable, key=lambda row: int(row["pipelines"]))
+    selected = next(row for row in candidates if int(row["pipelines"]) == selected_pipeline_count)
     ranked = sorted(candidates, key=lambda row: (float(row["predicted_makespan_seconds"]), int(row["pipelines"])))
     selected["candidate_count"] = len(candidates)
     selected["leading_candidates"] = [
