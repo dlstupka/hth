@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-MAX_FLOOR_OVERRUN = 0.20
+MIN_SCHEDULE_MAKESPAN_IMPROVEMENT = 0.20
 DEFAULT_SHARD_TARGET_SECONDS = 10 * 60
 MIN_SHARD_MAKESPAN_IMPROVEMENT = 0.20
 
@@ -56,7 +56,7 @@ def plan_static_lpt_tasks(
 def select_lpt_pipeline_count(
     estimates: list[float | int | None], max_pipelines: int,
 ) -> int:
-    """Choose the smallest LPT shape within 20% of its longest-task floor."""
+    """Choose the smallest LPT shape that does not exceed its longest job."""
     usable = [value for value in (_as_float(raw) for raw in estimates) if value is not None and value > 0]
     if not usable:
         return max(1, min(len(estimates) or 1, int(max_pipelines)))
@@ -70,7 +70,7 @@ def select_lpt_pipeline_count(
     for pipelines in range(1, ceiling + 1):
         schedule = plan_static_lpt_tasks(complete, pipelines)
         makespan = max(float(row["estimated_seconds"]) for row in schedule)
-        if makespan <= floor_seconds * (1.0 + MAX_FLOOR_OVERRUN):
+        if makespan <= floor_seconds + 1e-9:
             return pipelines
     return ceiling
 
@@ -261,6 +261,21 @@ def optimize_lpt_schedule(
     unknown_estimate = max(known)
     complete = [value if value is not None else unknown_estimate for value in measured]
     floor_seconds = max(complete)
+    incumbent_assignments: dict[str, int] = {}
+    incumbent_pipeline_count = 0
+    incumbent_loads: dict[int, float] = {}
+    for detector, seconds in zip(detector_ids, complete):
+        rows = by_detector.get(detector, [])
+        if not rows:
+            continue
+        row = max(rows, key=lambda item: str(item.get("observed_at_utc") or ""))
+        pipeline = _as_int(row.get("detector_pipeline_number"))
+        count = _as_int(row.get("detector_pipelines"))
+        if pipeline is not None and pipeline > 0:
+            incumbent_assignments[detector] = pipeline
+            incumbent_loads[pipeline] = incumbent_loads.get(pipeline, 0.0) + seconds
+        if count is not None:
+            incumbent_pipeline_count = max(incumbent_pipeline_count, count)
     shard_plan = (
         plan_capacity_shards(complete, max_pipelines)
         if max_pipelines > 4 and strategy in {"exhaustive", "exhaustive-with-zombies"}
@@ -281,6 +296,20 @@ def optimize_lpt_schedule(
         scheduled_estimates = complete
         selected_pipeline_count = select_lpt_pipeline_count(complete, max_pipelines)
         max_pipelines = min(len(complete), max_pipelines)
+        proposed = plan_static_lpt_tasks(complete, selected_pipeline_count)
+        proposed_makespan = max(float(row["estimated_seconds"]) for row in proposed)
+        incumbent_makespan = max(incumbent_loads.values()) if incumbent_loads else None
+        improvement = (
+            (incumbent_makespan - proposed_makespan) / incumbent_makespan
+            if incumbent_makespan and incumbent_makespan > 0 else None
+        )
+        if (
+            incumbent_pipeline_count > 0
+            and incumbent_pipeline_count <= max_pipelines
+            and len(incumbent_assignments) == len(detector_ids)
+            and (improvement is None or improvement < MIN_SCHEDULE_MAKESPAN_IMPROVEMENT)
+        ):
+            selected_pipeline_count = incumbent_pipeline_count
     for pipelines in range(1, max_pipelines + 1):
         threads = max(1, budget // pipelines)
         schedule = plan_static_lpt_tasks(scheduled_estimates, pipelines)
@@ -303,6 +332,19 @@ def optimize_lpt_schedule(
     if not candidates:
         return None
     selected = next(row for row in candidates if int(row["pipelines"]) == selected_pipeline_count)
+    if (
+        not (shard_plan and shard_plan["applied"])
+        and incumbent_pipeline_count == selected_pipeline_count
+        and len(incumbent_assignments) == len(detector_ids)
+        and incumbent_loads
+    ):
+        incumbent_makespan = max(incumbent_loads.values())
+        selected["predicted_makespan_seconds"] = incumbent_makespan
+        selected["predicted_pipeline_utilization"] = sum(complete) / (
+            selected_pipeline_count * incumbent_makespan
+        )
+        selected["detector_pipeline_assignments"] = incumbent_assignments
+        selected["schedule_retained"] = True
     ranked = sorted(candidates, key=lambda row: (float(row["predicted_makespan_seconds"]), int(row["pipelines"])))
     selected["candidate_count"] = len(candidates)
     selected["detector_shard_counts"] = {

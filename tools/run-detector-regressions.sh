@@ -858,25 +858,49 @@ while IFS=$'\t' read -r pipeline_number task_csv estimated_seconds; do
   [[ -n "$pipeline_number" ]] || continue
   static_pipeline_tasks[$((pipeline_number-1))]="$task_csv"
   echo "Static schedule pipeline=$pipeline_number tasks=$task_csv estimate=${estimated_seconds}s"
-done < <(python - "$effective_pipelines" "${DETECTOR_ALGORITHM,,}" "${#detector_configs[@]}" "${detector_estimates[@]}" <<'PYSTATICDISPATCH'
-import sys
+done < <(python - "$effective_pipelines" "${DETECTOR_ALGORITHM,,}" "${#detector_configs[@]}" "${HTH_DETECTOR_PIPELINE_ASSIGNMENTS_JSON:-{}}" "${task_detectors[@]}" -- "${detector_estimates[@]}" <<'PYSTATICDISPATCH'
+import json, sys
 from hth.domain.execution_dispatch import plan_static_dispatch
 
 pipelines = int(sys.argv[1])
 multidetector = sys.argv[2] == "all"
 task_count = int(sys.argv[3])
+try:
+    assignments = json.loads(sys.argv[4])
+except (TypeError, ValueError, json.JSONDecodeError):
+    assignments = {}
+separator = sys.argv.index("--", 5)
+detectors = sys.argv[5:separator]
 estimates = []
-for raw in sys.argv[4:]:
+for raw in sys.argv[separator + 1:]:
     try:
         estimates.append(float(raw))
     except (TypeError, ValueError):
         estimates.append(None)
-for row in plan_static_dispatch(
-    task_count=task_count,
-    pipeline_count=pipelines,
-    multidetector=multidetector,
-    estimates=estimates,
-):
+retained = (
+    multidetector and len(detectors) == task_count
+    and len(set(detectors)) == task_count
+    and all(detector in assignments for detector in detectors)
+    and all(1 <= int(assignments[detector]) <= pipelines for detector in detectors)
+)
+if retained:
+    rows = []
+    for pipeline in range(1, pipelines + 1):
+        indexes = [index for index, detector in enumerate(detectors) if int(assignments[detector]) == pipeline]
+        if indexes:
+            rows.append({
+                "pipeline": pipeline,
+                "task_indexes": indexes,
+                "estimated_seconds": sum(estimates[index] or 0.0 for index in indexes),
+            })
+else:
+    rows = plan_static_dispatch(
+        task_count=task_count,
+        pipeline_count=pipelines,
+        multidetector=multidetector,
+        estimates=estimates,
+    )
+for row in rows:
     print(f"{row['pipeline']}\t{','.join(str(i) for i in row['task_indexes'])}\t{row['estimated_seconds']:.1f}")
 PYSTATICDISPATCH
 )

@@ -476,6 +476,7 @@ def resolve_workflow_shape(
             "longest_detector_floor_seconds", "predicted_pipeline_utilization",
             "detector_shard_counts", "sharding_applied", "shard_target_seconds",
             "unsharded_makespan_seconds", "sharding_makespan_improvement",
+            "detector_pipeline_assignments", "schedule_retained",
         ):
             if key in preferred_multi:
                 result[key] = preferred_multi[key]
@@ -523,6 +524,10 @@ def workflow_shape_env(result: dict[str, Any]) -> dict[str, Any]:
     if result.get("detector_shard_counts"):
         env["HTH_DETECTOR_SHARD_COUNTS_JSON"] = json.dumps(
             result["detector_shard_counts"], sort_keys=True, separators=(",", ":")
+        )
+    if result.get("detector_pipeline_assignments"):
+        env["HTH_DETECTOR_PIPELINE_ASSIGNMENTS_JSON"] = json.dumps(
+            result["detector_pipeline_assignments"], sort_keys=True, separators=(",", ":")
         )
     return env
 

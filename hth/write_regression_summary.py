@@ -17,7 +17,10 @@ from hth.regression.authoritative_record import authoritative_record
 from hth.regression.calibration_intelligence import detector_characterization
 from hth.domain.result_metrics import baseline_surpassed, calibration_metric_view, result_metric_view
 from hth.domain.execution_dispatch import plan_static_dispatch
-from hth.domain.multidetector_schedule import select_lpt_pipeline_count
+from hth.domain.multidetector_schedule import (
+    MIN_SCHEDULE_MAKESPAN_IMPROVEMENT,
+    select_lpt_pipeline_count,
+)
 from hth.runtime_store import coherent_execution_profile, select_runtime_observation
 from hth.regression.parameter_provenance import parameter_identity_sha256, resolve_parameter_set
 from hth.regression.parameter_space import parameter_set_equivalence_family_id
@@ -2426,7 +2429,36 @@ def _scheduler_feedback_schedule(
     next_pipeline_count = select_lpt_pipeline_count(
         [row.get("estimate_seconds") for row in rows], max_pipelines,
     )
-    return _static_pipeline_schedule(rows, next_pipeline_count), actual_pipeline_seconds
+    proposed = _static_pipeline_schedule(rows, next_pipeline_count)
+    proposed_makespan = max((float(plan.get("estimated_seconds") or 0.0) for plan in proposed), default=0.0)
+
+    # Reprice the incumbent assignment with the newly measured task costs.
+    # Keep it unless a replacement improves end-to-end makespan by at least
+    # 20%; the longest measured job is also a hard high-water mark.
+    repriced_current = []
+    for plan in current_schedule:
+        tasks = []
+        total = 0.0
+        for task in plan.get("tasks", []):
+            detector = str(task.get("detector") or "")
+            seconds = measured_by_detector.get(detector, float(task.get("estimate_seconds") or 0.0))
+            updated = dict(task)
+            updated["estimate_seconds"] = seconds
+            tasks.append(updated)
+            total += seconds
+        if tasks:
+            repriced_current.append({"pipeline": plan["pipeline"], "tasks": tasks, "estimated_seconds": total})
+    incumbent_makespan = max(
+        (float(plan.get("estimated_seconds") or 0.0) for plan in repriced_current), default=0.0
+    )
+    high_water = max((float(row.get("estimate_seconds") or 0.0) for row in rows), default=0.0)
+    improvement = (
+        (incumbent_makespan - proposed_makespan) / incumbent_makespan
+        if incumbent_makespan > 0 else 0.0
+    )
+    if proposed_makespan > high_water + 1e-9 or improvement < MIN_SCHEDULE_MAKESPAN_IMPROVEMENT:
+        return repriced_current, actual_pipeline_seconds
+    return proposed, actual_pipeline_seconds
 
 
 def _schedule_reassignment_count(
@@ -2903,7 +2935,7 @@ def build_combined_summary(
             ])
         lines.extend([
             "",
-            "`Schedule` is the fixed detector-ID order executed by this build. `Est Work` is the estimate used before fan-out. `Actual Work Time` is the measured fixed-pipeline span. `Reshuffle`, `Next Run`, and `Next Est` rebuild the fixed LPT schedule from newly measured scheduler-facing detector costs and choose the smallest pipeline count whose projected makespan remains within 20% of the longest-detector floor.",
+            "`Schedule` is the fixed detector-ID order executed by this build. `Est Work` is the estimate used before fan-out. `Actual Work Time` is the measured fixed-pipeline span. `Reshuffle`, `Next Run`, and `Next Est` use newly measured scheduler-facing detector costs. The current assignment is retained unless a replacement improves projected makespan by at least 20%, and no accepted pipeline may exceed the longest measured detector job.",
             "",
             "Scheduler-facing detector cost includes the executor's per-detector load/run/unload wrapper time; pipeline scheduling therefore learns orchestration overhead instead of modeling detector-core RUN-INFO time alone. The next schedule is still fixed before the following run starts—there is no dynamic stealing.",
             "",

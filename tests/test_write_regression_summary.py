@@ -73,7 +73,9 @@ class RegressionSummaryTests(unittest.TestCase):
             ],
         }
 
-        next_schedule, _ = _scheduler_feedback_schedule(current, observation, 4)
+        next_schedule, _ = _scheduler_feedback_schedule(
+            current, observation, 4, runner_thread_budget=16,
+        )
         original = {
             task["detector"]: plan["pipeline"] for plan in current for task in plan["tasks"]
         }
@@ -83,9 +85,9 @@ class RegressionSummaryTests(unittest.TestCase):
         moved = sum(following[detector] != pipeline for detector, pipeline in original.items())
 
         self.assertGreater(moved, 0)
-        self.assertEqual(max(plan["estimated_seconds"] for plan in next_schedule), 200.0)
+        self.assertEqual(max(plan["estimated_seconds"] for plan in next_schedule), 100.0)
 
-    def test_scheduler_feedback_globally_rebuilds_lpt_even_for_small_gain(self):
+    def test_scheduler_feedback_preserves_assignment_for_small_gain(self):
         current = [
             {"pipeline": 1, "tasks": [{"detector": "a", "estimate_seconds": 447.0}, {"detector": "b", "estimate_seconds": 447.0}], "estimated_seconds": 894.0},
             {"pipeline": 2, "tasks": [{"detector": "c", "estimate_seconds": 433.0}, {"detector": "d", "estimate_seconds": 440.0}], "estimated_seconds": 873.0},
@@ -101,11 +103,11 @@ class RegressionSummaryTests(unittest.TestCase):
 
         next_schedule, _ = _scheduler_feedback_schedule(current, observation, 4)
 
-        self.assertNotEqual(
+        self.assertEqual(
             [[task["detector"] for task in plan["tasks"]] for plan in next_schedule],
             [[task["detector"] for task in plan["tasks"]] for plan in current],
         )
-        self.assertEqual(max(plan["estimated_seconds"] for plan in next_schedule), 873.0)
+        self.assertEqual(max(plan["estimated_seconds"] for plan in next_schedule), 894.0)
 
     def test_builds_manifest_with_winner_baseline_and_outputs(self):
         with tempfile.TemporaryDirectory() as temporary:

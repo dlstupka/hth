@@ -23,6 +23,24 @@ def test_lpt_orders_longest_first_and_unknown_conservatively(tmp_path: Path) -> 
     assert rows[-1][0].stem == "fast"
 
 
+def test_runtime_estimate_rejects_incompatible_strategy_history(tmp_path: Path) -> None:
+    config = _config(tmp_path / "kraken.json", "kraken")
+    runtime = tmp_path / "runtime-index.json"
+    runtime.write_text(json.dumps({"observations": [{
+        "detector_id": "kraken", "wall_clock_seconds": 10,
+        "mode": "smoke", "resolved_strategy": "exhaustive",
+        "configured_threads": 8, "max_dimension": 1800,
+        "golden_set_sha256": "gold", "observed_at_utc": "2026-09-10T00:00:00Z",
+    }]}), encoding="utf-8")
+    rows = order_configs(
+        [config], loading_strategy="lpt", runtime_index_path=runtime,
+        calibration_index_path=None, mode="full", search_strategy="adaptive",
+        threads=8, max_dimension=1800, golden_set_sha256="gold", runner_label="",
+    )
+    assert rows[0][1] is None
+    assert rows[0][2].endswith("+incompatible-mode-or-strategy")
+
+
 def test_ranked_orders_best_detector_first(tmp_path: Path) -> None:
     configs = [_config(tmp_path / "a.json", "a"), _config(tmp_path / "b.json", "b")]
     calibration = tmp_path / "calibration-index.json"

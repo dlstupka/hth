@@ -124,7 +124,7 @@ class MultiDetectorScheduleTests(unittest.TestCase):
             self.assertEqual(result["candidate_count"], 3)
             self.assertGreaterEqual(len(result["leading_candidates"]), 2)
 
-    def test_optimizer_uses_smallest_pipeline_count_within_twenty_percent_of_floor(self):
+    def test_optimizer_never_exceeds_longest_job_high_water_mark(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "runtime-index.json"
             path.write_text(json.dumps({"observations": [
@@ -140,9 +140,32 @@ class MultiDetectorScheduleTests(unittest.TestCase):
                 runner_thread_budget=16, runner_label="8t", golden_set_sha256=None,
                 mode="smoke", strategy="exhaustive", max_dimension=1800,
             )
-            self.assertEqual(result["pipelines"], 2)
-            self.assertEqual(result["predicted_makespan_seconds"], 115.0)
+            self.assertEqual(result["pipelines"], 3)
+            self.assertEqual(result["predicted_makespan_seconds"], 100.0)
             self.assertEqual(result["longest_detector_floor_seconds"], 100.0)
+
+    def test_optimizer_retains_incumbent_without_twenty_percent_gain(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "runtime-index.json"
+            durations = [100.0] + [10.0] * 7
+            path.write_text(json.dumps({"observations": [
+                {
+                    "detector_id": f"d{index}", "mode": "full", "resolved_strategy": "adaptive",
+                    "wall_clock_seconds": seconds, "observed_at_utc": "2026-09-10T00:00:00Z",
+                    "detector_pipelines": 8, "detector_pipeline_number": index + 1,
+                    "build": {"github_run_id": "complete"},
+                }
+                for index, seconds in enumerate(durations)
+            ]}), encoding="utf-8")
+            result = optimize_lpt_schedule(
+                runtime_index_path=path, detector_ids=[f"d{i}" for i in range(8)],
+                runner_thread_budget=384, runner_label="192t", golden_set_sha256=None,
+                mode="full", strategy="adaptive", max_dimension=1800,
+            )
+            self.assertEqual(result["pipelines"], 8)
+            self.assertEqual(result["predicted_makespan_seconds"], 100.0)
+            self.assertTrue(result["schedule_retained"])
+            self.assertEqual(result["detector_pipeline_assignments"]["d0"], 1)
 
     def test_optimizer_uses_latest_complete_cross_golden_build_when_exact_is_partial(self):
         with tempfile.TemporaryDirectory() as td:

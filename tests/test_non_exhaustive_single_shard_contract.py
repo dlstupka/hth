@@ -22,6 +22,7 @@ class AutomaticShardTopologyContractTests(unittest.TestCase):
         self.assertIn('plan_source="multi-detector-single-shard"', DRIVER)
         self.assertIn('HTH_DETECTOR_SHARD_COUNTS_JSON', DRIVER)
         self.assertIn('plan_source="capacity-lpt-10m-material-improvement"', DRIVER)
+        self.assertIn('HTH_DETECTOR_PIPELINE_ASSIGNMENTS_JSON', DRIVER)
 
 
 if __name__ == "__main__":

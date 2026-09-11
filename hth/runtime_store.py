@@ -246,6 +246,9 @@ def estimate_runtime(
     )
     if not best:
         return None, source
+    observed_strategy = str(best.get("resolved_strategy") or best.get("requested_strategy") or "")
+    if str(best.get("mode") or "") != str(mode) or observed_strategy != str(search_strategy):
+        return None, f"{source}+incompatible-mode-or-strategy"
     serial_cost = _as_float(best.get("estimated_serial_runtime_seconds"))
     if serial_cost is not None:
         return serial_cost, f"{source}+merged-shard-serial-work"
