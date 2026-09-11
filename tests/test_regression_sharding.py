@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from hth.regression.sharding import (
+    bounded_shard_count,
     automatic_threads,
     budgeted_threads,
     best_smoke_observation,
@@ -55,6 +56,23 @@ def test_long_plan_is_sharded_and_short_plan_is_not() -> None:
     assert plan.shard_count > 1
 
 
+def test_bounded_shard_count_has_stable_time_and_candidate_boundaries() -> None:
+    assert bounded_shard_count(1500, safety_factor=1.2) == 1
+    assert bounded_shard_count(1500.1, safety_factor=1.2) == 2
+    assert bounded_shard_count(10_000, possible_parameter_sets=3) == 3
+    assert bounded_shard_count(float("nan")) == 1
+    try:
+        bounded_shard_count(100, target_shard_seconds=0)
+    except ValueError as error:
+        assert "target_shard_seconds" in str(error)
+    else:
+        raise AssertionError("zero shard target must be rejected")
+
+
+def test_zero_requested_threads_is_safely_clamped() -> None:
+    assert plan_shards(60, runner_label="github-hosted", requested_threads=0).threads == 1
+
+
 
 def test_explicit_shards_override_wall_clock_and_cap_at_one_parameter_per_shard() -> None:
     explicit = plan_shards(12 * 3600, runner_label="e7k", requested_shards=6, possible_parameter_sets=6562)
@@ -79,6 +97,9 @@ def test_smoke_lookup_prefers_latest(tmp_path: Path) -> None:
         {"detector_id": "d", "mode": "smoke", "observed_at_utc": "2", "wall_clock_seconds": 3},
     ]}))
     assert best_smoke_observation(index, "d")["wall_clock_seconds"] == 3
+
+    index.write_text("not json")
+    assert best_smoke_observation(index, "d") is None
 
 
 def test_runner_accepts_valid_shard_arguments() -> None:

@@ -1,13 +1,42 @@
 from __future__ import annotations
 
+import heapq
 import json
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
-MIN_SCHEDULE_MAKESPAN_IMPROVEMENT = 0.20
+MIN_MAKESPAN_IMPROVEMENT = 0.20
 DEFAULT_SHARD_TARGET_SECONDS = 10 * 60
-MIN_SHARD_MAKESPAN_IMPROVEMENT = 0.20
+MAX_MANDATORY_REFERENCE_RUNS = 2
+
+
+def materially_improves_makespan(
+    incumbent_seconds: float | int | None,
+    proposed_seconds: float | int | None,
+    *,
+    high_water_seconds: float | int | None = None,
+    minimum_improvement: float = MIN_MAKESPAN_IMPROVEMENT,
+) -> bool:
+    """Apply the canonical replacement gate for a fixed schedule.
+
+    A replacement must be finite, must not exceed an optional hard high-water
+    mark, and must improve the complete incumbent makespan by the configured
+    fraction.  The threshold boundary is inclusive.
+    """
+    incumbent = _as_float(incumbent_seconds)
+    proposed = _as_float(proposed_seconds)
+    high_water = _as_float(high_water_seconds)
+    if incumbent is None or incumbent <= 0 or proposed is None or proposed < 0:
+        return False
+    if high_water_seconds is not None:
+        if high_water is None or high_water < 0 or proposed > high_water + 1e-9:
+            return False
+    threshold = _as_float(minimum_improvement)
+    if threshold is None or not 0.0 <= threshold <= 1.0:
+        raise ValueError("minimum_improvement must be finite and between 0 and 1")
+    improvement = (incumbent - proposed) / incumbent
+    return improvement + 1e-12 >= threshold
 
 
 def plan_lpt_workers(detector_count: int, runner_thread_budget: int) -> int:
@@ -16,6 +45,35 @@ def plan_lpt_workers(detector_count: int, runner_thread_budget: int) -> int:
     budget = max(1, int(runner_thread_budget))
     max_pipelines = max(1, budget // 2)
     return min(detectors, max_pipelines)
+
+
+def normalize_pipeline_assignments(
+    detector_ids: list[str],
+    assignments: Mapping[str, Any] | None,
+    pipeline_count: int,
+) -> dict[str, int] | None:
+    """Validate a complete unsharded assignment map or request LPT fallback."""
+    ceiling = _as_int(pipeline_count)
+    if (
+        not isinstance(assignments, Mapping)
+        or not assignments
+        or len(set(detector_ids)) != len(detector_ids)
+        or ceiling is None
+        or ceiling < 1
+    ):
+        return None
+    normalized: dict[str, int] = {}
+    for detector in detector_ids:
+        if detector not in assignments:
+            return None
+        try:
+            pipeline = int(assignments[detector])
+        except (TypeError, ValueError):
+            return None
+        if pipeline < 1 or pipeline > ceiling:
+            return None
+        normalized[detector] = pipeline
+    return normalized
 
 
 def plan_static_lpt_tasks(
@@ -31,8 +89,10 @@ def plan_static_lpt_tasks(
     indexes refer to the caller's original sequence.  Unknown/invalid estimates
     use a small scheduling floor so every task participates deterministically.
     """
-    workers = max(1, int(pipeline_count))
-    floor = max(0.001, float(estimate_floor_seconds))
+    workers = max(1, min(int(pipeline_count), len(estimates) or 1))
+    floor = _as_float(estimate_floor_seconds)
+    if floor is None or floor <= 0:
+        raise ValueError("estimate_floor_seconds must be finite and positive")
     normalized: list[tuple[int, float]] = []
     for index, raw in enumerate(estimates):
         value = _as_float(raw)
@@ -43,13 +103,14 @@ def plan_static_lpt_tasks(
         {"pipeline": pipeline + 1, "task_indexes": [], "estimated_seconds": 0.0}
         for pipeline in range(workers)
     ]
+    available = [(0.0, index) for index in range(workers)]
+    heapq.heapify(available)
     for task_index, seconds in normalized:
-        target = min(
-            range(workers),
-            key=lambda idx: (float(schedules[idx]["estimated_seconds"]), idx),
-        )
+        load, target = heapq.heappop(available)
         schedules[target]["task_indexes"].append(task_index)
-        schedules[target]["estimated_seconds"] = float(schedules[target]["estimated_seconds"]) + seconds
+        load += seconds
+        schedules[target]["estimated_seconds"] = load
+        heapq.heappush(available, (load, target))
     return [row for row in schedules if row["task_indexes"]]
 
 
@@ -80,23 +141,52 @@ def plan_capacity_shards(
     max_pipelines: int,
     *,
     target_shard_seconds: float = DEFAULT_SHARD_TARGET_SECONDS,
-    minimum_makespan_improvement: float = MIN_SHARD_MAKESPAN_IMPROVEMENT,
+    minimum_makespan_improvement: float = MIN_MAKESPAN_IMPROVEMENT,
+    maximum_shards: list[int | None] | None = None,
 ) -> dict[str, Any]:
     """Split long LPT jobs only when runner capacity materially lowers makespan."""
-    if not estimates:
-        return {"shard_counts": [], "pipelines": 1, "applied": False}
-    known = [value for value in (_as_float(raw) for raw in estimates) if value is not None and value > 0]
-    fallback = max(known) if known else 0.0
-    complete = [
-        value if value is not None and value > 0 else fallback
-        for value in (_as_float(raw) for raw in estimates)
-    ]
+    if maximum_shards is not None and len(maximum_shards) != len(estimates):
+        raise ValueError("maximum_shards must align with estimates")
+    target = _as_float(target_shard_seconds)
+    if target is None or target <= 0:
+        raise ValueError("target_shard_seconds must be finite and positive")
     capacity = max(1, int(max_pipelines))
+    if not estimates:
+        return {
+            "shard_counts": [], "pipelines": 1, "applied": False,
+            "reason": "no-tasks",
+        }
+    normalized = [_as_float(raw) for raw in estimates]
+    known = [value for value in normalized if value is not None and value > 0]
+    if not known:
+        return {
+            "shard_counts": [1] * len(estimates),
+            "pipelines": min(len(estimates), capacity),
+            "applied": False,
+            "reason": "no-measured-runtime",
+            "task_count": len(estimates),
+        }
+    # Unknown tasks participate in the capacity comparison conservatively but
+    # are never themselves split from an invented runtime.
+    fallback = max(known)
+    complete = [value if value is not None and value > 0 else fallback for value in normalized]
     unsharded_pipelines = min(len(complete), capacity)
     unsharded_schedule = plan_static_lpt_tasks(complete, unsharded_pipelines)
     unsharded_makespan = max(float(row["estimated_seconds"]) for row in unsharded_schedule)
-    target = max(1.0, float(target_shard_seconds))
-    proposed_counts = [max(1, math.ceil(seconds / target)) for seconds in complete]
+    proposed_counts = []
+    for index, seconds in enumerate(complete):
+        proposed = (
+            max(1, math.ceil(seconds / target))
+            if normalized[index] is not None and normalized[index] > 0
+            else 1
+        )
+        proposed = min(proposed, capacity)
+        if maximum_shards is not None and maximum_shards[index] is not None:
+            shard_limit = _as_int(maximum_shards[index])
+            if shard_limit is None:
+                raise ValueError(f"maximum_shards[{index}] must be an integer or None")
+            proposed = min(proposed, max(1, shard_limit))
+        proposed_counts.append(proposed)
     proposed_estimates = [
         seconds / count
         for seconds, count in zip(complete, proposed_counts)
@@ -109,11 +199,16 @@ def plan_capacity_shards(
         (unsharded_makespan - proposed_makespan) / unsharded_makespan
         if unsharded_makespan > 0 else 0.0
     )
-    applied = improvement >= max(0.0, float(minimum_makespan_improvement))
+    applied = materially_improves_makespan(
+        unsharded_makespan, proposed_makespan,
+        high_water_seconds=max(complete),
+        minimum_improvement=minimum_makespan_improvement,
+    )
     return {
         "shard_counts": proposed_counts if applied else [1] * len(complete),
         "pipelines": proposed_pipelines if applied else unsharded_pipelines,
         "applied": applied,
+        "reason": "material-makespan-improvement" if applied else "below-makespan-improvement-threshold",
         "unsharded_makespan_seconds": unsharded_makespan,
         "predicted_makespan_seconds": proposed_makespan if applied else unsharded_makespan,
         "makespan_improvement": improvement if applied else 0.0,
@@ -122,47 +217,30 @@ def plan_capacity_shards(
     }
 
 
-def _runtime_context_score(
-    row: dict[str, Any], *, mode: str, strategy: str,
-    max_dimension: int, golden_set_sha256: str | None, runner_label: str,
-) -> int:
-    score = 0
-    if str(row.get("mode") or "") == str(mode):
-        score += 32
-    if str(row.get("resolved_strategy") or row.get("requested_strategy") or "") == str(strategy):
-        score += 16
-    if _as_int(row.get("max_dimension")) == int(max_dimension):
-        score += 8
-    if golden_set_sha256 and str(row.get("golden_set_sha256") or "") == str(golden_set_sha256):
-        score += 4
-    runner = row.get("runner") if isinstance(row.get("runner"), dict) else {}
-    labels = runner.get("runner_labels") if isinstance(runner.get("runner_labels"), list) else []
-    if runner_label and runner_label in labels:
-        score += 2
-    return score
+def _scheduler_runtime(row: dict[str, Any]) -> float | None:
+    """Return one observation's canonical serial/scheduler/wall cost."""
+    for field in (
+        "estimated_serial_runtime_seconds",
+        "scheduler_wall_clock_seconds",
+        "wall_clock_seconds",
+    ):
+        seconds = _as_float(row.get(field))
+        if seconds is not None and seconds > 0:
+            return seconds
+    return None
 
 
-def _predicted_runtime(
-    rows: list[dict[str, Any]], *, mode: str, strategy: str,
-    max_dimension: int, golden_set_sha256: str | None, runner_label: str,
-) -> float | None:
-    candidates: list[tuple[int, float, str, float]] = []
-    for row in rows:
-        seconds = _as_float(row.get("estimated_serial_runtime_seconds"))
-        if seconds is None:
-            seconds = _as_float(row.get("scheduler_wall_clock_seconds"))
-        if seconds is None:
-            seconds = _as_float(row.get("wall_clock_seconds"))
-        if seconds is None or seconds <= 0:
-            continue
-        context = _runtime_context_score(
-            row, mode=mode, strategy=strategy, max_dimension=max_dimension,
-            golden_set_sha256=golden_set_sha256, runner_label=runner_label,
-        )
-        candidates.append((context, 0.0, str(row.get("observed_at_utc") or ""), seconds))
-    if not candidates:
+def _candidate_shard_limit(row: dict[str, Any]) -> int | None:
+    """Bound fan-out by independent candidates, including legacy evidence."""
+    exact = _as_int(row.get("full_exhaustive_candidate_count"))
+    if exact is not None:
+        return max(1, exact)
+    actual = _as_int(row.get("actual_parameter_sets"))
+    if actual is None:
         return None
-    return max(candidates, key=lambda item: (item[0], item[1], item[2]))[3]
+    # Old observations did not retain the exhaustive-candidate count. Their
+    # actual total can also include baseline and historic-best references.
+    return max(1, actual - MAX_MANDATORY_REFERENCE_RUNS)
 
 
 def optimize_lpt_schedule(
@@ -175,13 +253,13 @@ def optimize_lpt_schedule(
 
     Measured scheduler-facing detector runtimes are assigned by the executable
     static LPT planner.  The longest detector is the unavoidable wall-time
-    floor; choose the smallest pipeline count whose LPT makespan is within 20%
-    of that floor, maximizing sustained pipeline occupation without inventing
+    floor; choose the smallest pipeline count whose LPT makespan does not
+    exceed that floor, maximizing sustained pipeline occupation without inventing
     an unmeasured thread-scaling curve.
     """
     payload = _read_index(runtime_index_path)
     observations = [row for row in payload.get("observations", []) if isinstance(row, dict)]
-    if not observations or not detector_ids:
+    if not observations or not detector_ids or len(set(detector_ids)) != len(detector_ids):
         return None
     wanted = set(detector_ids)
     completed_build_ids: set[str] | None = None
@@ -216,7 +294,7 @@ def optimize_lpt_schedule(
         if prior is None or str(row.get("observed_at_utc") or "") > str(prior.get("observed_at_utc") or ""):
             builds[build_id][detector] = row
 
-    coherent: list[tuple[bool, str, str, list[dict[str, Any]]]] = []
+    coherent: list[tuple[bool, bool, bool, str, str, list[dict[str, Any]]]] = []
     for build_id, by_id in builds.items():
         if set(by_id) != wanted:
             continue
@@ -226,20 +304,28 @@ def optimize_lpt_schedule(
             str(row.get("golden_set_sha256") or "") == str(golden_set_sha256)
             for row in rows
         )
-        coherent.append((exact_golden, latest, build_id, rows))
+        exact_dimension = all(_as_int(row.get("max_dimension")) == int(max_dimension) for row in rows)
+        exact_runner = bool(runner_label) and all(
+            runner_label in (
+                row.get("runner", {}).get("runner_labels", [])
+                if isinstance(row.get("runner"), dict)
+                and isinstance(row.get("runner", {}).get("runner_labels"), list)
+                else []
+            )
+            for row in rows
+        )
+        coherent.append((exact_golden, exact_dimension, exact_runner, latest, build_id, rows))
     if not coherent:
         return None
     # Prefer the requested Golden Set once it has a valid aggregate completion.
     # Cross-Golden evidence is strictly a bootstrap fallback.
     exact = [item for item in coherent if item[0]]
-    selected = max(exact or coherent, key=lambda item: (item[1], item[2]))
-    selected_exact_golden, _, evidence_build_id, observations = selected
+    selected = max(exact or coherent, key=lambda item: (item[1], item[2], item[3], item[4]))
+    selected_exact_golden, selected_exact_dimension, selected_exact_runner, _, evidence_build_id, observations = selected
 
-    by_detector: dict[str, list[dict[str, Any]]] = {}
-    for row in observations:
-        detector = str(row.get("detector_id") or "")
-        if detector:
-            by_detector.setdefault(detector, []).append(row)
+    selected_by_detector = {
+        str(row.get("detector_id") or ""): row for row in observations
+    }
 
     budget = max(1, int(runner_thread_budget))
     candidates: list[dict[str, Any]] = []
@@ -248,27 +334,19 @@ def optimize_lpt_schedule(
     # count before the shard plan is known.
     max_pipelines = max(1, budget // 2)
     measured = [
-        _predicted_runtime(
-            by_detector.get(detector, []), mode=mode, strategy=strategy,
-            max_dimension=max_dimension, golden_set_sha256=golden_set_sha256,
-            runner_label=runner_label,
-        )
+        _scheduler_runtime(selected_by_detector[detector])
         for detector in detector_ids
     ]
-    known = [value for value in measured if value is not None]
-    if not known:
+    known = [value for value in measured if value is not None and value > 0]
+    if len(known) != len(detector_ids):
         return None
-    unknown_estimate = max(known)
-    complete = [value if value is not None else unknown_estimate for value in measured]
+    complete = [float(value) for value in measured if value is not None]
     floor_seconds = max(complete)
     incumbent_assignments: dict[str, int] = {}
     incumbent_pipeline_count = 0
     incumbent_loads: dict[int, float] = {}
     for detector, seconds in zip(detector_ids, complete):
-        rows = by_detector.get(detector, [])
-        if not rows:
-            continue
-        row = max(rows, key=lambda item: str(item.get("observed_at_utc") or ""))
+        row = selected_by_detector[detector]
         pipeline = _as_int(row.get("detector_pipeline_number"))
         count = _as_int(row.get("detector_pipelines"))
         if pipeline is not None and pipeline > 0:
@@ -276,8 +354,12 @@ def optimize_lpt_schedule(
             incumbent_loads[pipeline] = incumbent_loads.get(pipeline, 0.0) + seconds
         if count is not None:
             incumbent_pipeline_count = max(incumbent_pipeline_count, count)
+    maximum_shards = [
+        _candidate_shard_limit(selected_by_detector[detector])
+        for detector in detector_ids
+    ]
     shard_plan = (
-        plan_capacity_shards(complete, max_pipelines)
+        plan_capacity_shards(complete, max_pipelines, maximum_shards=maximum_shards)
         if max_pipelines > 4 and strategy in {"exhaustive", "exhaustive-with-zombies"}
         else None
     )
@@ -299,15 +381,14 @@ def optimize_lpt_schedule(
         proposed = plan_static_lpt_tasks(complete, selected_pipeline_count)
         proposed_makespan = max(float(row["estimated_seconds"]) for row in proposed)
         incumbent_makespan = max(incumbent_loads.values()) if incumbent_loads else None
-        improvement = (
-            (incumbent_makespan - proposed_makespan) / incumbent_makespan
-            if incumbent_makespan and incumbent_makespan > 0 else None
-        )
         if (
             incumbent_pipeline_count > 0
             and incumbent_pipeline_count <= max_pipelines
             and len(incumbent_assignments) == len(detector_ids)
-            and (improvement is None or improvement < MIN_SCHEDULE_MAKESPAN_IMPROVEMENT)
+            and not materially_improves_makespan(
+                incumbent_makespan, proposed_makespan,
+                high_water_seconds=floor_seconds,
+            )
         ):
             selected_pipeline_count = incumbent_pipeline_count
     for pipelines in range(1, max_pipelines + 1):
@@ -328,6 +409,8 @@ def optimize_lpt_schedule(
             "source": "runtime-index-lpt-optimizer",
             "evidence_build_id": evidence_build_id,
             "evidence_golden_set_relation": "exact" if selected_exact_golden else "latest-compatible",
+            "evidence_dimension_relation": "exact" if selected_exact_dimension else "fallback",
+            "evidence_runner_relation": "exact" if selected_exact_runner else "fallback",
         })
     if not candidates:
         return None
@@ -382,8 +465,13 @@ def workload_class(mode: str, strategy: str, limit: str | None) -> str:
 def _read_index(path: Path | None) -> dict[str, Any]:
     if path is None or not path.is_file():
         return {"schema_version": 1, "observations": []}
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    return payload if isinstance(payload, dict) else {"schema_version": 1, "observations": []}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {"schema_version": 1, "observations": []}
+    if not isinstance(payload, dict) or not isinstance(payload.get("observations", []), list):
+        return {"schema_version": 1, "observations": []}
+    return payload
 
 
 def _as_float(value: Any) -> float | None:

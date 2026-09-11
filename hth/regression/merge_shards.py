@@ -352,7 +352,11 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
     model_selection = first_info.get("model_selection") or first_summary.get("model_selection")
     resolved_max_dimension = first_info.get("max_dimension", first_summary.get("max_dimension", max_dimension))
     detector_config_sha256 = first_info.get("detector_config_sha256") or file_sha256(detector_config)
-    parameter_space = {"possible_parameter_sets": possible, "live_possible_parameter_sets": live_possible, "zombie_possible_parameter_sets": zombie_possible, "canonical_search_space": search_space_contract, "planned_parameter_sets": len(ordered), "actual_parameter_sets": len(ordered), "golden_set_pages": pages, "planned_page_evaluations": len(ordered) * pages, "actual_page_evaluations": len(ordered) * pages}
+    full_exhaustive_candidate_count = max(
+        (int(info.get("full_exhaustive_candidate_count") or 0) for info in infos),
+        default=0,
+    )
+    parameter_space = {"possible_parameter_sets": possible, "live_possible_parameter_sets": live_possible, "zombie_possible_parameter_sets": zombie_possible, "canonical_search_space": search_space_contract, "planned_parameter_sets": len(ordered), "actual_parameter_sets": len(ordered), "full_exhaustive_candidate_count": full_exhaustive_candidate_count, "golden_set_pages": pages, "planned_page_evaluations": len(ordered) * pages, "actual_page_evaluations": len(ordered) * pages}
     progress_payload = {"estimated_parameter_sets": completion_total, "completed_parameter_sets": completion_total, "average_eval_rate": completion_total / elapsed if elapsed else None, "failures": sum(r["summary"]["failure_count"] for r in ordered), "winner_changes": len(winner_history) if winner else 0, "winner_history": winner_history if winner else [], "winner_first_changed_elapsed_seconds": winner_history[0]["elapsed_seconds"] if winner and winner_history else None, "winner_last_changed_elapsed_seconds": winner_history[-1]["elapsed_seconds"] if winner and winner_history else None, "baseline_surpassed": baseline_surpassed(winner, baseline)}
     performance_payload = {
         "sample_count": sum(int((summary.get("performance") or {}).get("sample_count") or 0) for summary in summaries),
@@ -433,6 +437,7 @@ def merge(shard_dirs: list[Path], output: Path, detector_config: Path, top: int 
         "effective_acceleration": round(effective_acceleration, 4) if effective_acceleration is not None else None,
         "actual_parameter_sets": len(ordered),
         "planned_parameter_sets": len(ordered),
+        "full_exhaustive_candidate_count": full_exhaustive_candidate_count,
         "status": "complete" if measurement_state["terminal_success"] else "invalid",
         "outcome": measurement_state,
         "shard_index": None,

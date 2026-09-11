@@ -861,6 +861,7 @@ while IFS=$'\t' read -r pipeline_number task_csv estimated_seconds; do
 done < <(python - "$effective_pipelines" "${DETECTOR_ALGORITHM,,}" "${#detector_configs[@]}" "${HTH_DETECTOR_PIPELINE_ASSIGNMENTS_JSON:-{}}" "${task_detectors[@]}" -- "${detector_estimates[@]}" <<'PYSTATICDISPATCH'
 import json, sys
 from hth.domain.execution_dispatch import plan_static_dispatch
+from hth.domain.multidetector_schedule import normalize_pipeline_assignments
 
 pipelines = int(sys.argv[1])
 multidetector = sys.argv[2] == "all"
@@ -877,16 +878,14 @@ for raw in sys.argv[separator + 1:]:
         estimates.append(float(raw))
     except (TypeError, ValueError):
         estimates.append(None)
-retained = (
-    multidetector and len(detectors) == task_count
-    and len(set(detectors)) == task_count
-    and all(detector in assignments for detector in detectors)
-    and all(1 <= int(assignments[detector]) <= pipelines for detector in detectors)
+retained_assignments = (
+    normalize_pipeline_assignments(detectors, assignments, pipelines)
+    if multidetector and len(detectors) == task_count else None
 )
-if retained:
+if retained_assignments:
     rows = []
     for pipeline in range(1, pipelines + 1):
-        indexes = [index for index, detector in enumerate(detectors) if int(assignments[detector]) == pipeline]
+        indexes = [index for index, detector in enumerate(detectors) if retained_assignments[detector] == pipeline]
         if indexes:
             rows.append({
                 "pipeline": pipeline,

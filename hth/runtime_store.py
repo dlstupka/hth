@@ -97,6 +97,10 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
         "possible_parameter_sets": _as_int(info.get("possible_parameter_sets") or parameter_space.get("possible_parameter_sets")),
         "planned_parameter_sets": _as_int(info.get("planned_parameter_sets") or parameter_space.get("planned_parameter_sets")),
         "actual_parameter_sets": actual_sets,
+        "full_exhaustive_candidate_count": _as_int(
+            info.get("full_exhaustive_candidate_count")
+            or parameter_space.get("full_exhaustive_candidate_count")
+        ),
         "golden_set_pages": pages,
         "actual_page_evaluations": page_evaluations,
         "wall_clock_seconds": elapsed,
@@ -281,7 +285,14 @@ def coherent_execution_profile(
 
     candidates: list[tuple[int, str, dict[str, Any]]] = []
     for build_id, rows in groups.items():
-        unique = {str(row.get("detector_id")): row for row in rows}
+        unique: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            detector = str(row.get("detector_id") or "")
+            prior = unique.get(detector)
+            if prior is None or str(row.get("observed_at_utc") or "") > str(prior.get("observed_at_utc") or ""):
+                unique[detector] = row
+        if set(unique) != wanted:
+            continue
         values = list(unique.values())
         threads = {_as_int(row.get("configured_threads")) for row in values}
         pipelines = {_as_int(row.get("detector_pipelines")) for row in values}

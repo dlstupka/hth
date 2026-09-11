@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 from datetime import datetime
@@ -18,7 +19,8 @@ from hth.regression.calibration_intelligence import detector_characterization
 from hth.domain.result_metrics import baseline_surpassed, calibration_metric_view, result_metric_view
 from hth.domain.execution_dispatch import plan_static_dispatch
 from hth.domain.multidetector_schedule import (
-    MIN_SCHEDULE_MAKESPAN_IMPROVEMENT,
+    materially_improves_makespan,
+    plan_static_lpt_tasks,
     select_lpt_pipeline_count,
 )
 from hth.runtime_store import coherent_execution_profile, select_runtime_observation
@@ -2000,11 +2002,8 @@ def _common_value(values: list[Any], default: Any = "unknown") -> Any:
 def _lpt_makespan(durations: list[float], pipelines: int) -> float | None:
     if not durations or pipelines <= 0:
         return None
-    loads = [0.0] * min(pipelines, len(durations))
-    for duration in sorted((max(0.0, value) for value in durations), reverse=True):
-        index = min(range(len(loads)), key=loads.__getitem__)
-        loads[index] += duration
-    return max(loads)
+    schedule = plan_static_lpt_tasks(durations, pipelines)
+    return max(float(row["estimated_seconds"]) for row in schedule)
 
 
 _EFFECT_SCOPE_FALLBACKS: dict[str, tuple[str, ...]] = {
@@ -2135,8 +2134,7 @@ def _estimate_scope_makespan(
     LPT.  Treating each detector as one indivisible task badly overstates the
     makespan once long detectors are sharded.
     """
-    from math import ceil
-    from hth.regression.sharding import SAFETY_FACTOR, TARGET_SHARD_SECONDS
+    from hth.regression.sharding import bounded_shard_count
 
     runtime_index = _load_runtime_index(runtime_index_path)
     shard_estimates: list[float] = []
@@ -2184,9 +2182,9 @@ def _estimate_scope_makespan(
         # Mirror the launcher's automatic shard count at the measured thread
         # setting.  Shards remain bounded by one parameter set each and by the
         # framework's normal 96-shard planning ceiling.
-        shard_count = max(1, min(96, target_count, ceil(
-            scaled_work * SAFETY_FACTOR / TARGET_SHARD_SECONDS
-        )))
+        shard_count = bounded_shard_count(
+            scaled_work, possible_parameter_sets=target_count,
+        )
         shard_estimates.extend([scaled_work / shard_count] * shard_count)
     return _lpt_makespan(shard_estimates, pipelines)
 
@@ -2353,6 +2351,107 @@ def _current_pipeline_schedule(run_dirs: list[Path], pipeline_count: int) -> lis
     return result
 
 
+def _task_identity(task: dict[str, Any]) -> tuple[str, int, int]:
+    detector = str(task.get("detector") or "")
+    try:
+        shard_index = int(task.get("shard_index") or 0)
+        shard_count = max(1, int(task.get("shard_count") or 1))
+    except (TypeError, ValueError):
+        shard_index, shard_count = 0, 1
+    return detector, shard_index, shard_count
+
+
+def _strict_task_identity(task: dict[str, Any]) -> tuple[str, int, int] | None:
+    detector = str(task.get("detector") or "")
+    try:
+        shard_index = int(task.get("shard_index", 0))
+        shard_count = int(task.get("shard_count", 1))
+    except (TypeError, ValueError):
+        return None
+    if not detector or shard_count < 1 or shard_index < 0 or shard_index >= shard_count:
+        return None
+    return detector, shard_index, shard_count
+
+
+def _task_label(task: dict[str, Any]) -> str:
+    detector, shard_index, shard_count = _task_identity(task)
+    return detector if shard_count == 1 else f"{detector} [{shard_index + 1}/{shard_count}]"
+
+
+def _measured_task_costs(
+    observation: dict[str, Any] | None,
+) -> dict[tuple[str, int, int], float] | None:
+    """Validate executor task telemetry as one indivisible evidence set."""
+    if not observation:
+        return None
+    tasks = observation.get("tasks")
+    if not isinstance(tasks, list) or not tasks:
+        return None
+    measured: dict[tuple[str, int, int], float] = {}
+    shard_indexes: dict[str, set[int]] = {}
+    shard_counts: dict[str, int] = {}
+    for task in tasks:
+        if not isinstance(task, dict) or str(task.get("status") or "") != "complete":
+            return None
+        identity = _strict_task_identity(task)
+        if identity is None or identity in measured:
+            return None
+        try:
+            seconds = float(task.get("scheduler_slot_seconds", task.get("busy_seconds")))
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(seconds) or seconds < 0:
+            return None
+        detector, shard_index, shard_count = identity
+        if detector in shard_counts and shard_counts[detector] != shard_count:
+            return None
+        shard_counts[detector] = shard_count
+        shard_indexes.setdefault(detector, set()).add(shard_index)
+        measured[identity] = seconds
+    if any(shard_indexes[detector] != set(range(count)) for detector, count in shard_counts.items()):
+        return None
+    try:
+        expected = int(observation.get("task_count", len(tasks)))
+    except (TypeError, ValueError):
+        return None
+    return measured if expected == len(measured) else None
+
+
+def _observed_pipeline_schedule(observation: dict[str, Any] | None) -> list[dict[str, Any]] | None:
+    """Recover runnable shard tasks from authoritative executor telemetry."""
+    measured = _measured_task_costs(observation)
+    if measured is None:
+        return None
+    by_pipeline: dict[int, dict[str, Any]] = {}
+    tasks = observation["tasks"]
+    for task in tasks:
+        identity = _strict_task_identity(task)
+        assert identity is not None
+        try:
+            pipeline = int(task.get("pipeline"))
+            position = int(task.get("task_index") or 0)
+        except (TypeError, ValueError):
+            return None
+        if pipeline < 1:
+            return None
+        seconds = measured[identity]
+        plan = by_pipeline.setdefault(
+            pipeline, {"pipeline": pipeline, "tasks": [], "estimated_seconds": 0.0},
+        )
+        plan["tasks"].append({
+            "detector": identity[0], "shard_index": identity[1],
+            "shard_count": identity[2], "queue_position": position,
+            "estimate_seconds": seconds,
+        })
+        plan["estimated_seconds"] += seconds
+    if not by_pipeline:
+        return None
+    result = [by_pipeline[pipeline] for pipeline in sorted(by_pipeline)]
+    for plan in result:
+        plan["tasks"].sort(key=lambda row: (int(row.get("queue_position") or 0), _task_identity(row)))
+    return result
+
+
 def _current_multidetector_observation(
     index_path: Path | None, *, build_id: str | None, golden_set_sha256: str
 ) -> dict[str, Any] | None:
@@ -2384,44 +2483,42 @@ def _scheduler_feedback_schedule(
 
     Task busy time is the scheduler-facing detector cost.  It deliberately
     includes detector wrapper/load/unload overhead captured by the executor,
-    rather than using only the detector core RUN-INFO elapsed time.  Pipeline
-    The next pipeline count uses the same longest-task-floor policy as workflow
+    rather than using only the detector core RUN-INFO elapsed time. The next
+    pipeline count uses the same longest-task-floor policy as workflow
     dispatch, so reporting and the executable preferred shape remain aligned.
     """
     actual_pipeline_seconds: dict[int, float] = {}
-    measured_by_detector: dict[str, float] = {}
+    measured_by_task = _measured_task_costs(observation)
     if observation:
         for worker in observation.get("workers", []):
             if not isinstance(worker, dict):
                 continue
             try:
-                actual_pipeline_seconds[int(worker.get("pipeline"))] = float(worker.get("span_seconds"))
-            except (TypeError, ValueError):
-                pass
-        for task in observation.get("tasks", []):
-            if not isinstance(task, dict) or str(task.get("status") or "") != "complete":
-                continue
-            detector = str(task.get("detector") or "")
-            try:
-                seconds = float(task.get("scheduler_slot_seconds", task.get("busy_seconds")))
+                pipeline = int(worker.get("pipeline"))
+                seconds = float(worker.get("span_seconds"))
             except (TypeError, ValueError):
                 continue
-            if detector and seconds >= 0:
-                measured_by_detector[detector] = measured_by_detector.get(detector, 0.0) + seconds
+            if pipeline > 0 and math.isfinite(seconds) and seconds >= 0:
+                actual_pipeline_seconds[pipeline] = seconds
+    if measured_by_task is None:
+        return current_schedule, actual_pipeline_seconds
 
     rows: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, int, int]] = set()
     for plan in current_schedule:
         for task in plan.get("tasks", []):
-            detector = str(task.get("detector") or "")
-            if not detector or detector in seen:
+            identity = _task_identity(task)
+            if not identity[0] or identity in seen:
                 continue
-            seen.add(detector)
+            seen.add(identity)
             prior = float(task.get("estimate_seconds") or 0.0)
             rows.append({
-                "detector": detector,
-                "estimate_seconds": measured_by_detector.get(detector, prior),
+                "detector": identity[0], "shard_index": identity[1],
+                "shard_count": identity[2],
+                "estimate_seconds": measured_by_task.get(identity, prior),
             })
+    if not rows:
+        return current_schedule, actual_pipeline_seconds
     max_pipelines = max(1, min(
         len(rows),
         max(1, int(runner_thread_budget) // 2) if runner_thread_budget else int(_execution_pipeline_count),
@@ -2440,8 +2537,8 @@ def _scheduler_feedback_schedule(
         tasks = []
         total = 0.0
         for task in plan.get("tasks", []):
-            detector = str(task.get("detector") or "")
-            seconds = measured_by_detector.get(detector, float(task.get("estimate_seconds") or 0.0))
+            identity = _task_identity(task)
+            seconds = measured_by_task.get(identity, float(task.get("estimate_seconds") or 0.0))
             updated = dict(task)
             updated["estimate_seconds"] = seconds
             tasks.append(updated)
@@ -2452,11 +2549,9 @@ def _scheduler_feedback_schedule(
         (float(plan.get("estimated_seconds") or 0.0) for plan in repriced_current), default=0.0
     )
     high_water = max((float(row.get("estimate_seconds") or 0.0) for row in rows), default=0.0)
-    improvement = (
-        (incumbent_makespan - proposed_makespan) / incumbent_makespan
-        if incumbent_makespan > 0 else 0.0
-    )
-    if proposed_makespan > high_water + 1e-9 or improvement < MIN_SCHEDULE_MAKESPAN_IMPROVEMENT:
+    if not materially_improves_makespan(
+        incumbent_makespan, proposed_makespan, high_water_seconds=high_water,
+    ):
         return repriced_current, actual_pipeline_seconds
     return proposed, actual_pipeline_seconds
 
@@ -2465,22 +2560,22 @@ def _schedule_reassignment_count(
     current_schedule: list[dict[str, Any]], next_schedule: list[dict[str, Any]],
 ) -> int:
     current = {
-        str(task.get("detector") or ""): int(plan["pipeline"])
+        _task_identity(task): int(plan["pipeline"])
         for plan in current_schedule for task in plan.get("tasks", [])
     }
     following = {
-        str(task.get("detector") or ""): int(plan["pipeline"])
+        _task_identity(task): int(plan["pipeline"])
         for plan in next_schedule for task in plan.get("tasks", [])
     }
-    return sum(following.get(detector) != pipeline for detector, pipeline in current.items())
+    return sum(following.get(identity) != pipeline for identity, pipeline in current.items())
 
 
 def _schedule_delta(current: dict[str, Any], next_plan: dict[str, Any]) -> str:
-    current_ids = [str(row.get("detector") or "") for row in current.get("tasks", [])]
-    next_ids = [str(row.get("detector") or "") for row in next_plan.get("tasks", [])]
-    removed = [detector for detector in current_ids if detector not in next_ids]
-    added = [detector for detector in next_ids if detector not in current_ids]
-    changes = [*(f"-`{detector}`" for detector in removed), *(f"+`{detector}`" for detector in added)]
+    current_ids = {_task_identity(row): _task_label(row) for row in current.get("tasks", [])}
+    next_ids = {_task_identity(row): _task_label(row) for row in next_plan.get("tasks", [])}
+    removed = [label for identity, label in current_ids.items() if identity not in next_ids]
+    added = [label for identity, label in next_ids.items() if identity not in current_ids]
+    changes = [*(f"-`{label}`" for label in removed), *(f"+`{label}`" for label in added)]
     return " ".join(changes) if changes else "="
 
 
@@ -2895,11 +2990,14 @@ def build_combined_summary(
             "| Persistence | Results are accumulated during execution and published as one post-run calibration/index transaction. |",
             "",
         ])
-        current_schedule = _current_pipeline_schedule(run_dirs, pipeline_count)
         current_observation = _current_multidetector_observation(
             multidetector_index,
             build_id=str(execution.get("profile", {}).get("build_id") or "") if execution.get("profile") else None,
             golden_set_sha256=_combined_golden_sha(run_dirs),
+        )
+        current_schedule = (
+            _observed_pipeline_schedule(current_observation)
+            or _current_pipeline_schedule(run_dirs, pipeline_count)
         )
         thread_budget = max(1, int(pipeline_count) * int(execution_threads))
         feedback_schedule, actual_pipeline_seconds = _scheduler_feedback_schedule(
@@ -2916,8 +3014,8 @@ def build_combined_summary(
         for pipeline in sorted(set(current_by_pipeline) | set(next_by_pipeline)):
             current = current_by_pipeline.get(pipeline, {"pipeline": pipeline, "tasks": [], "estimated_seconds": 0.0})
             next_plan = next_by_pipeline.get(pipeline, {"pipeline": pipeline, "tasks": [], "estimated_seconds": 0.0})
-            schedule_ids = ", ".join(f"`{row['detector']}`" for row in current["tasks"]) or "—"
-            next_ids = ", ".join(f"`{row['detector']}`" for row in next_plan["tasks"]) or "—"
+            schedule_ids = ", ".join(f"`{_task_label(row)}`" for row in current["tasks"]) or "—"
+            next_ids = ", ".join(f"`{_task_label(row)}`" for row in next_plan["tasks"]) or "—"
             actual = actual_pipeline_seconds.get(pipeline)
             lines.append(
                 f"| {pipeline} | {schedule_ids} | {_schedule_delta(current, next_plan)} | "
@@ -2931,7 +3029,7 @@ def build_combined_summary(
             next_spread = max(next_values) - min(next_values) if len(next_values) > 1 else 0.0
             lines.extend([
                 "",
-                f"**Pipeline balance feedback:** actual work-time spread {_duration(actual_spread)}; projected next-run spread {_duration(next_spread)}; {_schedule_reassignment_count(current_schedule, feedback_schedule)} of {len(combined_rows)} detectors reassigned.",
+                f"**Pipeline balance feedback:** actual work-time spread {_duration(actual_spread)}; projected next-run spread {_duration(next_spread)}; {_schedule_reassignment_count(current_schedule, feedback_schedule)} of {sum(len(plan.get('tasks', [])) for plan in current_schedule)} runnable jobs reassigned.",
             ])
         lines.extend([
             "",

@@ -117,6 +117,33 @@ def conservative_speedup(threads: int) -> float:
     return max(1.0, math.sqrt(max(1, threads)))
 
 
+def bounded_shard_count(
+    predicted_runtime_seconds: float | int | None,
+    *,
+    target_shard_seconds: float = TARGET_SHARD_SECONDS,
+    safety_factor: float = SAFETY_FACTOR,
+    maximum_shards: int = 96,
+    possible_parameter_sets: int | None = None,
+) -> int:
+    """Return the canonical candidate-bounded time-based shard count."""
+    try:
+        runtime = float(predicted_runtime_seconds) if predicted_runtime_seconds is not None else None
+        target = float(target_shard_seconds)
+        safety = float(safety_factor)
+    except (TypeError, ValueError):
+        return 1
+    if runtime is None or not math.isfinite(runtime) or runtime <= 0:
+        return 1
+    if not math.isfinite(target) or target <= 0:
+        raise ValueError("target_shard_seconds must be finite and positive")
+    if not math.isfinite(safety) or safety < 0:
+        raise ValueError("safety_factor must be finite and non-negative")
+    shard_cap = max(1, int(maximum_shards))
+    if possible_parameter_sets is not None:
+        shard_cap = min(shard_cap, max(1, int(possible_parameter_sets)))
+    return max(1, min(shard_cap, math.ceil(runtime * safety / target)))
+
+
 def plan_shards(
     serial_runtime_seconds: float | None,
     *,
@@ -134,7 +161,7 @@ def plan_shards(
     if str(requested_threads).lower() == "auto":
         threads = automatic_threads(serial_runtime_seconds, maximum)
     else:
-        requested = int(requested_threads)
+        requested = max(1, int(requested_threads))
         threads = max(value for value in ALLOWED_THREADS if value <= min(requested, maximum))
     parameter_cap = max(1, int(possible_parameter_sets or maximum_shards))
     shard_cap = min(max(1, int(maximum_shards)), parameter_cap)
@@ -145,8 +172,14 @@ def plan_shards(
         shards = 1
         source = estimate_source
     else:
-        predicted = serial_runtime_seconds * safety_factor / conservative_speedup(threads)
-        shards = max(1, min(shard_cap, math.ceil(predicted / target_shard_seconds)))
+        predicted = serial_runtime_seconds / conservative_speedup(threads)
+        shards = bounded_shard_count(
+            predicted,
+            target_shard_seconds=target_shard_seconds,
+            safety_factor=safety_factor,
+            maximum_shards=shard_cap,
+            possible_parameter_sets=parameter_cap,
+        )
         source = estimate_source
     return ShardPlan(serial_runtime_seconds, threads, shards, target_shard_seconds, safety_factor, source)
 
@@ -160,7 +193,7 @@ def estimate_serial_runtime(observation: dict[str, Any], possible_parameter_sets
         actual_value = int(actual)
     except (TypeError, ValueError):
         return None
-    if wall_value <= 0 or actual_value <= 0:
+    if not math.isfinite(wall_value) or wall_value <= 0 or actual_value <= 0:
         return None
     # Convert the measured run to a conservative serial-equivalent estimate.
     per_set_serial = wall_value * conservative_speedup(threads) / actual_value
@@ -170,7 +203,12 @@ def estimate_serial_runtime(observation: dict[str, Any], possible_parameter_sets
 def best_smoke_observation(index_path: Path, detector: str) -> dict[str, Any] | None:
     if not index_path.is_file():
         return None
-    payload = json.loads(index_path.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict) or not isinstance(payload.get("observations", []), list):
+        return None
     rows = [
         row for row in payload.get("observations", [])
         if isinstance(row, dict) and row.get("detector_id") == detector and row.get("mode") == "smoke"

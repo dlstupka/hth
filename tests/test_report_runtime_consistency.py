@@ -38,6 +38,13 @@ class ReportRuntimeConsistencyTests(unittest.TestCase):
         self.assertEqual(profile["pipeline_count"], 4)
         self.assertEqual(profile["loading_strategy"], "lpt")
 
+    def test_partial_build_is_not_presented_as_a_coherent_profile(self):
+        index = self.runtime_index()
+        index["observations"] = index["observations"][:-1]
+        self.assertIsNone(coherent_execution_profile(
+            index, ["a", "b", "c"], golden_set_sha256="golden"
+        ))
+
     def test_regenerated_queue_uses_runtime_index_for_every_detector(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

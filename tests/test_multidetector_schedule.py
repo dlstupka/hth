@@ -4,15 +4,72 @@ import unittest
 from pathlib import Path
 
 from hth.domain.multidetector_schedule import (
+    materially_improves_makespan,
+    normalize_pipeline_assignments,
     optimize_lpt_schedule,
     plan_capacity_shards,
     plan_lpt_workers,
+    plan_static_lpt_tasks,
     recommended_schedule,
     workload_class,
 )
 
 
 class MultiDetectorScheduleTests(unittest.TestCase):
+    def test_assignment_normalization_rejects_partial_duplicate_and_malformed_maps(self):
+        self.assertEqual(normalize_pipeline_assignments(["a", "b"], {"a": "1", "b": 2}, 2), {"a": 1, "b": 2})
+        self.assertIsNone(normalize_pipeline_assignments(["a", "b"], {"a": 1}, 2))
+        self.assertIsNone(normalize_pipeline_assignments(["a", "a"], {"a": 1}, 2))
+        self.assertIsNone(normalize_pipeline_assignments(["a"], {"a": "nonsense"}, 2))
+        self.assertIsNone(normalize_pipeline_assignments(["a"], {"a": 3}, 2))
+        self.assertIsNone(normalize_pipeline_assignments(["a"], {"a": 1}, 0))
+
+    def test_makespan_gate_accepts_exact_threshold_and_enforces_high_water(self):
+        self.assertTrue(materially_improves_makespan(100.0, 80.0, high_water_seconds=80.0))
+        self.assertFalse(materially_improves_makespan(100.0, 80.0001, high_water_seconds=100.0))
+        self.assertFalse(materially_improves_makespan(200.0, 100.0, high_water_seconds=99.0))
+        self.assertFalse(materially_improves_makespan(200.0, 100.0, high_water_seconds=float("nan")))
+        with self.assertRaisesRegex(ValueError, "minimum_improvement"):
+            materially_improves_makespan(100.0, 50.0, minimum_improvement=float("nan"))
+
+    def test_capacity_sharding_never_splits_unknown_runtime(self):
+        plan = plan_capacity_shards([1200.0, None], 8)
+        self.assertEqual(plan["shard_counts"][1], 1)
+
+    def test_capacity_sharding_without_measurements_preserves_unsharded_capacity(self):
+        plan = plan_capacity_shards([None, None, None], 2)
+        self.assertFalse(plan["applied"])
+        self.assertEqual(plan["pipelines"], 2)
+        self.assertEqual(plan["task_count"], 3)
+
+    def test_static_lpt_caps_idle_pipeline_allocation_to_runnable_tasks(self):
+        schedule = plan_static_lpt_tasks([10.0], 1_000_000)
+        self.assertEqual(len(schedule), 1)
+        self.assertEqual(schedule[0]["pipeline"], 1)
+
+    def test_static_lpt_rejects_invalid_estimate_floor(self):
+        with self.assertRaisesRegex(ValueError, "estimate_floor_seconds"):
+            plan_static_lpt_tasks([10.0], 1, estimate_floor_seconds=float("nan"))
+
+    def test_capacity_sharding_caps_fanout_by_runnable_candidates(self):
+        plan = plan_capacity_shards([2400.0, 60.0], 8, maximum_shards=[2, 1])
+        self.assertTrue(plan["applied"])
+        self.assertEqual(plan["shard_counts"], [2, 1])
+
+    def test_capacity_sharding_does_not_materialize_more_shards_than_runner_capacity(self):
+        plan = plan_capacity_shards([10**12], 8, maximum_shards=[10**9])
+        self.assertTrue(plan["applied"])
+        self.assertEqual(plan["shard_counts"], [8])
+        self.assertEqual(plan["task_count"], 8)
+
+    def test_capacity_sharding_rejects_misaligned_candidate_caps(self):
+        with self.assertRaisesRegex(ValueError, "align"):
+            plan_capacity_shards([1200.0], 8, maximum_shards=[2, 1])
+        with self.assertRaisesRegex(ValueError, r"maximum_shards\[0\]"):
+            plan_capacity_shards([1200.0], 8, maximum_shards=["bad"])
+        with self.assertRaisesRegex(ValueError, "target_shard_seconds"):
+            plan_capacity_shards([1200.0], 8, target_shard_seconds=float("nan"))
+
     def test_large_384_thread_host(self):
         self.assertEqual(plan_lpt_workers(39, 384), 39)
 
@@ -24,6 +81,11 @@ class MultiDetectorScheduleTests(unittest.TestCase):
         self.assertEqual(plan["task_count"], 55)
         self.assertEqual(plan["pipelines"], 55)
         self.assertLessEqual(plan["predicted_makespan_seconds"], 600)
+
+    def test_shard_target_boundary_does_not_split_exact_ten_minute_job(self):
+        plan = plan_capacity_shards([600.0, 60.0], 8)
+        self.assertFalse(plan["applied"])
+        self.assertEqual(plan["shard_counts"], [1, 1])
 
     def test_github_sized_optimizer_does_not_change_existing_topology(self):
         with tempfile.TemporaryDirectory() as td:
@@ -123,6 +185,44 @@ class MultiDetectorScheduleTests(unittest.TestCase):
             self.assertGreaterEqual(result["pipelines"], 2)
             self.assertEqual(result["candidate_count"], 3)
             self.assertGreaterEqual(len(result["leading_candidates"]), 2)
+
+    def test_optimizer_rejects_incomplete_timing_build_instead_of_fabricating_cost(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "runtime-index.json"
+            path.write_text(json.dumps({"observations": [
+                {
+                    "detector_id": detector, "mode": "smoke", "resolved_strategy": "exhaustive",
+                    "wall_clock_seconds": seconds, "observed_at_utc": "2026-09-09T00:00:00Z",
+                    "build": {"github_run_id": "complete"},
+                }
+                for detector, seconds in (("a", 100.0), ("b", None))
+            ]}), encoding="utf-8")
+            result = optimize_lpt_schedule(
+                runtime_index_path=path, detector_ids=["a", "b"], runner_thread_budget=16,
+                runner_label="8t", golden_set_sha256=None, mode="smoke",
+                strategy="exhaustive", max_dimension=1800,
+            )
+            self.assertIsNone(result)
+
+    def test_optimizer_treats_corrupt_index_and_duplicate_detector_ids_as_no_evidence(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "runtime-index.json"
+            path.write_text("not json", encoding="utf-8")
+            self.assertIsNone(optimize_lpt_schedule(
+                runtime_index_path=path, detector_ids=["a"], runner_thread_budget=8,
+                runner_label="8t", golden_set_sha256=None, mode="smoke",
+                strategy="exhaustive", max_dimension=1800,
+            ))
+            path.write_text(json.dumps({"observations": [{
+                "detector_id": "a", "mode": "smoke", "resolved_strategy": "exhaustive",
+                "wall_clock_seconds": 10.0, "observed_at_utc": "2026-09-09T00:00:00Z",
+                "build": {"github_run_id": "complete"},
+            }]}), encoding="utf-8")
+            self.assertIsNone(optimize_lpt_schedule(
+                runtime_index_path=path, detector_ids=["a", "a"], runner_thread_budget=8,
+                runner_label="8t", golden_set_sha256=None, mode="smoke",
+                strategy="exhaustive", max_dimension=1800,
+            ))
 
     def test_optimizer_never_exceeds_longest_job_high_water_mark(self):
         with tempfile.TemporaryDirectory() as td:
@@ -233,6 +333,32 @@ class MultiDetectorScheduleTests(unittest.TestCase):
             )
             self.assertEqual(result["evidence_build_id"], "exact")
             self.assertEqual(result["evidence_golden_set_relation"], "exact")
+
+    def test_optimizer_prefers_matching_dimension_and_runner_within_golden_set(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "runtime-index.json"
+            rows = []
+            for build_id, dimension, label, observed, seconds in (
+                ("matching", 1800, "192t", "2026-09-08T00:00:00Z", 100.0),
+                ("newer-wrong-context", 900, "github-hosted", "2026-09-09T00:00:00Z", 10.0),
+            ):
+                for detector in ("a", "b"):
+                    rows.append({
+                        "detector_id": detector, "mode": "smoke", "resolved_strategy": "exhaustive",
+                        "max_dimension": dimension, "golden_set_sha256": "gold",
+                        "wall_clock_seconds": seconds, "observed_at_utc": observed,
+                        "runner": {"runner_labels": [label]},
+                        "build": {"github_run_id": build_id},
+                    })
+            path.write_text(json.dumps({"observations": rows}), encoding="utf-8")
+            result = optimize_lpt_schedule(
+                runtime_index_path=path, detector_ids=["a", "b"], runner_thread_budget=384,
+                runner_label="192t", golden_set_sha256="gold", mode="smoke",
+                strategy="exhaustive", max_dimension=1800,
+            )
+            self.assertEqual(result["evidence_build_id"], "matching")
+            self.assertEqual(result["evidence_dimension_relation"], "exact")
+            self.assertEqual(result["evidence_runner_relation"], "exact")
 
     def test_smoke_limit_does_not_cap_execution_threads(self):
         with tempfile.TemporaryDirectory() as td:

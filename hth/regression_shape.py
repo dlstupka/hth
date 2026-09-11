@@ -473,6 +473,7 @@ def resolve_workflow_shape(
             "predicted_makespan_seconds", "evidence_detector_count",
             "detector_count", "candidate_count", "leading_candidates",
             "evidence_build_id", "evidence_golden_set_relation",
+            "evidence_dimension_relation", "evidence_runner_relation",
             "longest_detector_floor_seconds", "predicted_pipeline_utilization",
             "detector_shard_counts", "sharding_applied", "shard_target_seconds",
             "unsharded_makespan_seconds", "sharding_makespan_improvement",

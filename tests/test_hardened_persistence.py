@@ -1,4 +1,6 @@
+import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -7,6 +9,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "tools" / "hardened-persistence.sh"
 WORKFLOWS = ROOT / ".github" / "workflows"
+
+
+def _bash_executable() -> str | None:
+    """Resolve Git Bash explicitly on Windows, avoiding the WSL app shim."""
+    if os.name == "nt":
+        git = shutil.which("git")
+        candidates = []
+        if git:
+            git_root = Path(git).resolve().parent.parent
+            candidates.extend((git_root / "bin" / "bash.exe", git_root / "usr" / "bin" / "bash.exe"))
+        program_files = Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+        candidates.append(program_files / "Git" / "bin" / "bash.exe")
+        for candidate in candidates:
+            if candidate.is_file():
+                return str(candidate)
+    return shutil.which("bash")
 
 
 class HardenedPersistenceTests(unittest.TestCase):
@@ -97,8 +115,10 @@ class HardenedPersistenceTests(unittest.TestCase):
             # Feed bytes, not text, so Windows Python cannot translate the
             # script's LF newlines to CRLF while writing subprocess stdin.
             # Bash otherwise sees "pipefail\r" and rejects the first line.
+            bash = _bash_executable()
+            self.assertIsNotNone(bash, "A POSIX bash executable is required")
             proc = subprocess.run(
-                ["bash"],
+                [bash],
                 input=script.encode("utf-8"),
                 cwd=ROOT,
                 stdout=subprocess.PIPE,

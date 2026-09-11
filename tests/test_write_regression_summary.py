@@ -3,11 +3,67 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.write_regression_summary import _scheduler_feedback_schedule, _best_known_calibrations, _calibration_record_from_payload, _combined_result_row, _estimate_scope_makespan, _render_best_known_calibrations, _render_detector_calibration, build_combined_summary, build_summary
+from hth.write_regression_summary import _observed_pipeline_schedule, _schedule_reassignment_count, _scheduler_feedback_schedule, _best_known_calibrations, _calibration_record_from_payload, _combined_result_row, _estimate_scope_makespan, _render_best_known_calibrations, _render_detector_calibration, build_combined_summary, build_summary
 from hth.regression.parameter_space import parameter_set_equivalence_family_id
 
 
 class RegressionSummaryTests(unittest.TestCase):
+    def test_sharded_telemetry_preserves_each_runnable_job_identity(self):
+        observation = {
+            "tasks": [
+                {"task_index": index, "pipeline": index + 1, "detector": "slow",
+                 "shard_index": index, "shard_count": 2, "status": "complete",
+                 "scheduler_slot_seconds": 100.0}
+                for index in range(2)
+            ],
+        }
+        current = _observed_pipeline_schedule(observation)
+        self.assertIsNotNone(current)
+        self.assertEqual(sum(len(plan["tasks"]) for plan in current), 2)
+        following, _ = _scheduler_feedback_schedule(current, observation, 2, runner_thread_budget=4)
+        self.assertEqual(sum(len(plan["tasks"]) for plan in following), 2)
+        self.assertEqual(_schedule_reassignment_count(current, following), 0)
+
+    def test_observed_schedule_rejects_invalid_or_repeated_shards_atomically(self):
+        observation = {"tasks": [
+            {"task_index": 0, "pipeline": 1, "detector": "slow", "shard_index": 0,
+             "shard_count": 2, "status": "complete", "scheduler_slot_seconds": 10.0},
+            {"task_index": 1, "pipeline": 2, "detector": "slow", "shard_index": 0,
+             "shard_count": 2, "status": "complete", "scheduler_slot_seconds": 10.0},
+            {"task_index": 2, "pipeline": 2, "detector": "slow", "shard_index": 2,
+             "shard_count": 2, "status": "complete", "scheduler_slot_seconds": 10.0},
+        ]}
+        schedule = _observed_pipeline_schedule(observation)
+        self.assertIsNone(schedule)
+
+        incomplete = {"tasks": [
+            {"task_index": 0, "pipeline": 1, "detector": "slow", "shard_index": 0,
+             "shard_count": 2, "status": "complete", "scheduler_slot_seconds": 10.0},
+        ]}
+        self.assertIsNone(_observed_pipeline_schedule(incomplete))
+
+        malformed = {"tasks": [
+            {"task_index": 0, "pipeline": 1, "detector": "slow", "shard_index": "bad",
+             "shard_count": 1, "status": "complete", "scheduler_slot_seconds": 10.0},
+        ]}
+        self.assertIsNone(_observed_pipeline_schedule(malformed))
+
+    def test_scheduler_feedback_ignores_invalid_telemetry_atomically(self):
+        current = [
+            {"pipeline": 1, "tasks": [{"detector": "a", "estimate_seconds": 20.0}],
+             "estimated_seconds": 20.0},
+            {"pipeline": 2, "tasks": [{"detector": "b", "estimate_seconds": 10.0}],
+             "estimated_seconds": 10.0},
+        ]
+        partial = {"tasks": [
+            {"detector": "a", "status": "complete", "scheduler_slot_seconds": 1.0},
+            {"detector": "b", "status": "running", "scheduler_slot_seconds": 100.0},
+        ]}
+
+        following, _ = _scheduler_feedback_schedule(current, partial, 2)
+
+        self.assertEqual(following, current)
+
     def test_builds_failed_manifest_without_a_manufactured_winner(self):
         with tempfile.TemporaryDirectory() as temporary:
             run = Path(temporary) / "run-invalid"
