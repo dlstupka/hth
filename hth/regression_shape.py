@@ -526,6 +526,8 @@ def workflow_shape_env(result: dict[str, Any]) -> dict[str, Any]:
         env["HTH_DETECTOR_SHARD_COUNTS_JSON"] = json.dumps(
             result["detector_shard_counts"], sort_keys=True, separators=(",", ":")
         )
+    if result.get("shard_target_seconds") is not None:
+        env["HTH_CAPACITY_SHARD_TARGET_SECONDS"] = int(result["shard_target_seconds"])
     if result.get("detector_pipeline_assignments"):
         env["HTH_DETECTOR_PIPELINE_ASSIGNMENTS_JSON"] = json.dumps(
             result["detector_pipeline_assignments"], sort_keys=True, separators=(",", ":")

@@ -90,7 +90,9 @@ def test_execution_summary_and_merge_use_canonical_detector_shard_and_budget_cou
     text = DRIVER.read_text(encoding="utf-8")
     assert 'detector_count=${#detector_configs[@]}' in text
     assert 'echo "Detectors          : $detector_count"' in text
-    assert 'echo "Sharding           : auto (runtime target ${SHARD_TARGET_MINUTES}m)"' in text
+    assert 'echo "Sharding           : auto (capacity LPT target ${HTH_CAPACITY_SHARD_TARGET_SECONDS:-600}s; requires material whole-build improvement)"' in text
+    assert 'echo "Sharding           : auto (one shard per active pipeline, bounded by runnable parameter sets)"' in text
+    assert "auto (runtime target ${SHARD_TARGET_MINUTES}m)" not in text
     assert 'echo "Sharding           : ${sharding_policy} shard(s) / active pipeline"' in text
     assert 'from hth.regression.sharding import plan_execution' in text
     assert 'task_threads[$task_index]="$effective_threads_per_pipeline"' in text

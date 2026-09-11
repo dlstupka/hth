@@ -238,6 +238,14 @@ if [[ ! "${SHARD_LEASE_MINUTES:-5}" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 
+# Do not embed a JSON object literal inside `${parameter:-word}`. Bash closes
+# that expansion at the first `}`, appending the second brace to a populated
+# value and corrupting its JSON payload.
+detector_shard_counts_json="${HTH_DETECTOR_SHARD_COUNTS_JSON-}"
+[[ -n "$detector_shard_counts_json" ]] || detector_shard_counts_json='{}'
+pipeline_assignments_json="${HTH_DETECTOR_PIPELINE_ASSIGNMENTS_JSON-}"
+[[ -n "$pipeline_assignments_json" ]] || pipeline_assignments_json='{}'
+
 detector_count=${#detector_configs[@]}
 declare -a task_configs=() task_estimates=() task_estimate_sources=() task_quality=()
 declare -a task_shard_indexes=() task_shard_counts=() task_threads=() task_detectors=()
@@ -303,13 +311,12 @@ PYSHARDCAP
     else
       # The preferred LPT shape may split only the long detectors when doing
       # so lowers aggregate makespan materially on a flexible runner.
-      planned_shards="$(python - "$detector_name" "${HTH_DETECTOR_SHARD_COUNTS_JSON:-{}}" <<'PYSHARDPLAN'
+      planned_shards="$(python - "$detector_name" "$detector_shard_counts_json" <<'PYSHARDPLAN'
 import json, sys
 
-try:
-    counts = json.loads(sys.argv[2])
-except (TypeError, ValueError, json.JSONDecodeError):
-    counts = {}
+counts = json.loads(sys.argv[2])
+if not isinstance(counts, dict):
+    raise ValueError("HTH_DETECTOR_SHARD_COUNTS_JSON must be a JSON object")
 print(max(1, int(counts.get(sys.argv[1], 1))))
 PYSHARDPLAN
       )"
@@ -381,7 +388,6 @@ else
 fi
 
 if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" \
-  && "${exhaustive_shardable:-0}" == "1" \
   && "$requested_pipelines" != "auto" \
   && "$effective_pipelines" != "$requested_pipelines" ]]; then
   echo "::error::Exact execution shape requested ${requested_pipelines} pipelines but executor resolved ${effective_pipelines} after shard expansion"
@@ -434,7 +440,11 @@ else
   echo "Detector pipelines : $effective_pipelines (requested $requested_pipelines)"
 fi
 if [[ "$sharding_policy" == "auto" ]]; then
-  echo "Sharding           : auto (runtime target ${SHARD_TARGET_MINUTES}m)"
+  if (( detector_count > 1 )); then
+    echo "Sharding           : auto (capacity LPT target ${HTH_CAPACITY_SHARD_TARGET_SECONDS:-600}s; requires material whole-build improvement)"
+  else
+    echo "Sharding           : auto (one shard per active pipeline, bounded by runnable parameter sets)"
+  fi
 else
   echo "Sharding           : ${sharding_policy} shard(s) / active pipeline"
 fi
@@ -858,7 +868,7 @@ while IFS=$'\t' read -r pipeline_number task_csv estimated_seconds; do
   [[ -n "$pipeline_number" ]] || continue
   static_pipeline_tasks[$((pipeline_number-1))]="$task_csv"
   echo "Static schedule pipeline=$pipeline_number tasks=$task_csv estimate=${estimated_seconds}s"
-done < <(python - "$effective_pipelines" "${DETECTOR_ALGORITHM,,}" "${#detector_configs[@]}" "${HTH_DETECTOR_PIPELINE_ASSIGNMENTS_JSON:-{}}" "${task_detectors[@]}" -- "${detector_estimates[@]}" <<'PYSTATICDISPATCH'
+done < <(python - "$effective_pipelines" "${DETECTOR_ALGORITHM,,}" "${#detector_configs[@]}" "$pipeline_assignments_json" "${task_detectors[@]}" -- "${detector_estimates[@]}" <<'PYSTATICDISPATCH'
 import json, sys
 from hth.domain.execution_dispatch import plan_static_dispatch
 from hth.domain.multidetector_schedule import normalize_pipeline_assignments

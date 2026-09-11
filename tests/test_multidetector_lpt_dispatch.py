@@ -50,5 +50,17 @@ class MultiDetectorLptDispatchTests(unittest.TestCase):
         self.assertIn("python -m hth.runtime_store order", self.driver)
         self.assertIn('--loading-strategy "$DETECTOR_LOADING_STRATEGY"', self.driver)
 
+    def test_json_environment_defaults_do_not_use_ambiguous_brace_expansion(self):
+        self.assertNotIn('${HTH_DETECTOR_SHARD_COUNTS_JSON:-{}}', self.driver)
+        self.assertNotIn('${HTH_DETECTOR_PIPELINE_ASSIGNMENTS_JSON:-{}}', self.driver)
+        self.assertIn('detector_shard_counts_json="${HTH_DETECTOR_SHARD_COUNTS_JSON-}"', self.driver)
+        self.assertIn('pipeline_assignments_json="${HTH_DETECTOR_PIPELINE_ASSIGNMENTS_JSON-}"', self.driver)
+
+    def test_exact_shape_mismatch_guard_is_not_conditioned_on_dead_state(self):
+        marker = 'Exact execution shape requested ${requested_pipelines} pipelines'
+        start = self.driver.rfind('if [[', 0, self.driver.index(marker))
+        block = self.driver[start:self.driver.index('fi', self.driver.index(marker))]
+        self.assertNotIn("exhaustive_shardable", block)
+
 if __name__ == "__main__":
     unittest.main()

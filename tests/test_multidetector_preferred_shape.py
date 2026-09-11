@@ -48,6 +48,7 @@ class MultiDetectorPreferredShapeTests(unittest.TestCase):
             env = workflow_shape_env(result)
             counts = json.loads(env["HTH_DETECTOR_SHARD_COUNTS_JSON"])
             self.assertEqual([counts[f"d{i:02d}"] for i in range(6)], [4, 2, 2, 2, 2, 2])
+            self.assertEqual(env["HTH_CAPACITY_SHARD_TARGET_SECONDS"], 600)
 
     def test_reset_bootstraps_at_max_pipeline_count(self):
         with tempfile.TemporaryDirectory() as td:

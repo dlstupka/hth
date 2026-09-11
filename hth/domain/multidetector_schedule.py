@@ -530,4 +530,5 @@ def recommended_schedule(
         "allocated_threads": pipelines * threads,
         "runner_budget": budget,
         "source": "canonical-lpt-planner",
+        "shard_target_seconds": DEFAULT_SHARD_TARGET_SECONDS,
     }
