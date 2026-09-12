@@ -143,6 +143,33 @@ class RegressionSummaryTests(unittest.TestCase):
         self.assertGreater(moved, 0)
         self.assertEqual(max(plan["estimated_seconds"] for plan in next_schedule), 100.0)
 
+    def test_scheduler_feedback_does_not_contract_incumbent_on_floor_tie(self):
+        current = [
+            {"pipeline": 1, "tasks": [{"detector": "slow", "estimate_seconds": 40.0},
+                                         {"detector": "a", "estimate_seconds": 10.0},
+                                         {"detector": "b", "estimate_seconds": 10.0}],
+             "estimated_seconds": 60.0},
+            {"pipeline": 2, "tasks": [{"detector": "c", "estimate_seconds": 10.0},
+                                         {"detector": "d", "estimate_seconds": 10.0}],
+             "estimated_seconds": 20.0},
+            {"pipeline": 3, "tasks": [{"detector": "e", "estimate_seconds": 10.0}],
+             "estimated_seconds": 10.0},
+            {"pipeline": 4, "tasks": [{"detector": "f", "estimate_seconds": 10.0}],
+             "estimated_seconds": 10.0},
+        ]
+        observation = {"tasks": [
+            {"detector": task["detector"], "status": "complete",
+             "scheduler_slot_seconds": task["estimate_seconds"]}
+            for plan in current for task in plan["tasks"]
+        ]}
+
+        next_schedule, _ = _scheduler_feedback_schedule(
+            current, observation, 4, runner_thread_budget=8,
+        )
+
+        self.assertEqual(len(next_schedule), 4)
+        self.assertEqual(max(plan["estimated_seconds"] for plan in next_schedule), 40.0)
+
     def test_scheduler_feedback_preserves_assignment_for_small_gain(self):
         current = [
             {"pipeline": 1, "tasks": [{"detector": "a", "estimate_seconds": 447.0}, {"detector": "b", "estimate_seconds": 447.0}], "estimated_seconds": 894.0},

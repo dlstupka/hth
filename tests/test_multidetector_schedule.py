@@ -128,6 +128,33 @@ class MultiDetectorScheduleTests(unittest.TestCase):
             self.assertEqual(result["detector_shard_counts"], {"a": 1, "b": 1, "c": 1, "d": 1})
             self.assertLessEqual(result["pipelines"], 4)
 
+    def test_optimizer_does_not_contract_incumbent_pipeline_count_on_floor_tie(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "runtime-index.json"
+            costs = [("slow", 40.0)] + [(letter, 10.0) for letter in "abcdef"]
+            assignments = {"slow": 1, "a": 1, "b": 1, "c": 2, "d": 2, "e": 3, "f": 4}
+            path.write_text(json.dumps({"observations": [
+                {
+                    "detector_id": detector, "mode": "smoke",
+                    "resolved_strategy": "exhaustive", "wall_clock_seconds": seconds,
+                    "detector_pipeline_number": assignments[detector],
+                    "detector_pipelines": 4,
+                    "observed_at_utc": "2026-09-12T00:00:00Z",
+                    "build": {"github_run_id": "complete"},
+                }
+                for detector, seconds in costs
+            ]}), encoding="utf-8")
+
+            result = optimize_lpt_schedule(
+                runtime_index_path=path, detector_ids=[row[0] for row in costs],
+                runner_thread_budget=8, runner_label="github-hosted",
+                golden_set_sha256=None, mode="smoke", strategy="exhaustive",
+                max_dimension=1800,
+            )
+
+            self.assertEqual(result["pipelines"], 4)
+            self.assertEqual(result["predicted_makespan_seconds"], 40.0)
+
     def test_github_hosted_adaptive_never_enables_golden_set_lane_scaling(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "runtime-index.json"

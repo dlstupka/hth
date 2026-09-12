@@ -2565,6 +2565,30 @@ def _scheduler_feedback_schedule(
     next_pipeline_count = select_lpt_pipeline_count(
         [row.get("estimate_seconds") for row in rows], max_pipelines,
     )
+    incumbent_pipeline_count = len({
+        int(plan.get("pipeline") or 0)
+        for plan in current_schedule if int(plan.get("pipeline") or 0) > 0
+    })
+    # Pipeline-count minimization is a bootstrap policy.  Do not present a
+    # contraction merely because fewer pipelines tie the longest-task floor;
+    # contraction requires shape-aware evidence of a material makespan gain,
+    # which this fixed-cost feedback model does not invent.
+    retained_pipeline_count = min(incumbent_pipeline_count, max_pipelines)
+    if 0 < next_pipeline_count < retained_pipeline_count:
+        contracted = _static_pipeline_schedule(rows, next_pipeline_count)
+        retained = _static_pipeline_schedule(rows, retained_pipeline_count)
+        contracted_makespan = max(
+            (float(plan.get("estimated_seconds") or 0.0) for plan in contracted), default=0.0,
+        )
+        retained_makespan = max(
+            (float(plan.get("estimated_seconds") or 0.0) for plan in retained), default=0.0,
+        )
+        high_water = max((float(row.get("estimate_seconds") or 0.0) for row in rows), default=0.0)
+        if not materially_improves_makespan(
+            retained_makespan, contracted_makespan,
+            high_water_seconds=high_water,
+        ):
+            next_pipeline_count = retained_pipeline_count
     proposed = _static_pipeline_schedule(rows, next_pipeline_count)
     proposed_makespan = max((float(plan.get("estimated_seconds") or 0.0) for plan in proposed), default=0.0)
 

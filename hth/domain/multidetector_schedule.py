@@ -440,6 +440,7 @@ def optimize_lpt_schedule(
         _candidate_shard_limit(selected_by_detector[detector])
         for detector in detector_ids
     ]
+    retain_incumbent_schedule = False
     lane_plan = (
         plan_golden_set_lanes(
             complete, max_pipelines,
@@ -485,6 +486,26 @@ def optimize_lpt_schedule(
         scheduled_estimates = complete
         selected_pipeline_count = select_lpt_pipeline_count(complete, max_pipelines)
         max_pipelines = min(len(complete), max_pipelines)
+        # The smallest-count floor is useful for bootstrap, but a feedback
+        # reshuffle must not contract an observed topology merely because fewer
+        # pipelines tie the same longest-job lower bound.  Contraction requires
+        # measured, shape-aware evidence of a material makespan improvement;
+        # this fixed-cost LPT model cannot manufacture that evidence.
+        if (
+            incumbent_pipeline_count > 0
+            and incumbent_pipeline_count <= max_pipelines
+            and len(incumbent_assignments) == len(detector_ids)
+            and selected_pipeline_count < incumbent_pipeline_count
+        ):
+            contracted = plan_static_lpt_tasks(complete, selected_pipeline_count)
+            retained = plan_static_lpt_tasks(complete, incumbent_pipeline_count)
+            contracted_makespan = max(float(row["estimated_seconds"]) for row in contracted)
+            retained_makespan = max(float(row["estimated_seconds"]) for row in retained)
+            if not materially_improves_makespan(
+                retained_makespan, contracted_makespan,
+                high_water_seconds=floor_seconds,
+            ):
+                selected_pipeline_count = incumbent_pipeline_count
         proposed = plan_static_lpt_tasks(complete, selected_pipeline_count)
         proposed_makespan = max(float(row["estimated_seconds"]) for row in proposed)
         incumbent_makespan = max(incumbent_loads.values()) if incumbent_loads else None
@@ -498,6 +519,7 @@ def optimize_lpt_schedule(
             )
         ):
             selected_pipeline_count = incumbent_pipeline_count
+            retain_incumbent_schedule = True
     for pipelines in range(1, max_pipelines + 1):
         threads = max(1, budget // pipelines)
         schedule = plan_static_lpt_tasks(scheduled_estimates, pipelines)
@@ -525,6 +547,7 @@ def optimize_lpt_schedule(
     if (
         not (shard_plan and shard_plan["applied"])
         and not (lane_plan and lane_plan["applied"])
+        and retain_incumbent_schedule
         and incumbent_pipeline_count == selected_pipeline_count
         and len(incumbent_assignments) == len(detector_ids)
         and incumbent_loads
