@@ -645,7 +645,9 @@ class RegressionSummaryTests(unittest.TestCase):
                 results_commit="abc123def456",
                 multidetector_index=multidetector_index,
             )
-            self.assertIn("| Setting | Live smoke run |", live_text)
+            self.assertIn("### Regression Execution Schedule", live_text)
+            self.assertIn("| Setting | Live regression run |", live_text)
+            self.assertNotIn("| Setting | Live smoke run |", live_text)
             self.assertIn("| Detector pipelines | 4 |", live_text)
             self.assertIn("| Threads per detector regression | 4 |", live_text)
             self.assertIn("| Execution shape provenance | `persisted calibration records` |", live_text)

@@ -33,8 +33,10 @@ class _FakeDhModel:
 class PrecomputedLearnedEvidenceTests(unittest.TestCase):
     def setUp(self):
         kraken._EVIDENCE_CACHE.clear()
+        kraken._PRECOMPUTED_EVIDENCE.clear()
         kraken._RUNTIME_DIAGNOSTICS.clear()
         dh._EVIDENCE_CACHE.clear()
+        dh._PRECOMPUTED_EVIDENCE.clear()
 
     def test_runner_registers_both_learned_evidence_preparers(self):
         self.assertIn("kraken_page_mask", PRECOMPUTED_EVIDENCE_PREPARERS)

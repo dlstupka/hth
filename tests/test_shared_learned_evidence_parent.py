@@ -14,8 +14,10 @@ from hth.geometry import detector_kraken_page_mask as kraken
 class SharedLearnedEvidenceParentTests(unittest.TestCase):
     def setUp(self):
         kraken._EVIDENCE_CACHE.clear()
+        kraken._PRECOMPUTED_EVIDENCE.clear()
         kraken._RUNTIME_DIAGNOSTICS.clear()
         dh._EVIDENCE_CACHE.clear()
+        dh._PRECOMPUTED_EVIDENCE.clear()
 
     def test_kraken_artifact_round_trip_avoids_inference(self):
         image = np.zeros((8, 8, 3), dtype=np.uint8)

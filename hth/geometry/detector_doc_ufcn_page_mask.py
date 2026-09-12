@@ -29,6 +29,7 @@ _MODEL_KEY = None
 _MODEL_LOCK = threading.Lock()
 _INFERENCE_LOCK = threading.Lock()
 _EVIDENCE_CACHE: OrderedDict[str, tuple[dict, ...]] = OrderedDict()
+_PRECOMPUTED_EVIDENCE: dict[str, tuple[dict, ...]] = {}
 _EVIDENCE_CACHE_LOCK = threading.Lock()
 _EVIDENCE_CACHE_LIMIT = 16
 
@@ -121,6 +122,9 @@ def _normalize_polygons(predicted) -> tuple[dict, ...]:
 def _infer_evidence(image_bgr: np.ndarray) -> tuple[dict, ...]:
     key = _image_key(image_bgr)
     with _EVIDENCE_CACHE_LOCK:
+        precomputed = _PRECOMPUTED_EVIDENCE.get(key)
+        if precomputed is not None:
+            return precomputed
         cached = _EVIDENCE_CACHE.get(key)
         if cached is not None:
             _EVIDENCE_CACHE.move_to_end(key)
@@ -128,6 +132,9 @@ def _infer_evidence(image_bgr: np.ndarray) -> tuple[dict, ...]:
 
     with _INFERENCE_LOCK:
         with _EVIDENCE_CACHE_LOCK:
+            precomputed = _PRECOMPUTED_EVIDENCE.get(key)
+            if precomputed is not None:
+                return precomputed
             cached = _EVIDENCE_CACHE.get(key)
             if cached is not None:
                 _EVIDENCE_CACHE.move_to_end(key)
@@ -162,11 +169,16 @@ def precompute_golden_set_evidence(images, *, progress=None):
 def export_precomputed_golden_set_evidence(images, output_dir, *, progress=None):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    keys = precompute_golden_set_evidence(images, progress=progress)
     records = []
-    with _EVIDENCE_CACHE_LOCK:
-        for key in keys:
-            records.append({"image_key": key, "polygons": list(_EVIDENCE_CACHE[key])})
+    total = len(images)
+    for index, image_bgr in enumerate(images, 1):
+        key = _image_key(image_bgr)
+        started = time.perf_counter()
+        if progress is not None:
+            progress("start", index, total, key, 0.0)
+        records.append({"image_key": key, "polygons": list(_infer_evidence(image_bgr))})
+        if progress is not None:
+            progress("finish", index, total, key, time.perf_counter() - started)
     payload = {
         "schema_version": "0.1",
         "detector": METHOD,
@@ -196,7 +208,9 @@ def load_precomputed_golden_set_evidence(output_dir, images):
     if missing:
         raise ValueError(f"Shared Doc-UFCN evidence is missing {len(missing)} Golden Set page(s)")
     with _EVIDENCE_CACHE_LOCK:
+        _PRECOMPUTED_EVIDENCE.clear()
         for key in expected:
+            _PRECOMPUTED_EVIDENCE[key] = records[key]
             _EVIDENCE_CACHE[key] = records[key]
             _EVIDENCE_CACHE.move_to_end(key)
             while len(_EVIDENCE_CACHE) > _EVIDENCE_CACHE_LIMIT:

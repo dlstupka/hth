@@ -42,6 +42,7 @@ _MODEL_CACHE: dict[str, _SavedModel] = {}
 _MODEL_CACHE_LOCK = threading.Lock()
 _INFERENCE_LOCK = threading.Lock()
 _EVIDENCE_CACHE: OrderedDict[str, tuple[np.ndarray, tuple[int, int]]] = OrderedDict()
+_PRECOMPUTED_EVIDENCE: dict[str, tuple[np.ndarray, tuple[int, int]]] = {}
 _EVIDENCE_CACHE_LOCK = threading.Lock()
 _EVIDENCE_CACHE_LIMIT = 16
 
@@ -337,6 +338,9 @@ def _image_key(image_bgr: np.ndarray) -> str:
 def _infer_evidence(image_bgr: np.ndarray) -> tuple[np.ndarray, tuple[int, int]]:
     key = _image_key(image_bgr)
     with _EVIDENCE_CACHE_LOCK:
+        precomputed = _PRECOMPUTED_EVIDENCE.get(key)
+        if precomputed is not None:
+            return precomputed
         cached = _EVIDENCE_CACHE.get(key)
         if cached is not None:
             _EVIDENCE_CACHE.move_to_end(key)
@@ -347,6 +351,9 @@ def _infer_evidence(image_bgr: np.ndarray) -> tuple[np.ndarray, tuple[int, int]]
     # the model. Waiters recheck after acquiring the lock.
     with _INFERENCE_LOCK:
         with _EVIDENCE_CACHE_LOCK:
+            precomputed = _PRECOMPUTED_EVIDENCE.get(key)
+            if precomputed is not None:
+                return precomputed
             cached = _EVIDENCE_CACHE.get(key)
             if cached is not None:
                 _EVIDENCE_CACHE.move_to_end(key)
@@ -385,22 +392,27 @@ def export_precomputed_golden_set_evidence(images, output_dir, *, progress=None)
     """Persist one process-independent dhSegment Golden Set probability-map set."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    keys = precompute_golden_set_evidence(images, progress=progress)
     records = []
-    with _EVIDENCE_CACHE_LOCK:
-        for index, key in enumerate(keys):
-            probability, original_shape = _EVIDENCE_CACHE[key]
-            filename = f"page-{index:04d}.npy"
-            target = output_dir / filename
-            temporary = output_dir / f".{filename}.tmp"
-            with temporary.open("wb") as handle:
-                np.save(handle, probability, allow_pickle=False)
-            os.replace(temporary, target)
-            records.append({
-                "image_key": key,
-                "probability_file": filename,
-                "original_shape": list(original_shape),
-            })
+    total = len(images)
+    for index, image_bgr in enumerate(images):
+        key = _image_key(image_bgr)
+        started = time.perf_counter()
+        if progress is not None:
+            progress("start", index + 1, total, key, 0.0)
+        probability, original_shape = _infer_evidence(image_bgr)
+        filename = f"page-{index:04d}.npy"
+        target = output_dir / filename
+        temporary = output_dir / f".{filename}.tmp"
+        with temporary.open("wb") as handle:
+            np.save(handle, probability, allow_pickle=False)
+        os.replace(temporary, target)
+        records.append({
+            "image_key": key,
+            "probability_file": filename,
+            "original_shape": list(original_shape),
+        })
+        if progress is not None:
+            progress("finish", index + 1, total, key, time.perf_counter() - started)
     payload = {
         "schema_version": "0.1",
         "detector": METHOD,
@@ -431,6 +443,7 @@ def load_precomputed_golden_set_evidence(output_dir, images):
     if missing:
         raise ValueError(f"Shared dhSegment evidence is missing {len(missing)} Golden Set page(s)")
     with _EVIDENCE_CACHE_LOCK:
+        _PRECOMPUTED_EVIDENCE.clear()
         for key in expected:
             record = records[key]
             # Windows keeps an mmap-backed .npy file locked until the array is
@@ -447,7 +460,9 @@ def load_precomputed_golden_set_evidence(output_dir, images):
             if mmap_mode is None:
                 probability.setflags(write=False)
             original_shape = tuple(int(v) for v in record["original_shape"])
-            _EVIDENCE_CACHE[key] = (probability, original_shape)
+            evidence = (probability, original_shape)
+            _PRECOMPUTED_EVIDENCE[key] = evidence
+            _EVIDENCE_CACHE[key] = evidence
             _EVIDENCE_CACHE.move_to_end(key)
             while len(_EVIDENCE_CACHE) > _EVIDENCE_CACHE_LIMIT:
                 _EVIDENCE_CACHE.popitem(last=False)

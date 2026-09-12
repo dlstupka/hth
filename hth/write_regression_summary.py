@@ -2973,11 +2973,11 @@ def build_combined_summary(
     else:
         lines.extend([
             "",
-            "### Regression Smoke-Test Execution Schedule",
+            "### Regression Execution Schedule",
             "",
-            "The smoke-test schedule below is the live schedule executed by this build. Detector runtimes are ordered by Longest Processing Time (LPT), then greedily assigned to the least-loaded pipeline before workers start; pipelines execute their fixed schedules without dynamic stealing or refill claims.",
+            "The regression schedule below is the live schedule executed by this build. Detector runtimes are ordered by Longest Processing Time (LPT), then greedily assigned to the least-loaded pipeline before workers start; pipelines execute their fixed schedules without dynamic stealing or refill claims.",
             "",
-            "| Setting | Live smoke run |",
+            "| Setting | Live regression run |",
             "|---|---|",
             f"| Detector pipelines | {pipeline_count} |",
             "| Loading / balancing | Static LPT makespan balancing |",

@@ -22,6 +22,7 @@ _MODEL_KEY = None
 _MODEL_LOCK = threading.Lock()
 _INFERENCE_LOCK = threading.Lock()
 _EVIDENCE_CACHE: OrderedDict[str, tuple[dict, ...]] = OrderedDict()
+_PRECOMPUTED_EVIDENCE: dict[str, tuple[dict, ...]] = {}
 _EVIDENCE_CACHE_LOCK = threading.Lock()
 _EVIDENCE_CACHE_LIMIT = 16
 
@@ -96,11 +97,15 @@ def _mask_polygon(mask: np.ndarray) -> np.ndarray | None:
 def _infer_evidence(image_bgr: np.ndarray) -> tuple[dict, ...]:
     key = _image_key(image_bgr)
     with _EVIDENCE_CACHE_LOCK:
+        precomputed = _PRECOMPUTED_EVIDENCE.get(key)
+        if precomputed is not None: return precomputed
         cached = _EVIDENCE_CACHE.get(key)
         if cached is not None:
             _EVIDENCE_CACHE.move_to_end(key); return cached
     with _INFERENCE_LOCK:
         with _EVIDENCE_CACHE_LOCK:
+            precomputed = _PRECOMPUTED_EVIDENCE.get(key)
+            if precomputed is not None: return precomputed
             cached = _EVIDENCE_CACHE.get(key)
             if cached is not None:
                 _EVIDENCE_CACHE.move_to_end(key); return cached
@@ -146,9 +151,12 @@ def precompute_golden_set_evidence(images, *, progress=None):
 
 def export_precomputed_golden_set_evidence(images, output_dir, *, progress=None):
     output_dir=Path(output_dir); output_dir.mkdir(parents=True, exist_ok=True)
-    keys=precompute_golden_set_evidence(images, progress=progress)
-    with _EVIDENCE_CACHE_LOCK:
-        records=[{"image_key": key, "instances": list(_EVIDENCE_CACHE[key])} for key in keys]
+    records=[]; total=len(images)
+    for index, image_bgr in enumerate(images, 1):
+        key=_image_key(image_bgr); started=time.perf_counter()
+        if progress: progress("start", index, total, key, 0.0)
+        records.append({"image_key": key, "instances": list(_infer_evidence(image_bgr))})
+        if progress: progress("finish", index, total, key, time.perf_counter()-started)
     payload={"schema_version":"0.1","detector":METHOD,"representation":"hjdataset-mask-rcnn-instances","page_count":len(records),"records":records}
     target=output_dir/"manifest.json"; tmp=target.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8"); os.replace(tmp,target); return target
@@ -161,8 +169,11 @@ def load_precomputed_golden_set_evidence(output_dir, images):
     expected=tuple(_image_key(image) for image in images); missing=[k for k in expected if k not in records]
     if missing: raise ValueError(f"Shared Mask R-CNN evidence is missing {len(missing)} Golden Set page(s)")
     with _EVIDENCE_CACHE_LOCK:
+        _PRECOMPUTED_EVIDENCE.clear()
         for key in expected:
+            _PRECOMPUTED_EVIDENCE[key]=records[key]
             _EVIDENCE_CACHE[key]=records[key]; _EVIDENCE_CACHE.move_to_end(key)
+            while len(_EVIDENCE_CACHE) > _EVIDENCE_CACHE_LIMIT: _EVIDENCE_CACHE.popitem(last=False)
     return expected
 
 
