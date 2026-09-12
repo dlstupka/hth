@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import OrderedDict
 import hashlib
 import json
+import os
 from pathlib import Path
 import threading
 import time
@@ -16,6 +17,7 @@ from .model import Candidate
 METHOD = "pagenet_page_mask"
 BASELINE_PARAMETERS = dict(_impl.BASELINE_PARAMETERS)
 _CACHE: OrderedDict[str, tuple[np.ndarray, dict]] = OrderedDict()
+_PRECOMPUTED_EVIDENCE: dict[str, tuple[np.ndarray, dict]] = {}
 _CACHE_LOCK = threading.Lock()
 _INFERENCE_LOCK = threading.Lock()
 _CACHE_LIMIT = 16
@@ -32,12 +34,16 @@ def _image_key(image: np.ndarray) -> str:
 def _probability(image: np.ndarray) -> tuple[np.ndarray, dict]:
     key = _image_key(image)
     with _CACHE_LOCK:
+        if key in _PRECOMPUTED_EVIDENCE:
+            return _PRECOMPUTED_EVIDENCE[key]
         cached = _CACHE.get(key)
         if cached is not None:
             _CACHE.move_to_end(key)
             return cached
     with _INFERENCE_LOCK:
         with _CACHE_LOCK:
+            if key in _PRECOMPUTED_EVIDENCE:
+                return _PRECOMPUTED_EVIDENCE[key]
             cached = _CACHE.get(key)
             if cached is not None:
                 _CACHE.move_to_end(key)
@@ -72,22 +78,30 @@ def precompute_golden_set_evidence(images, *, progress=None):
 def export_precomputed_golden_set_evidence(images, output_dir, *, progress=None):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    keys = precompute_golden_set_evidence(images, progress=progress)
     records = []
-    with _CACHE_LOCK:
-        for key in keys:
-            probability, provenance = _CACHE[key]
-            filename = f"{key}.npy"
-            np.save(output_dir / filename, np.asarray(probability))
-            records.append({"image_key": key, "file": filename, "model_id": provenance.get("model_id", "pagenet-ohio")})
+    total = len(images)
+    for index, image in enumerate(images, 1):
+        key = _image_key(image)
+        started = time.perf_counter()
+        if progress:
+            progress("start", index, total, key, 0.0)
+        probability, provenance = _probability(image)
+        if progress:
+            progress("finish", index, total, key, time.perf_counter() - started)
+        filename = f"{key}.npy"
+        np.save(output_dir / filename, np.asarray(probability))
+        records.append({"image_key": key, "file": filename, "model_id": provenance.get("model_id", "pagenet-ohio")})
     payload = {
         "schema_version": "0.1",
         "detector": METHOD,
         "representation": "pagenet-ohio-page-probability-256",
+        "page_count": len(records),
         "records": records,
     }
     manifest = output_dir / "manifest.json"
-    manifest.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    temporary = manifest.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(temporary, manifest)
     return manifest
 
 
@@ -100,14 +114,18 @@ def load_precomputed_golden_set_evidence(output_dir, images):
     expected = tuple(_image_key(image) for image in images)
     if any(key not in records for key in expected):
         raise ValueError("Shared PageNet evidence does not match the Golden Set images")
-    _, _, provenance = _impl._assets()
     with _CACHE_LOCK:
+        _PRECOMPUTED_EVIDENCE.clear()
         for key in expected:
             array = np.load(output_dir / records[key]["file"])
             array = np.array(array, dtype=np.float32, copy=False)
             array.setflags(write=False)
-            _CACHE[key] = (array, dict(provenance))
+            evidence = (array, {"model_id": records[key].get("model_id", "pagenet-ohio")})
+            _PRECOMPUTED_EVIDENCE[key] = evidence
+            _CACHE[key] = evidence
             _CACHE.move_to_end(key)
+            while len(_CACHE) > _CACHE_LIMIT:
+                _CACHE.popitem(last=False)
     return expected
 
 

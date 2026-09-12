@@ -126,6 +126,43 @@ def test_merged_shard_serial_work_is_persisted_and_used_for_lpt(tmp_path: Path) 
     assert rows[0][2].endswith("+merged-shard-serial-work")
 
 
+def test_golden_set_lane_serial_work_and_topology_are_persisted(tmp_path: Path) -> None:
+    run = _runtime_run(
+        tmp_path / "adaptive" / "run-coordinated", "adaptive",
+        "run-20260912-120000", serial_seconds=40.0,
+    )
+    info_path = run / "RUN-INFO.json"
+    info = json.loads(info_path.read_text(encoding="utf-8"))
+    info.update({
+        "strategy": "adaptive",
+        "golden_set_coordinator": {
+            "lanes": 4,
+            "threads_per_lane": 2,
+            "reserved_threads": 8,
+            "worker_utilization": 0.75,
+        },
+    })
+    info_path.write_text(json.dumps(info), encoding="utf-8")
+    observation = observation_from_run(
+        run, build={"github_run_id": "245", "mode": "full"},
+    )
+    assert observation["wall_clock_seconds"] == 10.0
+    assert observation["estimated_serial_runtime_seconds"] == 40.0
+    assert observation["golden_set_coordinator_lanes"] == 4
+    assert observation["golden_set_coordinator_threads_per_lane"] == 2
+    assert observation["golden_set_coordinator_worker_utilization"] == 0.75
+    runtime = tmp_path / "runtime-index.json"
+    runtime.write_text(json.dumps({"observations": [observation]}), encoding="utf-8")
+    rows = order_configs(
+        [_config(tmp_path / "adaptive.json", "adaptive")], loading_strategy="lpt",
+        runtime_index_path=runtime, calibration_index_path=None, mode="full",
+        search_strategy="adaptive", threads=2, max_dimension=1800,
+        golden_set_sha256="gold", runner_label="",
+    )
+    assert rows[0][1] == 40.0
+    assert rows[0][2].endswith("+golden-set-coordinator-serial-work")
+
+
 def test_order_supplements_missing_runtime_detector_from_persisted_calibration(tmp_path: Path) -> None:
     configs = [_config(tmp_path / "fast.json", "fast"), _config(tmp_path / "missing.json", "missing")]
     runtime = tmp_path / "runtime-index.json"

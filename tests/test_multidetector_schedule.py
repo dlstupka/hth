@@ -8,6 +8,7 @@ from hth.domain.multidetector_schedule import (
     normalize_pipeline_assignments,
     optimize_lpt_schedule,
     plan_capacity_shards,
+    plan_golden_set_lanes,
     plan_lpt_workers,
     plan_static_lpt_tasks,
     recommended_schedule,
@@ -87,6 +88,26 @@ class MultiDetectorScheduleTests(unittest.TestCase):
         self.assertFalse(plan["applied"])
         self.assertEqual(plan["shard_counts"], [1, 1])
 
+    def test_golden_set_lanes_split_only_measured_page_bounded_work(self):
+        plan = plan_golden_set_lanes(
+            [2400.0, 720.0, 60.0], 8, maximum_lanes=[18, 18, 18],
+        )
+        self.assertTrue(plan["applied"])
+        self.assertEqual(plan["lane_counts"], [4, 2, 1])
+        self.assertEqual(plan["pipelines"], 7)
+        self.assertLessEqual(plan["predicted_makespan_seconds"], 600.0)
+
+    def test_golden_set_lanes_require_pages_spare_capacity_and_twenty_percent_gain(self):
+        self.assertFalse(plan_golden_set_lanes(
+            [2400.0, 60.0], 8, maximum_lanes=[None, 18],
+        )["applied"])
+        self.assertFalse(plan_golden_set_lanes(
+            [600.0, 60.0], 8, maximum_lanes=[18, 18],
+        )["applied"])
+        self.assertFalse(plan_golden_set_lanes(
+            [2400.0, 60.0], 2, maximum_lanes=[18, 18],
+        )["applied"])
+
     def test_github_sized_optimizer_does_not_change_existing_topology(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "runtime-index.json"
@@ -106,6 +127,51 @@ class MultiDetectorScheduleTests(unittest.TestCase):
             self.assertFalse(result["sharding_applied"])
             self.assertEqual(result["detector_shard_counts"], {"a": 1, "b": 1, "c": 1, "d": 1})
             self.assertLessEqual(result["pipelines"], 4)
+
+    def test_github_hosted_adaptive_never_enables_golden_set_lane_scaling(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "runtime-index.json"
+            path.write_text(json.dumps({"observations": [
+                {
+                    "detector_id": detector, "mode": "full", "resolved_strategy": "adaptive",
+                    "wall_clock_seconds": seconds, "golden_set_pages": 18,
+                    "observed_at_utc": "2026-09-11T00:00:00Z",
+                    "build": {"github_run_id": "complete"},
+                }
+                for detector, seconds in (("a", 2400), ("b", 60))
+            ]}), encoding="utf-8")
+            result = optimize_lpt_schedule(
+                runtime_index_path=path, detector_ids=["a", "b"],
+                runner_thread_budget=32, runner_label="github-hosted",
+                golden_set_sha256=None, mode="full", strategy="adaptive",
+                max_dimension=1800,
+            )
+            self.assertFalse(result["golden_set_lane_scaling_applied"])
+            self.assertEqual(result["detector_golden_set_lane_counts"], {"a": 1, "b": 1})
+
+    def test_self_hosted_adaptive_uses_serial_equivalent_history_for_stable_lanes(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "runtime-index.json"
+            path.write_text(json.dumps({"observations": [
+                {
+                    "detector_id": detector, "mode": "full", "resolved_strategy": "adaptive",
+                    "wall_clock_seconds": wall, "estimated_serial_runtime_seconds": serial,
+                    "golden_set_pages": 18, "observed_at_utc": "2026-09-12T00:00:00Z",
+                    "runner": {"runner_labels": ["192t"]},
+                    "build": {"github_run_id": "coordinated"},
+                }
+                for detector, wall, serial in (("slow", 600, 2400), ("fast", 60, 60))
+            ]}), encoding="utf-8")
+            result = optimize_lpt_schedule(
+                runtime_index_path=path, detector_ids=["slow", "fast"],
+                runner_thread_budget=16, runner_label="192t",
+                golden_set_sha256=None, mode="full", strategy="adaptive",
+                max_dimension=1800,
+            )
+            self.assertTrue(result["golden_set_lane_scaling_applied"])
+            self.assertEqual(result["detector_golden_set_lane_counts"], {"slow": 4, "fast": 1})
+            self.assertEqual(result["pipelines"], 5)
+            self.assertEqual(result["predicted_makespan_seconds"], 600.0)
 
     def test_merged_shard_serial_work_prevents_next_run_whipsaw(self):
         with tempfile.TemporaryDirectory() as td:

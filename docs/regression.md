@@ -425,6 +425,31 @@ HTH distinguishes ordinary exhaustive calibration from deliberate revalidation o
 - `non-dormant`, `low+`, `moderate+`, `important+`, and `critical` — use persisted calibration intelligence to restrict the current live space by measured effect-size classification, with the established fallback toward broader domains when a requested domain is empty. **Every parameter excluded by a contracted strategy is pinned to its detector baseline value.** Contracted parameter dictionaries therefore remain canonical and their Parameter Set IDs do not drift when a different historic winner is published. Under the current classification thresholds `non-dormant` and `low+` select the same Low-or-higher domain; both names are intentionally retained for compatibility and possible future policy differentiation.
 - `binary-refine` — retains the sequential local-refinement strategy and is not a sharded exhaustive search.
 
+### Golden Set coordination for feedback-directed searches
+
+`adaptive` and `binary-refine` keep one authoritative search state, so they are
+never split into independent parameter shards. On a flexible runner, HTH may
+instead divide the Golden Set pages into deterministic in-process lanes beneath
+one **Golden Set coordinator**. Every candidate is still reduced from the full
+Golden Set, and the coordinator waits for the complete page-set barrier before
+the search may select another candidate or refinement step. Candidate identity,
+ordering, winner selection, and parameter-search semantics are therefore the
+same as the serial evaluator.
+
+Lane counts are derived generically from compatible persistent scheduler timing
+and the measured Golden Set page count. A lane plan is accepted only when spare
+runner capacity exists and the projected whole-build makespan improves by at
+least 20%; missing timing or page-count evidence never causes speculative lane
+creation. GitHub-hosted execution retains its existing shape. A lane is an
+in-process capacity unit rather than another GitHub job, process, or independent
+search, and the total `lanes × threads/lane` grant cannot exceed the resolved
+runner budget.
+
+Normal logs contain one coordinator allocation line and one completion summary.
+`golden-set-coordinator.json` records its capacity and utilization; verbose debug
+mode additionally writes per-page lane events to
+`logs/golden-set-coordinator.jsonl`.
+
 Parameter influence has one canonical HTH classification, based on one-way η² over Avg IoU for the characterized Golden Set/grid:
 
 | Class | Criterion | Engineering interpretation |

@@ -217,6 +217,88 @@ def plan_capacity_shards(
     }
 
 
+def plan_golden_set_lanes(
+    estimates: list[float | int | None],
+    max_lanes: int,
+    *,
+    maximum_lanes: list[int | None],
+    target_lane_seconds: float = DEFAULT_SHARD_TARGET_SECONDS,
+    minimum_makespan_improvement: float = MIN_MAKESPAN_IMPROVEMENT,
+) -> dict[str, Any]:
+    """Allocate bounded page lanes without creating independent searches.
+
+    Every detector retains one coordinator. Additional lanes are capacity
+    units beneath that coordinator, capped by its measured Golden Set pages.
+    Unknown runtimes and missing page counts are never parallelized from
+    invented evidence.
+    """
+    if len(maximum_lanes) != len(estimates):
+        raise ValueError("maximum_lanes must align with estimates")
+    target = _as_float(target_lane_seconds)
+    if target is None or target <= 0:
+        raise ValueError("target_lane_seconds must be finite and positive")
+    capacity = max(1, int(max_lanes))
+    if not estimates:
+        return {"lane_counts": [], "pipelines": 1, "applied": False, "reason": "no-tasks"}
+    normalized = [_as_float(value) for value in estimates]
+    known = [value for value in normalized if value is not None and value > 0]
+    if not known or capacity <= len(estimates):
+        return {
+            "lane_counts": [1] * len(estimates),
+            "pipelines": min(len(estimates), capacity), "applied": False,
+            "reason": "no-spare-capacity-or-measured-runtime",
+        }
+    fallback = max(known)
+    complete = [value if value is not None and value > 0 else fallback for value in normalized]
+    limits: list[int] = []
+    for index, raw in enumerate(maximum_lanes):
+        parsed = _as_int(raw)
+        if parsed is None or parsed < 1:
+            limits.append(1)
+            continue
+        desired = max(1, math.ceil(complete[index] / target))
+        limits.append(min(parsed, desired, capacity))
+
+    counts = [1] * len(complete)
+    while sum(counts) < capacity:
+        eligible = [index for index, count in enumerate(counts) if count < limits[index]]
+        if not eligible:
+            break
+        # Add the lane that lowers the current longest coordinator. Stable
+        # index tie-breaking keeps the plan reproducible.
+        selected = max(
+            eligible,
+            key=lambda index: (complete[index] / counts[index], -index),
+        )
+        counts[selected] += 1
+
+    incumbent = max(complete)
+    proposed = max(seconds / count for seconds, count in zip(complete, counts))
+    improvement = (incumbent - proposed) / incumbent if incumbent > 0 else 0.0
+    applied = materially_improves_makespan(
+        incumbent, proposed, high_water_seconds=incumbent,
+        minimum_improvement=minimum_makespan_improvement,
+    )
+    return {
+        "lane_counts": counts if applied else [1] * len(complete),
+        "pipelines": sum(counts) if applied else len(complete),
+        "applied": applied,
+        "reason": "material-makespan-improvement" if applied else "below-makespan-improvement-threshold",
+        "uncoordinated_makespan_seconds": incumbent,
+        "predicted_makespan_seconds": proposed if applied else incumbent,
+        "makespan_improvement": improvement if applied else 0.0,
+        "target_lane_seconds": target,
+    }
+
+
+def supports_golden_set_lane_scaling(runner_label: str, max_pipelines: int) -> bool:
+    """Return whether a runner exposes flexible capacity beyond hosted defaults."""
+    normalized = str(runner_label or "").strip().lower()
+    return max_pipelines > 4 and normalized not in {
+        "", "unknown", "github-hosted", "ubuntu-latest",
+    }
+
+
 def _scheduler_runtime(row: dict[str, Any]) -> float | None:
     """Return one observation's canonical serial/scheduler/wall cost."""
     for field in (
@@ -358,12 +440,36 @@ def optimize_lpt_schedule(
         _candidate_shard_limit(selected_by_detector[detector])
         for detector in detector_ids
     ]
+    lane_plan = (
+        plan_golden_set_lanes(
+            complete, max_pipelines,
+            maximum_lanes=[
+                _as_int(selected_by_detector[detector].get("golden_set_pages"))
+                for detector in detector_ids
+            ],
+        )
+        if supports_golden_set_lane_scaling(runner_label, max_pipelines)
+        and strategy in {"adaptive", "binary-refine"}
+        else None
+    )
     shard_plan = (
         plan_capacity_shards(complete, max_pipelines, maximum_shards=maximum_shards)
         if max_pipelines > 4 and strategy in {"exhaustive", "exhaustive-with-zombies"}
         else None
     )
-    if shard_plan and shard_plan["applied"]:
+    if lane_plan and lane_plan["applied"]:
+        golden_set_lane_counts = list(lane_plan["lane_counts"])
+        shard_counts = [1] * len(complete)
+        scheduled_estimates = [
+            seconds / count
+            for seconds, count in zip(complete, golden_set_lane_counts)
+            for _ in range(count)
+        ]
+        selected_pipeline_count = int(lane_plan["pipelines"])
+        floor_seconds = max(scheduled_estimates)
+        max_pipelines = selected_pipeline_count
+    elif shard_plan and shard_plan["applied"]:
+        golden_set_lane_counts = [1] * len(complete)
         shard_counts = list(shard_plan["shard_counts"])
         scheduled_estimates = [
             seconds / count
@@ -374,6 +480,7 @@ def optimize_lpt_schedule(
         floor_seconds = max(scheduled_estimates)
         max_pipelines = selected_pipeline_count
     else:
+        golden_set_lane_counts = [1] * len(complete)
         shard_counts = [1] * len(complete)
         scheduled_estimates = complete
         selected_pipeline_count = select_lpt_pipeline_count(complete, max_pipelines)
@@ -417,6 +524,7 @@ def optimize_lpt_schedule(
     selected = next(row for row in candidates if int(row["pipelines"]) == selected_pipeline_count)
     if (
         not (shard_plan and shard_plan["applied"])
+        and not (lane_plan and lane_plan["applied"])
         and incumbent_pipeline_count == selected_pipeline_count
         and len(incumbent_assignments) == len(detector_ids)
         and incumbent_loads
@@ -434,9 +542,20 @@ def optimize_lpt_schedule(
         detector: count for detector, count in zip(detector_ids, shard_counts)
     }
     selected["sharding_applied"] = bool(shard_plan and shard_plan["applied"])
+    selected["detector_golden_set_lane_counts"] = {
+        detector: count for detector, count in zip(detector_ids, golden_set_lane_counts)
+    }
+    selected["golden_set_lane_scaling_applied"] = bool(lane_plan and lane_plan["applied"])
+    selected["golden_set_lane_target_seconds"] = DEFAULT_SHARD_TARGET_SECONDS
+    selected["golden_set_lane_makespan_improvement"] = (
+        float(lane_plan["makespan_improvement"]) if lane_plan else 0.0
+    )
     selected["shard_target_seconds"] = DEFAULT_SHARD_TARGET_SECONDS
     selected["unsharded_makespan_seconds"] = (
-        float(shard_plan["unsharded_makespan_seconds"]) if shard_plan else selected["predicted_makespan_seconds"]
+        float(shard_plan["unsharded_makespan_seconds"]) if shard_plan else (
+            float(lane_plan["uncoordinated_makespan_seconds"])
+            if lane_plan else selected["predicted_makespan_seconds"]
+        )
     )
     selected["sharding_makespan_improvement"] = (
         float(shard_plan["makespan_improvement"]) if shard_plan else 0.0

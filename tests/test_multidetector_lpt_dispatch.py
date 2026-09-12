@@ -27,7 +27,7 @@ class MultiDetectorLptDispatchTests(unittest.TestCase):
             1,
         )
 
-    def test_post_shard_clamp_preserves_resolved_auto_worker_count(self):
+    def test_post_expansion_clamp_preserves_resolved_auto_capacity(self):
         marker = "# Shard expansion can change the task count."
         self.assertIn(marker, self.driver)
         start = self.driver.index(marker)
@@ -38,11 +38,11 @@ class MultiDetectorLptDispatchTests(unittest.TestCase):
         block = self.driver[start:end]
         self.assertIn('if [[ "$requested_pipelines" == "auto" ]]; then', block)
         self.assertIn(
-            'if (( effective_pipelines > ${#detector_configs[@]} )); then',
+            'if (( effective_pipelines > execution_slot_count )); then',
             block,
         )
         self.assertIn(
-            'elif (( requested_pipelines > ${#detector_configs[@]} )); then',
+            'elif (( requested_pipelines > execution_slot_count )); then',
             block,
         )
 
@@ -53,8 +53,10 @@ class MultiDetectorLptDispatchTests(unittest.TestCase):
     def test_json_environment_defaults_do_not_use_ambiguous_brace_expansion(self):
         self.assertNotIn('${HTH_DETECTOR_SHARD_COUNTS_JSON:-{}}', self.driver)
         self.assertNotIn('${HTH_DETECTOR_PIPELINE_ASSIGNMENTS_JSON:-{}}', self.driver)
+        self.assertNotIn('${HTH_DETECTOR_GOLDEN_SET_LANE_COUNTS_JSON:-{}}', self.driver)
         self.assertIn('detector_shard_counts_json="${HTH_DETECTOR_SHARD_COUNTS_JSON-}"', self.driver)
         self.assertIn('pipeline_assignments_json="${HTH_DETECTOR_PIPELINE_ASSIGNMENTS_JSON-}"', self.driver)
+        self.assertIn('golden_set_lane_counts_json="${HTH_DETECTOR_GOLDEN_SET_LANE_COUNTS_JSON-}"', self.driver)
 
     def test_exact_shape_mismatch_guard_is_not_conditioned_on_dead_state(self):
         marker = 'Exact execution shape requested ${requested_pipelines} pipelines'

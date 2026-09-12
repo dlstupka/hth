@@ -204,7 +204,7 @@ class PreferredDispatchTests(unittest.TestCase):
             self.assertEqual(result["runner_budget"], 384)
             self.assertEqual(result["source"], "preferred-dispatch-optimizer")
 
-    def test_adaptive_reclaims_full_budget_when_preferred_shape_has_multiple_pipelines(self) -> None:
+    def test_adaptive_maps_self_hosted_pipelines_to_golden_set_lanes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             detector_root = root / "detectors"
@@ -233,10 +233,54 @@ class PreferredDispatchTests(unittest.TestCase):
                 pre_resolved_source="preferred-dispatch-optimizer",
             )
             self.assertTrue(result["exact"])
-            self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (1, 384))
+            self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (4, 96))
             self.assertEqual(result["allocated_threads"], 384)
             self.assertEqual(result["runner_budget"], 384)
-            self.assertEqual(result["source"], "preferred-dispatch-optimizer-adaptive-single-pipeline")
+            self.assertEqual(result["source"], "preferred-dispatch-optimizer-golden-set-coordinator")
+            self.assertEqual(result["detector_golden_set_lane_counts"], {"amsre_doc_ufcn_fusion": 4})
+
+    def test_adaptive_preserves_github_hosted_single_pipeline_behavior(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            detector_root = root / "detectors"
+            _write_json(detector_root / "detector.json", {"detector": "detector"})
+            golden = root / "golden.json"
+            _write_json(golden, {"pages": []})
+            index = root / "parallelism-index.json"
+            _write_json(index, {"observations": []})
+            result = resolve_workflow_shape(
+                shape_mode="preferred", regression_mode="full", strategy="adaptive",
+                limit="", detector="detector", manual_shape="",
+                parallelism_index=index, predictions_index=None,
+                detector_config_root=detector_root, golden_set=golden,
+                max_dimension=1800,
+                profile=RunnerProfile("GitHub Actions", "github-hosted", "AMD", 2, 4),
+                runner_budget=8, pre_resolved_pipelines=4,
+                pre_resolved_threads=2, pre_resolved_source="preferred-dispatch",
+            )
+            self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (1, 8))
+            self.assertNotIn("detector_golden_set_lane_counts", result)
+
+    def test_binary_refine_uses_the_same_nonshardable_hosted_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            detector_root = root / "detectors"
+            _write_json(detector_root / "detector.json", {"detector": "detector"})
+            golden = root / "golden.json"
+            _write_json(golden, {"pages": []})
+            index = root / "parallelism-index.json"
+            _write_json(index, {"observations": []})
+            result = resolve_workflow_shape(
+                shape_mode="manual", regression_mode="full", strategy="binary-refine",
+                limit="", detector="detector", manual_shape="4p/2t",
+                parallelism_index=index, predictions_index=None,
+                detector_config_root=detector_root, golden_set=golden,
+                max_dimension=1800,
+                profile=RunnerProfile("GitHub Actions", "github-hosted", "AMD", 2, 4),
+                runner_budget=8,
+            )
+            self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (1, 8))
+            self.assertIn("binary-refine-single-pipeline", result["source"])
 
 
     def test_preferred_dispatch_reuses_shape_after_calibration_grid_change_when_declared_compatible(self) -> None:

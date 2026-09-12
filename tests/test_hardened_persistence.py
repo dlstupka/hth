@@ -3,6 +3,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -53,7 +54,13 @@ class HardenedPersistenceTests(unittest.TestCase):
         # and POSIX bash without trying to translate Windows paths.
         scratch_root = ROOT / ".test-hardened-persistence"
         scratch_root.mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=scratch_root) as td:
+        # MSYS can release the final Git checkout handle a fraction after bash
+        # exits. Let the context preserve a transiently locked tree on Windows,
+        # then retry that exact test directory below instead of making a passed
+        # persistence race fail during tempfile cleanup.
+        with tempfile.TemporaryDirectory(
+            dir=scratch_root, ignore_cleanup_errors=os.name == "nt",
+        ) as td:
             root = Path(td)
             remote = root / "remote.git"
             seed = root / "seed"
@@ -132,6 +139,16 @@ class HardenedPersistenceTests(unittest.TestCase):
             run_quiet(["git", "-C", str(writer), "reset", "--hard", "origin/main"])
             self.assertEqual((writer / "racer.txt").read_text(encoding="utf-8"), "racer\n")
             self.assertEqual((writer / "writer.txt").read_text(encoding="utf-8"), "writer\n")
+
+        if root.exists():
+            for attempt in range(20):
+                try:
+                    shutil.rmtree(root)
+                    break
+                except PermissionError:
+                    if attempt == 19:
+                        self.fail(f"Git Bash did not release race fixture: {root}")
+                    time.sleep(0.1)
 
         try:
             scratch_root.rmdir()

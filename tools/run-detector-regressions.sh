@@ -245,10 +245,12 @@ detector_shard_counts_json="${HTH_DETECTOR_SHARD_COUNTS_JSON-}"
 [[ -n "$detector_shard_counts_json" ]] || detector_shard_counts_json='{}'
 pipeline_assignments_json="${HTH_DETECTOR_PIPELINE_ASSIGNMENTS_JSON-}"
 [[ -n "$pipeline_assignments_json" ]] || pipeline_assignments_json='{}'
+golden_set_lane_counts_json="${HTH_DETECTOR_GOLDEN_SET_LANE_COUNTS_JSON-}"
+[[ -n "$golden_set_lane_counts_json" ]] || golden_set_lane_counts_json='{}'
 
 detector_count=${#detector_configs[@]}
 declare -a task_configs=() task_estimates=() task_estimate_sources=() task_quality=()
-declare -a task_shard_indexes=() task_shard_counts=() task_threads=() task_detectors=()
+declare -a task_shard_indexes=() task_shard_counts=() task_threads=() task_detectors=() task_golden_set_lanes=()
 for ((detector_index = 0; detector_index < ${#detector_configs[@]}; detector_index++)); do
   detector_config="${detector_configs[$detector_index]}"
   detector_name="$(python - "$detector_config" <<'PYPLAN'
@@ -257,6 +259,17 @@ from pathlib import Path
 print(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["detector"])
 PYPLAN
   )"
+  planned_golden_set_lanes=1
+  if [[ "$effective_strategy" == "adaptive" || "$effective_strategy" == "binary-refine" ]]; then
+    planned_golden_set_lanes="$(python - "$detector_name" "$golden_set_lane_counts_json" <<'PYLANEPLAN'
+import json, sys
+counts = json.loads(sys.argv[2])
+if not isinstance(counts, dict):
+    raise ValueError("HTH_DETECTOR_GOLDEN_SET_LANE_COUNTS_JSON must be a JSON object")
+print(max(1, int(counts.get(sys.argv[1], 1))))
+PYLANEPLAN
+    )"
+  fi
   if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
     planned_threads="$THREADS"
     serial_estimate="unknown"
@@ -368,6 +381,7 @@ PYSHARDESTIMATE
     task_shard_counts+=("$planned_shards")
     task_threads+=("$planned_threads")
     task_detectors+=("$detector_name")
+    task_golden_set_lanes+=("$planned_golden_set_lanes")
   done
 done
 detector_configs=("${task_configs[@]}")
@@ -377,12 +391,16 @@ detector_quality=("${task_quality[@]}")
 # Shard expansion can change the task count. For auto mode, the
 # literal request has already been resolved into numeric effective_pipelines;
 # clamp that resolved value rather than re-entering "auto" into arithmetic.
+execution_slot_count=0
+for planned_golden_set_lanes in "${task_golden_set_lanes[@]}"; do
+  execution_slot_count=$((execution_slot_count + planned_golden_set_lanes))
+done
 if [[ "$requested_pipelines" == "auto" ]]; then
-  if (( effective_pipelines > ${#detector_configs[@]} )); then
-    effective_pipelines=${#detector_configs[@]}
+  if (( effective_pipelines > execution_slot_count )); then
+    effective_pipelines=$execution_slot_count
   fi
-elif (( requested_pipelines > ${#detector_configs[@]} )); then
-  effective_pipelines=${#detector_configs[@]}
+elif (( requested_pipelines > execution_slot_count )); then
+  effective_pipelines=$execution_slot_count
 else
   effective_pipelines=$requested_pipelines
 fi
@@ -427,7 +445,7 @@ PYBUDGET
   )
 fi
 for ((task_index = 0; task_index < ${#task_threads[@]}; task_index++)); do
-  task_threads[$task_index]="$effective_threads_per_pipeline"
+  task_threads[$task_index]=$((effective_threads_per_pipeline * task_golden_set_lanes[$task_index]))
 done
 
 echo "Regression mode    : $REGRESSION_MODE"
@@ -449,6 +467,9 @@ else
   echo "Sharding           : ${sharding_policy} shard(s) / active pipeline"
 fi
 echo "Shards             : ${#detector_configs[@]}"
+if [[ "$effective_strategy" == "adaptive" || "$effective_strategy" == "binary-refine" ]]; then
+  echo "Golden Set lanes   : $execution_slot_count capacity lane(s) across $detector_count coordinator(s)"
+fi
 echo "Thread budget      : $allocated_threads allocated / $runner_thread_budget max; $unused_threads free; $effective_threads_per_pipeline per active pipeline"
 if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
   echo "Execution shape    : ${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-optimizer}-exact (${effective_pipelines}p/${effective_threads_per_pipeline}t)"
@@ -470,9 +491,9 @@ from pathlib import Path
 print(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")).get("detector", "unknown"))
 PY
   )"
-  printf '%2d. %-24s shard=%s/%s threads=%s estimate=%-10s source=%s quality=%s\n' \
+  printf '%2d. %-24s shard=%s/%s gs-lanes=%s threads=%s estimate=%-10s source=%s quality=%s\n' \
     "$((queue_index + 1))" "$queue_detector" \
-    "$((task_shard_indexes[$queue_index] + 1))" "${task_shard_counts[$queue_index]}" "${task_threads[$queue_index]}" \
+    "$((task_shard_indexes[$queue_index] + 1))" "${task_shard_counts[$queue_index]}" "${task_golden_set_lanes[$queue_index]}" "${task_threads[$queue_index]}" \
     "${detector_estimates[$queue_index]:-unknown}s" \
     "${detector_estimate_sources[$queue_index]:-unknown}" \
     "${detector_quality[$queue_index]:-unknown}"
@@ -524,10 +545,11 @@ run_detector_config() {
   fi
 
   local detector_name detector_estimate detector_estimate_source detector_ranked_quality
-  local shard_index shard_count detector_threads shard_output shared_baseline
+  local shard_index shard_count detector_threads golden_set_lanes shard_output shared_baseline
   shard_index="${task_shard_indexes[$task_index]}"
   shard_count="${task_shard_counts[$task_index]}"
   detector_threads="${task_threads[$task_index]}"
+  golden_set_lanes="${task_golden_set_lanes[$task_index]}"
   detector_name="$(python - "$detector_config" <<'PY'
 import json
 import sys
@@ -640,8 +662,8 @@ PY
   fi
   detector_loaded_epoch="$(date +%s)"
   detector_started_epoch="$detector_loaded_epoch"
-  printf 'start\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$(date +%s.%N)" "$pipeline_number" "$detector_name" "$shard_index" "$shard_count" "$detector_threads" "$claim_batch_id" \
+  printf 'start\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$(date +%s.%N)" "$pipeline_number" "$detector_name" "$shard_index" "$shard_count" "$detector_threads" "$claim_batch_id" "$golden_set_lanes" \
     >> "$telemetry_root/tasks/$task_index.tsv"
   lifecycle_time="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   echo
@@ -662,6 +684,7 @@ PY
   printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Detector config" "$detector_config"
   printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Strategy" "$effective_strategy"
   printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Threads" "$detector_threads"
+  printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Golden Set lanes" "$golden_set_lanes"
   printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Debug level" "$DEBUG_LEVEL"
   printf '[pipeline %s][%s] %-22s: %s\n' "$pipeline_number" "$detector_name" "Detector pipeline" "$pipeline_number of $effective_pipelines"
   if [[ -n "$effective_limit" ]]; then
@@ -710,6 +733,8 @@ PYLEASE
     HTH_DETECTOR_RUNTIME_ESTIMATE_SOURCE="$detector_estimate_source" \
     HTH_DETECTOR_QUEUE_POSITION="$((task_index + 1))" \
     HTH_DETECTOR_RANKED_QUALITY="$detector_ranked_quality" \
+    HTH_GOLDEN_SET_LANES="${task_golden_set_lanes[$task_index]}" \
+    HTH_GOLDEN_SET_THREADS_PER_LANE="$effective_threads_per_pipeline" \
     PYTHONFAULTHANDLER=1 \
     "${args[@]}" 2>&1 \
       | sed -u -E 's/^(Machine[[:space:]]*:).*/\1 [obfuscated]/' \

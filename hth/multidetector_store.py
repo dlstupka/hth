@@ -52,6 +52,8 @@ def _read_task(path: Path) -> dict[str, Any]:
                 row.update({"started_epoch":_float(ts),"pipeline":int(pipeline),"detector":detector,
                             "shard_index":int(shard_index),"shard_count":int(shard_count),
                             "allocated_threads":int(threads),"claim_batch_id":batch_id})
+                if len(parts) >= 9:
+                    row["golden_set_lanes"] = max(1, int(parts[8]))
             else:
                 row["started_epoch"]=_float(parts[1])
         elif parts[0]=="finish":

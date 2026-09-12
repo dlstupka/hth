@@ -2,11 +2,10 @@
 from __future__ import annotations
 import argparse, hashlib, json, os, threading, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
 import cv2
-from hth.geometry.common import document_mask, resize_for_analysis, scale_bbox, valid_bbox
+from hth.geometry.common import document_mask, resize_for_analysis, valid_bbox
 from hth.geometry import detector_eynollah_page_mask, detector_docextractor_page_mask, detector_pagenet_page_mask, detector_kraken_page_mask, detector_orli_page_mask, detector_doc_ufcn_page_mask, detector_mask_rcnn_page_mask, detector_adaptive_multi_scale_radial_edge, detector_amsre_bfq_spbv_pbg, detector_amsre_doc_ufcn_fusion, detector_adaptive_radial_edge, detector_border_energy, detector_border_fusion_quad, detector_components, detector_convex_hull, detector_consensus_quad, detector_contour_components, detector_contour_grabcut, detector_distance_transform, detector_distance_transform_rect, detector_dhsegment_page_mask, detector_polar_boundary_vote, detector_page_background, detector_signed_polar_boundary_vote, detector_segment_supported_polar_vote, detector_star_convex, detector_grabcut, detector_grabcut_contour, detector_gradient_vote, detector_multi_scale_radial_edge, detector_msre_bfq_spbv_pbg, detector_projective_gradient_vote, detector_radial_edge, detector_contour_projection, detector_contour_quad, detector_ransac, detector_radon_boundary, detector_text_flow, detector_whitespace_frame, detector_joint_rectangle_vote, detector_learned_page_mask
 from .adapters.components import (
     pre_regression_report_sections as components_pre_regression_report_sections,
@@ -21,7 +20,6 @@ from .adapters.ransac import (
     pre_regression_report_sections as ransac_pre_regression_report_sections,
 )
 from .io import create_run_directory, environment_info, utc_now, write_json
-from .metrics import bbox_iou, edge_errors
 from .parameter_space import adaptive_parameter_sets, canonical_parameters, parameter_set_id, canonical_search_space
 from .parameter_provenance import attach_identity, build_provenance
 from .reports import ranking_key, write_rankings
@@ -38,7 +36,11 @@ from .materialization import (
     write_canonical_reports,
 )
 from .run_semantics import evidence_tier_for
-from hth.regression.result_metrics import aggregate_page_metrics
+from .golden_set_coordinator import (
+    GoldenSetCoordinator,
+    NON_SHARDABLE_STRATEGIES,
+    evaluate_set,
+)
 from hth.domain.result_metrics import baseline_surpassed
 from hth.geometry.registry import detector_entrypoint, detector_names
 
@@ -328,28 +330,6 @@ def load_pages(path:Path,root:Path,maximum:int)->list[dict[str,Any]]:
         pages.append({"global_ordinal":ordinal,"label":page.get("label",f"page_{ordinal}"),"layout_type":page.get("layout_type","other"),"approved_bbox":[int(v) for v in approved],"image_path":str(image_path),"image":image,"mask":mask,"mask_diagnostics":diag,"scale":scale,"original_width":ow,"original_height":oh})
     if not pages: raise ValueError("Golden Set contains no approved pages with valid bounding boxes")
     return pages
-
-def evaluate_set(detector:Any, parameters:dict[str,Any], pages:list[dict[str,Any]])->dict[str,Any]:
-    page_results=[]; started=time.perf_counter()
-    for page in pages:
-        page_started=time.perf_counter()
-        try:
-            candidate=detector(image_bgr=page["image"],mask=page["mask"],parameters=parameters)
-            elapsed=(time.perf_counter()-page_started)*1000
-            if candidate.bbox is None:
-                page_results.append({"global_ordinal":page["global_ordinal"],"label":page["label"],"layout_type":page["layout_type"],"status":candidate.status if candidate.status!="ok" else "no_candidate","iou":0.0,"edge_error_mean_px":None,"edge_error_maximum_px":None,"elapsed_ms":round(elapsed,3),"candidate":asdict(candidate)})
-                continue
-            predicted=scale_bbox(candidate.bbox,1.0/page["scale"],page["original_width"],page["original_height"])
-            approved=page["approved_bbox"]; errors=edge_errors(predicted,approved)
-            page_results.append({"global_ordinal":page["global_ordinal"],"label":page["label"],"layout_type":page["layout_type"],"status":"ok","approved_bbox":approved,"predicted_bbox":predicted,"iou":round(bbox_iou(predicted,approved),8),"edge_errors":errors,"edge_error_mean_px":round(float(errors["mean"]),3),"edge_error_maximum_px":int(errors["maximum"]),"elapsed_ms":round(elapsed,3),"candidate":asdict(candidate)})
-        except Exception as exc:
-            elapsed=(time.perf_counter()-page_started)*1000
-            page_results.append({"global_ordinal":page["global_ordinal"],"label":page["label"],"layout_type":page["layout_type"],"status":"error","iou":0.0,"edge_error_mean_px":None,"edge_error_maximum_px":None,"elapsed_ms":round(elapsed,3),"error":{"type":type(exc).__name__,"message":str(exc)}})
-    successful=[r for r in page_results if r["status"]=="ok"]; edges=[float(r["edge_error_mean_px"]) for r in successful]; elapsed=[float(r["elapsed_ms"]) for r in page_results]
-    summary = aggregate_page_metrics(page_results)
-    summary.update({"mean_edge_error_px":round(sum(edges)/len(edges),3) if edges else None,"elapsed_ms_total":round(sum(elapsed),3),"wall_ms":round((time.perf_counter()-started)*1000,3)})
-    return {"parameter_set_id":parameter_set_id(parameters),"parameters":parameters,"summary":summary,"pages":page_results}
-
 
 def failure_diagnostics(result: dict[str, Any]) -> dict[str, Any]:
     """Summarize failed page reasons, evidence, and preserved detector exceptions."""
@@ -1106,6 +1086,48 @@ def run(args:argparse.Namespace)->Path:
             planned_parameter_set_count = 1 + historic_best_planned + int(adaptive_candidate_budget or 0)
         estimated_total=len(exhaustive_candidates) if effective_strategy in {"exhaustive", "exhaustive-with-zombies"} or effective_strategy in EFFECT_STRATEGY_KEYS else max(0,possible_parameter_set_count-1)
 
+        golden_set_coordinator = None
+        golden_set_lanes = 1
+        threads_per_golden_set_lane = args.threads
+        if effective_strategy in NON_SHARDABLE_STRATEGIES:
+            try:
+                requested_lanes = int(os.environ.get("HTH_GOLDEN_SET_LANES", "1"))
+                threads_per_golden_set_lane = int(
+                    os.environ.get("HTH_GOLDEN_SET_THREADS_PER_LANE", str(args.threads))
+                )
+            except ValueError as exc:
+                raise ValueError("Golden Set lane environment values must be integers") from exc
+            if requested_lanes < 1 or threads_per_golden_set_lane < 1:
+                raise ValueError("Golden Set lanes and threads per lane must be positive")
+            if requested_lanes * threads_per_golden_set_lane > args.threads:
+                raise ValueError(
+                    "Golden Set lane grant exceeds the detector thread allocation: "
+                    f"{requested_lanes} lanes x {threads_per_golden_set_lane} threads "
+                    f"> {args.threads} allocated"
+                )
+            golden_set_lanes = min(requested_lanes, len(pages))
+            golden_set_coordinator = GoldenSetCoordinator(
+                detector, logical_golden_set(pages), lanes=golden_set_lanes,
+                total_threads=args.threads,
+                threads_per_lane=threads_per_golden_set_lane,
+                diagnostics_path=run_dir / "logs" / "golden-set-coordinator.jsonl",
+                verbose=debug_level == "verbose",
+            )
+            print(
+                "Golden Set coordinator  : "
+                f"strategy={effective_strategy} pages={len(pages)} lanes={golden_set_lanes} "
+                f"threads/lane={threads_per_golden_set_lane} reserved={args.threads}"
+            )
+            parameter_payload = json.loads(
+                (run_dir / "parameters.json").read_text(encoding="utf-8")
+            )
+            parameter_payload["golden_set_coordinator"] = {
+                "lanes": golden_set_lanes,
+                "threads_per_lane": threads_per_golden_set_lane,
+                "reserved_threads": args.threads,
+            }
+            write_json(run_dir / "parameters.json", parameter_payload)
+
         print_environment_banner(environment=environment,detector=name,golden_set=args.golden_set,golden_set_sha256=golden_set_sha256,source_commit=source_commit)
         print_parameter_scope(
             strategy=effective_strategy,
@@ -1125,9 +1147,14 @@ def run(args:argparse.Namespace)->Path:
         progress.start()
 
         progress.begin_evaluation("baseline")
+        evaluate_complete_golden_set = (
+            golden_set_coordinator.evaluate
+            if golden_set_coordinator is not None
+            else lambda parameters: evaluate_set(detector, parameters, logical_golden_set(pages))
+        )
         baseline_result, baseline_reused = load_or_evaluate_shared_baseline(
             args.shared_baseline,
-            lambda: evaluate_set(detector,dict(baseline_parameters),logical_golden_set(pages)),
+            lambda: evaluate_complete_golden_set(dict(baseline_parameters)),
         )
         if canonical_parameters(baseline_result.get("parameters", {})) != baseline_key:
             raise ValueError("Shared baseline cache does not match this detector baseline")
@@ -1174,7 +1201,7 @@ def run(args:argparse.Namespace)->Path:
             with active_lock:
                 active_evaluations += 1
             try:
-                result=evaluate_set(detector,parameters,logical_golden_set(pages))
+                result=evaluate_complete_golden_set(parameters)
             finally:
                 with active_lock:
                     active_evaluations -= 1
@@ -1224,6 +1251,25 @@ def run(args:argparse.Namespace)->Path:
                 seed_results.append(historic_best_result)
 
             def evaluate_adaptive_batch(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
+                if golden_set_coordinator is not None:
+                    nonlocal active_evaluations
+                    for parameters in batch:
+                        canonical = canonical_parameters(parameters)
+                        progress.begin_evaluation(
+                            profiles.get(canonical) or parameter_set_id(parameters)[:8]
+                        )
+                    with active_lock:
+                        active_evaluations += len(batch)
+                    try:
+                        coordinated = golden_set_coordinator.evaluate_batch(batch)
+                    finally:
+                        with active_lock:
+                            active_evaluations -= len(batch)
+                    for result in coordinated:
+                        progress.observe(
+                            result, profiles.get(canonical_parameters(result["parameters"]))
+                        )
+                    return coordinated
                 if args.threads == 1 or len(batch) == 1:
                     return [evaluate(parameters) for parameters in batch]
                 indexed: list[dict[str, Any] | None] = [None] * len(batch)
@@ -1282,6 +1328,22 @@ def run(args:argparse.Namespace)->Path:
                     duplicate["search_space_member"] = historic_best_in_requested_search
         progress_snapshot=progress.finish()
         performance_samples=performance.finish()
+        golden_set_coordinator_payload = (
+            golden_set_coordinator.snapshot()
+            if golden_set_coordinator is not None else None
+        )
+        if golden_set_coordinator_payload is not None:
+            write_json(
+                run_dir / "golden-set-coordinator.json",
+                golden_set_coordinator_payload,
+            )
+            print(
+                "Golden Set completion   : "
+                f"lanes={golden_set_coordinator_payload['lanes']} "
+                f"candidates={golden_set_coordinator_payload['candidate_parameter_sets']} "
+                f"pages={golden_set_coordinator_payload['page_evaluations']} "
+                f"peak-active={golden_set_coordinator_payload['peak_active_lane_tasks']}"
+            )
         for r in results:
             attach_identity(r, name, config, strategy=effective_strategy)
             r["profile"]=profiles.get(canonical_parameters(r["parameters"]))
@@ -1325,8 +1387,8 @@ def run(args:argparse.Namespace)->Path:
         locally_evaluated_parameter_sets = max(0, len(results) - 1) + (0 if baseline_reused else 1)
         locally_evaluated_page_evaluations = locally_evaluated_parameter_sets * len(pages)
         shard_context = {"index":args.shard_index,"count":args.shard_count,"assignment":"interleaved","full_candidate_count":full_exhaustive_candidate_count}
-        parameter_space = {"possible_parameter_sets":possible_parameter_set_count,"live_possible_parameter_sets":live_possible_parameter_set_count,"zombie_possible_parameter_sets":zombie_possible_parameter_set_count,"canonical_search_space":search_space_contract,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ordered),"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ordered)*len(pages),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated","shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"adaptive_search":adaptive_telemetry}
-        performance_payload = {"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl","precomputed_evidence":name in PRECOMPUTED_EVIDENCE_PREPARERS,"evidence_source":evidence_source,"evidence_precompute_seconds":round(evidence_precompute_seconds,6) if evidence_precompute_seconds is not None else None}
+        parameter_space = {"possible_parameter_sets":possible_parameter_set_count,"live_possible_parameter_sets":live_possible_parameter_set_count,"zombie_possible_parameter_sets":zombie_possible_parameter_set_count,"canonical_search_space":search_space_contract,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ordered),"golden_set_pages":len(pages),"planned_page_evaluations":planned_parameter_set_count*len(pages) if planned_parameter_set_count is not None else None,"actual_page_evaluations":len(ordered)*len(pages),"locally_evaluated_parameter_sets":locally_evaluated_parameter_sets,"locally_evaluated_page_evaluations":locally_evaluated_page_evaluations,"baseline_execution":"shared-cache" if baseline_reused else "evaluated","shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"adaptive_search":adaptive_telemetry,"golden_set_coordinator":golden_set_coordinator_payload}
+        performance_payload = {"sample_count":len(performance_samples),"configured_threads":args.threads,"peak_rss_bytes":peak_rss_bytes(),"samples_file":"logs/runner-performance.jsonl","precomputed_evidence":name in PRECOMPUTED_EVIDENCE_PREPARERS,"evidence_source":evidence_source,"evidence_precompute_seconds":round(evidence_precompute_seconds,6) if evidence_precompute_seconds is not None else None,"golden_set_coordinator":golden_set_coordinator_payload}
         progress_payload = {"estimated_parameter_sets":progress_snapshot.total,"completed_parameter_sets":progress_snapshot.completed,"average_eval_rate":progress_snapshot.eval_rate,"failures":progress_snapshot.failures,"best_mean_iou":progress_snapshot.best_mean_iou,"best_worst_page_iou":progress_snapshot.best_minimum_page_iou,"best_stddev_iou":progress_snapshot.best_stddev_iou,"mean_iou_improvements":progress_snapshot.mean_iou_improvements,"minimum_iou_improvements":progress_snapshot.minimum_iou_improvements,"stddev_improvements":progress_snapshot.stddev_improvements,"total_metric_improvements":progress_snapshot.mean_iou_improvements+progress_snapshot.minimum_iou_improvements+progress_snapshot.stddev_improvements,"parameter_sets_with_improvements":progress_snapshot.parameter_sets_with_improvements,"winner_changes":progress_snapshot.winner_changes if winner else 0,"baseline_surpassed":baseline_surpassed(winner,baseline),"winner_first_changed_elapsed_seconds":progress_snapshot.winner_first_changed_elapsed_seconds if winner else None,"winner_last_changed_elapsed_seconds":progress_snapshot.winner_last_changed_elapsed_seconds if winner else None,"winner_history":progress_snapshot.winner_history if winner else [],"last_improvement_elapsed_seconds":progress_snapshot.last_improvement_elapsed_seconds,"time_since_last_improvement_seconds":progress_snapshot.last_improvement_seconds}
         summary = build_canonical_summary(
             outcome,
@@ -1384,7 +1446,15 @@ def run(args:argparse.Namespace)->Path:
             pages=pages,
             debug_level=debug_level,
         )
-        finished=utc_now(); info={"schema_version":"0.5","run_id":run_id,"detector":name,"run_mode":args.run_mode,"evidence_tier":evidence_tier,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"status":"complete" if measurement_state["terminal_success"] else "invalid","outcome":measurement_state,"started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":round(time.perf_counter()-wall,3),"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"detector_config":str(args.detector_config),"detector_config_sha256":detector_config_sha256,"model_selection":model_selection,"max_dimension":args.max_dimension,"debug_artifacts":debug_policy,"debug_level":debug_level,"source_commit":source_commit,"threads":args.threads,"detector_pipeline":detector_pipeline_context,"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ordered),"shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"performance_samples":len(performance_samples),"peak_rss_bytes":peak_rss_bytes(),**environment}
+        elapsed_seconds=round(time.perf_counter()-wall,3)
+        coordinator_serial_seconds=(
+            round(elapsed_seconds * golden_set_lanes, 3)
+            if golden_set_coordinator_payload is not None and golden_set_lanes > 1
+            else None
+        )
+        finished=utc_now(); info={"schema_version":"0.5","run_id":run_id,"detector":name,"run_mode":args.run_mode,"evidence_tier":evidence_tier,"strategy":effective_strategy,"requested_strategy":requested_strategy,"strategy_fallback_reason":strategy_fallback_reason,"status":"complete" if measurement_state["terminal_success"] else "invalid","outcome":measurement_state,"started_at_utc":started,"finished_at_utc":finished,"elapsed_seconds":elapsed_seconds,"golden_set":str(args.golden_set),"golden_set_sha256":golden_set_sha256,"detector_config":str(args.detector_config),"detector_config_sha256":detector_config_sha256,"model_selection":model_selection,"max_dimension":args.max_dimension,"debug_artifacts":debug_policy,"debug_level":debug_level,"source_commit":source_commit,"threads":args.threads,"golden_set_coordinator":golden_set_coordinator_payload,"detector_pipeline":detector_pipeline_context,"possible_parameter_sets":possible_parameter_set_count,"planned_parameter_sets":planned_parameter_set_count,"actual_parameter_sets":len(ordered),"shard_index":args.shard_index,"shard_count":args.shard_count,"full_exhaustive_candidate_count":full_exhaustive_candidate_count,"performance_samples":len(performance_samples),"peak_rss_bytes":peak_rss_bytes(),**environment}
+        if coordinator_serial_seconds is not None:
+            info["estimated_serial_runtime_seconds"] = coordinator_serial_seconds
         write_json(run_dir/"RUN-INFO.json",info)
         manifest = build_canonical_manifest(
             outcome,
@@ -1398,7 +1468,7 @@ def run(args:argparse.Namespace)->Path:
             started_at_utc=started,
             finished_at_utc=finished,
             shard=shard_context,
-            additional_outputs=("logs/runner-performance.jsonl",) + (("adaptive-search.json",) if adaptive_telemetry is not None else ()),
+            additional_outputs=("logs/runner-performance.jsonl",) + (("adaptive-search.json",) if adaptive_telemetry is not None else ()) + (("golden-set-coordinator.json", "logs/golden-set-coordinator.jsonl") if golden_set_coordinator_payload is not None else ()),
             debug_outputs=debug_outputs,
         )
         write_json(run_dir/"manifest.json",manifest)

@@ -4,10 +4,23 @@ import unittest
 from argparse import Namespace
 from pathlib import Path
 
-from hth.multidetector_store import finalize, publish
+from hth.multidetector_store import _read_task, finalize, publish
 
 
 class MultiDetectorTelemetryTests(unittest.TestCase):
+    def test_task_telemetry_round_trips_golden_set_lane_capacity(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "7.tsv"
+            path.write_text(
+                "start\t10\t3\tdetector\t0\t1\t24\tbatch-7\t4\n"
+                "finish\t25\tcomplete\n",
+                encoding="utf-8",
+            )
+            task = _read_task(path)
+            self.assertEqual(task["golden_set_lanes"], 4)
+            self.assertEqual(task["allocated_threads"], 24)
+            self.assertEqual(task["claim_batch_id"], "batch-7")
+
     def test_finalize_records_worker_task_tail_and_utilization(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

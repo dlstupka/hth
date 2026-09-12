@@ -5,7 +5,7 @@ import hashlib, json, os, sys, threading, time
 import cv2, numpy as np
 from .detector_evidence_mask_common import BASELINE_PARAMETERS, parameters as _common_parameters, candidate as _candidate, debug_images as _debug
 METHOD='docextractor_page_mask'; MODEL_ENV='HTH_DOCEXTRACTOR_PAGE_MODEL'; SOURCE_ENV='HTH_DOCEXTRACTOR_PAGE_SOURCE'; PROVENANCE_ENV='HTH_DOCEXTRACTOR_PAGE_PROVENANCE'
-_MODEL=None; _MODEL_KEY=None; _MODEL_LOCK=threading.Lock(); _INFERENCE_LOCK=threading.Lock(); _CACHE=OrderedDict(); _CACHE_LOCK=threading.Lock(); _CACHE_LIMIT=16
+_MODEL=None; _MODEL_KEY=None; _MODEL_LOCK=threading.Lock(); _INFERENCE_LOCK=threading.Lock(); _CACHE=OrderedDict(); _PRECOMPUTED_EVIDENCE={}; _CACHE_LOCK=threading.Lock(); _CACHE_LIMIT=16
 
 def _parameters(p): return _common_parameters(p,label='docExtractor Page-Mask')
 def _asset(name):
@@ -42,9 +42,11 @@ def _image_key(image):
 def _infer(image):
     key=_image_key(image)
     with _CACHE_LOCK:
+        if key in _PRECOMPUTED_EVIDENCE: return _PRECOMPUTED_EVIDENCE[key]
         if key in _CACHE: _CACHE.move_to_end(key); return _CACHE[key]
     with _INFERENCE_LOCK:
         with _CACHE_LOCK:
+            if key in _PRECOMPUTED_EVIDENCE: return _PRECOMPUTED_EVIDENCE[key]
             if key in _CACHE: _CACHE.move_to_end(key); return _CACHE[key]
         torch,model,attrs=_load_model(); train_resolution,restricted_labels,normalize=attrs
         rgb=cv2.cvtColor(image,cv2.COLOR_BGR2RGB)
@@ -81,17 +83,19 @@ def precompute_golden_set_evidence(images,*,progress=None):
         key=_image_key(img); start=time.perf_counter(); progress and progress('start',i,total,key,0.0); _infer(img); progress and progress('finish',i,total,key,time.perf_counter()-start); keys.append(key)
     return tuple(keys)
 def export_precomputed_golden_set_evidence(images,output_dir,*,progress=None):
-    output_dir=Path(output_dir); output_dir.mkdir(parents=True,exist_ok=True); keys=precompute_golden_set_evidence(images,progress=progress); records=[]
-    with _CACHE_LOCK:
-        for key in keys:
-            name=f'{key}.npy'; np.save(output_dir/name,np.asarray(_CACHE[key])); records.append({'image_key':key,'file':name})
-    (output_dir/'manifest.json').write_text(json.dumps({'schema_version':'0.1','detector':METHOD,'representation':'docextractor-foreground-probability','records':records},sort_keys=True)); return output_dir/'manifest.json'
+    output_dir=Path(output_dir); output_dir.mkdir(parents=True,exist_ok=True); records=[]; total=len(images)
+    for i,img in enumerate(images,1):
+        key=_image_key(img); start=time.perf_counter(); progress and progress('start',i,total,key,0.0); probability=_infer(img); progress and progress('finish',i,total,key,time.perf_counter()-start)
+        name=f'{key}.npy'; np.save(output_dir/name,np.asarray(probability)); records.append({'image_key':key,'file':name})
+    target=output_dir/'manifest.json'; temporary=target.with_suffix('.json.tmp'); temporary.write_text(json.dumps({'schema_version':'0.1','detector':METHOD,'representation':'docextractor-foreground-probability','page_count':len(records),'records':records},sort_keys=True)); os.replace(temporary,target); return target
 def load_precomputed_golden_set_evidence(output_dir,images):
     output_dir=Path(output_dir); payload=json.loads((output_dir/'manifest.json').read_text()); records={r['image_key']:r['file'] for r in payload['records']}; expected=tuple(_image_key(i) for i in images)
     if payload.get('detector')!=METHOD or any(k not in records for k in expected): raise ValueError('Shared docExtractor evidence mismatch')
     with _CACHE_LOCK:
+        _PRECOMPUTED_EVIDENCE.clear()
         for key in expected:
-            arr=np.load(output_dir/records[key]); arr.setflags(write=False); _CACHE[key]=arr
+            arr=np.load(output_dir/records[key]); arr.setflags(write=False); _PRECOMPUTED_EVIDENCE[key]=arr; _CACHE[key]=arr; _CACHE.move_to_end(key)
+            while len(_CACHE)>_CACHE_LIMIT: _CACHE.popitem(last=False)
     return expected
 def detect(*,image_bgr,mask,parameters=None):
     del mask; v=_parameters(parameters); prov=_provenance(); return _candidate(METHOD,image_bgr,_infer(image_bgr),v,{'model_id':prov.get('model_id'),'model_family':'docExtractor ResUNet','model_source':prov.get('upstream_repository'),'evidence':'docextractor_nonbackground_probability_envelope'})

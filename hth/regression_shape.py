@@ -395,14 +395,35 @@ def resolve_workflow_shape(
     budget = max(1, runner_budget or runner_max_threads(profile.label, profile.logical_cpus))
 
     def exact(pipelines: int, threads: int, source: str, prediction_file: Path | None = None) -> dict[str, Any]:
-        if strategy == "adaptive" and detector not in {"all", "all-without-exhaustive"}:
-            # Adaptive selection has one feedback loop and therefore cannot use
+        nonshardable_single = (
+            strategy in {"adaptive", "binary-refine"}
+            and detector not in {"all", "all-without-exhaustive"}
+        )
+        flexible_runner = profile.label.strip().lower() not in {
+            "", "unknown", "github-hosted", "ubuntu-latest",
+        }
+        golden_set_lanes = 1
+        if nonshardable_single and flexible_runner:
+            # Preserve the measured/requested capacity shape, but reinterpret
+            # its pipelines as in-process Golden Set lanes beneath one search
+            # coordinator. No independent search state is created.
+            requested_capacity = pipelines * threads
+            try:
+                golden_pages = _read_json(golden_set).get("pages", [])
+            except (OSError, ValueError, json.JSONDecodeError):
+                golden_pages = []
+            page_cap = len(golden_pages) if isinstance(golden_pages, list) else 0
+            golden_set_lanes = min(pipelines, page_cap) if page_cap > 0 else pipelines
+            pipelines = golden_set_lanes
+            threads = max(1, requested_capacity // golden_set_lanes)
+            source = f"{source}-golden-set-coordinator"
+        elif nonshardable_single:
+            # Feedback-directed selection has one search loop and cannot use
             # independent pipeline shards. Reclaim the complete runner budget
-            # for its concurrent evaluation batches instead of retaining only
-            # one pipeline's share from a pre-resolved exhaustive shape.
+            # while retaining established GitHub-hosted behavior.
             pipelines = 1
             threads = budget
-            source = f"{source}-adaptive-single-pipeline"
+            source = f"{source}-{strategy}-single-pipeline"
         allocated = pipelines * threads
         if allocated > budget:
             raise ValueError(
@@ -413,6 +434,11 @@ def resolve_workflow_shape(
             "exact": True, "pipelines": pipelines, "threads_per_pipeline": threads,
             "allocated_threads": allocated, "runner_budget": budget, "source": source,
         }
+        if golden_set_lanes > 1:
+            result.update({
+                "detector_golden_set_lane_counts": {detector: golden_set_lanes},
+                "golden_set_lane_scaling_applied": True,
+            })
         if prediction_file:
             result["prediction_file"] = str(prediction_file)
         return result
@@ -478,6 +504,8 @@ def resolve_workflow_shape(
             "detector_shard_counts", "sharding_applied", "shard_target_seconds",
             "unsharded_makespan_seconds", "sharding_makespan_improvement",
             "detector_pipeline_assignments", "schedule_retained",
+            "detector_golden_set_lane_counts", "golden_set_lane_scaling_applied",
+            "golden_set_lane_target_seconds", "golden_set_lane_makespan_improvement",
         ):
             if key in preferred_multi:
                 result[key] = preferred_multi[key]
@@ -526,6 +554,12 @@ def workflow_shape_env(result: dict[str, Any]) -> dict[str, Any]:
         env["HTH_DETECTOR_SHARD_COUNTS_JSON"] = json.dumps(
             result["detector_shard_counts"], sort_keys=True, separators=(",", ":")
         )
+    if result.get("detector_golden_set_lane_counts"):
+        env["HTH_DETECTOR_GOLDEN_SET_LANE_COUNTS_JSON"] = json.dumps(
+            result["detector_golden_set_lane_counts"], sort_keys=True, separators=(",", ":")
+        )
+    if result.get("golden_set_lane_target_seconds") is not None:
+        env["HTH_GOLDEN_SET_LANE_TARGET_SECONDS"] = int(result["golden_set_lane_target_seconds"])
     if result.get("shard_target_seconds") is not None:
         env["HTH_CAPACITY_SHARD_TARGET_SECONDS"] = int(result["shard_target_seconds"])
     if result.get("detector_pipeline_assignments"):

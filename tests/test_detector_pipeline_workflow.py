@@ -95,7 +95,7 @@ def test_execution_summary_and_merge_use_canonical_detector_shard_and_budget_cou
     assert "auto (runtime target ${SHARD_TARGET_MINUTES}m)" not in text
     assert 'echo "Sharding           : ${sharding_policy} shard(s) / active pipeline"' in text
     assert 'from hth.regression.sharding import plan_execution' in text
-    assert 'task_threads[$task_index]="$effective_threads_per_pipeline"' in text
+    assert 'task_threads[$task_index]=$((effective_threads_per_pipeline * task_golden_set_lanes[$task_index]))' in text
     assert 'rm -rf "$queue_dir"' in text
     assert '--expected-shard-count "$expected_detector_shards"' in text
     assert 'Missing completed shard' in text

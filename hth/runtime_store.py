@@ -67,6 +67,8 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
     detector_config = Path(str(info.get("detector_config") or params.get("detector_config") or ""))
 
     elapsed = _as_float(info.get("elapsed_seconds"))
+    coordinator = info.get("golden_set_coordinator") if isinstance(info.get("golden_set_coordinator"), dict) else {}
+    coordinator_lanes = max(1, _as_int(coordinator.get("lanes")) or 1)
     actual_sets = _as_int(parameter_space.get("actual_parameter_sets") or info.get("actual_parameter_sets"))
     page_evaluations = _as_int(parameter_space.get("actual_page_evaluations") or summary.get("page_evaluation_count"))
     pages = _as_int(parameter_space.get("golden_set_pages") or len(summary.get("page_ordinals", [])))
@@ -108,6 +110,9 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
         # makespan. Preserve the summed serial-equivalent work as the durable
         # input for deciding whether the detector should remain sharded.
         "estimated_serial_runtime_seconds": _as_float(info.get("estimated_serial_runtime_seconds")),
+        "golden_set_coordinator_lanes": coordinator_lanes,
+        "golden_set_coordinator_threads_per_lane": _as_int(coordinator.get("threads_per_lane")),
+        "golden_set_coordinator_worker_utilization": _as_float(coordinator.get("worker_utilization")),
         "parameter_sets_per_second": eval_rate,
         "max_dimension": _as_int(params.get("max_dimension")),
         "configured_threads": _as_int(info.get("threads") or params.get("threads")),
@@ -255,7 +260,12 @@ def estimate_runtime(
         return None, f"{source}+incompatible-mode-or-strategy"
     serial_cost = _as_float(best.get("estimated_serial_runtime_seconds"))
     if serial_cost is not None:
-        return serial_cost, f"{source}+merged-shard-serial-work"
+        serial_source = (
+            "golden-set-coordinator-serial-work"
+            if (_as_int(best.get("golden_set_coordinator_lanes")) or 1) > 1
+            else "merged-shard-serial-work"
+        )
+        return serial_cost, f"{source}+{serial_source}"
     scheduler_cost = _as_float(best.get("scheduler_wall_clock_seconds"))
     if scheduler_cost is not None:
         return scheduler_cost, f"{source}+scheduler-slot"
@@ -294,7 +304,11 @@ def coherent_execution_profile(
         if set(unique) != wanted:
             continue
         values = list(unique.values())
-        threads = {_as_int(row.get("configured_threads")) for row in values}
+        threads = {
+            _as_int(row.get("golden_set_coordinator_threads_per_lane"))
+            or _as_int(row.get("configured_threads"))
+            for row in values
+        }
         pipelines = {_as_int(row.get("detector_pipelines")) for row in values}
         loading = {str(row.get("detector_loading_strategy") or "").lower() for row in values}
         modes = {str(row.get("mode") or "") for row in values}
@@ -376,6 +390,9 @@ def _runtime_observations_from_calibration_store(calibration_index_path: Path | 
             "resolved_strategy": info.get("strategy"),
             "wall_clock_seconds": _as_float(info.get("elapsed_seconds")),
             "configured_threads": _as_int(info.get("threads")),
+            "golden_set_coordinator_threads_per_lane": _as_int(
+                (info.get("golden_set_coordinator") or {}).get("threads_per_lane")
+            ) if isinstance(info.get("golden_set_coordinator"), dict) else None,
             "max_dimension": None,
             "detector_pipelines": _as_int(pipeline.get("pipeline_count")),
             "runner": {

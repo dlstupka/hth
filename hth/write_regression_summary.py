@@ -20,6 +20,7 @@ from hth.domain.result_metrics import baseline_surpassed, calibration_metric_vie
 from hth.domain.execution_dispatch import plan_static_dispatch
 from hth.domain.multidetector_schedule import (
     materially_improves_makespan,
+    plan_golden_set_lanes,
     plan_static_lpt_tasks,
     select_lpt_pipeline_count,
 )
@@ -2128,16 +2129,23 @@ def _estimate_scope_makespan(
     """Estimate full-scope wall time using the same shard/LPT execution model.
 
     The measured detector elapsed time is scaled to the requested parameter
-    domain at the current thread setting.  Full exhaustive work is then split
-    into the same bounded ~30-minute shards used by the regression launcher and
-    those shard durations are placed across the active detector pipelines with
-    LPT.  Treating each detector as one indivisible task badly overstates the
-    makespan once long detectors are sharded.
+    domain at the current thread setting. Exhaustive work uses bounded shards;
+    feedback-directed work uses bounded Golden Set lanes beneath one search
+    coordinator. Both are placed with the executable LPT capacity model.
     """
     from hth.regression.sharding import bounded_shard_count
 
     runtime_index = _load_runtime_index(runtime_index_path)
-    shard_estimates: list[float] = []
+    strategy = str(
+        (execution_profile or {}).get("strategy")
+        or _common_value([
+            _read_json(run_dir / "RUN-INFO.json").get("strategy")
+            for run_dir in run_dirs
+        ], "")
+    )
+    scaled_estimates: list[float] = []
+    maximum_lanes: list[int] = []
+    target_counts: list[int] = []
     for run_dir in run_dirs:
         info = _read_json(run_dir / "RUN-INFO.json")
         summary = normalize_summary_metrics(_read_json(run_dir / "reports" / "summary.json"))
@@ -2170,7 +2178,10 @@ def _estimate_scope_makespan(
             )
             if observation:
                 observation_sets = int(observation.get("actual_parameter_sets") or 0)
-                observation_elapsed = float(observation.get("wall_clock_seconds") or 0.0)
+                observation_elapsed = float(
+                    observation.get("estimated_serial_runtime_seconds")
+                    or observation.get("wall_clock_seconds") or 0.0
+                )
                 if observation_sets > 0 and observation_elapsed > 0:
                     evaluated = observation_sets
                     elapsed = observation_elapsed
@@ -2179,6 +2190,24 @@ def _estimate_scope_makespan(
             return None
 
         scaled_work = elapsed * target_count / evaluated
+        scaled_estimates.append(scaled_work)
+        maximum_lanes.append(max(1, len(summary.get("page_ordinals", []))))
+        target_counts.append(target_count)
+
+    if strategy in {"adaptive", "binary-refine"}:
+        lane_plan = plan_golden_set_lanes(
+            scaled_estimates, pipelines, maximum_lanes=maximum_lanes,
+        )
+        lane_counts = lane_plan["lane_counts"]
+        coordinated_estimates = [
+            seconds / count
+            for seconds, count in zip(scaled_estimates, lane_counts)
+            for _ in range(count)
+        ]
+        return _lpt_makespan(coordinated_estimates, pipelines)
+
+    shard_estimates: list[float] = []
+    for scaled_work, target_count in zip(scaled_estimates, target_counts):
         # Mirror the launcher's automatic shard count at the measured thread
         # setting.  Shards remain bounded by one parameter set each and by the
         # framework's normal 96-shard planning ceiling.
@@ -2340,6 +2369,9 @@ def _current_pipeline_schedule(run_dirs: list[Path], pipeline_count: int) -> lis
             "detector": detector,
             "queue_position": position,
             "estimate_seconds": estimate,
+            "golden_set_lanes": max(
+                1, int((_read_json(run_dir / "RUN-INFO.json").get("golden_set_coordinator") or {}).get("lanes") or 1)
+            ),
         })
         by_pipeline[pipeline]["estimated_seconds"] += max(0.0, estimate)
     result = []
@@ -2375,7 +2407,12 @@ def _strict_task_identity(task: dict[str, Any]) -> tuple[str, int, int] | None:
 
 def _task_label(task: dict[str, Any]) -> str:
     detector, shard_index, shard_count = _task_identity(task)
-    return detector if shard_count == 1 else f"{detector} [{shard_index + 1}/{shard_count}]"
+    label = detector if shard_count == 1 else f"{detector} [{shard_index + 1}/{shard_count}]"
+    try:
+        lanes = max(1, int(task.get("golden_set_lanes") or 1))
+    except (TypeError, ValueError):
+        lanes = 1
+    return f"{label} [{lanes} GS lanes]" if lanes > 1 else label
 
 
 def _measured_task_costs(
@@ -2441,6 +2478,7 @@ def _observed_pipeline_schedule(observation: dict[str, Any] | None) -> list[dict
         plan["tasks"].append({
             "detector": identity[0], "shard_index": identity[1],
             "shard_count": identity[2], "queue_position": position,
+            "golden_set_lanes": max(1, int(task.get("golden_set_lanes") or 1)),
             "estimate_seconds": seconds,
         })
         plan["estimated_seconds"] += seconds
@@ -2515,6 +2553,7 @@ def _scheduler_feedback_schedule(
             rows.append({
                 "detector": identity[0], "shard_index": identity[1],
                 "shard_count": identity[2],
+                "golden_set_lanes": max(1, int(task.get("golden_set_lanes") or 1)),
                 "estimate_seconds": measured_by_task.get(identity, prior),
             })
     if not rows:
@@ -2888,6 +2927,16 @@ def build_combined_summary(
     execution = _regression_execution_metadata(run_dirs, runtime_index_path=runtime_index)
     pipeline_count = max(1, int(execution.get("pipeline_count") or 1))
     execution_threads = execution.get("threads", "unknown")
+    coordinator_rows = [
+        payload
+        for run_dir in run_dirs
+        for payload in [_read_json(run_dir / "RUN-INFO.json").get("golden_set_coordinator")]
+        if isinstance(payload, dict)
+    ]
+    coordinator_lane_count = sum(max(1, int(row.get("lanes") or 1)) for row in coordinator_rows)
+    coordinator_threads = _common_value([
+        int(row.get("threads_per_lane") or 1) for row in coordinator_rows
+    ], "mixed") if coordinator_rows else execution_threads
     regression_span = execution.get("span_seconds")
     concurrency = (
         aggregate_elapsed / float(regression_span)
@@ -2981,7 +3030,14 @@ def build_combined_summary(
             "|---|---|",
             f"| Detector pipelines | {pipeline_count} |",
             "| Loading / balancing | Static LPT makespan balancing |",
-            f"| Threads per detector regression | {execution_threads} |",
+            f"| {'Threads per Golden Set lane' if coordinator_rows else 'Threads per detector regression'} | {coordinator_threads} |",
+            *(
+                [
+                    f"| Golden Set coordinators | {len(coordinator_rows)} |",
+                    f"| Golden Set capacity lanes | {coordinator_lane_count} |",
+                ]
+                if coordinator_rows else []
+            ),
             f"| Execution shape provenance | `{execution['source']}` |",
             "| Pipeline start stagger | 0m |",
             "| Runtime intelligence | `runtime-index.json` |",
