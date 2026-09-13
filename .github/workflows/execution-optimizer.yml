@@ -141,11 +141,6 @@ on:
         required: true
         default: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
         type: string
-      evidence_cache_repository:
-        description: Repository containing immutable collection learned-evidence releases
-        required: true
-        default: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-cache
-        type: string
       golden_set:
         description: "Override Golden Set configuration; blank selects it from the release tag"
         required: false
@@ -305,7 +300,7 @@ jobs:
       DETECTOR_ALGORITHM: ${{ inputs.algorithm }}
       GOLDEN_SET: ${{ inputs.golden_set || (inputs.golden_release_tag == 'HTH-GOLDEN-0002' && 'config/golden_sets/HTH-GOLDEN-0002.golden-set.json' || 'config/golden_set.json') }}
       RESULTS_REPOSITORY: ${{ inputs.results_repository }}
-      HTH_EVIDENCE_CACHE_REPOSITORY: ${{ inputs.evidence_cache_repository }}
+      HTH_EVIDENCE_CACHE_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-cache
       IMAGE_ROOT: ${{ inputs.image_root }}
       GOLDEN_RELEASE_REPOSITORY: ${{ inputs.golden_release_repository }}
       GOLDEN_RELEASE_TAG: ${{ inputs.golden_release_tag }}

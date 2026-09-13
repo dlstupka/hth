@@ -8,6 +8,24 @@ WORKFLOW = ROOT / ".github" / "workflows" / "regress-detector.yml"
 DRIVER = ROOT / "tools" / "run-detector-regressions.sh"
 
 
+def _workflow_dispatch_inputs(path: Path) -> list[str]:
+    block = path.read_text(encoding="utf-8").split("  workflow_dispatch:", 1)[1].split("\njobs:", 1)[0]
+    return [
+        line.strip()[:-1]
+        for line in block.splitlines()
+        if line.startswith("      ") and not line.startswith("        ") and line.rstrip().endswith(":")
+    ]
+
+
+def test_manual_workflows_stay_within_github_dispatch_input_limit() -> None:
+    workflows = (
+        WORKFLOW,
+        ROOT / ".github" / "workflows" / "execution-optimizer.yml",
+    )
+    for workflow in workflows:
+        assert len(_workflow_dispatch_inputs(workflow)) <= 25, workflow
+
+
 def test_execution_shape_inputs_replace_raw_pipeline_and_thread_knobs() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "execution_shape:" in text
