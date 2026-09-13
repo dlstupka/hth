@@ -82,16 +82,18 @@ def _quality(record: dict[str, Any]) -> tuple[float, float, float, float, tuple[
 
 
 def authoritative_record(records: Iterable[dict[str, Any]]) -> dict[str, Any] | None:
-    """Select the best authoritative calibration without letting smoke usurp it.
+    """Select the strongest calibration without letting weaker evidence usurp it.
 
     Provenance remains the first gate: a complete authoritative exhaustive/full
-    calibration always outranks partial or smoke evidence.  Within that
+    calibration always outranks partial or smoke evidence. A partial full
+    calibration in turn always outranks provisional smoke evidence. Within the
     authoritative population, however, "best known" means best measured detector
     quality rather than newest build.  This prevents a later exhaustive rerun that
     merely beats its factory baseline from replacing a stronger compatible incumbent.
 
-    When no authoritative full calibration exists, preserve the historical fallback
-    behavior and use the newest available evidence.
+    Partial full runs use the same quality ordering because they represent materially
+    broader calibration evidence than smoke. Only when no full evidence exists do we
+    preserve the historical fallback behavior and use the newest smoke observation.
     """
     candidates = [row for row in records if isinstance(row, dict)]
     if not candidates:
@@ -103,4 +105,10 @@ def authoritative_record(records: Iterable[dict[str, Any]]) -> dict[str, Any] | 
     ]
     if authoritative:
         return max(authoritative, key=_quality)
+    partial = [
+        row for row in candidates
+        if calibration_status(row) == "partial"
+    ]
+    if partial:
+        return max(partial, key=_quality)
     return max(candidates, key=_timestamp)

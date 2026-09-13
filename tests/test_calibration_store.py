@@ -21,7 +21,12 @@ class CalibrationStoreTests(unittest.TestCase):
             "evidence_tier": evidence_tier,
             "calibration_identity": {
                 "calibration_run_id": run_id,
-                "created_at_utc": {"smoke": "2026-07-31T00:00:01Z", "full": "2026-07-31T00:00:02Z", "later-worse": "2026-07-31T00:00:03Z"}.get(run_id, "2026-07-31T00:00:04Z"),
+                "created_at_utc": {
+                    "partial-full": "2026-07-31T00:00:00Z",
+                    "smoke": "2026-07-31T00:00:01Z",
+                    "full": "2026-07-31T00:00:02Z",
+                    "later-worse": "2026-07-31T00:00:03Z",
+                }.get(run_id, "2026-07-31T00:00:04Z"),
                 "source_document": {"id": "source-1"},
                 "golden_set": {"collection_id": "GS-1", "sha256": "abc123"},
                 "detector_configuration": {"sha256": "cfg123"},
@@ -108,6 +113,34 @@ class CalibrationStoreTests(unittest.TestCase):
             self.assertEqual(stored["calibration_identity"]["build"]["run_time_seconds"], 3723)
             self.assertEqual(preferred["build"]["run_url"], "https://github.com/dlstupka/hth/actions/runs/1")
             self.assertEqual(preferred["build"]["run_time_seconds"], 3723)
+
+    def test_later_smoke_cannot_usurp_partial_full_calibration(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            results = root / "results"
+            partial_full = self._run(
+                root, "partial-full", exhaustive=False, mode="full", score=0.91,
+            )
+            smoke = self._run(
+                root, "smoke", exhaustive=False, mode="smoke", score=0.99,
+            )
+            entries = [
+                publish_run(
+                    partial_full, results, mode="full", source_fallback="repo",
+                    build={"github_run_number": "100"},
+                ),
+                publish_run(
+                    smoke, results, mode="smoke", source_fallback="repo",
+                    build={"github_run_number": "101"},
+                ),
+            ]
+
+            index = update_index(results, entries)
+
+            preferred = next(iter(index["preferred"].values()))
+            self.assertEqual(preferred["run_mode"], "full")
+            self.assertEqual(preferred["evidence_tier"], "partial")
+            self.assertEqual(preferred["build"]["github_run_number"], "100")
 
     def test_persistence_rejects_run_mode_mismatch(self):
         with tempfile.TemporaryDirectory() as temp:
