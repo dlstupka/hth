@@ -15,6 +15,43 @@ SPEC.loader.exec_module(MODULE)
 
 
 class MigrateResultsModelsTests(unittest.TestCase):
+    def test_orli_evidence_cache_dry_run_validates_legacy_results_artifact(self):
+        with tempfile.TemporaryDirectory() as temp:
+            results = Path(temp)
+            identity = {
+                "schema_version": "1.0", "detector": "orli_page_mask",
+                "model_id": "orli-base-2026", "model_sha256": "a" * 64,
+                "golden_set_sha256": "b" * 64, "maximum_dimension": 1800,
+                "image_keys": ["page-a"], "evidence_representation": "immutable-json",
+            }
+            from hth.collection_cache import canonical_evidence_id
+            evidence_id = canonical_evidence_id(identity)
+            manifest = results / "learned-evidence" / "orli_page_mask" / evidence_id / "manifest.json"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(json.dumps({
+                "schema_version": "0.1", "detector": "orli_page_mask", "page_count": 1,
+                "representation": "immutable-json",
+                "records": [{"image_key": "page-a", "evidence": {"regions": []}}],
+                "persistence": {"schema_version": "1.0", "evidence_id": evidence_id, "identity": identity},
+            }), encoding="utf-8")
+            index = results / "indexes" / "orli-evidence-index.json"
+            index.parent.mkdir()
+            index.write_text(json.dumps({"entries": [{
+                "evidence_id": evidence_id,
+                "path": manifest.relative_to(results).as_posix(),
+                "manifest_sha256": MODULE.sha256(manifest),
+                "size_bytes": manifest.stat().st_size,
+                "page_count": 1,
+                "image_keys": ["page-a"],
+            }]}), encoding="utf-8")
+            MODULE.seed_evidence_cache(
+                results,
+                cache_repository="owner/cache",
+                token=None,
+                dry_run=True,
+                selected_evidence_ids=None,
+            )
+
     def test_selected_missing_model_is_reported(self):
         with tempfile.TemporaryDirectory() as temp:
             (Path(temp) / "models").mkdir()

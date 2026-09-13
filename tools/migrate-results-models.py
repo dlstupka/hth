@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate/seed runner or legacy model caches, or purge results Git history."""
+"""Migrate verified legacy results artifacts to immutable release caches."""
 from __future__ import annotations
 
 import argparse
@@ -19,6 +19,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from hth.artifact_mirror import MirrorArtifact, download as download_mirror, publish
+from hth.collection_cache import (
+    EvidenceCacheArtifact,
+    deterministic_evidence_bundle,
+    download as download_evidence_cache,
+    publish as publish_evidence_cache,
+    sha256_file,
+    validate_evidence_manifest,
+)
 from hth.detector_lifecycle import ORLI_MODEL_ID, ORLI_MODEL_MIRROR, _validate_safetensors_file, _validate_zip_file
 
 
@@ -33,6 +41,9 @@ HASH_FILES = {
     "model_archive_sha256": "models.zip",
     "config_sha256": "config_filename",
 }
+
+DEFAULT_CACHE_REPOSITORY = "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-cache"
+DEFAULT_RESULTS_REPOSITORY = "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results"
 
 
 def sha256(path: Path) -> str:
@@ -144,6 +155,152 @@ def verify_published_mirror(model_dir: Path, spec: MirrorArtifact, expected_arti
             with zipfile.ZipFile(downloaded) as archive:
                 archive.extractall(extracted)
             validate_model_dir(extracted)
+
+
+def _orli_evidence_entries(
+    results_repo: Path,
+    *,
+    selected_evidence_ids: list[str] | None = None,
+) -> list[tuple[Path, dict[str, object], dict[str, object]]]:
+    index_path = Path(results_repo) / "indexes" / "orli-evidence-index.json"
+    if not index_path.is_file():
+        legacy = Path(results_repo) / "orli-evidence-index.json"
+        index_path = legacy if legacy.is_file() else index_path
+    if not index_path.is_file():
+        raise RuntimeError(f"Orli evidence index is missing: {index_path}")
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    entries = index.get("entries") if isinstance(index, dict) else None
+    if not isinstance(entries, list):
+        raise RuntimeError(f"Orli evidence index has no entries: {index_path}")
+    requested = set(selected_evidence_ids or [])
+    selected = []
+    for raw in entries:
+        if not isinstance(raw, dict):
+            raise RuntimeError("Orli evidence index contains a non-object entry")
+        evidence_id = str(raw.get("evidence_id") or "")
+        if requested and evidence_id not in requested:
+            continue
+        relative = Path(str(raw.get("path") or ""))
+        root = Path(results_repo).resolve()
+        manifest = (root / relative).resolve()
+        try:
+            manifest.relative_to(root)
+        except ValueError as exc:
+            raise RuntimeError(f"Orli evidence path escapes the results repository: {relative}") from exc
+        if not manifest.is_file():
+            raise RuntimeError(f"Orli evidence manifest is missing: {manifest}")
+        validated = validate_evidence_manifest(manifest, index_entry=raw)
+        selected.append((manifest, raw, validated))
+    if requested:
+        found = {str(row[1].get("evidence_id") or "") for row in selected}
+        missing = sorted(requested - found)
+        if missing:
+            raise RuntimeError("Requested Orli evidence not found: " + ", ".join(missing))
+    if not selected:
+        raise RuntimeError("No Orli evidence entries were selected")
+    return selected
+
+
+def verify_published_evidence(
+    spec: EvidenceCacheArtifact,
+    expected_artifact: Path,
+    *,
+    expected_manifest_sha256: str,
+) -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        downloaded = Path(temp) / spec.asset_name
+        release_manifest = download_evidence_cache(spec, downloaded, fetch=fetch)
+        if sha256_file(downloaded) != sha256_file(expected_artifact):
+            raise RuntimeError(f"{spec.evidence_id}: published cache artifact differs from local bundle")
+        if release_manifest["evidence_manifest_sha256"] != expected_manifest_sha256:
+            raise RuntimeError(f"{spec.evidence_id}: published evidence-manifest hash differs")
+
+
+def seed_evidence_cache(
+    results_repo: Path,
+    *,
+    cache_repository: str,
+    token: str | None,
+    dry_run: bool,
+    selected_evidence_ids: list[str] | None = None,
+    results_repository: str = DEFAULT_RESULTS_REPOSITORY,
+) -> None:
+    entries = _orli_evidence_entries(
+        results_repo,
+        selected_evidence_ids=selected_evidence_ids,
+    )
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        prepared = []
+        for manifest, index_entry, validated in entries:
+            spec = EvidenceCacheArtifact(
+                repository=cache_repository,
+                detector=str(validated["detector"]),
+                evidence_id=str(validated["evidence_id"]),
+                identity=dict(validated["identity"]),
+            )
+            bundle = temp_root / spec.asset_name
+            deterministic_evidence_bundle(manifest, bundle)
+            prepared.append((manifest, index_entry, validated, spec, bundle))
+            print(
+                f"Verified learned evidence: detector={spec.detector} "
+                f"evidence_id={spec.evidence_id} pages={validated['page_count']} "
+                f"source_bytes={validated['size_bytes']} bundle_bytes={bundle.stat().st_size} "
+                f"release={spec.tag}/{spec.asset_name} sha256={sha256_file(bundle)}"
+            )
+        if dry_run:
+            return
+        if not token:
+            raise RuntimeError("HTH_CACHE_TOKEN or HTH_RESULTS_TOKEN is required to seed the cache repository")
+        for manifest, index_entry, validated, spec, bundle in prepared:
+            status = publish_evidence_cache(
+                spec,
+                bundle,
+                evidence_manifest_sha256=str(validated["manifest_sha256"]),
+                migration_source={
+                    "repository": results_repository,
+                    "path": str(index_entry["path"]),
+                    "sha256": str(validated["manifest_sha256"]),
+                },
+                token=token,
+            )
+            print(f"Published learned evidence: evidence_id={spec.evidence_id} status={status}")
+            verify_published_evidence(
+                spec,
+                bundle,
+                expected_manifest_sha256=str(validated["manifest_sha256"]),
+            )
+            print(
+                "Verified published cache retrieval: "
+                f"evidence_id={spec.evidence_id} sha256={sha256_file(bundle)}"
+            )
+
+
+def verify_evidence_cache(
+    results_repo: Path,
+    *,
+    cache_repository: str,
+    selected_evidence_ids: list[str] | None = None,
+) -> None:
+    entries = _orli_evidence_entries(results_repo, selected_evidence_ids=selected_evidence_ids)
+    with tempfile.TemporaryDirectory() as temp:
+        for manifest, _index_entry, validated in entries:
+            spec = EvidenceCacheArtifact(
+                repository=cache_repository,
+                detector=str(validated["detector"]),
+                evidence_id=str(validated["evidence_id"]),
+                identity=dict(validated["identity"]),
+            )
+            expected = Path(temp) / f"expected-{spec.asset_name}"
+            deterministic_evidence_bundle(manifest, expected)
+            verify_published_evidence(
+                spec,
+                expected,
+                expected_manifest_sha256=str(validated["manifest_sha256"]),
+            )
+            print(f"Verified downloadable collection cache: evidence_id={spec.evidence_id}")
+
+
 def seed(results_repo: Path | None = None, *, model_root: Path | None = None, token: str | None, dry_run: bool, selected_models: list[str] | None = None) -> None:
     model_root = Path(model_root) if model_root is not None else Path(results_repo) / "models"
     model_dirs = sorted(path for path in model_root.iterdir() if path.is_dir())
@@ -278,16 +435,21 @@ def main() -> int:
     mode.add_argument("--seed", action="store_true")
     mode.add_argument("--verify", action="store_true", help="Verify current caches against downloadable mirror releases")
     mode.add_argument("--purge", action="store_true")
+    mode.add_argument("--seed-evidence-cache", action="store_true", help="Validate and publish legacy Orli evidence as immutable collection-cache releases")
+    mode.add_argument("--verify-evidence-cache", action="store_true", help="Verify legacy Orli evidence against downloadable collection-cache releases")
     parser.add_argument("--dry-run", action="store_true", help="Validate and show seed plan without publishing")
     parser.add_argument("--model", action="append", default=[], help="Operate on only this model ID; repeat as needed")
+    parser.add_argument("--evidence-id", action="append", default=[], help="Operate on only this learned-evidence ID; repeat as needed")
+    parser.add_argument("--cache-repository", default=DEFAULT_CACHE_REPOSITORY)
+    parser.add_argument("--results-repository", default=DEFAULT_RESULTS_REPOSITORY, help="Canonical repository name recorded as migration provenance")
     parser.add_argument("--confirm", default="", help="Required literal for destructive history purge")
     parser.add_argument("--backup", type=Path, help="Recovery bundle path for --purge")
     args = parser.parse_args()
     results_repo = args.results_repo.resolve() if args.results_repo else None
     model_root = args.model_root.resolve() if args.model_root else None
-    if args.purge and results_repo is None:
-        parser.error("--purge requires --results-repo")
-    if not args.purge and results_repo is None and model_root is None:
+    if (args.purge or args.seed_evidence_cache or args.verify_evidence_cache) and results_repo is None:
+        parser.error("--purge/--seed-evidence-cache/--verify-evidence-cache require --results-repo")
+    if not (args.purge or args.seed_evidence_cache or args.verify_evidence_cache) and results_repo is None and model_root is None:
         parser.error("--seed/--verify require --model-root or --results-repo")
     if args.seed:
         seed(
@@ -298,6 +460,23 @@ def main() -> int:
         if args.dry_run:
             raise RuntimeError("--dry-run is not meaningful with --verify")
         verify_current_mirrors(results_repo, selected_models=args.model, model_root=model_root)
+    elif args.seed_evidence_cache:
+        seed_evidence_cache(
+            results_repo,
+            cache_repository=args.cache_repository,
+            token=os.environ.get("HTH_CACHE_TOKEN") or os.environ.get("HTH_RESULTS_TOKEN"),
+            dry_run=args.dry_run,
+            selected_evidence_ids=args.evidence_id,
+            results_repository=args.results_repository,
+        )
+    elif args.verify_evidence_cache:
+        if args.dry_run:
+            raise RuntimeError("--dry-run is not meaningful with --verify-evidence-cache")
+        verify_evidence_cache(
+            results_repo,
+            cache_repository=args.cache_repository,
+            selected_evidence_ids=args.evidence_id,
+        )
     else:
         if args.dry_run:
             raise RuntimeError("--dry-run applies only to --seed; --purge requires explicit confirmation")
