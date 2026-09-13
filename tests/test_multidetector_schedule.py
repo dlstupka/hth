@@ -96,6 +96,21 @@ class MultiDetectorScheduleTests(unittest.TestCase):
         )
         self.assertFalse(plan["applied"])
         self.assertEqual(plan["shard_counts"], [1, 1])
+        self.assertEqual(plan["reason"], "no-eligible-work-above-target")
+
+    def test_capacity_shards_explain_when_fixed_preparation_makes_candidate_slower(self):
+        plan = plan_capacity_shards(
+            [2006.0, 1179.0], 192,
+            fixed_preparation_seconds=[1326.0, 683.0],
+            shardable_work_seconds=[680.0, 496.0],
+        )
+        self.assertFalse(plan["applied"])
+        self.assertEqual(plan["shard_counts"], [1, 1])
+        self.assertEqual(plan["candidate_shard_counts"], [2, 1])
+        self.assertEqual(plan["reason"], "candidate-increases-makespan")
+        self.assertEqual(plan["candidate_task_count"], 3)
+        self.assertAlmostEqual(plan["candidate_makespan_seconds"], 2505.0)
+        self.assertAlmostEqual(plan["candidate_shared_preparation_seconds"], 1326.0)
 
     def test_capacity_shards_include_shared_preparation_in_makespan(self):
         plan = plan_capacity_shards(

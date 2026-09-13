@@ -250,11 +250,19 @@ def plan_capacity_shards(
         high_water_seconds=unsharded_makespan,
         minimum_improvement=minimum_makespan_improvement,
     )
+    if applied:
+        reason = "material-makespan-improvement"
+    elif proposed_counts == [1] * len(complete):
+        reason = "no-eligible-work-above-target"
+    elif proposed_makespan > unsharded_makespan + 1e-9:
+        reason = "candidate-increases-makespan"
+    else:
+        reason = "below-makespan-improvement-threshold"
     return {
         "shard_counts": proposed_counts if applied else [1] * len(complete),
         "pipelines": proposed_pipelines if applied else unsharded_pipelines,
         "applied": applied,
-        "reason": "material-makespan-improvement" if applied else "below-makespan-improvement-threshold",
+        "reason": reason,
         "unsharded_makespan_seconds": unsharded_makespan,
         "predicted_makespan_seconds": proposed_makespan if applied else unsharded_makespan,
         "makespan_improvement": improvement if applied else 0.0,
@@ -262,6 +270,11 @@ def plan_capacity_shards(
         "target_shard_seconds": target,
         "shared_preparation_seconds": shared_preparation if applied else 0.0,
         "predicted_fanout_makespan_seconds": proposed_fanout_makespan if applied else unsharded_fanout_makespan,
+        "candidate_shard_counts": proposed_counts,
+        "candidate_task_count": len(proposed_estimates),
+        "candidate_makespan_seconds": proposed_makespan,
+        "candidate_makespan_improvement": improvement,
+        "candidate_shared_preparation_seconds": shared_preparation,
     }
 
 
@@ -360,16 +373,28 @@ def plan_golden_set_lanes(
         incumbent, proposed, high_water_seconds=incumbent,
         minimum_improvement=minimum_makespan_improvement,
     )
+    if applied:
+        reason = "material-makespan-improvement"
+    elif counts == [1] * len(complete):
+        reason = "no-eligible-work-above-target"
+    elif proposed > incumbent + 1e-9:
+        reason = "candidate-increases-makespan"
+    else:
+        reason = "below-makespan-improvement-threshold"
     return {
         "lane_counts": counts if applied else [1] * len(complete),
         "pipelines": sum(counts) if applied else len(complete),
         "applied": applied,
-        "reason": "material-makespan-improvement" if applied else "below-makespan-improvement-threshold",
+        "reason": reason,
         "uncoordinated_makespan_seconds": incumbent,
         "predicted_makespan_seconds": proposed if applied else incumbent,
         "makespan_improvement": improvement if applied else 0.0,
         "target_lane_seconds": target,
         "shared_preparation_seconds": global_fixed,
+        "candidate_lane_counts": counts,
+        "candidate_capacity_units": sum(counts),
+        "candidate_makespan_seconds": proposed,
+        "candidate_makespan_improvement": improvement,
     }
 
 
@@ -733,6 +758,33 @@ def optimize_lpt_schedule(
     selected["sharding_makespan_improvement"] = (
         float(shard_plan["makespan_improvement"]) if shard_plan else 0.0
     )
+    if shard_plan:
+        selected["sharding_decision_reason"] = str(shard_plan["reason"])
+        for source_key, target_key, converter in (
+            ("candidate_task_count", "sharding_candidate_task_count", int),
+            ("candidate_makespan_seconds", "sharding_candidate_makespan_seconds", float),
+            ("candidate_makespan_improvement", "sharding_candidate_makespan_improvement", float),
+            (
+                "candidate_shared_preparation_seconds",
+                "sharding_candidate_shared_preparation_seconds",
+                float,
+            ),
+        ):
+            if source_key in shard_plan:
+                selected[target_key] = converter(shard_plan[source_key])
+    if lane_plan:
+        selected["golden_set_lane_decision_reason"] = str(lane_plan["reason"])
+        for source_key, target_key, converter in (
+            ("candidate_capacity_units", "golden_set_lane_candidate_capacity_units", int),
+            ("candidate_makespan_seconds", "golden_set_lane_candidate_makespan_seconds", float),
+            (
+                "candidate_makespan_improvement",
+                "golden_set_lane_candidate_makespan_improvement",
+                float,
+            ),
+        ):
+            if source_key in lane_plan:
+                selected[target_key] = converter(lane_plan[source_key])
     shape_plan = shard_plan if shard_plan and shard_plan["applied"] else lane_plan
     selected["shared_preparation_seconds"] = (
         float(shape_plan.get("shared_preparation_seconds") or 0.0)

@@ -103,6 +103,56 @@ def _duration(seconds: Any) -> str:
     return " ".join(parts)
 
 
+def _execution_shape_decision_lines(shape: dict[str, Any] | None) -> list[str]:
+    """Render one compact explanation for each evaluated capacity mechanism."""
+    if not shape:
+        return []
+    lines: list[str] = []
+    decisions = (
+        (
+            "Capacity shard",
+            "sharding",
+            "sharding_candidate_task_count",
+            "runnable jobs",
+        ),
+        (
+            "Golden Set lane",
+            "golden_set_lane",
+            "golden_set_lane_candidate_capacity_units",
+            "capacity units",
+        ),
+    )
+    for label, prefix, count_key, count_label in decisions:
+        reason = str(shape.get(f"{prefix}_decision_reason") or "").strip()
+        if not reason:
+            continue
+        applied = bool(shape.get(
+            "sharding_applied" if prefix == "sharding" else "golden_set_lane_scaling_applied"
+        ))
+        candidate = shape.get(f"{prefix}_candidate_makespan_seconds")
+        incumbent = shape.get("unsharded_makespan_seconds")
+        improvement = shape.get(f"{prefix}_candidate_makespan_improvement")
+        try:
+            comparison = (
+                f" candidate {_duration(candidate)} versus incumbent {_duration(incumbent)} "
+                f"({float(improvement) * 100:+.1f}%)"
+            )
+        except (TypeError, ValueError):
+            comparison = ""
+        count = shape.get(count_key)
+        count_text = f"; {int(count)} {count_label}" if isinstance(count, (int, float)) else ""
+        fixed = shape.get("sharding_candidate_shared_preparation_seconds") if prefix == "sharding" else None
+        fixed_text = (
+            f"; fixed preparation before fan-out {_duration(fixed)}"
+            if fixed is not None and float(fixed) > 0 else ""
+        )
+        lines.append(
+            f"**{label} decision:** {'applied' if applied else 'not applied'} "
+            f"(`{reason}`);{comparison}{count_text}{fixed_text}."
+        )
+    return lines
+
+
 def _compact_duration(seconds: Any) -> str:
     """Format stabilization time with the shared duration convention."""
     return _duration(seconds)
@@ -3155,6 +3205,7 @@ def build_combined_summary(
         lines.extend([
             "",
             f"**Preferred next execution shape:** {next_pipeline_capacity} pipeline capacity unit(s) × {next_threads} thread(s); {sum(len(plan.get('tasks', [])) for plan in feedback_schedule)} runnable job(s).",
+            *_execution_shape_decision_lines(preferred_shape),
             *(
                 [
                     f"Measured fixed shared-evidence preparation: {_duration(current_observation.get('shared_evidence_preparation_seconds'))} across {len(current_observation.get('shared_evidence_preparations', []))} detector(s). This work is included in end-to-end shape evaluation but is not divided across shards or Golden Set lanes.",

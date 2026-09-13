@@ -3,11 +3,27 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.write_regression_summary import _observed_pipeline_schedule, _schedule_reassignment_count, _scheduler_feedback_schedule, _best_known_calibrations, _calibration_record_from_payload, _combined_result_row, _estimate_scope_makespan, _render_best_known_calibrations, _render_detector_calibration, build_combined_summary, build_summary
+from hth.write_regression_summary import _execution_shape_decision_lines, _observed_pipeline_schedule, _schedule_reassignment_count, _scheduler_feedback_schedule, _best_known_calibrations, _calibration_record_from_payload, _combined_result_row, _estimate_scope_makespan, _render_best_known_calibrations, _render_detector_calibration, build_combined_summary, build_summary
 from hth.regression.parameter_space import parameter_set_equivalence_family_id
 
 
 class RegressionSummaryTests(unittest.TestCase):
+    def test_shape_decision_explains_rejected_shard_candidate(self):
+        lines = _execution_shape_decision_lines({
+            "sharding_applied": False,
+            "sharding_decision_reason": "candidate-increases-makespan",
+            "sharding_candidate_task_count": 49,
+            "sharding_candidate_makespan_seconds": 2505.0,
+            "sharding_candidate_makespan_improvement": -0.2487,
+            "sharding_candidate_shared_preparation_seconds": 1326.0,
+            "unsharded_makespan_seconds": 2006.0,
+        })
+        self.assertEqual(len(lines), 1)
+        self.assertIn("not applied", lines[0])
+        self.assertIn("candidate-increases-makespan", lines[0])
+        self.assertIn("candidate 41m 45s versus incumbent 33m 26s (-24.9%)", lines[0])
+        self.assertIn("fixed preparation before fan-out 22m 6s", lines[0])
+
     def test_sharded_telemetry_preserves_each_runnable_job_identity(self):
         observation = {
             "tasks": [

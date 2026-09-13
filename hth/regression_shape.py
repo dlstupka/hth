@@ -503,11 +503,19 @@ def resolve_workflow_shape(
             "longest_detector_floor_seconds", "predicted_pipeline_utilization",
             "detector_shard_counts", "sharding_applied", "shard_target_seconds",
             "unsharded_makespan_seconds", "sharding_makespan_improvement",
+            "sharding_decision_reason", "sharding_candidate_task_count",
+            "sharding_candidate_makespan_seconds",
+            "sharding_candidate_makespan_improvement",
+            "sharding_candidate_shared_preparation_seconds",
             "shared_preparation_seconds",
             "detector_fanout_estimates",
             "detector_pipeline_assignments", "schedule_retained",
             "detector_golden_set_lane_counts", "golden_set_lane_scaling_applied",
             "golden_set_lane_target_seconds", "golden_set_lane_makespan_improvement",
+            "golden_set_lane_decision_reason",
+            "golden_set_lane_candidate_capacity_units",
+            "golden_set_lane_candidate_makespan_seconds",
+            "golden_set_lane_candidate_makespan_improvement",
         ):
             if key in preferred_multi:
                 result[key] = preferred_multi[key]
