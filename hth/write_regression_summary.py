@@ -2700,6 +2700,26 @@ def _scheduler_feedback_schedule(
     return proposed, actual_pipeline_seconds
 
 
+def _preferred_feedback_schedule(
+    feedback_schedule: list[dict[str, Any]],
+    preferred_shape: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Render the executable preferred schedule without inventing churn.
+
+    The optimizer's retained schedule is carried by its explicit detector to
+    pipeline assignments.  ``planned_tasks`` is intentionally assignment-free,
+    so running it through LPT again would display a different permutation even
+    though dispatch will reuse the incumbent assignments.
+    """
+    if not preferred_shape or not preferred_shape.get("planned_tasks"):
+        return feedback_schedule
+    if preferred_shape.get("schedule_retained"):
+        return feedback_schedule
+    return _static_pipeline_schedule(
+        list(preferred_shape["planned_tasks"]), int(preferred_shape["pipelines"]),
+    )
+
+
 def _schedule_reassignment_count(
     current_schedule: list[dict[str, Any]], next_schedule: list[dict[str, Any]],
 ) -> int:
@@ -3192,9 +3212,7 @@ def build_combined_summary(
                 max_dimension=int(profile.get("max_dimension") or 0),
             )
         if preferred_shape and preferred_shape.get("planned_tasks"):
-            feedback_schedule = _static_pipeline_schedule(
-                list(preferred_shape["planned_tasks"]), int(preferred_shape["pipelines"]),
-            )
+            feedback_schedule = _preferred_feedback_schedule(feedback_schedule, preferred_shape)
             next_pipeline_capacity = int(preferred_shape["pipelines"])
             next_threads = int(preferred_shape["threads_per_pipeline"])
         else:

@@ -3,11 +3,60 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.write_regression_summary import _execution_shape_decision_lines, _observed_pipeline_schedule, _schedule_reassignment_count, _scheduler_feedback_schedule, _best_known_calibrations, _calibration_record_from_payload, _combined_result_row, _estimate_scope_makespan, _render_best_known_calibrations, _render_detector_calibration, build_combined_summary, build_summary
+from hth.write_regression_summary import _execution_shape_decision_lines, _observed_pipeline_schedule, _preferred_feedback_schedule, _schedule_reassignment_count, _scheduler_feedback_schedule, _best_known_calibrations, _calibration_record_from_payload, _combined_result_row, _estimate_scope_makespan, _render_best_known_calibrations, _render_detector_calibration, build_combined_summary, build_summary
 from hth.regression.parameter_space import parameter_set_equivalence_family_id
 
 
 class RegressionSummaryTests(unittest.TestCase):
+    def test_retained_preferred_shape_does_not_display_assignment_churn(self):
+        current = [
+            {
+                "pipeline": pipeline,
+                "tasks": [{"detector": detector, "estimate_seconds": seconds}],
+                "estimated_seconds": seconds,
+            }
+            for pipeline, detector, seconds in (
+                (1, "fast", 7.0), (2, "medium", 10.0), (3, "slow", 20.0)
+            )
+        ]
+        preferred = {
+            "pipelines": 3,
+            "threads_per_pipeline": 8,
+            "schedule_retained": True,
+            "detector_pipeline_assignments": {"fast": 1, "medium": 2, "slow": 3},
+            # Assignment-free task order would reverse every pipeline if it
+            # were incorrectly fed through LPT for summary rendering.
+            "planned_tasks": [
+                {"detector": "slow", "estimate_seconds": 20.0},
+                {"detector": "medium", "estimate_seconds": 10.0},
+                {"detector": "fast", "estimate_seconds": 7.0},
+            ],
+        }
+
+        rendered = _preferred_feedback_schedule(current, preferred)
+
+        self.assertEqual(rendered, current)
+        self.assertEqual(_schedule_reassignment_count(current, rendered), 0)
+
+    def test_nonretained_preferred_shape_renders_new_plan(self):
+        current = [
+            {"pipeline": 1, "tasks": [{"detector": "a", "estimate_seconds": 10.0}], "estimated_seconds": 10.0},
+            {"pipeline": 2, "tasks": [{"detector": "b", "estimate_seconds": 20.0}], "estimated_seconds": 20.0},
+        ]
+        preferred = {
+            "pipelines": 2,
+            "threads_per_pipeline": 8,
+            "planned_tasks": [
+                {"detector": "b", "estimate_seconds": 20.0},
+                {"detector": "a", "estimate_seconds": 10.0},
+            ],
+        }
+
+        rendered = _preferred_feedback_schedule(current, preferred)
+
+        self.assertEqual(rendered[0]["tasks"][0]["detector"], "b")
+        self.assertEqual(_schedule_reassignment_count(current, rendered), 2)
+
     def test_shape_decision_explains_rejected_shard_candidate(self):
         lines = _execution_shape_decision_lines({
             "sharding_applied": False,
