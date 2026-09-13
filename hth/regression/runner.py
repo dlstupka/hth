@@ -1450,6 +1450,9 @@ def run(args:argparse.Namespace)->Path:
             golden_set_payload=golden_set_payload,
             detector_configuration=args.detector_config,
             detector_config=config,
+            live_parameter_configurations=(
+                all_parameter_sets if effective_strategy == "adaptive" else None
+            ),
         )
         write_canonical_reports(
             run_dir,

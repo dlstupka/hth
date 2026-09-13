@@ -231,6 +231,45 @@ class CalibrationIntelligenceTests(unittest.TestCase):
         self.assertEqual(domains["exhaustive_with_zombies"]["parameter_set_count"], 1)
         self.assertEqual(domains["exhaustive"]["parameter_set_count"], 1)
 
+    def test_partial_search_projects_scopes_over_canonical_live_universe(self):
+        ranked = [
+            {
+                "parameter_set_id": str(index),
+                "parameters": {"signal": signal, "dormant": dormant},
+                "summary": {"mean_iou": score, "failure_count": 0},
+                "pages": [{"global_ordinal": 1, "status": "ok", "iou": score}],
+            }
+            for index, (signal, dormant, score) in enumerate([
+                (0, 0, 0.70),
+                (0, 1, 0.70),
+                (1, 0, 0.90),
+                (1, 1, 0.90),
+            ])
+        ]
+        live_universe = [
+            {"signal": signal, "dormant": dormant}
+            for signal in (0, 1, 2)
+            for dormant in (0, 1)
+        ]
+
+        report = build_calibration_intelligence(
+            ranked,
+            detector="example",
+            strategy="adaptive",
+            possible_parameter_sets=len(live_universe),
+            regression_context={
+                "baseline_parameters": {"signal": 0, "dormant": 0},
+                "live_possible_parameter_sets": len(live_universe),
+                "zombie_possible_parameter_sets": len(live_universe),
+            },
+            live_parameter_configurations=live_universe,
+        )
+
+        domains = report["domain_space"]
+        self.assertEqual(domains["exhaustive"]["parameter_set_count"], 6)
+        self.assertEqual(domains["critical"]["parameter_set_count"], 3)
+        self.assertEqual(domains["non_dormant"]["parameter_set_count"], 3)
+
 
     def test_out_of_space_reference_cannot_inflate_live_domain(self):
         ranked = [

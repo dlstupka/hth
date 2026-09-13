@@ -361,6 +361,7 @@ def build_calibration_intelligence(
     possible_parameter_sets: int | None,
     calibration_context: dict[str, Any] | None = None,
     regression_context: dict[str, Any] | None = None,
+    live_parameter_configurations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build a compact, machine-readable characterization of a calibration run.
 
@@ -624,6 +625,13 @@ def build_calibration_intelligence(
     if isinstance(regression_context, dict):
         live_possible_parameter_sets = regression_context.get("live_possible_parameter_sets", live_possible_parameter_sets)
         zombie_possible_parameter_sets = regression_context.get("zombie_possible_parameter_sets", zombie_possible_parameter_sets)
+    domain_configurations = live_parameter_configurations
+    if domain_configurations is None and exhaustive_complete:
+        domain_configurations = [
+            dict(result.get("parameters", {}))
+            for result in ranked
+            if isinstance(result.get("parameters"), dict)
+        ]
     domain_space = (
         _domain_space(
             current_parameters_report,
@@ -631,11 +639,7 @@ def build_calibration_intelligence(
             live_possible_parameter_sets,
             zombie_possible_parameter_sets,
             configured_zombies,
-            [
-                dict(result.get("parameters", {}))
-                for result in ranked
-                if isinstance(result.get("parameters"), dict)
-            ] if exhaustive_complete else None,
+            domain_configurations,
         )
         if measurement_state["informative"] else {}
     )

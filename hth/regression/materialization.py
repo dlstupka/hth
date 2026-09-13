@@ -295,6 +295,7 @@ def build_canonical_calibration(
     possible_parameter_sets: int,
     calibration_identity: Mapping[str, Any],
     regression_metadata: Mapping[str, Any],
+    live_parameter_configurations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     run_mode, evidence_tier = validate_run_semantics(
         regression_metadata.get("run_mode"),
@@ -307,6 +308,7 @@ def build_canonical_calibration(
         possible_parameter_sets=possible_parameter_sets,
         calibration_context=dict(calibration_identity),
         regression_context=dict(regression_metadata),
+        live_parameter_configurations=live_parameter_configurations,
     )
     calibration["run_mode"] = run_mode
     calibration["evidence_tier"] = evidence_tier
@@ -344,6 +346,7 @@ def build_canonical_calibration_from_summary(
     detector_configuration: Any,
     detector_config: Mapping[str, Any],
     regression_metadata_extra: Mapping[str, Any] | None = None,
+    live_parameter_configurations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Derive calibration identity and metadata from one canonical summary."""
     detector = str(summary["detector"])
@@ -419,6 +422,7 @@ def build_canonical_calibration_from_summary(
         possible_parameter_sets=int(parameter_space.get("possible_parameter_sets") or 0),
         calibration_identity=calibration_identity,
         regression_metadata=regression_metadata,
+        live_parameter_configurations=live_parameter_configurations,
     )
 
 
