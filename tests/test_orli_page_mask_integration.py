@@ -31,7 +31,7 @@ class OrliPageMaskIntegrationTests(unittest.TestCase):
     def test_shared_learned_evidence_supports_orli(self):
         text = (ROOT / "tools/run-detector-regressions.sh").read_text(encoding="utf-8")
         self.assertIn("orli_page_mask", EXPORTERS)
-        self.assertIn("python -m hth.regression.learned_evidence supported", text)
+        self.assertIn("python -m hth.regression.learned_evidence registry", text)
         self.assertIn('for learned_detector in "${learned_evidence_detectors[@]}"', text)
 
 

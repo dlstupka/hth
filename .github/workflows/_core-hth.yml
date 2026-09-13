@@ -186,7 +186,7 @@ jobs:
           token: ${{ secrets.HTH_RESULTS_TOKEN }}
           fetch-depth: 1
           # Preprocess needs publication surfaces plus the reusable intelligence
-          # caches used by regression and optimizer. Detector models live in the
+          # indexes used by regression and optimizer. Detector models live in the
           # runner-local cache configured by setup-hth-managed-runtime. Keep the
           # working tree shallow and materialize only paths this job reads or
           # updates; tracked paths outside the sparse tree remain untouched.
@@ -207,9 +207,6 @@ jobs:
             /optimizer-predictions.json
             /indexes/multidetector-index.json
             /multidetector-index.json
-            /indexes/orli-evidence-index.json
-            /orli-evidence-index.json
-            /learned-evidence/
             /source-documents/
             /metadata/
             /reports/

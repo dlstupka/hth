@@ -141,6 +141,11 @@ on:
         required: true
         default: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
         type: string
+      evidence_cache_repository:
+        description: Repository containing immutable collection learned-evidence releases
+        required: true
+        default: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-cache
+        type: string
       golden_set:
         description: "Override Golden Set configuration; blank selects it from the release tag"
         required: false
@@ -300,6 +305,7 @@ jobs:
       DETECTOR_ALGORITHM: ${{ inputs.algorithm }}
       GOLDEN_SET: ${{ inputs.golden_set || (inputs.golden_release_tag == 'HTH-GOLDEN-0002' && 'config/golden_sets/HTH-GOLDEN-0002.golden-set.json' || 'config/golden_set.json') }}
       RESULTS_REPOSITORY: ${{ inputs.results_repository }}
+      HTH_EVIDENCE_CACHE_REPOSITORY: ${{ inputs.evidence_cache_repository }}
       IMAGE_ROOT: ${{ inputs.image_root }}
       GOLDEN_RELEASE_REPOSITORY: ${{ inputs.golden_release_repository }}
       GOLDEN_RELEASE_TAG: ${{ inputs.golden_release_tag }}
@@ -372,8 +378,8 @@ jobs:
           fetch-depth: 100
           persist-credentials: false
           token: ${{ github.event_name != 'pull_request' && secrets.HTH_RESULTS_TOKEN || github.token }}
-          # Optimizer runs need the current image set and evidence caches,
-          # optimizer history, and root intelligence indexes, but not tens of
+          # Optimizer runs need the current image set, optimizer history, and
+          # root intelligence indexes, but not tens of
           # thousands of historical regression/debug files. Keep the shallow
           # checkout and materialize only the paths the optimizer can read or
           # publish. Publish retries fetch/reset this same sparse worktree.
@@ -392,10 +398,7 @@ jobs:
             /optimizer-predictions.json
             /indexes/multidetector-index.json
             /multidetector-index.json
-            /indexes/orli-evidence-index.json
-            /orli-evidence-index.json
             ${{ env.GOLDEN_RELEASE_TAG == '' && format('/{0}/', env.IMAGE_ROOT) || '' }}
-            /learned-evidence/
             /execution-optimizer/
           sparse-checkout-cone-mode: false
           show-progress: false
@@ -653,6 +656,7 @@ jobs:
         env:
           PYTHONPATH: hth-pipeline
           HTH_RESULTS_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN }}
+          HTH_CACHE_TOKEN: ${{ secrets.HTH_CACHE_TOKEN || secrets.HTH_RESULTS_TOKEN }}
           HTH_ENABLE_MIRROR_PUBLICATION: "1"
           PIPELINES: ${{ steps.plan.outputs.pipelines }}
           PIPELINE_MIN: ${{ steps.plan.outputs.pipeline_min }}
@@ -1005,9 +1009,6 @@ jobs:
           apply_optimizer_intelligence() {
             hth_results_clean_owned results-repo \
               indexes/optimizer-index.json indexes/optimizer-predictions.json execution-optimizer/
-            if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
-              python -m hth.regression.learned_evidence rebuild-orli-index --results-root results-repo
-            fi
             python -m hth.optimizer_capture \
               --results-root results-repo \
               --replay-log "$observation_log" \
@@ -1028,9 +1029,6 @@ jobs:
               "execution-optimizer/$DETECTOR_ALGORITHM/summary.md" \
               "execution-optimizer/$DETECTOR_ALGORITHM/heatmap.svg" \
               "execution-optimizer/$DETECTOR_ALGORITHM/runs/"
-            if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
-              hth_results_stage results-repo learned-evidence/orli_page_mask indexes/orli-evidence-index.json
-            fi
             if [[ -f results-repo/indexes/optimizer-predictions.json ]]; then
               hth_results_stage results-repo indexes/optimizer-predictions.json
             fi

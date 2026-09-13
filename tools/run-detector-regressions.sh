@@ -598,7 +598,9 @@ PY
   fi
 
   local shared_evidence_dir
-  shared_evidence_dir="$OUTPUT_DIR/.learned-evidence/$detector_name"
+  local evidence_detector_name
+  evidence_detector_name="${learned_evidence_canonical[$detector_name]:-$detector_name}"
+  shared_evidence_dir="$OUTPUT_DIR/.learned-evidence/$evidence_detector_name"
   if [[ -f "$shared_evidence_dir/manifest.json" ]]; then
     echo "[pipeline $pipeline_number][$detector_name] Shared learned evidence: $shared_evidence_dir"
     args+=(--precomputed-evidence "$shared_evidence_dir")
@@ -858,50 +860,64 @@ detector_worker() {
 # Learned inference evidence is parameter-invariant. When a learned detector
 # expands into multiple shard tasks, compute its Golden Set evidence exactly
 # once in this parent process before any of those pipeline processes launch.
-# Single-task runs keep the process-local prewarm path to avoid delaying
-# unrelated multi-detector smoke work. Orli always uses the parent path because
-# its deterministic evidence is persisted across builds. Capability discovery
+# Single-task runs resolve the collection cache inside their assigned pipeline
+# so unrelated multi-detector work is not delayed by a global inference barrier.
+# Capability discovery
 # comes from the evidence exporter registry so adding a detector cannot silently
 # leave this fan-out path inconsistent with the Python implementation.
 shared_evidence_root="$OUTPUT_DIR/.learned-evidence"
 mkdir -p "$shared_evidence_root"
+export HTH_LEARNED_EVIDENCE_ROOT="$shared_evidence_root"
 declare -A learned_task_counts=()
 declare -A learned_evidence_supported=()
-mapfile -t learned_evidence_detectors < <(python -m hth.regression.learned_evidence supported)
-for learned_detector in "${learned_evidence_detectors[@]}"; do
+declare -A learned_evidence_canonical=()
+declare -A learned_evidence_attribution=()
+learned_evidence_detectors=()
+while IFS=$'\t' read -r learned_detector canonical_detector; do
+  [[ -n "$learned_detector" ]] || continue
+  learned_evidence_detectors+=("$learned_detector")
   learned_evidence_supported["$learned_detector"]=1
-done
+  learned_evidence_canonical["$learned_detector"]="$canonical_detector"
+done < <(python -m hth.regression.learned_evidence registry)
 for task_detector in "${task_detectors[@]}"; do
   if [[ -n "${learned_evidence_supported[$task_detector]+supported}" ]]; then
-    learned_task_counts["$task_detector"]=$(( ${learned_task_counts["$task_detector"]:-0} + 1 ))
+    canonical_detector="${learned_evidence_canonical[$task_detector]}"
+    learned_task_counts["$canonical_detector"]=$(( ${learned_task_counts["$canonical_detector"]:-0} + 1 ))
+    if [[ -z "${learned_evidence_attribution[$canonical_detector]:-}" ]]; then
+      learned_evidence_attribution["$canonical_detector"]="$task_detector"
+    fi
   fi
 done
 
+declare -A prepared_evidence_detectors=()
 for learned_detector in "${learned_evidence_detectors[@]}"; do
-  learned_count="${learned_task_counts[$learned_detector]:-0}"
+  canonical_detector="${learned_evidence_canonical[$learned_detector]}"
+  if [[ -n "${prepared_evidence_detectors[$canonical_detector]+prepared}" ]]; then
+    continue
+  fi
+  prepared_evidence_detectors["$canonical_detector"]=1
+  learned_count="${learned_task_counts[$canonical_detector]:-0}"
   prepare_shared_evidence=0
   if (( learned_count > 1 )); then
     prepare_shared_evidence=1
-  elif [[ "$learned_detector" == "orli_page_mask" && "$learned_count" -gt 0 ]]; then
-    prepare_shared_evidence=1
   fi
   if (( prepare_shared_evidence == 1 )); then
-    learned_output="$shared_evidence_root/$learned_detector"
+    learned_output="$shared_evidence_root/$canonical_detector"
     rm -rf "$learned_output"
     echo
-    echo "Shared Learned Golden Set Evidence — $learned_detector"
+    echo "Shared Learned Golden Set Evidence — $canonical_detector"
     echo "======================================================"
-    echo "[learned-evidence][$learned_detector] shard tasks=$learned_count; preparing once before pipeline fan-out"
+    echo "[learned-evidence][$canonical_detector] consumers=$learned_count; preparing once before pipeline fan-out"
     evidence_started_epoch="$(date +%s.%N)"
     python -m hth.regression.learned_evidence prepare \
-      --detector "$learned_detector" \
+      --detector "$canonical_detector" \
       --golden-set "hth-pipeline/$GOLDEN_SET" \
       --image-root "$regression_image_root" \
       --max-dimension "$MAX_DIMENSION" \
       --output "$learned_output" \
       --results-root results-repo
     evidence_finished_epoch="$(date +%s.%N)"
-    printf 'shared_evidence\t%s\t%s\t%s\t%s\n'       "$learned_detector" "$learned_count" "$evidence_started_epoch" "$evidence_finished_epoch"       >> "$telemetry_root/learned-evidence.tsv"
+    printf 'shared_evidence\t%s\t%s\t%s\t%s\n'       "${learned_evidence_attribution[$canonical_detector]}" "$learned_count" "$evidence_started_epoch" "$evidence_finished_epoch"       >> "$telemetry_root/learned-evidence.tsv"
   fi
 done
 

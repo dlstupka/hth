@@ -18,7 +18,7 @@ A further parameter-free **directional page completion** step handles the comple
 
 This changes only the deterministic interpretation of existing Orli evidence. It does not retrain the model, invalidate persisted evidence, add calibration parameters, or expand the live parameter grid.
 
-See [Orli learned-evidence persistence](orli-evidence-persistence.md) for the persistent identity, evidence index, repository layout, and invalidation rules.
+See [Canonical learned-evidence cache](learned-evidence-cache.md) for identity, runner-local/release storage, validation, and invalidation rules.
 
 
 ## Parameter liveness

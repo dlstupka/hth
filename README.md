@@ -116,6 +116,7 @@ Useful starting points:
 - **[Preprocessor](docs/preprocessor.md)** — source extraction and preprocessing behavior.
 - **[Physical geometry evaluation](docs/physical-geometry-evaluation.md)** — geometry-analysis and validation model.
 - **[Regression](docs/regression.md)** — detector calibration, metrics, search spaces, and reporting conventions.
+- **[Canonical learned-evidence cache](docs/learned-evidence-cache.md)** — reusable neural evidence identity, local/release resolution, validation, and recovery.
 - **[Calibration selection](docs/calibration-selection.md)** — how approved detector evidence is selected for inference.
 - **[Golden Set](docs/golden-set.md)** — reference geometry and frozen Golden Set policy.
 - **[Document detector review](docs/document-detector-review.md)** — review workflow for detector output.

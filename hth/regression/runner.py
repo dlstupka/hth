@@ -977,29 +977,52 @@ def run(args:argparse.Namespace)->Path:
             )
         elif evidence_preparer is not None:
             evidence_started = time.perf_counter()
+            cache_repository = str(os.environ.get("HTH_EVIDENCE_CACHE_REPOSITORY") or "").strip()
+            if cache_repository:
+                from hth.regression.learned_evidence import prepare_images
 
-            def local_progress(event, index, total, image_key, elapsed):
-                if event == "start":
-                    print(
-                        f"Golden Set evidence        : page {index}/{total} START key={image_key[:12]}",
-                        flush=True,
-                    )
-                else:
-                    print(
-                        f"Golden Set evidence        : page {index}/{total} READY "
-                        f"key={image_key[:12]} elapsed={elapsed:.2f}s",
-                        flush=True,
-                    )
+                evidence_root = Path(
+                    os.environ.get("HTH_LEARNED_EVIDENCE_ROOT")
+                    or (run_dir.parent.parent / ".learned-evidence")
+                )
+                evidence_path, cache_origin = prepare_images(
+                    detector=name,
+                    golden_set=args.golden_set,
+                    maximum_dimension=args.max_dimension,
+                    images=[page["image"] for page in pages],
+                    output=evidence_root / name,
+                    results_root=Path(os.environ.get("HTH_RESULTS_ROOT", "results-repo")),
+                    cache_repository=cache_repository,
+                )
+                prepared_keys = evidence_loader(
+                    evidence_path.parent,
+                    [page["image"] for page in pages],
+                )
+            else:
+                def local_progress(event, index, total, image_key, elapsed):
+                    if event == "start":
+                        print(
+                            f"Golden Set evidence        : page {index}/{total} START key={image_key[:12]}",
+                            flush=True,
+                        )
+                    else:
+                        print(
+                            f"Golden Set evidence        : page {index}/{total} READY "
+                            f"key={image_key[:12]} elapsed={elapsed:.2f}s",
+                            flush=True,
+                        )
 
-            prepared_keys = evidence_preparer(
-                [page["image"] for page in pages],
-                progress=local_progress,
-            )
+                prepared_keys = evidence_preparer(
+                    [page["image"] for page in pages],
+                    progress=local_progress,
+                )
+                cache_origin = "disabled"
             evidence_precompute_seconds = time.perf_counter() - evidence_started
             evidence_source = "process-local-fallback"
             print(
-                f"Golden Set evidence        : precomputed {len(prepared_keys)} immutable pages "
-                f"in {evidence_precompute_seconds:.2f}s before parameter concurrency"
+                f"Golden Set evidence        : resolved {len(prepared_keys)} immutable pages "
+                f"in {evidence_precompute_seconds:.2f}s before parameter concurrency "
+                f"source={cache_origin}"
             )
         profiles={canonical_parameters(p):n for n,p in config.get("profiles",{}).items()}
         baseline_parameters=config.get("profiles",{}).get("baseline")

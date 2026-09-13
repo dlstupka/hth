@@ -185,7 +185,9 @@ def test_results_repository_checkout_is_shallow_and_sparse() -> None:
     assert "Materialize immutable Golden Set images" in text
     assert "python -m hth.golden_set_release" in text
     assert "            source-documents\n" in text
-    assert "            learned-evidence/orli_page_mask\n" in text
+    assert "HTH_EVIDENCE_CACHE_REPOSITORY" in text
+    assert "HTH_CACHE_TOKEN" in text
+    assert "            learned-evidence/orli_page_mask\n" not in text
 
 
 def test_smoke_jobs_have_a_two_hour_timeout() -> None:

@@ -116,18 +116,39 @@ def validate_evidence_manifest(path: Path, *, index_entry: dict[str, Any] | None
 
 
 def deterministic_evidence_bundle(manifest: Path, destination: Path) -> None:
-    """Package one evidence manifest reproducibly for immutable release storage."""
-    info = zipfile.ZipInfo("manifest.json", (1980, 1, 1, 0, 0, 0))
-    info.compress_type = zipfile.ZIP_DEFLATED
-    info.external_attr = 0o100644 << 16
+    """Package a complete evidence directory reproducibly for release storage."""
+    manifest = Path(manifest)
+    root = manifest.parent
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    members = {manifest}
+    for record in payload.get("records", []):
+        if not isinstance(record, dict):
+            continue
+        for key in ("file", "probability_file"):
+            relative = record.get(key)
+            if relative:
+                path = root / str(relative)
+                if not path.is_file() or root.resolve() not in path.resolve().parents:
+                    raise RuntimeError(f"Learned-evidence asset is missing or unsafe: {relative}")
+                members.add(path)
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(info, Path(manifest).read_bytes())
+        for path in sorted(members):
+            name = path.relative_to(root).as_posix()
+            info = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o100644 << 16
+            archive.writestr(info, path.read_bytes())
 
 
 def validate_evidence_bundle(bundle: Path, *, expected_manifest_sha256: str | None = None) -> dict[str, Any]:
     with zipfile.ZipFile(bundle) as archive:
-        if archive.namelist() != ["manifest.json"]:
-            raise RuntimeError("Learned-evidence bundle must contain only manifest.json")
+        names = archive.namelist()
+        if not names or "manifest.json" not in names or len(names) != len(set(names)):
+            raise RuntimeError("Learned-evidence bundle must contain one manifest.json")
+        for name in names:
+            member = Path(name)
+            if member.is_absolute() or ".." in member.parts or name.endswith("/"):
+                raise RuntimeError(f"Unsafe learned-evidence bundle member: {name}")
         raw = archive.read("manifest.json")
     actual = hashlib.sha256(raw).hexdigest()
     if expected_manifest_sha256 is not None and actual != expected_manifest_sha256:
@@ -135,10 +156,52 @@ def validate_evidence_bundle(bundle: Path, *, expected_manifest_sha256: str | No
             f"Bundled evidence manifest SHA-256 mismatch: expected={expected_manifest_sha256} actual={actual}"
         )
     with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        with zipfile.ZipFile(bundle) as archive:
+            archive.extractall(root)
         manifest = Path(temp) / "manifest.json"
-        manifest.write_bytes(raw)
         validated = validate_evidence_manifest(manifest)
+        payload = validated["payload"]
+        for record in payload.get("records", []):
+            if not isinstance(record, dict):
+                continue
+            for key in ("file", "probability_file"):
+                relative = record.get(key)
+                if relative:
+                    asset = root / str(relative)
+                    if not asset.is_file() or root.resolve() not in asset.resolve().parents:
+                        raise RuntimeError(f"Bundled learned-evidence asset is missing or unsafe: {relative}")
     return validated
+
+
+def fetch_url(url: str, target: Path) -> None:
+    request = urllib.request.Request(
+        url,
+        headers={"Accept": "application/octet-stream", "User-Agent": "HTH-collection-cache/1"},
+    )
+    with urllib.request.urlopen(request) as response, Path(target).open("wb") as handle:
+        while chunk := response.read(1024 * 1024):
+            handle.write(chunk)
+
+
+def materialize(bundle: Path, output: Path) -> Path:
+    """Validate and atomically hydrate a complete evidence directory."""
+    validate_evidence_bundle(bundle)
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=output.parent) as temp:
+        staged = Path(temp) / "evidence"
+        staged.mkdir()
+        with zipfile.ZipFile(bundle) as archive:
+            archive.extractall(staged)
+        if output.exists():
+            if output.is_dir():
+                import shutil
+                shutil.rmtree(output)
+            else:
+                output.unlink()
+        os.replace(staged, output)
+    return output / "manifest.json"
 
 
 def _required_manifest(spec: EvidenceCacheArtifact) -> dict[str, Any]:
@@ -249,31 +312,44 @@ def publish(
         "Authorization": f"Bearer {token}",
         "X-GitHub-Api-Version": "2022-11-28",
     }
+    raced_creation = False
     try:
         release = _github_json(urllib.request.Request(f"{api}/releases/tags/{spec.tag}", headers=headers))
     except urllib.error.HTTPError as exc:
         if exc.code != 404:
             raise
-        release = _github_json(urllib.request.Request(
-            f"{api}/releases",
-            data=json.dumps({
-                "tag_name": spec.tag,
-                "name": spec.tag,
-                "body": (
-                    "Immutable non-authoritative HTH collection-cache artifact. "
-                    "See the attached machine-readable manifest."
-                ),
-                "draft": False,
-                "prerelease": False,
-            }).encode("utf-8"),
-            method="POST",
-            headers={**headers, "Content-Type": "application/json"},
-        ))
+        try:
+            release = _github_json(urllib.request.Request(
+                f"{api}/releases",
+                data=json.dumps({
+                    "tag_name": spec.tag,
+                    "name": spec.tag,
+                    "body": (
+                        "Immutable non-authoritative HTH collection-cache artifact. "
+                        "See the attached machine-readable manifest."
+                    ),
+                    "draft": False,
+                    "prerelease": False,
+                }).encode("utf-8"),
+                method="POST",
+                headers={**headers, "Content-Type": "application/json"},
+            ))
+        except urllib.error.HTTPError as create_exc:
+            # Independent pipelines may miss the same immutable artifact at the
+            # same time. GitHub returns 422 to all but the release winner; use
+            # the winner's release instead of treating that harmless race as a
+            # cache publication failure.
+            if create_exc.code != 422:
+                raise
+            raced_creation = True
+            release = _github_json(urllib.request.Request(
+                f"{api}/releases/tags/{spec.tag}", headers=headers
+            ))
     existing = {str(asset.get("name")) for asset in release.get("assets", [])}
     manifest_name = f"{spec.asset_name}.manifest.json"
     if spec.asset_name in existing and manifest_name in existing:
         return "already-present"
-    if spec.asset_name in existing or manifest_name in existing:
+    if (spec.asset_name in existing or manifest_name in existing) and not raced_creation:
         raise RuntimeError(f"Immutable cache release {spec.tag} is incomplete; refusing to modify it")
     release_manifest = {
         **_required_manifest(spec),
@@ -283,12 +359,27 @@ def publish(
         "migration_source": migration_source,
     }
     upload_url = str(release["upload_url"]).split("{", 1)[0]
-    _upload(upload_url, spec.asset_name, artifact.read_bytes(), "application/zip", token)
-    _upload(
-        upload_url,
-        manifest_name,
-        (json.dumps(release_manifest, indent=2, sort_keys=True) + "\n").encode("utf-8"),
-        "application/json",
-        token,
+    uploads = (
+        (spec.asset_name, artifact.read_bytes(), "application/zip"),
+        (
+            manifest_name,
+            (json.dumps(release_manifest, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+            "application/json",
+        ),
     )
+    for name, content, content_type in uploads:
+        if name in existing:
+            continue
+        try:
+            _upload(upload_url, name, content, content_type, token)
+        except urllib.error.HTTPError as upload_exc:
+            if upload_exc.code != 422:
+                raise
+            refreshed = _github_json(urllib.request.Request(
+                f"{api}/releases/tags/{spec.tag}", headers=headers
+            ))
+            refreshed_assets = {str(asset.get("name")) for asset in refreshed.get("assets", [])}
+            if name not in refreshed_assets:
+                raise
+        existing.add(name)
     return "published"

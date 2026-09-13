@@ -51,13 +51,23 @@ runs:
         else
           model_cache_root="$RUNNER_TEMP/hth-model-cache"
         fi
+        if [[ -n "${HTH_EVIDENCE_LOCAL_CACHE_ROOT:-}" ]]; then
+          evidence_cache_root="$HTH_EVIDENCE_LOCAL_CACHE_ROOT"
+        elif [[ "${RUNNER_ENVIRONMENT:-}" == "self-hosted" ]]; then
+          evidence_cache_root="/tmp/.ar/.hth-evidence-cache"
+        else
+          evidence_cache_root="$RUNNER_TEMP/hth-evidence-cache"
+        fi
         mkdir -p "$model_cache_root"
+        mkdir -p "$evidence_cache_root"
         echo "HTH_MODEL_CACHE_ROOT=$model_cache_root" >> "$GITHUB_ENV"
+        echo "HTH_EVIDENCE_LOCAL_CACHE_ROOT=$evidence_cache_root" >> "$GITHUB_ENV"
         echo "TF_ENABLE_ONEDNN_OPTS=1" >> "$GITHUB_ENV"
         echo "TF_CPP_MIN_LOG_LEVEL=3" >> "$GITHUB_ENV"
         echo "ABSL_MIN_LOG_LEVEL=3" >> "$GITHUB_ENV"
         echo "GLOG_minloglevel=3" >> "$GITHUB_ENV"
         echo "Detector model cache: $model_cache_root"
+        echo "Learned-evidence cache: $evidence_cache_root"
 
     - name: Verify / Install complete managed runtime
       shell: bash

@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,7 +24,7 @@ class OrliEvidencePersistenceTests(unittest.TestCase):
         }), encoding="utf-8")
         return path
 
-    def test_persisted_orli_evidence_is_reused_without_exporter(self):
+    def test_collection_cached_orli_evidence_is_reused_without_exporter(self):
         image = np.zeros((8, 8, 3), dtype=np.uint8)
         page = {"image": image}
         with tempfile.TemporaryDirectory() as td:
@@ -50,8 +51,21 @@ class OrliEvidencePersistenceTests(unittest.TestCase):
                 return target
 
             env = {"HTH_ORLI_PAGE_PROVENANCE": str(provenance)}
+            cached = root / "cached"
+
+            def fake_reuse(*, output, spec):
+                if not (cached / "manifest.json").is_file():
+                    return None
+                shutil.copytree(cached, output, dirs_exist_ok=True)
+                return output / "manifest.json"
+
+            def fake_publish(*, manifest, spec):
+                shutil.copytree(manifest.parent, cached, dirs_exist_ok=True)
+
             with patch.dict(os.environ, env, clear=False), \
                  patch.object(learned_evidence, "load_pages", return_value=[page]), \
+                 patch.object(learned_evidence, "_reuse_collection_cache", side_effect=fake_reuse), \
+                 patch.object(learned_evidence, "_publish_collection_cache", side_effect=fake_publish), \
                  patch.dict(learned_evidence.EXPORTERS, {"orli_page_mask": fake_exporter}):
                 learned_evidence.prepare(
                     detector="orli_page_mask",
@@ -60,6 +74,7 @@ class OrliEvidencePersistenceTests(unittest.TestCase):
                     maximum_dimension=2048,
                     output=first_output,
                     results_root=results,
+                    cache_repository="owner/cache",
                 )
                 learned_evidence.prepare(
                     detector="orli_page_mask",
@@ -68,17 +83,12 @@ class OrliEvidencePersistenceTests(unittest.TestCase):
                     maximum_dimension=2048,
                     output=second_output,
                     results_root=results,
+                    cache_repository="owner/cache",
                 )
 
             self.assertEqual(calls, [1])
             self.assertTrue((second_output / "manifest.json").is_file())
-            index = json.loads((results / learned_evidence.ORLI_EVIDENCE_INDEX).read_text(encoding="utf-8"))
-            self.assertEqual(index["entry_count"], 1)
-            entry = index["entries"][0]
-            self.assertEqual(entry["model_sha256"], "a" * 64)
-            self.assertEqual(entry["page_count"], 1)
-            self.assertGreater(entry["size_bytes"], 0)
-            self.assertTrue((results / entry["path"]).is_file())
+            self.assertFalse((results / learned_evidence.ORLI_EVIDENCE_INDEX).exists())
 
     def test_export_supports_more_pages_than_the_process_cache_limit(self):
         images = [np.full((3, 3, 3), value, dtype=np.uint8) for value in range(detector._EVIDENCE_CACHE_LIMIT + 2)]
@@ -115,16 +125,20 @@ class OrliEvidencePersistenceTests(unittest.TestCase):
                     detector._PRECOMPUTED_EVIDENCE.clear()
 
 
-    def test_regression_driver_always_uses_parent_persistence_for_orli(self):
+    def test_regression_driver_uses_parent_only_for_shared_evidence(self):
         text = Path("tools/run-detector-regressions.sh").read_text(encoding="utf-8")
-        self.assertIn('[[ "$learned_detector" == "orli_page_mask" && "$learned_count" -gt 0 ]]', text)
+        self.assertNotIn('[[ "$learned_detector" == "orli_page_mask"', text)
+        self.assertIn('if (( learned_count > 1 )); then', text)
+        self.assertIn('export HTH_LEARNED_EVIDENCE_ROOT="$shared_evidence_root"', text)
         self.assertIn("--results-root results-repo", text)
 
-    def test_results_workflows_publish_orli_evidence_and_index(self):
+    def test_results_workflows_use_release_cache_not_results_evidence(self):
         for workflow in ("regress-detector.yml", "execution-optimizer.yml"):
             text = (Path(".github/workflows") / workflow).read_text(encoding="utf-8")
-            self.assertIn("rebuild-orli-index --results-root results-repo", text)
-            self.assertIn("hth_results_stage results-repo learned-evidence/orli_page_mask indexes/orli-evidence-index.json", text)
+            self.assertIn("HTH_EVIDENCE_CACHE_REPOSITORY", text)
+            self.assertIn("HTH_CACHE_TOKEN", text)
+            self.assertNotIn("rebuild-orli-index --results-root results-repo", text)
+            self.assertNotIn("hth_results_stage results-repo learned-evidence", text)
 
     def test_identity_changes_when_model_or_page_changes(self):
         base = {

@@ -127,6 +127,11 @@ on:
         required: true
         default: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
         type: string
+      evidence_cache_repository:
+        description: Repository containing immutable collection learned-evidence releases
+        required: true
+        default: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-cache
+        type: string
       image_root:
         description: Image directory inside the results repository
         required: true
@@ -436,6 +441,7 @@ jobs:
       DETECTOR_ALGORITHM: ${{ matrix.detector }}
       GOLDEN_SET: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_set || (github.event_name == 'workflow_dispatch' && inputs.golden_release_tag == 'HTH-GOLDEN-0002' && 'config/golden_sets/HTH-GOLDEN-0002.golden-set.json' || 'config/golden_set.json') }}
       RESULTS_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && inputs.results_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results' }}
+      HTH_EVIDENCE_CACHE_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && inputs.evidence_cache_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-cache' }}
       IMAGE_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_root || 'test/latest/raw' }}
       GOLDEN_RELEASE_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_release_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898' }}
       GOLDEN_RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.golden_release_tag || 'HTH-GOLDEN-0001' }}
@@ -521,10 +527,7 @@ jobs:
             multidetector-index.json
             indexes/optimizer-predictions.json
             optimizer-predictions.json
-            indexes/orli-evidence-index.json
-            orli-evidence-index.json
             source-documents
-            learned-evidence/orli_page_mask
             ${{ env.GOLDEN_RELEASE_TAG == '' && env.IMAGE_ROOT || '' }}
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -617,6 +620,7 @@ jobs:
         env:
           PYTHONPATH: hth-pipeline
           HTH_RESULTS_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN }}
+          HTH_CACHE_TOKEN: ${{ secrets.HTH_CACHE_TOKEN || secrets.HTH_RESULTS_TOKEN }}
           HTH_ENABLE_MIRROR_PUBLICATION: "1"
         run: |
           bash hth-pipeline/tools/run-detector-regressions.sh
@@ -653,11 +657,6 @@ jobs:
               indexes/calibration-index.json indexes/parameter-provenance-index.json indexes/runtime-index.json \
               indexes/parallelism-index.json indexes/multidetector-index.json indexes/optimizer-predictions.json \
               source-documents/
-            if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
-              python -m hth.regression.learned_evidence rebuild-orli-index --results-root results-repo
-            fi
-
-
             python -m hth.calibration_store publish \
               "${publish_args[@]}" \
               --results-root results-repo \
@@ -687,10 +686,6 @@ jobs:
             if [[ -f results-repo/indexes/optimizer-predictions.json ]]; then
               hth_results_stage results-repo indexes/optimizer-predictions.json
             fi
-            if [[ -d results-repo/learned-evidence/orli_page_mask ]]; then
-              hth_results_stage results-repo learned-evidence/orli_page_mask indexes/orli-evidence-index.json
-            fi
-
             if git -C results-repo diff --cached --name-only | grep -E '(^|/)models/' >/dev/null; then
               echo "::error::Calibration persistence attempted to stage a model payload."
               git -C results-repo diff --cached --name-only
@@ -734,7 +729,7 @@ jobs:
           python hth-pipeline/hth/write_action_summary.py regression-summary.md "$GITHUB_STEP_SUMMARY"
 
       - name: Upload regression run
-        if: ${{ always() }}
+        if: ${{ always() && !cancelled() }}
         # The authoritative calibration payload is committed before this step.
         # Action dependencies are downloaded before a composite action starts,
         # so the retry wrapper cannot catch a transient codeload failure while
