@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from hth.geometry.registry import detector_names
+from hth.regression.learned_evidence import EXPORTERS
 from hth.regression.strategies.cartesian import generate
 
 
@@ -29,8 +30,9 @@ class OrliPageMaskIntegrationTests(unittest.TestCase):
 
     def test_shared_learned_evidence_supports_orli(self):
         text = (ROOT / "tools/run-detector-regressions.sh").read_text(encoding="utf-8")
-        self.assertIn("kraken_page_mask|orli_page_mask|dhsegment_page_mask", text)
-        self.assertIn("for learned_detector in kraken_page_mask orli_page_mask dhsegment_page_mask", text)
+        self.assertIn("orli_page_mask", EXPORTERS)
+        self.assertIn("python -m hth.regression.learned_evidence supported", text)
+        self.assertIn('for learned_detector in "${learned_evidence_detectors[@]}"', text)
 
 
 if __name__ == "__main__":

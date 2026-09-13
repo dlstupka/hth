@@ -41,6 +41,22 @@ def test_runtime_estimate_rejects_incompatible_strategy_history(tmp_path: Path) 
     assert rows[0][2].endswith("+incompatible-mode-or-strategy")
 
 
+def test_persisted_pre_decomposition_runtime_index_is_not_scheduled(tmp_path: Path) -> None:
+    config = _config(tmp_path / "old.json", "old")
+    runtime = tmp_path / "runtime-index.json"
+    runtime.write_text(json.dumps({"schema_version": "1.0", "observations": [{
+        "schema_version": "1.0", "detector_id": "old", "wall_clock_seconds": 999,
+        "mode": "smoke", "resolved_strategy": "exhaustive",
+    }]}), encoding="utf-8")
+    rows = order_configs(
+        [config], loading_strategy="lpt", runtime_index_path=runtime,
+        calibration_index_path=None, mode="smoke", search_strategy="exhaustive",
+        threads=2, max_dimension=1800, golden_set_sha256="gold", runner_label="",
+    )
+    assert rows[0][1] is None
+    assert rows[0][2] == "no-history"
+
+
 def test_ranked_orders_best_detector_first(tmp_path: Path) -> None:
     configs = [_config(tmp_path / "a.json", "a"), _config(tmp_path / "b.json", "b")]
     calibration = tmp_path / "calibration-index.json"
@@ -114,6 +130,7 @@ def test_merged_shard_serial_work_is_persisted_and_used_for_lpt(tmp_path: Path) 
     observation = observation_from_run(run, build={"github_run_id": "244", "mode": "smoke"})
     assert observation["wall_clock_seconds"] == 10.0
     assert observation["estimated_serial_runtime_seconds"] == 1980.0
+    assert observation["scheduler_end_to_end_serial_seconds"] == 1980.0
     runtime = tmp_path / "runtime-index.json"
     runtime.write_text(json.dumps({"observations": [observation]}), encoding="utf-8")
     rows = order_configs(
@@ -123,7 +140,7 @@ def test_merged_shard_serial_work_is_persisted_and_used_for_lpt(tmp_path: Path) 
         golden_set_sha256="gold", runner_label="",
     )
     assert rows[0][1] == 1980.0
-    assert rows[0][2].endswith("+merged-shard-serial-work")
+    assert rows[0][2].endswith("+decomposed-serial-work")
 
 
 def test_golden_set_lane_serial_work_and_topology_are_persisted(tmp_path: Path) -> None:
@@ -148,6 +165,7 @@ def test_golden_set_lane_serial_work_and_topology_are_persisted(tmp_path: Path) 
     )
     assert observation["wall_clock_seconds"] == 10.0
     assert observation["estimated_serial_runtime_seconds"] == 40.0
+    assert observation["scheduler_end_to_end_serial_seconds"] == 40.0
     assert observation["golden_set_coordinator_lanes"] == 4
     assert observation["golden_set_coordinator_threads_per_lane"] == 2
     assert observation["golden_set_coordinator_worker_utilization"] == 0.75
@@ -160,7 +178,25 @@ def test_golden_set_lane_serial_work_and_topology_are_persisted(tmp_path: Path) 
         golden_set_sha256="gold", runner_label="",
     )
     assert rows[0][1] == 40.0
-    assert rows[0][2].endswith("+golden-set-coordinator-serial-work")
+    assert rows[0][2].endswith("+decomposed-serial-work")
+
+
+def test_process_local_evidence_is_separated_from_lane_work(tmp_path: Path) -> None:
+    run = _runtime_run(
+        tmp_path / "learned" / "run-coordinated", "learned",
+        "run-20260912-130000", serial_seconds=70.0,
+    )
+    summary_path = run / "reports" / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["performance"] = {
+        "evidence_source": "process-local-fallback",
+        "evidence_precompute_seconds": 10.0,
+    }
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    observation = observation_from_run(run, build={"github_run_id": "246", "mode": "full"})
+    assert observation["scheduler_fixed_preparation_seconds"] == 10.0
+    assert observation["scheduler_shardable_work_seconds"] == 60.0
+    assert observation["scheduler_end_to_end_serial_seconds"] == 70.0
 
 
 def test_order_supplements_missing_runtime_detector_from_persisted_calibration(tmp_path: Path) -> None:

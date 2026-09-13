@@ -247,6 +247,8 @@ pipeline_assignments_json="${HTH_DETECTOR_PIPELINE_ASSIGNMENTS_JSON-}"
 [[ -n "$pipeline_assignments_json" ]] || pipeline_assignments_json='{}'
 golden_set_lane_counts_json="${HTH_DETECTOR_GOLDEN_SET_LANE_COUNTS_JSON-}"
 [[ -n "$golden_set_lane_counts_json" ]] || golden_set_lane_counts_json='{}'
+detector_fanout_estimates_json="${HTH_DETECTOR_FANOUT_ESTIMATES_JSON-}"
+[[ -n "$detector_fanout_estimates_json" ]] || detector_fanout_estimates_json='{}'
 
 detector_count=${#detector_configs[@]}
 declare -a task_configs=() task_estimates=() task_estimate_sources=() task_quality=()
@@ -365,6 +367,17 @@ PYSHARDCAP
     plan_source="adaptive-single-shard"
   fi
   detector_task_estimate="${detector_estimates[$detector_index]:-$serial_estimate}"
+  if [[ "${HTH_EXACT_EXECUTION_SHAPE:-0}" == "1" ]]; then
+    detector_task_estimate="$(python - "$detector_name" "$detector_task_estimate" "$detector_fanout_estimates_json" <<'PYFANOUTESTIMATE'
+import json, sys
+detector, fallback, raw = sys.argv[1:]
+values = json.loads(raw)
+if not isinstance(values, dict):
+    raise ValueError("HTH_DETECTOR_FANOUT_ESTIMATES_JSON must be a JSON object")
+print(values.get(detector, fallback))
+PYFANOUTESTIMATE
+    )"
+  fi
   if [[ "$detector_task_estimate" =~ ^[0-9]+([.][0-9]+)?$ ]] && (( planned_shards > 1 )); then
     detector_task_estimate="$(python - "$detector_task_estimate" "$planned_shards" <<'PYSHARDESTIMATE'
 import sys
@@ -845,21 +858,26 @@ detector_worker() {
 # Learned inference evidence is parameter-invariant. When a learned detector
 # expands into multiple shard tasks, compute its Golden Set evidence exactly
 # once in this parent process before any of those pipeline processes launch.
-# Single-task Kraken/dhSegment runs keep the process-local prewarm path to avoid
-# delaying unrelated multi-detector smoke work. Orli always uses the parent path
-# because its deterministic evidence is persisted across builds.
+# Single-task runs keep the process-local prewarm path to avoid delaying
+# unrelated multi-detector smoke work. Orli always uses the parent path because
+# its deterministic evidence is persisted across builds. Capability discovery
+# comes from the evidence exporter registry so adding a detector cannot silently
+# leave this fan-out path inconsistent with the Python implementation.
 shared_evidence_root="$OUTPUT_DIR/.learned-evidence"
 mkdir -p "$shared_evidence_root"
 declare -A learned_task_counts=()
+declare -A learned_evidence_supported=()
+mapfile -t learned_evidence_detectors < <(python -m hth.regression.learned_evidence supported)
+for learned_detector in "${learned_evidence_detectors[@]}"; do
+  learned_evidence_supported["$learned_detector"]=1
+done
 for task_detector in "${task_detectors[@]}"; do
-  case "$task_detector" in
-    kraken_page_mask|orli_page_mask|dhsegment_page_mask|doc_ufcn_page_mask|mask_rcnn_page_mask|eynollah_page_mask|docextractor_page_mask|pagenet_page_mask)
-      learned_task_counts["$task_detector"]=$(( ${learned_task_counts["$task_detector"]:-0} + 1 ))
-      ;;
-  esac
+  if [[ -n "${learned_evidence_supported[$task_detector]+supported}" ]]; then
+    learned_task_counts["$task_detector"]=$(( ${learned_task_counts["$task_detector"]:-0} + 1 ))
+  fi
 done
 
-for learned_detector in kraken_page_mask orli_page_mask dhsegment_page_mask doc_ufcn_page_mask mask_rcnn_page_mask eynollah_page_mask docextractor_page_mask pagenet_page_mask; do
+for learned_detector in "${learned_evidence_detectors[@]}"; do
   learned_count="${learned_task_counts[$learned_detector]:-0}"
   prepare_shared_evidence=0
   if (( learned_count > 1 )); then
@@ -1000,7 +1018,8 @@ if [[ "${DETECTOR_ALGORITHM,,}" == "all" ]]; then
     --allocated-threads "$allocated_threads" \
     --loading-strategy "$DETECTOR_LOADING_STRATEGY" \
     --claim-strategy "$initial_claim_strategy" \
-    --scheduler-source "${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-${requested_pipelines}}"
+    --scheduler-source "${HTH_EXACT_EXECUTION_SHAPE_SOURCE:-${requested_pipelines}}" \
+    --executor-startup-overhead-seconds "$startup_overhead_seconds"
 fi
 
 : > "$OUTPUT_DIR/run-directories.txt"

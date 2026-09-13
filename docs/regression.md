@@ -343,7 +343,9 @@ exists, the existing strategy fallback resolves to exhaustive.
 
 Full exhaustive regressions use smoke-test runtime history to estimate the detector's serial-equivalent workload. When `threads` is `auto`, the planner selects the smallest useful thread count: one thread below five minutes, up to four threads from five to fifteen minutes, up to eight threads from fifteen to thirty minutes, and the runner-profile maximum above thirty minutes. Named optimization runner budgets are 192 threads for `e7k` and 64 threads for `e9k`; other runner profiles use their configured aggregate budgets.
 
-After conservative thread-speedup adjustment and a 20% planning margin, work estimated to exceed the configured 30-minute shard target is divided into deterministic interleaved parameter-set shards. Manual full exhaustive runs may instead provide an explicit shard count; that count takes precedence over wall-clock planning and is capped at the number of possible parameter sets so every shard receives at least one parameter set. Interleaving distributes clustered expensive configurations more evenly than contiguous parameter ranges. Smoke tests, limited searches, and non-exhaustive strategies remain unsharded.
+For capable multi-detector runners, independently shardable parameter-search work above the ten-minute target may be divided into deterministic interleaved parameter-set shards. The complete proposed topology must improve projected end-to-end makespan by at least 20%. Manual full exhaustive runs may instead provide an explicit shard count; that count takes precedence over wall-clock planning and is capped at the number of possible parameter sets so every shard receives at least one parameter set. Interleaving distributes clustered expensive configurations more evenly than contiguous parameter ranges. Non-exhaustive strategies remain unsharded; smoke work may shard only when compatible persistent timing and spare runner capacity establish the material whole-build gain.
+
+Scheduler timing separates fixed learned-evidence preparation from independently shardable parameter-search work. Process-local detector reports record both components, and parent-shared evidence telemetry attributes pre-fan-out preparation to its detector when shards are merged. Fixed preparation is included in every end-to-end topology comparison but is never divided by a shard count. Runtime-index schema 1.1 is the compatibility boundary for this model: older observations remain readable for audit but cannot select a schedule. Run the multidetector workflow once with **Execution shape = reset** for each mode/search strategy that needs a fresh preferred shape; the completed reset run seeds later preferred runs without deleting history.
 
 Shard claims are leases rather than permanent locks. Active workers renew their lease every minute. Another detector pipeline may reclaim a shard after the configured lease expiration, minimizing work stranded by a terminated worker. Completed shards are merged into one canonical detector regression before calibration intelligence, summaries, and winner debug artifacts are published. Shard metadata, source run IDs, selected threads, and the interleaved assignment method are retained in the merged provenance.
 
@@ -444,6 +446,12 @@ creation. GitHub-hosted execution retains its existing shape. A lane is an
 in-process capacity unit rather than another GitHub job, process, or independent
 search, and the total `lanes × threads/lane` grant cannot exceed the resolved
 runner budget.
+
+Golden Set lane planning uses the same timing decomposition as exhaustive
+sharding. Fixed evidence preparation contributes once to the coordinator's
+predicted completion time; only page-evaluation work is divided across lanes.
+Serial-equivalent runtime similarly reconstructs `fixed + lane-work × lanes`
+instead of multiplying the entire detector elapsed time by its lane count.
 
 Normal logs contain one coordinator allocation line and one completion summary.
 `golden-set-coordinator.json` records its capacity and utilization; verbose debug

@@ -8,6 +8,7 @@ DRIVER = (ROOT / "tools" / "run-detector-regressions.sh").read_text(encoding="ut
 class AutomaticShardTopologyContractTests(unittest.TestCase):
     def test_golden_set_coordinator_uses_weighted_capacity_without_parameter_shards(self):
         self.assertIn('HTH_DETECTOR_GOLDEN_SET_LANE_COUNTS_JSON', DRIVER)
+        self.assertIn('HTH_DETECTOR_FANOUT_ESTIMATES_JSON', DRIVER)
         self.assertIn('task_threads[$task_index]=$((effective_threads_per_pipeline * task_golden_set_lanes[$task_index]))', DRIVER)
         self.assertIn('HTH_GOLDEN_SET_LANES="${task_golden_set_lanes[$task_index]}"', DRIVER)
         self.assertIn('HTH_GOLDEN_SET_THREADS_PER_LANE="$effective_threads_per_pipeline"', DRIVER)

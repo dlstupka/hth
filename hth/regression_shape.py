@@ -503,6 +503,8 @@ def resolve_workflow_shape(
             "longest_detector_floor_seconds", "predicted_pipeline_utilization",
             "detector_shard_counts", "sharding_applied", "shard_target_seconds",
             "unsharded_makespan_seconds", "sharding_makespan_improvement",
+            "shared_preparation_seconds",
+            "detector_fanout_estimates",
             "detector_pipeline_assignments", "schedule_retained",
             "detector_golden_set_lane_counts", "golden_set_lane_scaling_applied",
             "golden_set_lane_target_seconds", "golden_set_lane_makespan_improvement",
@@ -557,6 +559,10 @@ def workflow_shape_env(result: dict[str, Any]) -> dict[str, Any]:
     if result.get("detector_golden_set_lane_counts"):
         env["HTH_DETECTOR_GOLDEN_SET_LANE_COUNTS_JSON"] = json.dumps(
             result["detector_golden_set_lane_counts"], sort_keys=True, separators=(",", ":")
+        )
+    if result.get("detector_fanout_estimates"):
+        env["HTH_DETECTOR_FANOUT_ESTIMATES_JSON"] = json.dumps(
+            result["detector_fanout_estimates"], sort_keys=True, separators=(",", ":")
         )
     if result.get("golden_set_lane_target_seconds") is not None:
         env["HTH_GOLDEN_SET_LANE_TARGET_SECONDS"] = int(result["golden_set_lane_target_seconds"])
@@ -690,6 +696,14 @@ def main() -> int:
                     f"candidates={int(result.get('candidate_count') or 0)} "
                     f"leading=[{alternatives}]"
                 )
+                if result.get("shared_preparation_seconds") is not None:
+                    print(
+                        "LPT timing decomposition: "
+                        f"fixed_shared_preparation="
+                        f"{float(result.get('shared_preparation_seconds') or 0.0):.1f}s; "
+                        "fixed preparation is included once in end-to-end makespan "
+                        "and is never divided by shard or Golden Set lane count"
+                    )
         else:
             print(f"Execution shape: auto planner ({result['source']})")
         return 0

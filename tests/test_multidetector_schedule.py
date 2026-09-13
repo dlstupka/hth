@@ -88,6 +88,36 @@ class MultiDetectorScheduleTests(unittest.TestCase):
         self.assertFalse(plan["applied"])
         self.assertEqual(plan["shard_counts"], [1, 1])
 
+    def test_capacity_shards_do_not_divide_fixed_preparation(self):
+        plan = plan_capacity_shards(
+            [2400.0, 60.0], 8,
+            fixed_preparation_seconds=[2300.0, 0.0],
+            shardable_work_seconds=[100.0, 60.0],
+        )
+        self.assertFalse(plan["applied"])
+        self.assertEqual(plan["shard_counts"], [1, 1])
+
+    def test_capacity_shards_include_shared_preparation_in_makespan(self):
+        plan = plan_capacity_shards(
+            [2400.0, 60.0], 8,
+            fixed_preparation_seconds=[300.0, 0.0],
+            shardable_work_seconds=[2100.0, 60.0],
+        )
+        self.assertTrue(plan["applied"])
+        self.assertEqual(plan["shard_counts"][0], 4)
+        self.assertEqual(plan["shared_preparation_seconds"], 300.0)
+        self.assertAlmostEqual(plan["predicted_makespan_seconds"], 825.0)
+
+    def test_existing_parent_shared_preparation_is_outside_fanout(self):
+        plan = plan_capacity_shards(
+            [1000.0, 100.0], 8,
+            fixed_preparation_seconds=[800.0, 0.0],
+            shardable_work_seconds=[200.0, 100.0],
+            pre_fanout_preparation=[True, False],
+        )
+        self.assertFalse(plan["applied"])
+        self.assertEqual(plan["unsharded_makespan_seconds"], 1000.0)
+
     def test_golden_set_lanes_split_only_measured_page_bounded_work(self):
         plan = plan_golden_set_lanes(
             [2400.0, 720.0, 60.0], 8, maximum_lanes=[18, 18, 18],
@@ -107,6 +137,42 @@ class MultiDetectorScheduleTests(unittest.TestCase):
         self.assertFalse(plan_golden_set_lanes(
             [2400.0, 60.0], 2, maximum_lanes=[18, 18],
         )["applied"])
+
+    def test_golden_set_lanes_do_not_divide_fixed_preparation(self):
+        plan = plan_golden_set_lanes(
+            [2400.0, 60.0], 8, maximum_lanes=[18, 18],
+            fixed_preparation_seconds=[2300.0, 0.0],
+            lane_work_seconds=[100.0, 60.0],
+        )
+        self.assertFalse(plan["applied"])
+        self.assertEqual(plan["lane_counts"], [1, 1])
+
+    def test_golden_set_lanes_keep_parent_shared_preparation_before_fanout(self):
+        plan = plan_golden_set_lanes(
+            [2400.0, 60.0], 8, maximum_lanes=[18, 18],
+            fixed_preparation_seconds=[300.0, 0.0],
+            lane_work_seconds=[2100.0, 60.0],
+            pre_fanout_preparation=[True, False],
+        )
+        self.assertTrue(plan["applied"])
+        self.assertEqual(plan["lane_counts"], [4, 1])
+        self.assertEqual(plan["shared_preparation_seconds"], 300.0)
+        self.assertEqual(plan["predicted_makespan_seconds"], 825.0)
+
+    def test_persisted_pre_decomposition_index_requires_reset(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "runtime-index.json"
+            path.write_text(json.dumps({"schema_version": "1.0", "observations": [{
+                "schema_version": "1.0", "detector_id": "slow", "mode": "full",
+                "resolved_strategy": "adaptive", "wall_clock_seconds": 600.0,
+                "observed_at_utc": "2026-09-12T00:00:00Z",
+                "build": {"github_run_id": "old-model"},
+            }]}), encoding="utf-8")
+            self.assertIsNone(optimize_lpt_schedule(
+                runtime_index_path=path, detector_ids=["slow"], runner_thread_budget=384,
+                runner_label="192t", golden_set_sha256=None, mode="full",
+                strategy="adaptive", max_dimension=1800,
+            ))
 
     def test_github_sized_optimizer_does_not_change_existing_topology(self):
         with tempfile.TemporaryDirectory() as td:
@@ -199,6 +265,7 @@ class MultiDetectorScheduleTests(unittest.TestCase):
             self.assertEqual(result["detector_golden_set_lane_counts"], {"slow": 4, "fast": 1})
             self.assertEqual(result["pipelines"], 5)
             self.assertEqual(result["predicted_makespan_seconds"], 600.0)
+            self.assertEqual(result["detector_fanout_estimates"]["slow"], 600.0)
 
     def test_merged_shard_serial_work_prevents_next_run_whipsaw(self):
         with tempfile.TemporaryDirectory() as td:
@@ -216,6 +283,7 @@ class MultiDetectorScheduleTests(unittest.TestCase):
             )
             self.assertTrue(result["sharding_applied"])
             self.assertEqual(result["detector_shard_counts"], {"slow": 4})
+            self.assertEqual(result["detector_fanout_estimates"], {"slow": 1980.0})
 
     def test_workload_classes_keep_smoke_separate_from_full_exhaustive(self):
         self.assertEqual(workload_class("smoke", "exhaustive", "10"), "short")

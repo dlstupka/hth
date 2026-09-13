@@ -20,6 +20,7 @@ from hth.domain.result_metrics import baseline_surpassed, calibration_metric_vie
 from hth.domain.execution_dispatch import plan_static_dispatch
 from hth.domain.multidetector_schedule import (
     materially_improves_makespan,
+    optimize_lpt_schedule,
     plan_golden_set_lanes,
     plan_static_lpt_tasks,
     select_lpt_pipeline_count,
@@ -2144,6 +2145,8 @@ def _estimate_scope_makespan(
         ], "")
     )
     scaled_estimates: list[float] = []
+    fixed_preparation: list[float] = []
+    scalable_work: list[float] = []
     maximum_lanes: list[int] = []
     target_counts: list[int] = []
     for run_dir in run_dirs:
@@ -2179,43 +2182,71 @@ def _estimate_scope_makespan(
             if observation:
                 observation_sets = int(observation.get("actual_parameter_sets") or 0)
                 observation_elapsed = float(
-                    observation.get("estimated_serial_runtime_seconds")
+                    observation.get("scheduler_end_to_end_serial_seconds")
+                    or observation.get("estimated_serial_runtime_seconds")
                     or observation.get("wall_clock_seconds") or 0.0
                 )
                 if observation_sets > 0 and observation_elapsed > 0:
                     evaluated = observation_sets
                     elapsed = observation_elapsed
+                    observed_fixed = min(
+                        elapsed,
+                        max(0.0, float(observation.get("scheduler_fixed_preparation_seconds") or 0.0)),
+                    )
+                    observed_scalable = observation.get("scheduler_shardable_work_seconds")
+                    if observed_scalable is None:
+                        observed_scalable = max(0.0, elapsed - observed_fixed)
+                else:
+                    observed_fixed = 0.0
+                    observed_scalable = elapsed
+            else:
+                observed_fixed = 0.0
+                observed_scalable = elapsed
+        else:
+            observed_fixed = 0.0
+            observed_scalable = elapsed
 
         if evaluated <= 0 or elapsed <= 0 or target_count is None:
             return None
 
-        scaled_work = elapsed * target_count / evaluated
+        scaled_body = float(observed_scalable) * target_count / evaluated
+        scaled_work = observed_fixed + scaled_body
         scaled_estimates.append(scaled_work)
+        fixed_preparation.append(observed_fixed)
+        scalable_work.append(scaled_body)
         maximum_lanes.append(max(1, len(summary.get("page_ordinals", []))))
         target_counts.append(target_count)
 
     if strategy in {"adaptive", "binary-refine"}:
         lane_plan = plan_golden_set_lanes(
             scaled_estimates, pipelines, maximum_lanes=maximum_lanes,
+            fixed_preparation_seconds=fixed_preparation,
+            lane_work_seconds=scalable_work,
         )
         lane_counts = lane_plan["lane_counts"]
-        coordinated_estimates = [
-            seconds / count
-            for seconds, count in zip(scaled_estimates, lane_counts)
-            for _ in range(count)
-        ]
+        coordinated_estimates = []
+        for fixed, body, count in zip(fixed_preparation, scalable_work, lane_counts):
+            coordinated_estimates.append(fixed + body / count)
+            coordinated_estimates.extend([body / count] * (count - 1))
         return _lpt_makespan(coordinated_estimates, pipelines)
 
     shard_estimates: list[float] = []
-    for scaled_work, target_count in zip(scaled_estimates, target_counts):
+    shared_preparation = 0.0
+    for scaled_work, fixed, body, target_count in zip(
+        scaled_estimates, fixed_preparation, scalable_work, target_counts,
+    ):
         # Mirror the launcher's automatic shard count at the measured thread
         # setting.  Shards remain bounded by one parameter set each and by the
         # framework's normal 96-shard planning ceiling.
         shard_count = bounded_shard_count(
-            scaled_work, possible_parameter_sets=target_count,
+            body, possible_parameter_sets=target_count,
         )
-        shard_estimates.extend([scaled_work / shard_count] * shard_count)
-    return _lpt_makespan(shard_estimates, pipelines)
+        if shard_count > 1:
+            shared_preparation += fixed
+            shard_estimates.extend([body / shard_count] * shard_count)
+        else:
+            shard_estimates.append(scaled_work)
+    return shared_preparation + _lpt_makespan(shard_estimates, pipelines)
 
 
 def _regression_execution_metadata(
@@ -3075,6 +3106,18 @@ def build_combined_summary(
             build_id=str(execution.get("profile", {}).get("build_id") or "") if execution.get("profile") else None,
             golden_set_sha256=_combined_golden_sha(run_dirs),
         )
+        if current_observation:
+            lines.extend([
+                "#### Execution Timing Decomposition",
+                "",
+                "| Measure | Time |",
+                "|---|---:|",
+                f"| Scheduled batch makespan | {_duration(current_observation.get('makespan_seconds'))} |",
+                f"| Complete executor startup overhead | {_duration(current_observation.get('executor_startup_overhead_seconds'))} |",
+                f"| Pre-fan-out work | {_duration(current_observation.get('pre_fanout_seconds'))} |",
+                f"| Shared learned-evidence preparation | {_duration(current_observation.get('shared_evidence_preparation_seconds'))} |",
+                "",
+            ])
         current_schedule = (
             _observed_pipeline_schedule(current_observation)
             or _current_pipeline_schedule(run_dirs, pipeline_count)
@@ -3084,10 +3127,41 @@ def build_combined_summary(
             current_schedule, current_observation, pipeline_count,
             runner_thread_budget=thread_budget,
         )
-        next_threads = max(1, thread_budget // max(1, len(feedback_schedule)))
+        preferred_shape = None
+        profile = execution.get("profile") if isinstance(execution.get("profile"), dict) else {}
+        if runtime_index is not None and profile:
+            preferred_shape = optimize_lpt_schedule(
+                runtime_index_path=runtime_index,
+                completion_index_path=multidetector_index,
+                detector_ids=[str(row.get("detector") or "") for row in queue_rows],
+                runner_thread_budget=thread_budget,
+                runner_label=str(profile.get("runner_label") or ""),
+                golden_set_sha256=_combined_golden_sha(run_dirs),
+                mode=str(profile.get("mode") or ""),
+                strategy=str(profile.get("strategy") or ""),
+                max_dimension=int(profile.get("max_dimension") or 0),
+            )
+        if preferred_shape and preferred_shape.get("planned_tasks"):
+            feedback_schedule = _static_pipeline_schedule(
+                list(preferred_shape["planned_tasks"]), int(preferred_shape["pipelines"]),
+            )
+            next_pipeline_capacity = int(preferred_shape["pipelines"])
+            next_threads = int(preferred_shape["threads_per_pipeline"])
+        else:
+            next_pipeline_capacity = max(1, len(feedback_schedule))
+            next_threads = max(1, thread_budget // next_pipeline_capacity)
         current_by_pipeline = {int(plan["pipeline"]): plan for plan in current_schedule}
         next_by_pipeline = {int(plan["pipeline"]): plan for plan in feedback_schedule}
         lines.extend([
+            "",
+            f"**Preferred next execution shape:** {next_pipeline_capacity} pipeline capacity unit(s) × {next_threads} thread(s); {sum(len(plan.get('tasks', [])) for plan in feedback_schedule)} runnable job(s).",
+            *(
+                [
+                    f"Measured fixed shared-evidence preparation: {_duration(current_observation.get('shared_evidence_preparation_seconds'))} across {len(current_observation.get('shared_evidence_preparations', []))} detector(s). This work is included in end-to-end shape evaluation but is not divided across shards or Golden Set lanes.",
+                ]
+                if current_observation and current_observation.get("shared_evidence_preparations") else []
+            ),
+            "",
             "| Pipeline | Schedule | Reshuffle | Est Work | Actual Work Time | Next Run | Next Est | Threads |",
             "|---:|---|---|---:|---:|---|---:|---:|",
         ])
@@ -3113,7 +3187,7 @@ def build_combined_summary(
             ])
         lines.extend([
             "",
-            "`Schedule` is the fixed detector-ID order executed by this build. `Est Work` is the estimate used before fan-out. `Actual Work Time` is the measured fixed-pipeline span. `Reshuffle`, `Next Run`, and `Next Est` use newly measured scheduler-facing detector costs. The current assignment is retained unless a replacement improves projected makespan by at least 20%, and no accepted pipeline may exceed the longest measured detector job.",
+            "`Schedule` is the fixed detector-ID order executed by this build. `Est Work` is the estimate used before fan-out. `Actual Work Time` is the measured fixed-pipeline span. `Reshuffle`, `Next Run`, and `Next Est` use the same newly measured scheduler-facing cost decomposition and shard/lane planner as preferred dispatch. Fixed evidence preparation is never divided by shard or lane count. The current assignment is retained unless a replacement improves projected makespan by at least 20%, and no accepted pipeline may exceed the longest measured detector job.",
             "",
             "Scheduler-facing detector cost includes the executor's per-detector load/run/unload wrapper time; pipeline scheduling therefore learns orchestration overhead instead of modeling detector-core RUN-INFO time alone. The next schedule is still fixed before the following run starts—there is no dynamic stealing.",
             "",

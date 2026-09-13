@@ -9,6 +9,7 @@ import numpy as np
 from hth.geometry import detector_dhsegment_page_mask as dh
 from hth.geometry import detector_kraken_page_mask as kraken
 from hth.regression.runner import logical_golden_set, PRECOMPUTED_EVIDENCE_PREPARERS
+from hth.regression.learned_evidence import EXPORTERS
 
 
 class _FakeKrakenModel:
@@ -41,6 +42,9 @@ class PrecomputedLearnedEvidenceTests(unittest.TestCase):
     def test_runner_registers_both_learned_evidence_preparers(self):
         self.assertIn("kraken_page_mask", PRECOMPUTED_EVIDENCE_PREPARERS)
         self.assertIn("dhsegment_page_mask", PRECOMPUTED_EVIDENCE_PREPARERS)
+
+    def test_parent_export_registry_covers_every_runtime_preparer(self):
+        self.assertEqual(set(EXPORTERS), set(PRECOMPUTED_EVIDENCE_PREPARERS))
 
     def test_each_parameter_evaluation_gets_private_logical_page_metadata(self):
         image = np.zeros((5,5,3), dtype=np.uint8)

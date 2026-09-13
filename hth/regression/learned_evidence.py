@@ -17,6 +17,7 @@ from hth.persistence import canonical_index_path, atomic_write_json
 EXPORTERS = {
     "kraken_page_mask": detector_kraken_page_mask.export_precomputed_golden_set_evidence,
     "doc_ufcn_page_mask": detector_doc_ufcn_page_mask.export_precomputed_golden_set_evidence,
+    "amsre_doc_ufcn_fusion": detector_doc_ufcn_page_mask.export_precomputed_golden_set_evidence,
     "mask_rcnn_page_mask": detector_mask_rcnn_page_mask.export_precomputed_golden_set_evidence,
     "orli_page_mask": detector_orli_page_mask.export_precomputed_golden_set_evidence,
     "dhsegment_page_mask": detector_dhsegment_page_mask.export_precomputed_golden_set_evidence,
@@ -276,6 +277,7 @@ def parse_args(argv=None):
     prep.add_argument("--results-root", type=Path, default=None)
     rebuild = sub.add_parser("rebuild-orli-index")
     rebuild.add_argument("--results-root", type=Path, required=True)
+    sub.add_parser("supported")
     return parser.parse_args(argv)
 
 
@@ -294,6 +296,9 @@ def main(argv=None) -> int:
     if args.command == "rebuild-orli-index":
         target = rebuild_orli_index(results_root=args.results_root)
         print(f"Orli evidence index rebuilt: {target}", flush=True)
+        return 0
+    if args.command == "supported":
+        print("\n".join(sorted(EXPORTERS)), flush=True)
         return 0
     return 2
 

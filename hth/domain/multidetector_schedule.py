@@ -6,6 +6,8 @@ import math
 from pathlib import Path
 from typing import Any, Mapping
 
+from hth.contracts import RUNTIME_INDEX_SCHEMA_VERSION, RUNTIME_OBSERVATION_SCHEMA_VERSION
+
 MIN_MAKESPAN_IMPROVEMENT = 0.20
 DEFAULT_SHARD_TARGET_SECONDS = 10 * 60
 MAX_MANDATORY_REFERENCE_RUNS = 2
@@ -143,10 +145,19 @@ def plan_capacity_shards(
     target_shard_seconds: float = DEFAULT_SHARD_TARGET_SECONDS,
     minimum_makespan_improvement: float = MIN_MAKESPAN_IMPROVEMENT,
     maximum_shards: list[int | None] | None = None,
+    fixed_preparation_seconds: list[float | int | None] | None = None,
+    shardable_work_seconds: list[float | int | None] | None = None,
+    pre_fanout_preparation: list[bool] | None = None,
 ) -> dict[str, Any]:
     """Split long LPT jobs only when runner capacity materially lowers makespan."""
     if maximum_shards is not None and len(maximum_shards) != len(estimates):
         raise ValueError("maximum_shards must align with estimates")
+    if fixed_preparation_seconds is not None and len(fixed_preparation_seconds) != len(estimates):
+        raise ValueError("fixed_preparation_seconds must align with estimates")
+    if shardable_work_seconds is not None and len(shardable_work_seconds) != len(estimates):
+        raise ValueError("shardable_work_seconds must align with estimates")
+    if pre_fanout_preparation is not None and len(pre_fanout_preparation) != len(estimates):
+        raise ValueError("pre_fanout_preparation must align with estimates")
     target = _as_float(target_shard_seconds)
     if target is None or target <= 0:
         raise ValueError("target_shard_seconds must be finite and positive")
@@ -170,11 +181,40 @@ def plan_capacity_shards(
     # are never themselves split from an invented runtime.
     fallback = max(known)
     complete = [value if value is not None and value > 0 else fallback for value in normalized]
+    fixed = []
+    shardable = []
+    for index, total in enumerate(complete):
+        raw_fixed = (
+            _as_float(fixed_preparation_seconds[index])
+            if fixed_preparation_seconds is not None else None
+        )
+        fixed_cost = min(total, max(0.0, raw_fixed or 0.0))
+        raw_shardable = (
+            _as_float(shardable_work_seconds[index])
+            if shardable_work_seconds is not None else None
+        )
+        body_cost = (
+            max(0.0, raw_shardable)
+            if raw_shardable is not None else max(0.0, total - fixed_cost)
+        )
+        fixed.append(fixed_cost)
+        shardable.append(body_cost)
+    parent_shared = list(pre_fanout_preparation or [False] * len(complete))
+    unsharded_estimates = [
+        body if shared else total
+        for total, body, shared in zip(complete, shardable, parent_shared)
+    ]
+    unsharded_shared_preparation = sum(
+        fixed_cost for fixed_cost, shared in zip(fixed, parent_shared) if shared
+    )
     unsharded_pipelines = min(len(complete), capacity)
-    unsharded_schedule = plan_static_lpt_tasks(complete, unsharded_pipelines)
-    unsharded_makespan = max(float(row["estimated_seconds"]) for row in unsharded_schedule)
+    unsharded_schedule = plan_static_lpt_tasks(unsharded_estimates, unsharded_pipelines)
+    unsharded_fanout_makespan = max(
+        float(row["estimated_seconds"]) for row in unsharded_schedule
+    )
+    unsharded_makespan = unsharded_shared_preparation + unsharded_fanout_makespan
     proposed_counts = []
-    for index, seconds in enumerate(complete):
+    for index, seconds in enumerate(shardable):
         proposed = (
             max(1, math.ceil(seconds / target))
             if normalized[index] is not None and normalized[index] > 0
@@ -187,21 +227,27 @@ def plan_capacity_shards(
                 raise ValueError(f"maximum_shards[{index}] must be an integer or None")
             proposed = min(proposed, max(1, shard_limit))
         proposed_counts.append(proposed)
-    proposed_estimates = [
-        seconds / count
-        for seconds, count in zip(complete, proposed_counts)
-        for _ in range(count)
-    ]
+    proposed_estimates = []
+    shared_preparation = 0.0
+    for total, fixed_cost, body_cost, count, already_shared in zip(
+        complete, fixed, shardable, proposed_counts, parent_shared,
+    ):
+        if count > 1 or already_shared:
+            shared_preparation += fixed_cost
+            proposed_estimates.extend([body_cost / count] * count)
+        else:
+            proposed_estimates.append(total)
     proposed_pipelines = min(len(proposed_estimates), capacity)
     proposed_schedule = plan_static_lpt_tasks(proposed_estimates, proposed_pipelines)
-    proposed_makespan = max(float(row["estimated_seconds"]) for row in proposed_schedule)
+    proposed_fanout_makespan = max(float(row["estimated_seconds"]) for row in proposed_schedule)
+    proposed_makespan = shared_preparation + proposed_fanout_makespan
     improvement = (
         (unsharded_makespan - proposed_makespan) / unsharded_makespan
         if unsharded_makespan > 0 else 0.0
     )
     applied = materially_improves_makespan(
         unsharded_makespan, proposed_makespan,
-        high_water_seconds=max(complete),
+        high_water_seconds=unsharded_makespan,
         minimum_improvement=minimum_makespan_improvement,
     )
     return {
@@ -214,6 +260,8 @@ def plan_capacity_shards(
         "makespan_improvement": improvement if applied else 0.0,
         "task_count": len(proposed_estimates) if applied else len(complete),
         "target_shard_seconds": target,
+        "shared_preparation_seconds": shared_preparation if applied else 0.0,
+        "predicted_fanout_makespan_seconds": proposed_fanout_makespan if applied else unsharded_fanout_makespan,
     }
 
 
@@ -224,6 +272,9 @@ def plan_golden_set_lanes(
     maximum_lanes: list[int | None],
     target_lane_seconds: float = DEFAULT_SHARD_TARGET_SECONDS,
     minimum_makespan_improvement: float = MIN_MAKESPAN_IMPROVEMENT,
+    fixed_preparation_seconds: list[float | int | None] | None = None,
+    lane_work_seconds: list[float | int | None] | None = None,
+    pre_fanout_preparation: list[bool] | None = None,
 ) -> dict[str, Any]:
     """Allocate bounded page lanes without creating independent searches.
 
@@ -234,6 +285,12 @@ def plan_golden_set_lanes(
     """
     if len(maximum_lanes) != len(estimates):
         raise ValueError("maximum_lanes must align with estimates")
+    if fixed_preparation_seconds is not None and len(fixed_preparation_seconds) != len(estimates):
+        raise ValueError("fixed_preparation_seconds must align with estimates")
+    if lane_work_seconds is not None and len(lane_work_seconds) != len(estimates):
+        raise ValueError("lane_work_seconds must align with estimates")
+    if pre_fanout_preparation is not None and len(pre_fanout_preparation) != len(estimates):
+        raise ValueError("pre_fanout_preparation must align with estimates")
     target = _as_float(target_lane_seconds)
     if target is None or target <= 0:
         raise ValueError("target_lane_seconds must be finite and positive")
@@ -250,13 +307,32 @@ def plan_golden_set_lanes(
         }
     fallback = max(known)
     complete = [value if value is not None and value > 0 else fallback for value in normalized]
+    fixed = []
+    lane_work = []
+    for index, total in enumerate(complete):
+        raw_fixed = (
+            _as_float(fixed_preparation_seconds[index])
+            if fixed_preparation_seconds is not None else None
+        )
+        fixed_cost = min(total, max(0.0, raw_fixed or 0.0))
+        raw_lane_work = (
+            _as_float(lane_work_seconds[index]) if lane_work_seconds is not None else None
+        )
+        fixed.append(fixed_cost)
+        lane_work.append(
+            max(0.0, raw_lane_work)
+            if raw_lane_work is not None else max(0.0, total - fixed_cost)
+        )
+    parent_shared = list(pre_fanout_preparation or [False] * len(complete))
+    global_fixed = sum(cost for cost, shared in zip(fixed, parent_shared) if shared)
+    local_fixed = [0.0 if shared else cost for cost, shared in zip(fixed, parent_shared)]
     limits: list[int] = []
     for index, raw in enumerate(maximum_lanes):
         parsed = _as_int(raw)
         if parsed is None or parsed < 1:
             limits.append(1)
             continue
-        desired = max(1, math.ceil(complete[index] / target))
+        desired = max(1, math.ceil(lane_work[index] / target))
         limits.append(min(parsed, desired, capacity))
 
     counts = [1] * len(complete)
@@ -266,14 +342,19 @@ def plan_golden_set_lanes(
             break
         # Add the lane that lowers the current longest coordinator. Stable
         # index tie-breaking keeps the plan reproducible.
-        selected = max(
-            eligible,
-            key=lambda index: (complete[index] / counts[index], -index),
-        )
+        selected = max(eligible, key=lambda index: (
+            local_fixed[index] + lane_work[index] / counts[index], -index,
+        ))
         counts[selected] += 1
 
-    incumbent = max(complete)
-    proposed = max(seconds / count for seconds, count in zip(complete, counts))
+    incumbent = global_fixed + max(
+        fixed_cost + work
+        for fixed_cost, work in zip(local_fixed, lane_work)
+    )
+    proposed = global_fixed + max(
+        fixed_cost + work / count
+        for fixed_cost, work, count in zip(local_fixed, lane_work, counts)
+    )
     improvement = (incumbent - proposed) / incumbent if incumbent > 0 else 0.0
     applied = materially_improves_makespan(
         incumbent, proposed, high_water_seconds=incumbent,
@@ -288,6 +369,7 @@ def plan_golden_set_lanes(
         "predicted_makespan_seconds": proposed if applied else incumbent,
         "makespan_improvement": improvement if applied else 0.0,
         "target_lane_seconds": target,
+        "shared_preparation_seconds": global_fixed,
     }
 
 
@@ -302,6 +384,7 @@ def supports_golden_set_lane_scaling(runner_label: str, max_pipelines: int) -> b
 def _scheduler_runtime(row: dict[str, Any]) -> float | None:
     """Return one observation's canonical serial/scheduler/wall cost."""
     for field in (
+        "scheduler_end_to_end_serial_seconds",
         "estimated_serial_runtime_seconds",
         "scheduler_wall_clock_seconds",
         "wall_clock_seconds",
@@ -310,6 +393,22 @@ def _scheduler_runtime(row: dict[str, Any]) -> float | None:
         if seconds is not None and seconds > 0:
             return seconds
     return None
+
+
+def _scheduler_runtime_components(row: dict[str, Any]) -> tuple[float | None, float, float | None, bool]:
+    """Return total, fixed preparation, shardable work, and preparation placement."""
+    total = _scheduler_runtime(row)
+    fixed = _as_float(row.get("scheduler_fixed_preparation_seconds")) or 0.0
+    body = _as_float(row.get("scheduler_shardable_work_seconds"))
+    if total is None:
+        return None, max(0.0, fixed), body, False
+    fixed = min(total, max(0.0, fixed))
+    if body is None:
+        body = max(0.0, total - fixed)
+    return (
+        total, fixed, max(0.0, body),
+        str(row.get("scheduler_preparation_source") or "") == "parent-shared",
+    )
 
 
 def _candidate_shard_limit(row: dict[str, Any]) -> int | None:
@@ -340,7 +439,21 @@ def optimize_lpt_schedule(
     an unmeasured thread-scaling curve.
     """
     payload = _read_index(runtime_index_path)
-    observations = [row for row in payload.get("observations", []) if isinstance(row, dict)]
+    index_schema = str(payload.get("schema_version") or "legacy")
+    if index_schema not in {"legacy", RUNTIME_INDEX_SCHEMA_VERSION}:
+        return None
+    observations = [
+        row for row in payload.get("observations", [])
+        if isinstance(row, dict)
+        and (
+            index_schema == "legacy"
+            or (
+                str(row.get("schema_version") or "") == RUNTIME_OBSERVATION_SCHEMA_VERSION
+                and _as_float(row.get("scheduler_end_to_end_serial_seconds")) is not None
+                and _as_float(row.get("scheduler_shardable_work_seconds")) is not None
+            )
+        )
+    ]
     if not observations or not detector_ids or len(set(detector_ids)) != len(detector_ids):
         return None
     wanted = set(detector_ids)
@@ -415,19 +528,31 @@ def optimize_lpt_schedule(
     # runner's full pipeline capacity here instead of capping it at detector
     # count before the shard plan is known.
     max_pipelines = max(1, budget // 2)
-    measured = [
-        _scheduler_runtime(selected_by_detector[detector])
+    components = [
+        _scheduler_runtime_components(selected_by_detector[detector])
         for detector in detector_ids
     ]
+    measured = [row[0] for row in components]
+    fixed_preparation = [row[1] for row in components]
+    shardable_work = [row[2] for row in components]
+    parent_shared_preparation = [row[3] for row in components]
     known = [value for value in measured if value is not None and value > 0]
     if len(known) != len(detector_ids):
         return None
     complete = [float(value) for value in measured if value is not None]
-    floor_seconds = max(complete)
+    global_parent_preparation = sum(
+        fixed for fixed, shared in zip(fixed_preparation, parent_shared_preparation)
+        if shared
+    )
+    base_fanout_estimates = [
+        float(body) if shared and body is not None else total
+        for total, body, shared in zip(complete, shardable_work, parent_shared_preparation)
+    ]
+    floor_seconds = global_parent_preparation + max(base_fanout_estimates)
     incumbent_assignments: dict[str, int] = {}
     incumbent_pipeline_count = 0
     incumbent_loads: dict[int, float] = {}
-    for detector, seconds in zip(detector_ids, complete):
+    for detector, seconds in zip(detector_ids, base_fanout_estimates):
         row = selected_by_detector[detector]
         pipeline = _as_int(row.get("detector_pipeline_number"))
         count = _as_int(row.get("detector_pipelines"))
@@ -448,43 +573,60 @@ def optimize_lpt_schedule(
                 _as_int(selected_by_detector[detector].get("golden_set_pages"))
                 for detector in detector_ids
             ],
+            fixed_preparation_seconds=fixed_preparation,
+            lane_work_seconds=shardable_work,
+            pre_fanout_preparation=parent_shared_preparation,
         )
         if supports_golden_set_lane_scaling(runner_label, max_pipelines)
         and strategy in {"adaptive", "binary-refine"}
         else None
     )
     shard_plan = (
-        plan_capacity_shards(complete, max_pipelines, maximum_shards=maximum_shards)
+        plan_capacity_shards(
+            complete, max_pipelines, maximum_shards=maximum_shards,
+            fixed_preparation_seconds=fixed_preparation,
+            shardable_work_seconds=shardable_work,
+            pre_fanout_preparation=parent_shared_preparation,
+        )
         if max_pipelines > 4 and strategy in {"exhaustive", "exhaustive-with-zombies"}
         else None
     )
     if lane_plan and lane_plan["applied"]:
         golden_set_lane_counts = list(lane_plan["lane_counts"])
         shard_counts = [1] * len(complete)
-        scheduled_estimates = [
-            seconds / count
-            for seconds, count in zip(complete, golden_set_lane_counts)
-            for _ in range(count)
-        ]
+        scheduled_estimates = []
+        for total, fixed_cost, body_cost, count, parent_shared in zip(
+            complete, fixed_preparation, shardable_work, golden_set_lane_counts,
+            parent_shared_preparation,
+        ):
+            body = float(body_cost) if body_cost is not None else max(0.0, total - fixed_cost)
+            # Candidate capacity is expressed in lanes. Attribute fixed work
+            # once and only the divisible work across lane units.
+            scheduled_estimates.append((0.0 if parent_shared else fixed_cost) + body / count)
+            scheduled_estimates.extend([body / count] * (count - 1))
         selected_pipeline_count = int(lane_plan["pipelines"])
-        floor_seconds = max(scheduled_estimates)
+        floor_seconds = float(lane_plan.get("shared_preparation_seconds") or 0.0) + max(scheduled_estimates)
         max_pipelines = selected_pipeline_count
     elif shard_plan and shard_plan["applied"]:
         golden_set_lane_counts = [1] * len(complete)
         shard_counts = list(shard_plan["shard_counts"])
-        scheduled_estimates = [
-            seconds / count
-            for seconds, count in zip(complete, shard_counts)
-            for _ in range(count)
-        ]
+        scheduled_estimates = []
+        for total, fixed_cost, body_cost, count in zip(
+            complete, fixed_preparation, shardable_work, shard_counts,
+        ):
+            body = float(body_cost) if body_cost is not None else max(0.0, total - fixed_cost)
+            if count > 1:
+                scheduled_estimates.extend([body / count] * count)
+            else:
+                scheduled_estimates.append(total)
         selected_pipeline_count = int(shard_plan["pipelines"])
-        floor_seconds = max(scheduled_estimates)
+        floor_seconds = float(shard_plan.get("shared_preparation_seconds") or 0.0) + max(scheduled_estimates)
         max_pipelines = selected_pipeline_count
     else:
         golden_set_lane_counts = [1] * len(complete)
         shard_counts = [1] * len(complete)
-        scheduled_estimates = complete
-        selected_pipeline_count = select_lpt_pipeline_count(complete, max_pipelines)
+        scheduled_estimates = base_fanout_estimates
+        selected_pipeline_count = select_lpt_pipeline_count(base_fanout_estimates, max_pipelines)
         max_pipelines = min(len(complete), max_pipelines)
         # The smallest-count floor is useful for bootstrap, but a feedback
         # reshuffle must not contract an observed topology merely because fewer
@@ -497,18 +639,20 @@ def optimize_lpt_schedule(
             and len(incumbent_assignments) == len(detector_ids)
             and selected_pipeline_count < incumbent_pipeline_count
         ):
-            contracted = plan_static_lpt_tasks(complete, selected_pipeline_count)
-            retained = plan_static_lpt_tasks(complete, incumbent_pipeline_count)
-            contracted_makespan = max(float(row["estimated_seconds"]) for row in contracted)
-            retained_makespan = max(float(row["estimated_seconds"]) for row in retained)
+            contracted = plan_static_lpt_tasks(base_fanout_estimates, selected_pipeline_count)
+            retained = plan_static_lpt_tasks(base_fanout_estimates, incumbent_pipeline_count)
+            contracted_makespan = global_parent_preparation + max(float(row["estimated_seconds"]) for row in contracted)
+            retained_makespan = global_parent_preparation + max(float(row["estimated_seconds"]) for row in retained)
             if not materially_improves_makespan(
                 retained_makespan, contracted_makespan,
                 high_water_seconds=floor_seconds,
             ):
                 selected_pipeline_count = incumbent_pipeline_count
-        proposed = plan_static_lpt_tasks(complete, selected_pipeline_count)
-        proposed_makespan = max(float(row["estimated_seconds"]) for row in proposed)
-        incumbent_makespan = max(incumbent_loads.values()) if incumbent_loads else None
+        proposed = plan_static_lpt_tasks(base_fanout_estimates, selected_pipeline_count)
+        proposed_makespan = global_parent_preparation + max(float(row["estimated_seconds"]) for row in proposed)
+        incumbent_makespan = (
+            global_parent_preparation + max(incumbent_loads.values()) if incumbent_loads else None
+        )
         if (
             incumbent_pipeline_count > 0
             and incumbent_pipeline_count <= max_pipelines
@@ -524,6 +668,12 @@ def optimize_lpt_schedule(
         threads = max(1, budget // pipelines)
         schedule = plan_static_lpt_tasks(scheduled_estimates, pipelines)
         makespan = max(float(row["estimated_seconds"]) for row in schedule)
+        shape_plan = shard_plan if shard_plan and shard_plan["applied"] else lane_plan
+        shared_preparation = (
+            float(shape_plan.get("shared_preparation_seconds") or 0.0)
+            if shape_plan and shape_plan["applied"] else global_parent_preparation
+        )
+        makespan += shared_preparation
         utilization = sum(scheduled_estimates) / (pipelines * makespan)
         candidates.append({
             "pipelines": pipelines,
@@ -552,9 +702,9 @@ def optimize_lpt_schedule(
         and len(incumbent_assignments) == len(detector_ids)
         and incumbent_loads
     ):
-        incumbent_makespan = max(incumbent_loads.values())
+        incumbent_makespan = global_parent_preparation + max(incumbent_loads.values())
         selected["predicted_makespan_seconds"] = incumbent_makespan
-        selected["predicted_pipeline_utilization"] = sum(complete) / (
+        selected["predicted_pipeline_utilization"] = sum(base_fanout_estimates) / (
             selected_pipeline_count * incumbent_makespan
         )
         selected["detector_pipeline_assignments"] = incumbent_assignments
@@ -583,6 +733,45 @@ def optimize_lpt_schedule(
     selected["sharding_makespan_improvement"] = (
         float(shard_plan["makespan_improvement"]) if shard_plan else 0.0
     )
+    shape_plan = shard_plan if shard_plan and shard_plan["applied"] else lane_plan
+    selected["shared_preparation_seconds"] = (
+        float(shape_plan.get("shared_preparation_seconds") or 0.0)
+        if shape_plan and shape_plan.get("applied") else global_parent_preparation
+    )
+    detector_fanout_estimates: dict[str, float] = {}
+    for detector, fixed_cost, body_cost, shards, lanes, parent_shared in zip(
+        detector_ids, fixed_preparation, shardable_work,
+        shard_counts, golden_set_lane_counts, parent_shared_preparation,
+    ):
+        body = float(body_cost) if body_cost is not None else 0.0
+        detector_fanout_estimates[detector] = (
+            body if shards > 1
+            else (0.0 if parent_shared else fixed_cost) + body / lanes
+        )
+    selected["detector_fanout_estimates"] = detector_fanout_estimates
+    planned_tasks: list[dict[str, Any]] = []
+    for detector, total, fixed_cost, body_cost, shards, lanes, parent_shared in zip(
+        detector_ids, complete, fixed_preparation, shardable_work,
+        shard_counts, golden_set_lane_counts, parent_shared_preparation,
+    ):
+        body = float(body_cost) if body_cost is not None else max(0.0, total - fixed_cost)
+        if shards > 1:
+            planned_tasks.extend({
+                "detector": detector,
+                "shard_index": index,
+                "shard_count": shards,
+                "golden_set_lanes": 1,
+                "estimate_seconds": body / shards,
+            } for index in range(shards))
+        else:
+            planned_tasks.append({
+                "detector": detector,
+                "shard_index": 0,
+                "shard_count": 1,
+                "golden_set_lanes": lanes,
+                "estimate_seconds": (0.0 if parent_shared else fixed_cost) + body / lanes,
+            })
+    selected["planned_tasks"] = planned_tasks
     selected["leading_candidates"] = [
         {
             "pipelines": int(row["pipelines"]),

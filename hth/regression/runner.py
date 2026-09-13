@@ -1448,7 +1448,12 @@ def run(args:argparse.Namespace)->Path:
         )
         elapsed_seconds=round(time.perf_counter()-wall,3)
         coordinator_serial_seconds=(
-            round(elapsed_seconds * golden_set_lanes, 3)
+            round(
+                min(elapsed_seconds, float(evidence_precompute_seconds or 0.0))
+                + max(0.0, elapsed_seconds - float(evidence_precompute_seconds or 0.0))
+                * golden_set_lanes,
+                3,
+            )
             if golden_set_coordinator_payload is not None and golden_set_lanes > 1
             else None
         )

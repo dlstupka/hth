@@ -9,12 +9,12 @@ from hth.domain.result_metrics import normalize_summary_metrics
 from hth.optimizer_validity import migrate_optimizer_evidence, migrate_optimizer_run
 
 CALIBRATION_INDEX_SCHEMA_VERSION = "1.0"
-RUNTIME_INDEX_SCHEMA_VERSION = "1.0"
+RUNTIME_INDEX_SCHEMA_VERSION = "1.1"
 PARALLELISM_INDEX_SCHEMA_VERSION = "2.3"
 OPTIMIZER_INDEX_SCHEMA_VERSION = "2.1"
 REGRESSION_SUMMARY_SCHEMA_VERSION = "0.9"
 OPTIMIZER_OBSERVATION_SCHEMA_VERSION = "1.0"
-RUNTIME_OBSERVATION_SCHEMA_VERSION = "1.0"
+RUNTIME_OBSERVATION_SCHEMA_VERSION = "1.1"
 
 
 def _object(payload: Any, name: str) -> dict[str, Any]:

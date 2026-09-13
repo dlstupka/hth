@@ -65,6 +65,7 @@ class SharedLearnedEvidenceParentTests(unittest.TestCase):
         fanout = text.index('detector_worker "$pipeline_index"', prepare)
         self.assertLess(prepare, fanout)
         self.assertIn('if (( learned_count > 1 )); then', text)
+        self.assertIn('python -m hth.regression.learned_evidence supported', text)
         self.assertIn('--precomputed-evidence "$shared_evidence_dir"', text)
 
     def test_page_level_telemetry_is_visible(self):

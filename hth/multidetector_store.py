@@ -77,6 +77,26 @@ def _read_claim_batch(path: Path) -> dict[str, Any]:
             "task_indexes":task_indexes,"task_count":len(task_indexes)}
 
 
+def _read_shared_evidence(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if not path.is_file():
+        return rows
+    for line in path.read_text(encoding="utf-8").splitlines():
+        parts = line.split("\t")
+        if len(parts) != 5 or parts[0] != "shared_evidence":
+            raise ValueError(f"Invalid shared evidence telemetry: {path}")
+        _, detector, task_count, started, finished = parts
+        start, end = _float(started), _float(finished)
+        rows.append({
+            "detector": detector,
+            "task_count": int(task_count),
+            "started_epoch": start,
+            "finished_epoch": end,
+            "elapsed_seconds": max(0.0, end - start),
+        })
+    return rows
+
+
 def _active_timeline(tasks: list[dict[str, Any]]) -> tuple[dict[str, float], float, dict[str, float]]:
     events=[]
     for task in tasks:
@@ -106,6 +126,7 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
     tasks=[_read_task(p) for p in sorted((telemetry/"tasks").glob("*.tsv"))]
     claim_batch_dir=telemetry/"claim-batches"
     claim_batches=[_read_claim_batch(p) for p in sorted(claim_batch_dir.glob("*.tsv"))] if claim_batch_dir.is_dir() else []
+    shared_evidence = _read_shared_evidence(telemetry / "learned-evidence.tsv")
     batches_by_id={row["claim_batch_id"]:row for row in claim_batches}
     for task in tasks:
         batch_row=batches_by_id.get(task.get("claim_batch_id"))
@@ -143,6 +164,11 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
         busy=busy_by_worker.get(worker["pipeline"],0.0); worker["busy_seconds"]=busy; worker["idle_seconds"]=max(0.0,worker["span_seconds"]-busy); worker["utilization"]=0.0 if worker["span_seconds"]<=0 else busy/worker["span_seconds"]
     total_busy=sum(float(t["busy_seconds"]) for t in tasks); worker_count=max(1,len(workers)); util=0.0 if makespan<=0 else total_busy/(worker_count*makespan)
     active_seconds, final_tail, tail_by_active = _active_timeline(tasks)
+    first_worker_start = min(
+        (float(worker["started_epoch"]) for worker in workers), default=batch_start,
+    )
+    pre_fanout_seconds = max(0.0, first_worker_start - batch_start)
+    shared_evidence_seconds = sum(float(row["elapsed_seconds"]) for row in shared_evidence)
     observation={
         "schema_version":OBSERVATION_SCHEMA_VERSION, "observation_id":args.observation_id,
         "observed_at_utc":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),
@@ -154,10 +180,17 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
         "worker_count":worker_count, "threads_per_worker":args.threads_per_worker, "allocated_threads":args.allocated_threads,
         "loading_strategy":args.loading_strategy, "claim_strategy":getattr(args,"claim_strategy","dynamic-lpt"), "scheduler_source":args.scheduler_source,
         "batch_started_epoch":batch_start, "batch_finished_epoch":batch_end, "makespan_seconds":makespan,
+        "pre_fanout_seconds": pre_fanout_seconds,
+        "non_evidence_pre_fanout_seconds": max(0.0, pre_fanout_seconds - shared_evidence_seconds),
+        "executor_startup_overhead_seconds": max(
+            0.0, float(getattr(args, "executor_startup_overhead_seconds", 0.0) or 0.0),
+        ),
         "total_worker_busy_seconds":total_busy, "total_worker_idle_seconds":max(0.0,worker_count*makespan-total_busy),
         "worker_utilization":util, "active_worker_seconds":active_seconds, "final_tail_seconds":final_tail,
         "final_tail_seconds_by_active_workers":tail_by_active, "claim_batch_count":len(claim_batches),
         "claim_batches":claim_batches, "workers":workers, "tasks":tasks,
+        "shared_evidence_preparations": shared_evidence,
+        "shared_evidence_preparation_seconds": shared_evidence_seconds,
     }
     _write_json(args.output,observation); return observation
 
@@ -186,9 +219,14 @@ def _publish_scheduler_costs(results_root: Path, observation: dict[str, Any]) ->
         except (TypeError, ValueError):
             continue
         detector = str(task.get("detector") or "")
-        if detector and shard_count == 1 and seconds >= 0:
-            costs[detector] = seconds
-    if not costs:
+        if detector and seconds >= 0:
+            costs[detector] = costs.get(detector, 0.0) + seconds
+    fixed = {
+        str(item.get("detector") or ""): float(item.get("elapsed_seconds") or 0.0)
+        for item in observation.get("shared_evidence_preparations", [])
+        if isinstance(item, dict) and str(item.get("detector") or "")
+    }
+    if not costs and not fixed:
         return
     changed = False
     for row in runtime.get("observations", []):
@@ -199,8 +237,38 @@ def _publish_scheduler_costs(results_root: Path, observation: dict[str, Any]) ->
             continue
         detector = str(row.get("detector_id") or "")
         if detector in costs:
-            row["scheduler_wall_clock_seconds"] = costs[detector]
-            row["scheduler_cost_source"] = "multidetector-fixed-pipeline-slot"
+            shard_count = int(row.get("shard_count") or 1)
+            preparation = max(0.0, fixed.get(
+                detector, float(row.get("scheduler_fixed_preparation_seconds") or 0.0),
+            ))
+            slot_cost = max(0.0, costs[detector])
+            # Parent-shared evidence runs before fan-out and is absent from
+            # scheduler slots. Process-local preparation is already inside
+            # the slot, so subtract it before storing independently scalable
+            # work; otherwise the fixed preparation would be counted twice.
+            coordinator_lanes = max(1, int(row.get("golden_set_coordinator_lanes") or 1))
+            serial_lane_work = row.get("scheduler_shardable_work_seconds")
+            if coordinator_lanes > 1 and serial_lane_work is not None:
+                # The task slot is coordinated wall time. Preserve the runner's
+                # reconstructed serial-equivalent page work or the next plan
+                # would learn that the already-parallelized duration is serial.
+                shardable = max(0.0, float(serial_lane_work))
+            else:
+                shardable = (
+                    slot_cost if detector in fixed
+                    else max(0.0, slot_cost - preparation)
+                )
+            row["scheduler_fixed_preparation_seconds"] = preparation
+            row["scheduler_shardable_work_seconds"] = shardable
+            row["scheduler_end_to_end_serial_seconds"] = preparation + shardable
+            row["scheduler_preparation_source"] = (
+                "parent-shared" if detector in fixed
+                else row.get("scheduler_preparation_source")
+            )
+            # Only an unsharded task has one directly reusable scheduler slot.
+            if shard_count == 1:
+                row["scheduler_wall_clock_seconds"] = slot_cost
+            row["scheduler_cost_source"] = "multidetector-decomposed-scheduler-cost"
             changed = True
     if changed:
         runtime["updated_at_utc"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -225,7 +293,7 @@ def publish(metadata: Path, results_root: Path) -> dict[str, Any]:
 
 def parser() -> argparse.ArgumentParser:
     p=argparse.ArgumentParser(description=__doc__); sub=p.add_subparsers(dest="command",required=True)
-    f=sub.add_parser("finalize"); f.add_argument("--telemetry-root",type=Path,required=True); f.add_argument("--output",type=Path,required=True); f.add_argument("--observation-id",required=True); f.add_argument("--github-run-id",default=""); f.add_argument("--github-run-number",default=""); f.add_argument("--mode",required=True); f.add_argument("--strategy",required=True); f.add_argument("--limit",default=""); f.add_argument("--detector-count",type=int,required=True); f.add_argument("--golden-set-sha256",required=True); f.add_argument("--runner-label",required=True); f.add_argument("--runner-name",required=True); f.add_argument("--runner-thread-budget",type=int,required=True); f.add_argument("--threads-per-worker",type=int,required=True); f.add_argument("--allocated-threads",type=int,required=True); f.add_argument("--loading-strategy",required=True); f.add_argument("--claim-strategy",required=True); f.add_argument("--scheduler-source",required=True)
+    f=sub.add_parser("finalize"); f.add_argument("--telemetry-root",type=Path,required=True); f.add_argument("--output",type=Path,required=True); f.add_argument("--observation-id",required=True); f.add_argument("--github-run-id",default=""); f.add_argument("--github-run-number",default=""); f.add_argument("--mode",required=True); f.add_argument("--strategy",required=True); f.add_argument("--limit",default=""); f.add_argument("--detector-count",type=int,required=True); f.add_argument("--golden-set-sha256",required=True); f.add_argument("--runner-label",required=True); f.add_argument("--runner-name",required=True); f.add_argument("--runner-thread-budget",type=int,required=True); f.add_argument("--threads-per-worker",type=int,required=True); f.add_argument("--allocated-threads",type=int,required=True); f.add_argument("--loading-strategy",required=True); f.add_argument("--claim-strategy",required=True); f.add_argument("--scheduler-source",required=True); f.add_argument("--executor-startup-overhead-seconds",type=float,default=0.0)
     q=sub.add_parser("publish"); q.add_argument("--metadata",type=Path,required=True); q.add_argument("--results-root",type=Path,required=True); return p
 
 

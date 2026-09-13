@@ -44,6 +44,7 @@ class MultiDetectorTelemetryTests(unittest.TestCase):
                 loading_strategy="lpt", scheduler_source="auto",
             ))
             self.assertAlmostEqual(obs["makespan_seconds"], 10.0)
+            self.assertAlmostEqual(obs["pre_fanout_seconds"], 0.0)
             self.assertAlmostEqual(obs["worker_utilization"], 0.8)
             self.assertAlmostEqual(obs["final_tail_seconds"], 4.0)
             self.assertAlmostEqual(obs["final_tail_seconds_by_active_workers"]["1"], 4.0)
@@ -56,7 +57,10 @@ class MultiDetectorTelemetryTests(unittest.TestCase):
             (results / "indexes" / "runtime-index.json").write_text(json.dumps({
                 "schema_version": 1,
                 "observations": [
-                    {"observation_id": "ra", "detector_id": "a", "wall_clock_seconds": 9.0, "build": {"github_run_id": "1"}},
+                    {"observation_id": "ra", "detector_id": "a", "wall_clock_seconds": 9.0,
+                     "scheduler_fixed_preparation_seconds": 2.0,
+                     "scheduler_preparation_source": "process-local-fallback",
+                     "build": {"github_run_id": "1"}},
                     {"observation_id": "rb", "detector_id": "b", "wall_clock_seconds": 5.0, "build": {"github_run_id": "1"}},
                 ],
             }), encoding="utf-8")
@@ -67,7 +71,9 @@ class MultiDetectorTelemetryTests(unittest.TestCase):
             by_detector = {row["detector_id"]: row for row in runtime["observations"]}
             self.assertEqual(by_detector["a"]["scheduler_wall_clock_seconds"], 10.0)
             self.assertEqual(by_detector["b"]["scheduler_wall_clock_seconds"], 10.0)
-            self.assertEqual(by_detector["a"]["scheduler_cost_source"], "multidetector-fixed-pipeline-slot")
+            self.assertEqual(by_detector["a"]["scheduler_cost_source"], "multidetector-decomposed-scheduler-cost")
+            self.assertEqual(by_detector["a"]["scheduler_shardable_work_seconds"], 8.0)
+            self.assertEqual(by_detector["a"]["scheduler_end_to_end_serial_seconds"], 10.0)
 
     def test_scheduler_slots_include_inter_detector_wrapper_overhead(self):
         with tempfile.TemporaryDirectory() as td:
@@ -91,6 +97,85 @@ class MultiDetectorTelemetryTests(unittest.TestCase):
             self.assertAlmostEqual(obs["tasks"][0]["scheduler_slot_seconds"], 15.0)
             self.assertAlmostEqual(obs["tasks"][1]["scheduler_slot_seconds"], 15.0)
             self.assertAlmostEqual(sum(t["scheduler_slot_seconds"] for t in obs["tasks"]), 30.0)
+
+    def test_shared_evidence_is_attributed_to_detector_fixed_preparation(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            telemetry = root / "telemetry"
+            (telemetry / "workers").mkdir(parents=True)
+            (telemetry / "tasks").mkdir()
+            (telemetry / "batch.tsv").write_text("start\t0\nend\t110\n", encoding="utf-8")
+            (telemetry / "workers/1.tsv").write_text("start\t100\nend\t110\n", encoding="utf-8")
+            (telemetry / "tasks/0.tsv").write_text(
+                "start\t100\t1\tlearned\t0\t2\t8\tb\nfinish\t110\tcomplete\n",
+                encoding="utf-8",
+            )
+            (telemetry / "learned-evidence.tsv").write_text(
+                "shared_evidence\tlearned\t2\t10\t40\n", encoding="utf-8",
+            )
+            out = root / "execution.json"
+            obs = finalize(Namespace(
+                telemetry_root=telemetry, output=out, observation_id="fixed", github_run_id="1",
+                github_run_number="2", mode="smoke", strategy="exhaustive", limit="10",
+                detector_count=1, golden_set_sha256="gold", runner_label="192t", runner_name="e9k",
+                runner_thread_budget=96, threads_per_worker=8, allocated_threads=8,
+                loading_strategy="lpt", scheduler_source="preferred",
+            ))
+            self.assertEqual(obs["shared_evidence_preparation_seconds"], 30.0)
+            self.assertEqual(obs["pre_fanout_seconds"], 100.0)
+            self.assertEqual(obs["non_evidence_pre_fanout_seconds"], 70.0)
+            self.assertEqual(obs["shared_evidence_preparations"][0]["detector"], "learned")
+
+            results = root / "results"
+            (results / "indexes").mkdir(parents=True)
+            (results / "indexes/runtime-index.json").write_text(json.dumps({"observations": [{
+                "observation_id": "learned", "detector_id": "learned", "shard_count": 2,
+                "estimated_serial_runtime_seconds": 20.0, "wall_clock_seconds": 10.0,
+                "build": {"github_run_id": "1"},
+            }]}), encoding="utf-8")
+            publish(out, results)
+            runtime = json.loads((results / "indexes/runtime-index.json").read_text(encoding="utf-8"))
+            row = runtime["observations"][0]
+            self.assertEqual(row["scheduler_fixed_preparation_seconds"], 30.0)
+            self.assertEqual(row["scheduler_shardable_work_seconds"], 10.0)
+            self.assertEqual(row["scheduler_end_to_end_serial_seconds"], 40.0)
+
+    def test_coordinator_slot_does_not_replace_serial_equivalent_lane_work(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            telemetry = root / "telemetry"
+            (telemetry / "workers").mkdir(parents=True)
+            (telemetry / "tasks").mkdir()
+            (telemetry / "batch.tsv").write_text("start\t0\nend\t25\n", encoding="utf-8")
+            (telemetry / "workers/1.tsv").write_text("start\t0\nend\t25\n", encoding="utf-8")
+            (telemetry / "tasks/0.tsv").write_text(
+                "start\t0\t1\tadaptive\t0\t1\t8\tb\t4\nfinish\t25\tcomplete\n",
+                encoding="utf-8",
+            )
+            out = root / "execution.json"
+            finalize(Namespace(
+                telemetry_root=telemetry, output=out, observation_id="lanes", github_run_id="1",
+                github_run_number="2", mode="full", strategy="adaptive", limit="",
+                detector_count=1, golden_set_sha256="gold", runner_label="192t", runner_name="e9k",
+                runner_thread_budget=96, threads_per_worker=2, allocated_threads=8,
+                loading_strategy="lpt", scheduler_source="preferred",
+            ))
+            results = root / "results"
+            (results / "indexes").mkdir(parents=True)
+            (results / "indexes/runtime-index.json").write_text(json.dumps({"observations": [{
+                "observation_id": "adaptive", "detector_id": "adaptive",
+                "golden_set_coordinator_lanes": 4,
+                "scheduler_fixed_preparation_seconds": 10.0,
+                "scheduler_shardable_work_seconds": 60.0,
+                "scheduler_end_to_end_serial_seconds": 70.0,
+                "build": {"github_run_id": "1"},
+            }]}), encoding="utf-8")
+            publish(out, results)
+            runtime = json.loads((results / "indexes/runtime-index.json").read_text(encoding="utf-8"))
+            row = runtime["observations"][0]
+            self.assertEqual(row["scheduler_wall_clock_seconds"], 25.0)
+            self.assertEqual(row["scheduler_shardable_work_seconds"], 60.0)
+            self.assertEqual(row["scheduler_end_to_end_serial_seconds"], 70.0)
 
 
 if __name__ == "__main__":

@@ -27,6 +27,20 @@ from hth.contracts import (
 MAX_OBSERVATIONS_PER_DETECTOR = 200
 
 
+def _scheduler_cost_compatible(index: dict[str, Any], item: dict[str, Any]) -> bool:
+    """Return whether a persisted row implements the current cost model."""
+    index_schema = str(index.get("schema_version") or "legacy")
+    if index_schema == "legacy":
+        return True
+    if index_schema != RUNTIME_INDEX_SCHEMA_VERSION:
+        return False
+    return (
+        str(item.get("schema_version") or "") == RUNTIME_OBSERVATION_SCHEMA_VERSION
+        and _as_float(item.get("scheduler_end_to_end_serial_seconds")) is not None
+        and _as_float(item.get("scheduler_shardable_work_seconds")) is not None
+    )
+
+
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -62,11 +76,25 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
     detector = str(info.get("detector") or params.get("detector") or summary.get("detector") or "unknown")
     parameter_space = summary.get("parameter_space") if isinstance(summary.get("parameter_space"), dict) else {}
     progress = summary.get("progress") if isinstance(summary.get("progress"), dict) else {}
+    performance = summary.get("performance") if isinstance(summary.get("performance"), dict) else {}
     runner = summary.get("runner") if isinstance(summary.get("runner"), dict) else {}
     pipeline = info.get("detector_pipeline") if isinstance(info.get("detector_pipeline"), dict) else {}
     detector_config = Path(str(info.get("detector_config") or params.get("detector_config") or ""))
 
     elapsed = _as_float(info.get("elapsed_seconds"))
+    evidence_source = str(performance.get("evidence_source") or "")
+    local_evidence_seconds = (
+        _as_float(performance.get("evidence_precompute_seconds"))
+        if evidence_source == "process-local-fallback"
+        else None
+    )
+    serial_estimate = _as_float(info.get("estimated_serial_runtime_seconds"))
+    serial_total = serial_estimate if serial_estimate is not None else elapsed
+    shardable_seconds = (
+        max(0.0, serial_total - local_evidence_seconds)
+        if serial_total is not None and local_evidence_seconds is not None
+        else serial_total
+    )
     coordinator = info.get("golden_set_coordinator") if isinstance(info.get("golden_set_coordinator"), dict) else {}
     coordinator_lanes = max(1, _as_int(coordinator.get("lanes")) or 1)
     actual_sets = _as_int(parameter_space.get("actual_parameter_sets") or info.get("actual_parameter_sets"))
@@ -103,6 +131,8 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
             info.get("full_exhaustive_candidate_count")
             or parameter_space.get("full_exhaustive_candidate_count")
         ),
+        "shard_index": _as_int(info.get("shard_index")),
+        "shard_count": max(1, _as_int(info.get("shard_count")) or 1),
         "golden_set_pages": pages,
         "actual_page_evaluations": page_evaluations,
         "wall_clock_seconds": elapsed,
@@ -110,6 +140,13 @@ def observation_from_run(run_dir: Path, *, build: dict[str, Any]) -> dict[str, A
         # makespan. Preserve the summed serial-equivalent work as the durable
         # input for deciding whether the detector should remain sharded.
         "estimated_serial_runtime_seconds": _as_float(info.get("estimated_serial_runtime_seconds")),
+        # Keep fixed, non-shardable preparation separate from parameter-search
+        # work.  Parent-shared preparation is attached after multidetector
+        # telemetry is published; process-local runs can be decomposed here.
+        "scheduler_fixed_preparation_seconds": local_evidence_seconds,
+        "scheduler_shardable_work_seconds": shardable_seconds,
+        "scheduler_end_to_end_serial_seconds": serial_total,
+        "scheduler_preparation_source": evidence_source or None,
         "golden_set_coordinator_lanes": coordinator_lanes,
         "golden_set_coordinator_threads_per_lane": _as_int(coordinator.get("threads_per_lane")),
         "golden_set_coordinator_worker_utilization": _as_float(coordinator.get("worker_utilization")),
@@ -220,6 +257,7 @@ def select_runtime_observation(
         item for item in index.get("observations", [])
         if isinstance(item, dict) and item.get("detector_id") == detector
         and _as_float(item.get("wall_clock_seconds")) is not None
+        and _scheduler_cost_compatible(index, item)
     ]
     if not candidates:
         return None, "no-history"
@@ -258,6 +296,9 @@ def estimate_runtime(
     observed_strategy = str(best.get("resolved_strategy") or best.get("requested_strategy") or "")
     if str(best.get("mode") or "") != str(mode) or observed_strategy != str(search_strategy):
         return None, f"{source}+incompatible-mode-or-strategy"
+    decomposed_cost = _as_float(best.get("scheduler_end_to_end_serial_seconds"))
+    if decomposed_cost is not None:
+        return decomposed_cost, f"{source}+decomposed-serial-work"
     serial_cost = _as_float(best.get("estimated_serial_runtime_seconds"))
     if serial_cost is not None:
         serial_source = (
@@ -285,6 +326,8 @@ def coherent_execution_profile(
     groups: dict[str, list[dict[str, Any]]] = {}
     for row in index.get("observations", []):
         if not isinstance(row, dict) or str(row.get("detector_id") or "") not in wanted:
+            continue
+        if not _scheduler_cost_compatible(index, row):
             continue
         if golden_set_sha256 and str(row.get("golden_set_sha256") or "") != golden_set_sha256:
             continue
