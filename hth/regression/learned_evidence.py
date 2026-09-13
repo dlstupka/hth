@@ -35,6 +35,7 @@ EXPORTERS = {
     "eynollah_page_mask": detector_eynollah_page_mask.export_precomputed_golden_set_evidence,
     "docextractor_page_mask": detector_docextractor_page_mask.export_precomputed_golden_set_evidence,
     "pagenet_page_mask": detector_pagenet_page_mask.export_precomputed_golden_set_evidence,
+    "learned_page_mask": detector_pagenet_page_mask.export_precomputed_golden_set_evidence,
 }
 
 ORLI_EVIDENCE_INDEX = Path("indexes") / "orli-evidence-index.json"  # compatibility alias; canonical path is owned by hth.persistence
@@ -52,6 +53,7 @@ PROVENANCE_ENVS = {
     "eynollah_page_mask": "HTH_EYNOLLAH_PAGE_PROVENANCE",
     "docextractor_page_mask": "HTH_DOCEXTRACTOR_PAGE_PROVENANCE",
     "pagenet_page_mask": "HTH_LEARNED_PAGE_MASK_PROVENANCE",
+    "learned_page_mask": "HTH_LEARNED_PAGE_MASK_PROVENANCE",
 }
 
 IMAGE_KEYERS = {
@@ -64,6 +66,7 @@ IMAGE_KEYERS = {
     "eynollah_page_mask": detector_eynollah_page_mask._image_key,
     "docextractor_page_mask": detector_docextractor_page_mask._image_key,
     "pagenet_page_mask": detector_pagenet_page_mask._image_key,
+    "learned_page_mask": detector_pagenet_page_mask._image_key,
 }
 
 EVIDENCE_REPRESENTATIONS = {
@@ -76,11 +79,15 @@ EVIDENCE_REPRESENTATIONS = {
     "eynollah_page_mask": "eynollah-page-probability",
     "docextractor_page_mask": "docextractor-foreground-probability",
     "pagenet_page_mask": "pagenet-ohio-page-probability-256",
+    "learned_page_mask": "pagenet-ohio-page-probability-256",
 }
 CACHE_DETECTORS = {
     # The fusion consumes exactly the immutable Doc-UFCN polygon evidence; its
     # classical AMSRE branch is parameter-dependent and is never cached here.
     "amsre_doc_ufcn_fusion": "doc_ufcn_page_mask",
+    # The legacy and explicit research identities execute the same PageNet
+    # model and immutable probability-surface contract.
+    "learned_page_mask": "pagenet_page_mask",
 }
 
 

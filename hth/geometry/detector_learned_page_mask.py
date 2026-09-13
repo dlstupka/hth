@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, os, threading
+import hashlib, json, os, threading, time
 from pathlib import Path
 import cv2, numpy as np
 from .model import Candidate
@@ -11,6 +11,15 @@ PROVENANCE_ENV="HTH_LEARNED_PAGE_MASK_PROVENANCE"
 OUTPUT_LAYER_ENV="HTH_LEARNED_PAGE_MASK_OUTPUT_LAYER"
 BASELINE_PARAMETERS={"mask_threshold":0.50,"minimum_mask_area_fraction":0.15,"close_kernel_fraction":0.006,"polygon_epsilon_fraction":0.012,"bbox_padding_fraction":0.0}
 _THREAD_LOCAL=threading.local()
+_PRECOMPUTED_EVIDENCE={}
+_EVIDENCE_LOCK=threading.Lock()
+
+def _image_key(image):
+    array=np.ascontiguousarray(image)
+    digest=hashlib.blake2b(digest_size=16)
+    digest.update(str(array.shape).encode("ascii"))
+    digest.update(memoryview(array))
+    return digest.hexdigest()
 
 def _parameters(o):
     v=dict(BASELINE_PARAMETERS); o=o or {}; u=sorted(set(o)-set(v))
@@ -42,6 +51,11 @@ def _network(proto,weights):
 
 def _probability_256(image):
     """Run PageNet using the preprocessing and 256x256 output contract of upstream test_pretrained.py."""
+    key=_image_key(image)
+    with _EVIDENCE_LOCK:
+        cached=_PRECOMPUTED_EVIDENCE.get(key)
+    if cached is not None:
+        return cached
     proto,weights,prov=_assets()
     resized=cv2.resize(image,(256,256),interpolation=cv2.INTER_LINEAR).astype(np.float32)
     normalized=0.0039*(resized-127.0)
@@ -57,6 +71,38 @@ def _probability_256(image):
     if raw.shape != (256,256):
         raw=cv2.resize(raw,(256,256),interpolation=cv2.INTER_LINEAR)
     return np.clip(raw,0,1),prov
+
+def precompute_golden_set_evidence(images,*,progress=None):
+    keys=[]; total=len(images)
+    for index,image in enumerate(images,1):
+        key=_image_key(image); started=time.perf_counter()
+        if progress: progress("start",index,total,key,0.0)
+        probability,provenance=_probability_256(image)
+        with _EVIDENCE_LOCK:
+            _PRECOMPUTED_EVIDENCE[key]=(probability,dict(provenance))
+        if progress: progress("finish",index,total,key,time.perf_counter()-started)
+        keys.append(key)
+    return tuple(keys)
+
+def load_precomputed_golden_set_evidence(output_dir,images):
+    output_dir=Path(output_dir)
+    payload=json.loads((output_dir/"manifest.json").read_text(encoding="utf-8"))
+    if payload.get("detector")!="pagenet_page_mask":
+        raise ValueError("Shared PageNet evidence detector mismatch")
+    records={record["image_key"]:record for record in payload.get("records",[])}
+    expected=tuple(_image_key(image) for image in images)
+    if any(key not in records for key in expected):
+        raise ValueError("Shared PageNet evidence does not match the Golden Set images")
+    hydrated={}
+    for key in expected:
+        array=np.load(output_dir/records[key]["file"])
+        array=np.array(array,dtype=np.float32,copy=False)
+        array.setflags(write=False)
+        hydrated[key]=(array,{"model_id":records[key].get("model_id","pagenet-ohio")})
+    with _EVIDENCE_LOCK:
+        _PRECOMPUTED_EVIDENCE.clear()
+        _PRECOMPUTED_EVIDENCE.update(hydrated)
+    return expected
 
 def _fill_holes(binary):
     if not np.any(binary): return binary
@@ -143,4 +189,4 @@ def debug_images(*,image_bgr,mask,parameters=None,candidate_corners=None,verbose
         cv2.polylines(overlay,[np.rint(np.asarray(candidate_corners)).astype(np.int32).reshape(-1,1,2)],True,(0,0,255),3)
     return {"learned-page-probability.png":np.rint(prob_full*255).astype(np.uint8),"learned-page-mask.png":mask_full,"learned-page-boundary.png":overlay}
 
-__all__=["BASELINE_PARAMETERS","METHOD","PROTOTXT_ENV","WEIGHTS_ENV","PROVENANCE_ENV","OUTPUT_LAYER_ENV","debug_images","detect"]
+__all__=["BASELINE_PARAMETERS","METHOD","PROTOTXT_ENV","WEIGHTS_ENV","PROVENANCE_ENV","OUTPUT_LAYER_ENV","debug_images","detect","precompute_golden_set_evidence","load_precomputed_golden_set_evidence"]

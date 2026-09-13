@@ -69,6 +69,7 @@ PRECOMPUTED_EVIDENCE_PREPARERS={
     "eynollah_page_mask":detector_eynollah_page_mask.precompute_golden_set_evidence,
     "docextractor_page_mask":detector_docextractor_page_mask.precompute_golden_set_evidence,
     "pagenet_page_mask":detector_pagenet_page_mask.precompute_golden_set_evidence,
+    "learned_page_mask":detector_learned_page_mask.precompute_golden_set_evidence,
 }
 
 PRECOMPUTED_EVIDENCE_LOADERS={
@@ -81,6 +82,7 @@ PRECOMPUTED_EVIDENCE_LOADERS={
     "eynollah_page_mask":detector_eynollah_page_mask.load_precomputed_golden_set_evidence,
     "docextractor_page_mask":detector_docextractor_page_mask.load_precomputed_golden_set_evidence,
     "pagenet_page_mask":detector_pagenet_page_mask.load_precomputed_golden_set_evidence,
+    "learned_page_mask":detector_learned_page_mask.load_precomputed_golden_set_evidence,
 }
 
 

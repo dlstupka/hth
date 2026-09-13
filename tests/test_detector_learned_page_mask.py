@@ -82,6 +82,24 @@ class LearnedPageMaskTests(unittest.TestCase):
         with patch.dict(os.environ,{},clear=True):
             with self.assertRaisesRegex(RuntimeError,"lifecycle did not set"):
                 detector.detect(image_bgr=np.zeros((50,50,3),np.uint8),mask=np.zeros((50,50),np.uint8))
+
+    def test_legacy_detector_loads_canonical_pagenet_evidence_without_model_inference(self):
+        image=np.zeros((4,4,3),np.uint8); key=detector._image_key(image)
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); probability=np.full((256,256),0.75,np.float32)
+            np.save(root/f"{key}.npy",probability)
+            (root/"manifest.json").write_text(json.dumps({
+                "detector":"pagenet_page_mask",
+                "records":[{"image_key":key,"file":f"{key}.npy","model_id":"pagenet-ohio"}],
+            }),encoding="utf-8")
+            detector.load_precomputed_golden_set_evidence(root,[image])
+            with patch.dict(os.environ,{},clear=True), patch.object(detector,"_network") as network:
+                loaded,provenance=detector._probability_256(image)
+            network.assert_not_called()
+            np.testing.assert_array_equal(loaded,probability)
+            self.assertEqual(provenance["model_id"],"pagenet-ohio")
+        with detector._EVIDENCE_LOCK:
+            detector._PRECOMPUTED_EVIDENCE.clear()
     def test_detector_reports_probability_diagnostics_for_rejected_mask(self):
         class EmptyNet:
             def setInput(self, blob): self.blob = blob

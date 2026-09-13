@@ -29,7 +29,7 @@ An evidence identity contains every input that can change deterministic neural o
 - ordered keys computed from the actual loaded and resized page pixels; and
 - evidence representation contract.
 
-The canonical JSON identity is SHA-256 hashed to produce `evidence_id`. Calibration parameters are deliberately excluded because they operate on immutable evidence after inference. The AMSRE + Doc-UFCN fusion and standalone Doc-UFCN detector share one Doc-UFCN evidence identity and bundle; the classical fusion branch is not cached.
+The canonical JSON identity is SHA-256 hashed to produce `evidence_id`. Calibration parameters are deliberately excluded because they operate on immutable evidence after inference. The AMSRE + Doc-UFCN fusion and standalone Doc-UFCN detector share one Doc-UFCN evidence identity and bundle; the classical fusion branch is not cached. The legacy `learned_page_mask` and explicit `pagenet_page_mask` research identities likewise share one PageNet probability-surface bundle because they execute the same verified model and inference contract.
 
 ## Release contract
 

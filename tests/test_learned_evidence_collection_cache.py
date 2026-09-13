@@ -102,6 +102,32 @@ class LearnedEvidenceCollectionCacheTests(unittest.TestCase):
             self.assertEqual(standalone, fusion)
             self.assertEqual(fusion["detector"], "doc_ufcn_page_mask")
 
+    def test_legacy_and_explicit_pagenet_detectors_share_one_identity(self):
+        image = np.zeros((2, 2, 3), dtype=np.uint8)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            golden = root / "golden.json"
+            golden.write_text("{}\n", encoding="utf-8")
+            provenance = root / "model-provenance.json"
+            provenance.write_text(json.dumps({
+                "model_id": "pagenet-ohio",
+                "weights_sha256": "a" * 64,
+                "deploy_prototxt_sha256": "b" * 64,
+                "inference_backend": "opencv-dnn-caffe",
+                "input_contract": "BGR 256x256",
+            }), encoding="utf-8")
+            with patch.dict(os.environ, {"HTH_LEARNED_PAGE_MASK_PROVENANCE": str(provenance)}, clear=False):
+                legacy = learned_evidence.evidence_identity(
+                    detector="learned_page_mask", golden_set=golden,
+                    maximum_dimension=1800, images=[image],
+                )
+                explicit = learned_evidence.evidence_identity(
+                    detector="pagenet_page_mask", golden_set=golden,
+                    maximum_dimension=1800, images=[image],
+                )
+            self.assertEqual(legacy, explicit)
+            self.assertEqual(legacy["detector"], "pagenet_page_mask")
+
 
 if __name__ == "__main__":
     unittest.main()
