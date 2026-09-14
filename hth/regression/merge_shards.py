@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import gzip
 import json
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -476,7 +478,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-dimension", type=int, default=1800)
     parser.add_argument("--debug-level", choices=("none", "basic", "verbose"), default="none")
     args = parser.parse_args(argv)
-    print(merge(args.shard_dir, args.output, args.detector_config, args.top, expected_shard_count=args.expected_shard_count, golden_set=args.golden_set, image_root=args.image_root, max_dimension=args.max_dimension, debug_level=args.debug_level))
+    # stdout is a machine-readable contract consumed by the shell driver as the
+    # canonical run directory.  Detector/report code may emit informational
+    # messages while reconstructing the merged run, so route those messages to
+    # stderr and reserve stdout for the single path value.
+    with contextlib.redirect_stdout(sys.stderr):
+        merged_run = merge(
+            args.shard_dir,
+            args.output,
+            args.detector_config,
+            args.top,
+            expected_shard_count=args.expected_shard_count,
+            golden_set=args.golden_set,
+            image_root=args.image_root,
+            max_dimension=args.max_dimension,
+            debug_level=args.debug_level,
+        )
+    print(merged_run)
     return 0
 
 

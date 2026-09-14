@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import csv
+import contextlib
 import gzip
+import io
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from hth.regression.merge_shards import _results_from_raw
+from hth.regression.merge_shards import _results_from_raw, main
 from hth.regression.sharding import plan_shards
 
 
@@ -43,6 +46,27 @@ def _write_raw_row(path, *, status: str = "ok", iou: float = 0.9) -> None:
 
 
 class MergeShardReconstructionTests(unittest.TestCase):
+    def test_cli_reserves_stdout_for_the_canonical_run_path(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        canonical_run = Path("output/doc_ufcn_page_mask/run-1")
+
+        def noisy_merge(*args, **kwargs):
+            print("Doc-UFCN Page-Mask ready for inference")
+            return canonical_run
+
+        with mock.patch("hth.regression.merge_shards.merge", side_effect=noisy_merge), \
+             contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            result = main([
+                "--shard-dir", "shard-1",
+                "--output", "output",
+                "--detector-config", "detector.json",
+            ])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(stdout.getvalue(), f"{canonical_run}\n")
+        self.assertIn("Doc-UFCN Page-Mask ready for inference", stderr.getvalue())
+
     def test_shard_planner_caps_runner_threads(self) -> None:
         for runner_label in ("e7k", "e9k"):
             with self.subTest(runner_label=runner_label):
