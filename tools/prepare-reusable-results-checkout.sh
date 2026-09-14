@@ -42,7 +42,18 @@ valid_checkout() {
 
 recreate_checkout() {
   echo "::warning::Reusable results checkout is invalid; recreating only $target"
-  rm -rf -- "$target"
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    if rm -rf -- "$target"; then
+      return 0
+    fi
+    if (( attempt < 5 )); then
+      echo "Reusable checkout deletion is temporarily busy; retrying ($attempt/5): $target" >&2
+      sleep 1
+    fi
+  done
+  echo "::error::Unable to remove invalid reusable checkout after 5 attempts: $target" >&2
+  return 1
 }
 
 case "$mode" in

@@ -1,8 +1,10 @@
 import os
 import shlex
 import shutil
+import stat
 import subprocess
 import tempfile
+import time
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
@@ -35,15 +37,27 @@ def _bash_executable() -> str | None:
 
 
 class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
+    @staticmethod
+    def _remove_readonly_and_retry(function, path, _error) -> None:
+        os.chmod(path, stat.S_IWRITE)
+        function(path)
+
     @contextmanager
     def _workspace(self):
         scratch = ROOT / ".test-reusable-results-checkout"
         scratch.mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(
-            dir=scratch,
-            ignore_cleanup_errors=os.name == "nt",
-        ) as temporary_directory:
-            yield Path(temporary_directory)
+        workspace = Path(tempfile.mkdtemp(dir=scratch))
+        try:
+            yield workspace
+        finally:
+            for attempt in range(20):
+                try:
+                    shutil.rmtree(workspace, onexc=self._remove_readonly_and_retry)
+                    break
+                except PermissionError:
+                    if attempt == 19:
+                        self.fail(f"Git Bash did not release checkout fixture: {workspace}")
+                    time.sleep(0.1)
         try:
             scratch.rmdir()
         except OSError:
@@ -134,6 +148,8 @@ class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
         self.assertIn('remote set-url origin "$canonical_origin"', helper)
         self.assertIn('git -C "$target" reset --hard HEAD', helper)
         self.assertIn('git -C "$target" clean -ffd', helper)
+        self.assertIn("for attempt in 1 2 3 4 5", helper)
+        self.assertIn("Unable to remove invalid reusable checkout after 5 attempts", helper)
         self.assertIn('rm -rf -- "$target"', helper)
         self.assertNotIn(".hth-runtime", helper)
 
