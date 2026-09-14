@@ -155,6 +155,96 @@ class HardenedPersistenceTests(unittest.TestCase):
         except OSError:
             pass
 
+    def test_permanent_push_failure_is_not_retried(self):
+        def run_quiet(args, **kwargs):
+            return subprocess.run(
+                args,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                **kwargs,
+            )
+
+        scratch_root = ROOT / ".test-hardened-persistence"
+        scratch_root.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            dir=scratch_root, ignore_cleanup_errors=os.name == "nt",
+        ) as td:
+            root = Path(td)
+            remote = root / "remote.git"
+            seed = root / "seed"
+            writer = root / "writer"
+            runner_temp = root / "runner-temp"
+            runner_temp.mkdir()
+
+            run_quiet(["git", "init", "--bare", "--initial-branch=main", str(remote)])
+            run_quiet(["git", "clone", str(remote), str(seed)])
+            run_quiet(["git", "-C", str(seed), "config", "user.name", "test"])
+            run_quiet(["git", "-C", str(seed), "config", "user.email", "test@example.com"])
+            (seed / "base.txt").write_text("base\n", encoding="utf-8")
+            run_quiet(["git", "-C", str(seed), "add", "base.txt"])
+            run_quiet(["git", "-C", str(seed), "commit", "-m", "seed"])
+            run_quiet(["git", "-C", str(seed), "push", "origin", "main"])
+            run_quiet(["git", "--git-dir", str(remote), "symbolic-ref", "HEAD", "refs/heads/main"])
+            run_quiet(["git", "clone", str(remote), str(writer)])
+            run_quiet(["git", "-C", str(writer), "config", "user.name", "test"])
+            run_quiet(["git", "-C", str(writer), "config", "user.email", "test@example.com"])
+            run_quiet(["git", "-C", str(writer), "remote", "set-url", "origin", "../remote.git"])
+            run_quiet([
+                "git", "-C", str(writer), "remote", "set-url", "--push", "origin",
+                "../missing-remote.git",
+            ])
+
+            rel_root = root.relative_to(ROOT).as_posix()
+            writer_sh = f"{rel_root}/writer"
+            runner_temp_sh = f"{rel_root}/runner-temp"
+            script = (
+                "set -uo pipefail\n"
+                "source tools/hardened-persistence.sh\n"
+                "apply_writer() {\n"
+                f"  printf 'writer\\n' > \"{writer_sh}/writer.txt\"\n"
+                f"  git -C \"{writer_sh}\" add writer.txt\n"
+                "}\n"
+                "status=0\n"
+                f"RUNNER_TEMP=\"{runner_temp_sh}\" "
+                "GITHUB_RUN_ID=persistence-permanent-failure-test "
+                "GITHUB_RUN_ATTEMPT=1 HTH_PERSIST_BACKOFF_SECONDS=0 "
+                f"hth_hardened_persist \"{writer_sh}\" main writer apply_writer Test || status=$?\n"
+                "printf 'status=%s attempts=%s\\n' \"$status\" \"$HTH_PERSIST_ATTEMPTS\"\n"
+            )
+
+            bash = _bash_executable()
+            self.assertIsNotNone(bash, "A POSIX bash executable is required")
+            proc = subprocess.run(
+                [bash],
+                input=script.encode("utf-8"),
+                cwd=ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            stdout = proc.stdout.decode("utf-8", errors="replace")
+            stderr = proc.stderr.decode("utf-8", errors="replace")
+            self.assertEqual(proc.returncode, 0, stderr or stdout)
+            self.assertIn("refusing to misclassify and retry it", stdout)
+            self.assertIn("status=1 attempts=1", stdout)
+            self.assertNotIn("persistence attempt 2/", stdout)
+
+        if root.exists():
+            for attempt in range(20):
+                try:
+                    shutil.rmtree(root)
+                    break
+                except PermissionError:
+                    if attempt == 19:
+                        self.fail(f"Git Bash did not release failure fixture: {root}")
+                    time.sleep(0.1)
+
+        try:
+            scratch_root.rmdir()
+        except OSError:
+            pass
+
     def test_all_results_repo_workflow_pushes_use_shared_helper(self):
         offenders = []
         for workflow in WORKFLOWS.glob("*.yml"):

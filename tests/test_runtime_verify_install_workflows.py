@@ -1,7 +1,10 @@
 import os
+import shlex
+import shutil
 import subprocess
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,7 +18,79 @@ RUNTIME_MANAGER = ROOT / "tools" / "ensure-managed-runtime.sh"
 RESULTS_CHECKOUT_PREP = ROOT / "tools" / "prepare-reusable-results-checkout.sh"
 
 
+def _bash_executable() -> str | None:
+    """Resolve Git Bash explicitly on Windows, avoiding the WSL app shim."""
+    if os.name == "nt":
+        git = shutil.which("git")
+        candidates = []
+        if git:
+            git_root = Path(git).resolve().parent.parent
+            candidates.extend((git_root / "bin" / "bash.exe", git_root / "usr" / "bin" / "bash.exe"))
+        program_files = Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+        candidates.append(program_files / "Git" / "bin" / "bash.exe")
+        for candidate in candidates:
+            if candidate.is_file():
+                return str(candidate)
+    return shutil.which("bash")
+
+
 class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
+    @contextmanager
+    def _workspace(self):
+        scratch = ROOT / ".test-reusable-results-checkout"
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            dir=scratch,
+            ignore_cleanup_errors=os.name == "nt",
+        ) as temporary_directory:
+            yield Path(temporary_directory)
+        try:
+            scratch.rmdir()
+        except OSError:
+            pass
+
+    def _git(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def _init_checkout(self, workspace: Path, origin: str = "https://github.com/owner/results.git") -> Path:
+        checkout = workspace / "results-repo"
+        checkout.mkdir()
+        self._git("init", str(checkout))
+        self._git("-C", str(checkout), "config", "user.name", "HTH test")
+        self._git("-C", str(checkout), "config", "user.email", "hth-test@example.invalid")
+        (checkout / "tracked.txt").write_text("committed\n", encoding="utf-8")
+        self._git("-C", str(checkout), "add", "tracked.txt")
+        self._git("-C", str(checkout), "commit", "-m", "seed")
+        self._git("-C", str(checkout), "remote", "add", "origin", origin)
+        return checkout
+
+    def _checkout_helper(
+        self,
+        workspace: Path,
+        mode: str = "prepare",
+        expected_repository: str = "owner/results",
+    ) -> subprocess.CompletedProcess[bytes]:
+        bash = _bash_executable()
+        self.assertIsNotNone(bash, "A POSIX bash executable is required")
+        relative_workspace = workspace.relative_to(ROOT).as_posix()
+        script = (
+            f"GITHUB_WORKSPACE={shlex.quote(relative_workspace)} "
+            "bash tools/prepare-reusable-results-checkout.sh "
+            f"{shlex.quote(mode)} {shlex.quote(expected_repository)}\n"
+        )
+        return subprocess.run(
+            [bash],
+            input=script.encode("utf-8"),
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
     def test_self_hosted_runtime_is_reusable_and_manually_wipeable(self):
         python_action = PYTHON_ACTION.read_text(encoding="utf-8")
         self.assertIn('runtime_root="/tmp/.ar/.hth-runtime"', python_action)
@@ -62,59 +137,111 @@ class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
         self.assertIn('rm -rf -- "$target"', helper)
         self.assertNotIn(".hth-runtime", helper)
 
-    @unittest.skipIf(os.name == "nt", "requires a POSIX bash subprocess")
     def test_reusable_results_checkout_accepts_and_sanitizes_authenticated_origin(self):
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            workspace = Path(temporary_directory)
-            checkout = workspace / "results-repo"
-            checkout.mkdir()
-            subprocess.run(["git", "init", str(checkout)], check=True, capture_output=True)
-            subprocess.run(
-                [
-                    "git", "-C", str(checkout),
-                    "-c", "user.name=HTH test",
-                    "-c", "user.email=hth-test@example.invalid",
-                    "commit", "--allow-empty", "-m", "seed",
-                ],
-                check=True,
-                capture_output=True,
+        with self._workspace() as workspace:
+            checkout = self._init_checkout(
+                workspace,
+                origin="https://x-access-token:secret-value@github.com/owner/results.git",
             )
-            subprocess.run(
-                [
-                    "git", "-C", str(checkout), "remote", "add", "origin",
-                    "https://x-access-token:secret-value@github.com/owner/results.git",
-                ],
-                check=True,
-                capture_output=True,
-            )
-
-            environment = os.environ.copy()
-            environment["GITHUB_WORKSPACE"] = str(workspace)
-            completed = subprocess.run(
-                [
-                    "bash", RESULTS_CHECKOUT_PREP.as_posix(),
-                    "prepare", "owner/results",
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                env=environment,
-            )
+            completed = self._checkout_helper(workspace)
+            stdout = completed.stdout.decode("utf-8", errors="replace")
+            stderr = completed.stderr.decode("utf-8", errors="replace")
 
             self.assertEqual(
                 completed.returncode,
                 0,
-                f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
+                f"stdout:\n{stdout}\nstderr:\n{stderr}",
             )
-            self.assertNotIn("::warning::", completed.stdout)
-            self.assertIn("validated and cleaned", completed.stdout)
-            origin = subprocess.run(
-                ["git", "-C", str(checkout), "remote", "get-url", "origin"],
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.strip()
+            self.assertNotIn("::warning::", stdout)
+            self.assertIn("validated and cleaned", stdout)
+            origin = self._git("-C", str(checkout), "remote", "get-url", "origin").stdout.strip()
             self.assertEqual(origin, "https://github.com/owner/results.git")
+
+    def test_reusable_results_checkout_cleans_dirty_valid_checkout(self):
+        with self._workspace() as workspace:
+            checkout = self._init_checkout(workspace)
+            (checkout / "tracked.txt").write_text("dirty\n", encoding="utf-8")
+            (checkout / "untracked.txt").write_text("remove me\n", encoding="utf-8")
+
+            completed = self._checkout_helper(workspace)
+            stdout = completed.stdout.decode("utf-8", errors="replace")
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertNotIn("::warning::", stdout)
+            self.assertEqual((checkout / "tracked.txt").read_text(encoding="utf-8"), "committed\n")
+            self.assertFalse((checkout / "untracked.txt").exists())
+
+    def test_invalid_reusable_checkout_states_are_recreated_in_scope(self):
+        for state in ("partial", "unborn", "corrupt-head", "missing-origin", "wrong-origin"):
+            with self.subTest(state=state), self._workspace() as workspace:
+                sibling = workspace / "keep.txt"
+                sibling.write_text("preserve\n", encoding="utf-8")
+                checkout = workspace / "results-repo"
+                if state == "partial":
+                    (checkout / ".git").mkdir(parents=True)
+                elif state == "unborn":
+                    checkout.mkdir()
+                    self._git("init", str(checkout))
+                    self._git(
+                        "-C", str(checkout), "remote", "add", "origin",
+                        "https://github.com/owner/results.git",
+                    )
+                else:
+                    checkout = self._init_checkout(workspace)
+                    if state == "corrupt-head":
+                        (checkout / ".git" / "HEAD").write_text(
+                            "ref: refs/heads/missing\n", encoding="utf-8",
+                        )
+                    elif state == "missing-origin":
+                        self._git("-C", str(checkout), "remote", "remove", "origin")
+                    elif state == "wrong-origin":
+                        self._git(
+                            "-C", str(checkout), "remote", "set-url", "origin",
+                            "https://github.com/other/results.git",
+                        )
+
+                completed = self._checkout_helper(workspace)
+                stdout = completed.stdout.decode("utf-8", errors="replace")
+
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertIn("::warning::Reusable results checkout is invalid", stdout)
+                self.assertFalse(checkout.exists())
+                self.assertEqual(sibling.read_text(encoding="utf-8"), "preserve\n")
+
+    def test_absent_reusable_checkout_is_left_for_checkout_action(self):
+        with self._workspace() as workspace:
+            completed = self._checkout_helper(workspace)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(completed.stdout, b"")
+            self.assertFalse((workspace / "results-repo").exists())
+
+    def test_diverged_but_valid_checkout_is_reused_before_forced_checkout(self):
+        with self._workspace() as workspace:
+            checkout = self._init_checkout(workspace)
+            self._git("-C", str(checkout), "update-ref", "refs/remotes/origin/main", "HEAD")
+            (checkout / "local-history.txt").write_text("replacement history\n", encoding="utf-8")
+            self._git("-C", str(checkout), "add", "local-history.txt")
+            self._git("-C", str(checkout), "commit", "-m", "locally diverged history")
+
+            completed = self._checkout_helper(workspace)
+            stdout = completed.stdout.decode("utf-8", errors="replace")
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertNotIn("::warning::", stdout)
+            self.assertTrue(checkout.is_dir())
+            self.assertIn("validated and cleaned", stdout)
+
+    def test_verify_rejects_dirty_checkout_without_deleting_it(self):
+        with self._workspace() as workspace:
+            checkout = self._init_checkout(workspace)
+            (checkout / "untracked.txt").write_text("dirty\n", encoding="utf-8")
+
+            completed = self._checkout_helper(workspace, mode="verify")
+            stderr = completed.stderr.decode("utf-8", errors="replace")
+
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("not clean immediately after checkout", stderr)
+            self.assertTrue(checkout.is_dir())
 
     def test_runtime_is_built_once_then_specialized_steps_only_verify(self):
         manager = RUNTIME_MANAGER.read_text(encoding="utf-8")

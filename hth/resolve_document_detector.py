@@ -172,6 +172,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         golden_set_id = resolve_golden_set_for_source(
             args.golden_set_freeze_root,
+            repository_root=Path.cwd(),
             source_repository=args.source_repository,
             source_release_tag=args.source_release_tag,
             source_release_manifest_sha256=args.source_release_manifest_sha256,

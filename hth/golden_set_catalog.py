@@ -36,6 +36,7 @@ def _frozen_manifests(freeze_root: Path) -> list[tuple[Path, dict[str, Any]]]:
 def resolve_golden_set_for_source(
     freeze_root: Path,
     *,
+    repository_root: Path,
     source_repository: str,
     source_release_tag: str,
     source_release_manifest_sha256: str,
@@ -49,6 +50,8 @@ def resolve_golden_set_for_source(
             "Source repository, release tag, and release-manifest SHA-256 are "
             "required to resolve the compatible Golden Set"
         )
+    if not re.fullmatch(r"[0-9a-f]{64}", manifest_sha):
+        raise SystemExit("Source release manifest SHA-256 must be 64 hexadecimal characters")
 
     matches: list[tuple[str, Path]] = []
     for path, payload in _frozen_manifests(freeze_root):
@@ -61,6 +64,15 @@ def resolve_golden_set_for_source(
         ):
             golden_set_id = str(payload.get("golden_set_id") or "").strip()
             if golden_set_id:
+                try:
+                    validate_freeze(
+                        freeze_path=path,
+                        repository_root=Path(repository_root).resolve(),
+                    )
+                except (OSError, ValueError, json.JSONDecodeError) as exc:
+                    raise SystemExit(
+                        f"Frozen Golden Set mapping is invalid: {path}: {exc}"
+                    ) from exc
                 matches.append((golden_set_id, path))
 
     if not matches:
