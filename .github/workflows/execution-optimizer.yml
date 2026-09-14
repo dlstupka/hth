@@ -363,6 +363,10 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Prepare reusable results checkout
+        shell: bash
+        run: bash hth-pipeline/tools/prepare-reusable-results-checkout.sh prepare "$RESULTS_REPOSITORY"
+
       - name: Checkout results repository
         uses: actions/checkout@v6
         with:
@@ -397,6 +401,10 @@ jobs:
             /execution-optimizer/
           sparse-checkout-cone-mode: false
           show-progress: false
+
+      - name: Verify reusable results checkout
+        shell: bash
+        run: bash hth-pipeline/tools/prepare-reusable-results-checkout.sh verify "$RESULTS_REPOSITORY"
 
       - name: Materialize immutable Golden Set images
         if: ${{ env.GOLDEN_RELEASE_TAG != '' }}

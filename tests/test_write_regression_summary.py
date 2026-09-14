@@ -814,6 +814,7 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertNotIn("open commit", text)
             self.assertIn("Detector short name", text)
             self.assertIn("## Detector Recommendation for this Golden Set", text)
+            self.assertIn("- **Golden Set:** `HTH-TEST`", text)
             self.assertIn("### Calibration Report Legend", text)
             self.assertIn("### Best Known Detector Calibrations", text)
             self.assertLess(text.index("### Best Known Detector Calibrations"), text.index("### Calibration Report Legend"))

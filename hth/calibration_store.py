@@ -121,6 +121,71 @@ def _compatibility(intelligence: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _selection_snapshot(selection: Any) -> dict[str, Any]:
+    """Return the stable calibration-index projection of a selection payload."""
+    selection = selection if isinstance(selection, dict) else {}
+    return {
+        "recommended_parameter_set_id": selection.get("recommended_parameter_set_id"),
+        "best_avg_iou": selection.get("best_avg_iou"),
+        "minimum_iou": selection.get("minimum_iou"),
+        "stddev_iou": selection.get("stddev_iou"),
+        "failure_count": selection.get("failure_count"),
+        "calibration_evidence": selection.get("calibration_evidence"),
+    }
+
+
+def _operational_selection(summary: Any, search_selection: Any) -> dict[str, Any]:
+    """Prefer the canonical run winner while retaining search-only confidence.
+
+    Calibration intelligence deliberately describes only the requested search
+    grid.  Operational regression references, however, must also consider the
+    mandatory Baseline and Historic Best evaluations recorded in summary.json.
+    """
+    fallback = _selection_snapshot(search_selection)
+    summary = summary if isinstance(summary, dict) else {}
+    winner = summary.get("winner") if isinstance(summary.get("winner"), dict) else {}
+    winner_id = str(
+        winner.get("parameter_set_id")
+        or winner.get("parameter_short_name")
+        or ""
+    ).strip()
+    metrics = winner.get("summary") if isinstance(winner.get("summary"), dict) else {}
+    if not winner_id or not metrics:
+        return fallback
+    return {
+        "recommended_parameter_set_id": winner_id,
+        "best_avg_iou": metrics.get("mean_iou", fallback.get("best_avg_iou")),
+        "minimum_iou": metrics.get("minimum_iou", fallback.get("minimum_iou")),
+        "stddev_iou": metrics.get("stddev_iou", fallback.get("stddev_iou")),
+        "failure_count": metrics.get("failure_count", fallback.get("failure_count")),
+        "calibration_evidence": fallback.get("calibration_evidence"),
+    }
+
+
+def _repair_entry_selection(results_root: Path, entry: dict[str, Any]) -> dict[str, Any]:
+    """Recover an operational winner from an entry's durable summary, if present."""
+    # New-format rows already preserve both meanings explicitly.  Avoid opening
+    # every durable summary on every subsequent index read once migrated.
+    if isinstance(entry.get("search_selection"), dict):
+        return entry
+    record_path = str(entry.get("record_path") or "").strip()
+    if not record_path:
+        return entry
+    summary_path = results_root / record_path / "summary.json"
+    if not summary_path.is_file():
+        return entry
+    try:
+        summary = _read_json(summary_path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return entry
+    current = _selection_snapshot(entry.get("selection"))
+    operational = _operational_selection(summary, current)
+    repaired = dict(entry)
+    repaired["search_selection"] = current
+    repaired["selection"] = operational
+    return repaired
+
+
 
 def _entry_from_persisted_intelligence(results_root: Path, intelligence_path: Path) -> dict[str, Any] | None:
     """Reconstruct one calibration-index row from durable per-run evidence."""
@@ -146,8 +211,13 @@ def _entry_from_persisted_intelligence(results_root: Path, intelligence_path: Pa
     compatibility = _compatibility(intelligence)
     compatibility_key = _canonical_hash(compatibility)
     golden = identity.get("golden_set") if isinstance(identity.get("golden_set"), dict) else {}
-    selection = intelligence.get("detector_selection_intelligence")
-    selection = selection if isinstance(selection, dict) else {}
+    search_selection = _selection_snapshot(intelligence.get("detector_selection_intelligence"))
+    summary_path = intelligence_path.parent / "summary.json"
+    try:
+        summary = _read_json(summary_path) if summary_path.is_file() else {}
+    except (OSError, ValueError, json.JSONDecodeError):
+        summary = {}
+    selection = _operational_selection(summary, search_selection)
     search = intelligence.get("search")
     search = search if isinstance(search, dict) else {}
     build = identity.get("build") if isinstance(identity.get("build"), dict) else {}
@@ -179,14 +249,8 @@ def _entry_from_persisted_intelligence(results_root: Path, intelligence_path: Pa
             "possible_parameter_sets": search.get("possible_parameter_sets"),
             "exhaustive_complete": search.get("exhaustive_complete"),
         },
-        "selection": {
-            "recommended_parameter_set_id": selection.get("recommended_parameter_set_id"),
-            "best_avg_iou": selection.get("best_avg_iou"),
-            "minimum_iou": selection.get("minimum_iou"),
-            "stddev_iou": selection.get("stddev_iou"),
-            "failure_count": selection.get("failure_count"),
-            "calibration_evidence": selection.get("calibration_evidence"),
-        },
+        "selection": selection,
+        "search_selection": search_selection,
     }
 
 
@@ -212,7 +276,7 @@ def load_index_with_persisted_backfill(index_path: Path) -> dict[str, Any]:
         return "__record_path__", str(item.get("record_path") or id(item))
 
     by_identity = {
-        cache_key(item): item
+        cache_key(item): _repair_entry_selection(results_root, item)
         for item in current if isinstance(item, dict)
     }
 
@@ -346,7 +410,8 @@ def publish_run(
 
     compatibility = _compatibility(intelligence)
     compatibility_key = _canonical_hash(compatibility)
-    selection = intelligence.get("detector_selection_intelligence", {})
+    search_selection = _selection_snapshot(intelligence.get("detector_selection_intelligence"))
+    selection = _operational_selection(summary, search_selection)
     search = intelligence.get("search", {})
     entry = {
         "calibration_id": calibration_id,
@@ -373,14 +438,8 @@ def publish_run(
             "possible_parameter_sets": search.get("possible_parameter_sets") if isinstance(search, dict) else None,
             "exhaustive_complete": search.get("exhaustive_complete") if isinstance(search, dict) else None,
         },
-        "selection": {
-            "recommended_parameter_set_id": selection.get("recommended_parameter_set_id") if isinstance(selection, dict) else None,
-            "best_avg_iou": selection.get("best_avg_iou") if isinstance(selection, dict) else None,
-            "minimum_iou": selection.get("minimum_iou") if isinstance(selection, dict) else None,
-            "stddev_iou": selection.get("stddev_iou") if isinstance(selection, dict) else None,
-            "failure_count": selection.get("failure_count") if isinstance(selection, dict) else None,
-            "calibration_evidence": selection.get("calibration_evidence") if isinstance(selection, dict) else None,
-        },
+        "selection": selection,
+        "search_selection": search_selection,
     }
     return entry
 

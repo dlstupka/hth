@@ -4,7 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.calibration_store import publish_run, resolve, update_index
+from hth.calibration_store import publish_run, resolve, resolve_best_parameter_reference, update_index
+from hth.regression.parameter_provenance import build_provenance
+from hth.regression.parameter_space import parameter_set_id
 
 
 class CalibrationStoreTests(unittest.TestCase):
@@ -141,6 +143,74 @@ class CalibrationStoreTests(unittest.TestCase):
             self.assertEqual(preferred["run_mode"], "full")
             self.assertEqual(preferred["evidence_tier"], "partial")
             self.assertEqual(preferred["build"]["github_run_number"], "100")
+
+    def test_operational_selection_uses_canonical_reference_winner(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            results = root / "results"
+            run = self._run(root, "full", exhaustive=True, mode="full", score=0.91)
+            search_parameters = {"x": 1}
+            historic_parameters = {"x": 2}
+            search_id = parameter_set_id(search_parameters)
+            historic_id = parameter_set_id(historic_parameters)
+
+            intelligence_path = run / "reports" / "calibration-intelligence.json"
+            intelligence = json.loads(intelligence_path.read_text(encoding="utf-8"))
+            intelligence["detector_selection_intelligence"].update({
+                "recommended_parameter_set_id": search_id,
+                "best_avg_iou": 0.91,
+                "calibration_evidence": "High",
+            })
+            intelligence_path.write_text(json.dumps(intelligence), encoding="utf-8")
+            (run / "reports" / "summary.json").write_text(json.dumps({
+                "run_mode": "full",
+                "evidence_tier": "authoritative",
+                "winner": {
+                    "parameter_set_id": historic_id,
+                    "parameters": historic_parameters,
+                    "reference_roles": ["historic_best"],
+                    "summary": {
+                        "mean_iou": 0.9737,
+                        "minimum_iou": 0.8544,
+                        "stddev_iou": 0.0383,
+                        "failure_count": 0,
+                    },
+                },
+            }), encoding="utf-8")
+            config = {
+                "detector": "grabcut",
+                "parameters": {"x": {"values": [1, 2]}},
+                "profiles": {"baseline": search_parameters},
+            }
+            provenance = build_provenance(
+                "grabcut",
+                config,
+                [
+                    {"parameter_set_id": search_id, "parameters": search_parameters},
+                    {"parameter_set_id": historic_id, "parameters": historic_parameters},
+                ],
+                strategy="exhaustive",
+                complete_cartesian=True,
+            )
+            (run / "parameter-provenance.json").write_text(
+                json.dumps(provenance), encoding="utf-8",
+            )
+
+            entry = publish_run(
+                run, results, mode="full", source_fallback="repo", build={},
+            )
+            self.assertEqual(entry["search_selection"]["recommended_parameter_set_id"], search_id)
+            self.assertEqual(entry["selection"]["recommended_parameter_set_id"], historic_id)
+            self.assertEqual(entry["selection"]["best_avg_iou"], 0.9737)
+
+            update_index(results, [entry])
+            resolved = resolve_best_parameter_reference(
+                results / "indexes" / "calibration-index.json",
+                detector="grabcut",
+                golden_set_sha256="abc123",
+            )
+            self.assertEqual(resolved["parameter_set_id"], historic_id)
+            self.assertEqual(resolved["parameters"], historic_parameters)
 
     def test_persistence_rejects_run_mode_mismatch(self):
         with tempfile.TemporaryDirectory() as temp:

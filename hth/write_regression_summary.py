@@ -2993,6 +2993,7 @@ def build_combined_summary(
         "## Detector Recommendation for this Golden Set",
         "",
         f"- **Recommended detector:** {_detector_friendly_name(best_detector)}",
+        f"- **Golden Set:** `{_display_golden_set_id(best_row.get('golden_set_id', 'unknown'))}`",
         f"- **Detector short name:** {_detector_short_name(best_detector)}",
         f"- **Detector ID:** `{best_detector}`",
         f"- **Best observed Avg IoU:** `{_number(best_row.get('mean_iou'))}`",

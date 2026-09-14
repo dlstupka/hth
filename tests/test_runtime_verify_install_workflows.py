@@ -9,6 +9,7 @@ WORKFLOWS = (
 PYTHON_ACTION = ROOT / ".github/actions/setup-hth-python/action.yml"
 MANAGED_ACTION = ROOT / ".github/actions/setup-hth-managed-runtime/action.yml"
 RUNTIME_MANAGER = ROOT / "tools" / "ensure-managed-runtime.sh"
+RESULTS_CHECKOUT_PREP = ROOT / "tools" / "prepare-reusable-results-checkout.sh"
 
 
 class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
@@ -30,17 +31,30 @@ class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
             self.assertIn('rm -rf "/tmp/.ar/.hth-runtime"', text, workflow.name)
             self.assertIn("uses: ./hth-pipeline/.github/actions/setup-hth-python", text, workflow.name)
 
-    def test_regression_cleans_reusable_results_checkout_before_checkout_action(self):
+    def test_reusable_results_checkout_is_validated_around_checkout_action(self):
         text = (ROOT / ".github/workflows/regress-detector.yml").read_text(encoding="utf-8")
-        self.assertEqual(text.count("- name: Clean reusable results checkout"), 3)
-        self.assertEqual(text.count("git -C results-repo reset --hard"), 3)
-        self.assertEqual(text.count("git -C results-repo clean -ffd"), 3)
+        self.assertEqual(text.count("- name: Prepare reusable results checkout"), 3)
+        self.assertEqual(text.count("- name: Verify reusable results checkout"), 3)
         for match in [
             pos for pos in range(len(text))
-            if text.startswith("- name: Clean reusable results checkout", pos)
+            if text.startswith("- name: Prepare reusable results checkout", pos)
         ]:
             checkout = text.index("- name: Checkout results repository", match)
+            verify = text.index("- name: Verify reusable results checkout", checkout)
             self.assertLess(match, checkout)
+            self.assertLess(checkout, verify)
+
+        optimizer = (ROOT / ".github/workflows/execution-optimizer.yml").read_text(encoding="utf-8")
+        self.assertEqual(optimizer.count("- name: Prepare reusable results checkout"), 1)
+        self.assertEqual(optimizer.count("- name: Verify reusable results checkout"), 1)
+
+        helper = RESULTS_CHECKOUT_PREP.read_text(encoding="utf-8")
+        self.assertIn("rev-parse --verify 'HEAD^{commit}'", helper)
+        self.assertIn("remote get-url origin", helper)
+        self.assertIn('git -C "$target" reset --hard HEAD', helper)
+        self.assertIn('git -C "$target" clean -ffd', helper)
+        self.assertIn('rm -rf -- "$target"', helper)
+        self.assertNotIn(".hth-runtime", helper)
 
     def test_runtime_is_built_once_then_specialized_steps_only_verify(self):
         manager = RUNTIME_MANAGER.read_text(encoding="utf-8")

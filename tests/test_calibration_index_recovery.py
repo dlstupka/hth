@@ -12,6 +12,43 @@ from hth.regression.parameter_provenance import parameter_identity_sha256
 
 
 class CalibrationIndexRecoveryTests(unittest.TestCase):
+    def test_existing_index_selection_is_repaired_from_durable_summary(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            results = root / "results"
+            record = results / "records" / "run-full"
+            record.mkdir(parents=True)
+            (record / "summary.json").write_text(json.dumps({
+                "winner": {
+                    "parameter_set_id": "historic-best",
+                    "summary": {
+                        "mean_iou": 0.9737,
+                        "minimum_iou": 0.8544,
+                        "stddev_iou": 0.0383,
+                        "failure_count": 0,
+                    },
+                },
+            }), encoding="utf-8")
+            index_dir = results / "indexes"
+            index_dir.mkdir()
+            index_path = index_dir / "calibration-index.json"
+            index_path.write_text(json.dumps({"entries": [{
+                "calibration_id": "run-full",
+                "record_path": "records/run-full",
+                "selection": {
+                    "recommended_parameter_set_id": "search-winner",
+                    "best_avg_iou": 0.9686,
+                    "calibration_evidence": "High",
+                },
+            }]}), encoding="utf-8")
+
+            loaded = load_index_with_persisted_backfill(index_path)
+
+            entry = loaded["entries"][0]
+            self.assertEqual(entry["selection"]["recommended_parameter_set_id"], "historic-best")
+            self.assertEqual(entry["selection"]["best_avg_iou"], 0.9737)
+            self.assertEqual(entry["search_selection"]["recommended_parameter_set_id"], "search-winner")
+
     def test_incomplete_smoke_index_recovers_authoritative_full_history(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -59,7 +96,16 @@ class CalibrationIndexRecoveryTests(unittest.TestCase):
                     full_sha: {"sha256": full_sha, "legacy_parameter_set_id": legacy, "parameters": params}
                 },
             }), encoding="utf-8")
-            (record / "summary.json").write_text(json.dumps({"winner": {"parameter_set_id": legacy, "parameters": params}}), encoding="utf-8")
+            (record / "summary.json").write_text(json.dumps({"winner": {
+                "parameter_set_id": legacy,
+                "parameters": params,
+                "summary": {
+                    "mean_iou": 0.9912,
+                    "minimum_iou": 0.9820,
+                    "stddev_iou": 0.0059,
+                    "failure_count": 0,
+                },
+            }}), encoding="utf-8")
 
             # Simulate the broken migration state: canonical index has only a smoke row.
             smoke = {
@@ -78,6 +124,9 @@ class CalibrationIndexRecoveryTests(unittest.TestCase):
 
             loaded = load_index_with_persisted_backfill(index_path)
             self.assertEqual(len(loaded["entries"]), 2)
+            recovered = next(row for row in loaded["entries"] if row.get("calibration_id") == "run-full")
+            self.assertEqual(recovered["selection"]["best_avg_iou"], 0.9912)
+            self.assertEqual(recovered["search_selection"]["best_avg_iou"], 0.9897)
             resolved = resolve_rank_one(index_path, golden_set_id="HTH-0001")
             self.assertEqual(resolved["calibration_id"], "run-full")
             self.assertEqual(resolved["build_number"], "782")
