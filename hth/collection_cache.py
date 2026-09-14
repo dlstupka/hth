@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import tempfile
 from typing import Any, Callable
 import urllib.error
@@ -59,22 +59,26 @@ class EvidenceCacheArtifact:
         return f"{self.asset_url}.manifest.json"
 
 
-def validate_evidence_manifest(path: Path, *, index_entry: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Validate a persisted learned-evidence manifest and its canonical identity."""
-    path = Path(path)
-    payload = json.loads(path.read_text(encoding="utf-8"))
+def _validate_evidence_payload(
+    payload: Any,
+    *,
+    manifest_sha256: str,
+    size_bytes: int,
+    source: str,
+    index_entry: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        raise RuntimeError(f"Learned-evidence manifest is not an object: {path}")
+        raise RuntimeError(f"Learned-evidence manifest is not an object: {source}")
     persistence = payload.get("persistence")
     if not isinstance(persistence, dict):
-        raise RuntimeError(f"Learned-evidence persistence metadata is missing: {path}")
+        raise RuntimeError(f"Learned-evidence persistence metadata is missing: {source}")
     identity = persistence.get("identity")
     if not isinstance(identity, dict):
-        raise RuntimeError(f"Learned-evidence identity is missing: {path}")
+        raise RuntimeError(f"Learned-evidence identity is missing: {source}")
     detector = str(payload.get("detector") or "")
     evidence_id = str(persistence.get("evidence_id") or "")
     if not detector or str(identity.get("detector") or "") != detector:
-        raise RuntimeError(f"Learned-evidence detector identity mismatch: {path}")
+        raise RuntimeError(f"Learned-evidence detector identity mismatch: {source}")
     expected_id = canonical_evidence_id(identity)
     if evidence_id != expected_id:
         raise RuntimeError(
@@ -83,18 +87,17 @@ def validate_evidence_manifest(path: Path, *, index_entry: dict[str, Any] | None
     records = payload.get("records")
     image_keys = identity.get("image_keys")
     if not isinstance(records, list) or not isinstance(image_keys, list):
-        raise RuntimeError(f"Learned-evidence records or image keys are missing: {path}")
+        raise RuntimeError(f"Learned-evidence records or image keys are missing: {source}")
     record_keys = [str(row.get("image_key") or "") for row in records if isinstance(row, dict)]
     if len(record_keys) != len(records) or record_keys != [str(value) for value in image_keys]:
-        raise RuntimeError(f"Learned-evidence record order does not match its identity: {path}")
+        raise RuntimeError(f"Learned-evidence record order does not match its identity: {source}")
     if int(payload.get("page_count") or -1) != len(records):
-        raise RuntimeError(f"Learned-evidence page count does not match its records: {path}")
-    manifest_sha256 = sha256_file(path)
+        raise RuntimeError(f"Learned-evidence page count does not match its records: {source}")
     if index_entry is not None:
         expected = {
             "evidence_id": evidence_id,
             "manifest_sha256": manifest_sha256,
-            "size_bytes": path.stat().st_size,
+            "size_bytes": size_bytes,
             "page_count": len(records),
             "image_keys": image_keys,
         }
@@ -110,9 +113,22 @@ def validate_evidence_manifest(path: Path, *, index_entry: dict[str, Any] | None
         "evidence_id": evidence_id,
         "identity": identity,
         "manifest_sha256": manifest_sha256,
-        "size_bytes": path.stat().st_size,
+        "size_bytes": size_bytes,
         "page_count": len(records),
     }
+
+
+def validate_evidence_manifest(path: Path, *, index_entry: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Validate a persisted learned-evidence manifest and its canonical identity."""
+    path = Path(path)
+    raw = path.read_bytes()
+    return _validate_evidence_payload(
+        json.loads(raw.decode("utf-8")),
+        manifest_sha256=hashlib.sha256(raw).hexdigest(),
+        size_bytes=len(raw),
+        source=str(path),
+        index_entry=index_entry,
+    )
 
 
 def deterministic_evidence_bundle(manifest: Path, destination: Path) -> None:
@@ -142,35 +158,46 @@ def deterministic_evidence_bundle(manifest: Path, destination: Path) -> None:
 
 def validate_evidence_bundle(bundle: Path, *, expected_manifest_sha256: str | None = None) -> dict[str, Any]:
     with zipfile.ZipFile(bundle) as archive:
-        names = archive.namelist()
+        members = archive.infolist()
+        names = [member.filename for member in members]
         if not names or "manifest.json" not in names or len(names) != len(set(names)):
             raise RuntimeError("Learned-evidence bundle must contain one manifest.json")
-        for name in names:
-            member = Path(name)
-            if member.is_absolute() or ".." in member.parts or name.endswith("/"):
-                raise RuntimeError(f"Unsafe learned-evidence bundle member: {name}")
+        for member in members:
+            path = PurePosixPath(member.filename)
+            if path.is_absolute() or ".." in path.parts or "\\" in member.filename or member.is_dir():
+                raise RuntimeError(f"Unsafe learned-evidence bundle member: {member.filename}")
         raw = archive.read("manifest.json")
+        # Reading every member verifies the ZIP CRC without writing a complete
+        # throwaway extraction to disk. Materialization remains the only disk
+        # extraction performed for a cache hit.
+        for member in members:
+            if member.filename == "manifest.json":
+                continue
+            with archive.open(member) as source:
+                while source.read(1024 * 1024):
+                    pass
     actual = hashlib.sha256(raw).hexdigest()
     if expected_manifest_sha256 is not None and actual != expected_manifest_sha256:
         raise RuntimeError(
             f"Bundled evidence manifest SHA-256 mismatch: expected={expected_manifest_sha256} actual={actual}"
         )
-    with tempfile.TemporaryDirectory() as temp:
-        root = Path(temp)
-        with zipfile.ZipFile(bundle) as archive:
-            archive.extractall(root)
-        manifest = Path(temp) / "manifest.json"
-        validated = validate_evidence_manifest(manifest)
-        payload = validated["payload"]
-        for record in payload.get("records", []):
-            if not isinstance(record, dict):
-                continue
-            for key in ("file", "probability_file"):
-                relative = record.get(key)
-                if relative:
-                    asset = root / str(relative)
-                    if not asset.is_file() or root.resolve() not in asset.resolve().parents:
-                        raise RuntimeError(f"Bundled learned-evidence asset is missing or unsafe: {relative}")
+    validated = _validate_evidence_payload(
+        json.loads(raw.decode("utf-8")),
+        manifest_sha256=actual,
+        size_bytes=len(raw),
+        source=f"{bundle}!manifest.json",
+    )
+    payload = validated["payload"]
+    archived_files = set(names)
+    for record in payload.get("records", []):
+        if not isinstance(record, dict):
+            continue
+        for key in ("file", "probability_file"):
+            relative = record.get(key)
+            if relative:
+                path = PurePosixPath(str(relative))
+                if path.is_absolute() or ".." in path.parts or path.as_posix() not in archived_files:
+                    raise RuntimeError(f"Bundled learned-evidence asset is missing or unsafe: {relative}")
     return validated
 
 
@@ -184,9 +211,16 @@ def fetch_url(url: str, target: Path) -> None:
             handle.write(chunk)
 
 
-def materialize(bundle: Path, output: Path) -> Path:
+def materialize(
+    bundle: Path,
+    output: Path,
+    *,
+    expected_identity: dict[str, Any] | None = None,
+) -> Path:
     """Validate and atomically hydrate a complete evidence directory."""
-    validate_evidence_bundle(bundle)
+    validated = validate_evidence_bundle(bundle)
+    if expected_identity is not None and validated["identity"] != expected_identity:
+        raise RuntimeError("Materialized learned-evidence identity mismatch")
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=output.parent) as temp:

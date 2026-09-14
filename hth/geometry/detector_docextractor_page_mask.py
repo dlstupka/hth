@@ -94,7 +94,8 @@ def load_precomputed_golden_set_evidence(output_dir,images):
     with _CACHE_LOCK:
         _PRECOMPUTED_EVIDENCE.clear()
         for key in expected:
-            arr=np.load(output_dir/records[key]); arr.setflags(write=False); _PRECOMPUTED_EVIDENCE[key]=arr; _CACHE[key]=arr; _CACHE.move_to_end(key)
+            mmap_mode=None if os.name=='nt' else 'r'
+            arr=np.load(output_dir/records[key],mmap_mode=mmap_mode,allow_pickle=False); arr.setflags(write=False); _PRECOMPUTED_EVIDENCE[key]=arr; _CACHE[key]=arr; _CACHE.move_to_end(key)
             while len(_CACHE)>_CACHE_LIMIT: _CACHE.popitem(last=False)
     return expected
 def detect(*,image_bgr,mask,parameters=None):

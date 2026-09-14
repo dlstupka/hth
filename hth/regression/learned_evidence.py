@@ -348,10 +348,7 @@ def _reuse_local_cache(*, output: Path, spec: EvidenceCacheArtifact) -> Path | N
     if bundle is None or not bundle.is_file():
         return None
     try:
-        validated = validate_evidence_bundle(bundle)
-        if validated["identity"] != spec.identity:
-            raise RuntimeError("local evidence identity mismatch")
-        manifest = materialize(bundle, output)
+        manifest = materialize(bundle, output, expected_identity=spec.identity)
     except (OSError, RuntimeError, json.JSONDecodeError) as exc:
         print(
             f"[learned-evidence][{spec.detector}] LOCAL CACHE REJECTED "
@@ -406,7 +403,7 @@ def _reuse_collection_cache(*, output: Path, spec: EvidenceCacheArtifact) -> Pat
             )
             return None
         local = _store_local_bundle(bundle, spec)
-        manifest = materialize(local or bundle, output)
+        manifest = materialize(local or bundle, output, expected_identity=spec.identity)
     print(
         f"[learned-evidence][{spec.detector}] COLLECTION CACHE HIT "
         f"evidence_id={spec.evidence_id[:12]} pages={len(spec.identity['image_keys'])} path={manifest}",

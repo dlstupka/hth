@@ -9,6 +9,7 @@ import numpy as np
 
 from hth.geometry import detector_dhsegment_page_mask as dh
 from hth.geometry import detector_kraken_page_mask as kraken
+from hth.geometry import detector_pagenet_page_mask as pagenet
 
 
 class SharedLearnedEvidenceParentTests(unittest.TestCase):
@@ -58,6 +59,27 @@ class SharedLearnedEvidenceParentTests(unittest.TestCase):
         np.testing.assert_array_equal(loaded, probability)
         if os.name == "nt":
             self.assertFalse(isinstance(loaded, np.memmap))
+
+    def test_pagenet_artifact_round_trip_uses_readonly_mmap(self):
+        image = np.zeros((8, 8, 3), dtype=np.uint8)
+        key = pagenet._image_key(image)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            np.save(root / f"{key}.npy", np.zeros((256, 256), dtype=np.float32))
+            (root / "manifest.json").write_text(json.dumps({
+                "detector": "pagenet_page_mask",
+                "records": [{"image_key": key, "file": f"{key}.npy"}],
+            }), encoding="utf-8")
+            pagenet.load_precomputed_golden_set_evidence(root, [image])
+            loaded = pagenet._PRECOMPUTED_EVIDENCE[key][0]
+            self.assertFalse(loaded.flags.writeable)
+            if os.name == "nt":
+                self.assertFalse(isinstance(loaded, np.memmap))
+            else:
+                self.assertIsInstance(loaded, np.memmap)
+            with pagenet._CACHE_LOCK:
+                pagenet._PRECOMPUTED_EVIDENCE.clear()
+                pagenet._CACHE.clear()
 
     def test_shell_prepares_shared_evidence_before_worker_fanout(self):
         text = Path("tools/run-detector-regressions.sh").read_text(encoding="utf-8")

@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 import urllib.error
+import zipfile
 
 from hth.collection_cache import (
     EvidenceCacheArtifact,
@@ -112,6 +113,38 @@ class CollectionCacheTests(unittest.TestCase):
             self.assertTrue(hydrated.is_file())
             self.assertEqual((output / "page-a.npy").read_bytes(), b"array-a")
             self.assertEqual((output / "page-b.npy").read_bytes(), b"array-b")
+
+    def test_bundle_validation_does_not_extract_archive(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            manifest, _ = self._manifest(root)
+            bundle = root / "evidence.zip"
+            deterministic_evidence_bundle(manifest, bundle)
+            with mock.patch.object(zipfile.ZipFile, "extractall", side_effect=AssertionError("must not extract")):
+                validate_evidence_bundle(bundle)
+
+    def test_bundle_rejects_windows_style_traversal(self):
+        with tempfile.TemporaryDirectory() as temp:
+            bundle = Path(temp) / "unsafe.zip"
+            with zipfile.ZipFile(bundle, "w") as archive:
+                archive.writestr("manifest.json", "{}")
+                archive.writestr("..\\outside.npy", b"unsafe")
+            with self.assertRaisesRegex(RuntimeError, "Unsafe learned-evidence bundle member"):
+                validate_evidence_bundle(bundle)
+
+    def test_materialize_rejects_an_unexpected_identity_before_replacing_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            manifest, _ = self._manifest(root)
+            bundle = root / "evidence.zip"
+            deterministic_evidence_bundle(manifest, bundle)
+            output = root / "hydrated"
+            output.mkdir()
+            marker = output / "marker.txt"
+            marker.write_text("keep", encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "identity mismatch"):
+                materialize(bundle, output, expected_identity={"wrong": True})
+            self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
 
     def test_download_validates_release_and_bundled_evidence_identity(self):
         with tempfile.TemporaryDirectory() as temp:

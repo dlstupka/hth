@@ -117,8 +117,16 @@ def load_precomputed_golden_set_evidence(output_dir, images):
     with _CACHE_LOCK:
         _PRECOMPUTED_EVIDENCE.clear()
         for key in expected:
-            array = np.load(output_dir / records[key]["file"])
-            array = np.array(array, dtype=np.float32, copy=False)
+            # Keep the immutable probability surfaces demand-paged on POSIX.
+            # Windows keeps mmap files locked, which prevents normal artifact
+            # cleanup, so it deliberately retains the eager-load behavior.
+            mmap_mode = None if os.name == "nt" else "r"
+            array = np.load(
+                output_dir / records[key]["file"],
+                mmap_mode=mmap_mode,
+                allow_pickle=False,
+            )
+            array = np.asarray(array, dtype=np.float32)
             array.setflags(write=False)
             evidence = (array, {"model_id": records[key].get("model_id", "pagenet-ohio")})
             _PRECOMPUTED_EVIDENCE[key] = evidence
