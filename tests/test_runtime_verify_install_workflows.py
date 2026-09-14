@@ -1,3 +1,6 @@
+import os
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -51,10 +54,67 @@ class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
         helper = RESULTS_CHECKOUT_PREP.read_text(encoding="utf-8")
         self.assertIn("rev-parse --verify 'HEAD^{commit}'", helper)
         self.assertIn("remote get-url origin", helper)
+        self.assertIn('value="${value#*@github.com/}"', helper)
+        self.assertIn('canonical_origin="https://github.com/${repository_slug}.git"', helper)
+        self.assertIn('remote set-url origin "$canonical_origin"', helper)
         self.assertIn('git -C "$target" reset --hard HEAD', helper)
         self.assertIn('git -C "$target" clean -ffd', helper)
         self.assertIn('rm -rf -- "$target"', helper)
         self.assertNotIn(".hth-runtime", helper)
+
+    @unittest.skipIf(os.name == "nt", "requires a POSIX bash subprocess")
+    def test_reusable_results_checkout_accepts_and_sanitizes_authenticated_origin(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            workspace = Path(temporary_directory)
+            checkout = workspace / "results-repo"
+            checkout.mkdir()
+            subprocess.run(["git", "init", str(checkout)], check=True, capture_output=True)
+            subprocess.run(
+                [
+                    "git", "-C", str(checkout),
+                    "-c", "user.name=HTH test",
+                    "-c", "user.email=hth-test@example.invalid",
+                    "commit", "--allow-empty", "-m", "seed",
+                ],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                [
+                    "git", "-C", str(checkout), "remote", "add", "origin",
+                    "https://x-access-token:secret-value@github.com/owner/results.git",
+                ],
+                check=True,
+                capture_output=True,
+            )
+
+            environment = os.environ.copy()
+            environment["GITHUB_WORKSPACE"] = str(workspace)
+            completed = subprocess.run(
+                [
+                    "bash", RESULTS_CHECKOUT_PREP.as_posix(),
+                    "prepare", "owner/results",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+
+            self.assertEqual(
+                completed.returncode,
+                0,
+                f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
+            )
+            self.assertNotIn("::warning::", completed.stdout)
+            self.assertIn("validated and cleaned", completed.stdout)
+            origin = subprocess.run(
+                ["git", "-C", str(checkout), "remote", "get-url", "origin"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual(origin, "https://github.com/owner/results.git")
 
     def test_runtime_is_built_once_then_specialized_steps_only_verify(self):
         manager = RUNTIME_MANAGER.read_text(encoding="utf-8")

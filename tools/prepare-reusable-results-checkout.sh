@@ -13,18 +13,24 @@ if [[ -z "$workspace" || "$workspace" == "/" || "$target" != "$workspace/results
   exit 2
 fi
 
-repository_slug="${expected_repository%.git}"
-repository_slug="${repository_slug#https://github.com/}"
-repository_slug="${repository_slug#http://github.com/}"
-repository_slug="${repository_slug#git@github.com:}"
+normalize_repository_slug() {
+  local value="${1%.git}"
+  value="${value#https://}"
+  value="${value#http://}"
+  value="${value#ssh://}"
+  value="${value#git@github.com:}"
+  value="${value#*@github.com/}"
+  value="${value#github.com/}"
+  printf '%s' "$value"
+}
+
+repository_slug="$(normalize_repository_slug "$expected_repository")"
+canonical_origin="https://github.com/${repository_slug}.git"
 
 origin_matches() {
   local origin normalized
   origin="$(git -C "$target" remote get-url origin 2>/dev/null)" || return 1
-  normalized="${origin%.git}"
-  normalized="${normalized#https://github.com/}"
-  normalized="${normalized#http://github.com/}"
-  normalized="${normalized#git@github.com:}"
+  normalized="$(normalize_repository_slug "$origin")"
   [[ "$normalized" == "$repository_slug" ]]
 }
 
@@ -46,6 +52,10 @@ case "$mode" in
       recreate_checkout
       exit 0
     fi
+    # Persistence temporarily authenticates origin by embedding x-access-token
+    # credentials. Recognize that as the same repository, then remove the
+    # credential-bearing URL before the checkout is reused.
+    git -C "$target" remote set-url origin "$canonical_origin"
     if ! git -C "$target" reset --hard HEAD || ! git -C "$target" clean -ffd; then
       recreate_checkout
       exit 0
