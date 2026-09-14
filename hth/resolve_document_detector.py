@@ -10,6 +10,7 @@ from typing import Any
 
 from hth.calibration_store import resolve_best_parameter_reference, load_index_with_persisted_backfill
 from hth.domain.calibration import calibration_search_type, calibration_status
+from hth.golden_set_catalog import resolve_golden_set_for_source
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -151,14 +152,32 @@ def render_summary(resolved: dict[str, Any], *, display_name: str) -> str:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--index", type=Path, required=True)
-    p.add_argument("--golden-set-id", default="HTH-0001")
+    p.add_argument("--golden-set-id", default="")
+    p.add_argument("--golden-set-freeze-root", type=Path)
+    p.add_argument("--source-repository", default="")
+    p.add_argument("--source-release-tag", default="")
+    p.add_argument("--source-release-manifest-sha256", default="")
     p.add_argument("--catalog", type=Path)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--github-output", type=Path)
     p.add_argument("--github-summary", type=Path)
     args = p.parse_args(argv)
 
-    resolved = resolve_rank_one(args.index, golden_set_id=args.golden_set_id)
+    golden_set_id = str(args.golden_set_id or "").strip()
+    if not golden_set_id:
+        if args.golden_set_freeze_root is None:
+            p.error(
+                "--golden-set-id or --golden-set-freeze-root with immutable "
+                "source-release provenance is required"
+            )
+        golden_set_id = resolve_golden_set_for_source(
+            args.golden_set_freeze_root,
+            source_repository=args.source_repository,
+            source_release_tag=args.source_release_tag,
+            source_release_manifest_sha256=args.source_release_manifest_sha256,
+        )
+
+    resolved = resolve_rank_one(args.index, golden_set_id=golden_set_id)
     resolved["display_name"] = _display_name(resolved["detector"], args.catalog)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(resolved, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -168,6 +187,7 @@ def main(argv: list[str] | None = None) -> int:
         with args.github_output.open("a", encoding="utf-8") as handle:
             handle.write(f"detector={resolved['detector']}\n")
             handle.write(f"parameter_set_id={resolved.get('parameter_set_id')}\n")
+            handle.write(f"golden_set_id={resolved.get('golden_set_id')}\n")
             handle.write(f"needs_doc_ufcn={'true' if resolved.get('needs_doc_ufcn') else 'false'}\n")
     if args.github_summary:
         with args.github_summary.open("a", encoding="utf-8") as handle:

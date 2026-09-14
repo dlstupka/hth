@@ -24,7 +24,8 @@ class WorkflowResearchArtifactTests(unittest.TestCase):
         self.assertIn("results-repo/*-index.json", text)
         self.assertIn("optimizer-predictions.json", text)
         self.assertIn("reports execution-optimizer source-documents", text)
-        self.assertIn("config/golden_sets/${GOLDEN_ID}.freeze.json", text)
+        self.assertIn('FREEZE_SOURCE="${{ steps.report_golden_set.outputs.freeze_path }}"', text)
+        self.assertIn('cp "$FREEZE_SOURCE" "report-research-artifact/golden-set/${GOLDEN_ID}.freeze.json"', text)
         self.assertIn("selected-golden-set.json", text)
         self.assertIn("Detector regression/debug/verbose trees are deliberately excluded", text)
 

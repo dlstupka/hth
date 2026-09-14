@@ -5,6 +5,7 @@ from pathlib import Path
 
 from hth.regression.parameter_space import parameter_set_id
 from hth.regression.parameter_provenance import parameter_identity_sha256
+from hth.golden_set_catalog import resolve_golden_set_for_source
 from hth.resolve_document_detector import resolve_rank_one, render_summary
 
 
@@ -83,6 +84,71 @@ class PreferredDocumentDetectorTests(unittest.TestCase):
         entry["search"]["strategy"] = "exhaustive-with-zombies"
         self.assertTrue(_approved(entry))
 
+    def test_resolves_golden_set_from_exact_immutable_source_release(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "HTH-0001.freeze.json").write_text(json.dumps({
+                "state": "frozen",
+                "golden_set_id": "HTH-0001",
+                "source_release": {
+                    "repository": "dlstupka/source",
+                    "tag": "HTH-SOURCE-0001",
+                    "manifest_sha256": "aaa111",
+                },
+            }), encoding="utf-8")
+            (root / "HTH-GOLDEN-0002.freeze.json").write_text(json.dumps({
+                "state": "frozen",
+                "golden_set_id": "HTH-GOLDEN-0002",
+                "source_release": {
+                    "repository": "https://github.com/dlstupka/source.git",
+                    "tag": "HTH-SOURCE-0002",
+                    "manifest_sha256": "BBB222",
+                },
+            }), encoding="utf-8")
+
+            resolved = resolve_golden_set_for_source(
+                root,
+                source_repository="dlstupka/source",
+                source_release_tag="HTH-SOURCE-0002",
+                source_release_manifest_sha256="bbb222",
+            )
+
+            self.assertEqual(resolved, "HTH-GOLDEN-0002")
+
+    def test_source_release_resolution_fails_closed_on_manifest_mismatch(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "HTH-GOLDEN-0002.freeze.json").write_text(json.dumps({
+                "state": "frozen",
+                "golden_set_id": "HTH-GOLDEN-0002",
+                "source_release": {
+                    "repository": "dlstupka/source",
+                    "tag": "HTH-SOURCE-0002",
+                    "manifest_sha256": "bbb222",
+                },
+            }), encoding="utf-8")
+
+            with self.assertRaisesRegex(SystemExit, "No frozen Golden Set matches"):
+                resolve_golden_set_for_source(
+                    root,
+                    source_repository="dlstupka/source",
+                    source_release_tag="HTH-SOURCE-0002",
+                    source_release_manifest_sha256="wrong-sha",
+                )
+
+    def test_repository_freeze_maps_source_0002_to_golden_0002(self):
+        root = Path(__file__).resolve().parents[1]
+        freeze_root = root / "config/golden_sets"
+        resolved = resolve_golden_set_for_source(
+            freeze_root,
+            source_repository="dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
+            source_release_tag="HTH-SOURCE-0002",
+            source_release_manifest_sha256=(
+                "871caffe1b6b09a14d3db130be220db6537cbd3746faeecb9f2efd3bfbcd7123"
+            ),
+        )
+        self.assertEqual(resolved, "HTH-GOLDEN-0002")
+
     def test_workflows_use_preferred_without_detector_research_dropdown(self):
         root = Path(__file__).resolve().parents[1]
         preprocess = (root / ".github/workflows/preprocess.yml").read_text(encoding="utf-8")
@@ -95,6 +161,11 @@ class PreferredDocumentDetectorTests(unittest.TestCase):
         self.assertIn('if [[ ! -f "$calibration_index" && -f results-repo/calibration-index.json ]]', core)
         self.assertIn('calibration_index="results-repo/calibration-index.json"', core)
         self.assertIn('--index "../$calibration_index"', core)
+        self.assertNotIn("--golden-set-id HTH-0001", core)
+        self.assertIn("--golden-set-freeze-root config/golden_sets", core)
+        self.assertIn('--source-release-tag "$SOURCE_RELEASE_TAG"', core)
+        self.assertIn("--source-release-manifest-sha256", core)
+        self.assertIn("GOLDEN_SET_ID: ${{ steps.preferred_document_detector.outputs.golden_set_id }}", core)
         self.assertIn("--selection \"$RUNNER_TEMP/preferred-document-detector.json\"", core)
 
 

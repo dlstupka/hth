@@ -249,7 +249,9 @@ def build_summary(args: argparse.Namespace) -> str:
         f"| Status | **{args.status}** |",
         f"| Collection | `{args.collection_id or 'unknown'}` |",
         f"| Source repository | `{args.source_repository or 'unknown'}` |",
+        f"| Source release | `{args.source_release or 'unknown'}` |",
         f"| Source commit | `{_short(args.source_commit)}` |",
+        f"| Calibration Golden Set | `{args.golden_set_id or 'unknown'}` |",
         f"| Pipeline commit | `{_short(args.pipeline_commit)}` |",
         f"| Workflow | `{args.workflow_name or 'unknown'}` |",
         f"| Run | `{args.run_number or 'unknown'}` |",
@@ -358,7 +360,9 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--status", default="success")
     p.add_argument("--collection-id", default=_env("HTH_COLLECTION_ID"))
     p.add_argument("--source-repository", default=_env("HTH_SOURCE_REPOSITORY"))
+    p.add_argument("--source-release", default=_env("HTH_SOURCE_RELEASE"))
     p.add_argument("--source-commit", default=_env("HTH_SOURCE_COMMIT"))
+    p.add_argument("--golden-set-id", default=_env("HTH_GOLDEN_SET_ID"))
     p.add_argument("--pipeline-commit", default=_env("GITHUB_SHA"))
     p.add_argument("--workflow-name", default=_env("GITHUB_WORKFLOW"))
     p.add_argument("--run-number", default=_env("GITHUB_RUN_NUMBER"))

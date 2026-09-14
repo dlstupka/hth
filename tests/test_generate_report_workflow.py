@@ -19,6 +19,12 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertIn("default: all", text)
         self.assertIn("          - all", text)
         self.assertIn("default: github-hosted", text)
+        self.assertIn("golden_release_tag:", text)
+        self.assertIn("default: HTH-GOLDEN-0002", text)
+        self.assertIn("          - HTH-GOLDEN-0001", text)
+        self.assertIn("          - HTH-GOLDEN-0002", text)
+        self.assertNotIn("default: config/golden_set.json", text)
+        self.assertIn("report_golden_set: ${{ inputs.golden_release_tag }}", text)
         self.assertIn("uses: ./.github/workflows/_core-hth.yml", text)
         self.assertIn("mode: report", text)
         for runner in ("self-hosted-hth", "self-hosted-windows", "self-hosted-rhel8", "self-hosted-e7k", "self-hosted-e9k"):
@@ -29,6 +35,14 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertIn('runner:\n        description: "Execution runner"', text)
         self.assertIn("inputs.runner == 'self-hosted-e7k'", text)
         self.assertIn("inputs.runner == 'self-hosted-e9k'", text)
+
+    def test_core_resolves_report_release_tag_to_validated_canonical_file(self) -> None:
+        text = CORE.read_text(encoding="utf-8")
+        self.assertIn("- name: Resolve report Golden Set release", text)
+        self.assertIn("python -m hth.golden_set_catalog", text)
+        self.assertIn('--release-tag "${{ inputs.report_golden_set }}"', text)
+        self.assertIn('--golden-set "${{ steps.report_golden_set.outputs.golden_set_path }}"', text)
+        self.assertIn('FREEZE_SOURCE="${{ steps.report_golden_set.outputs.freeze_path }}"', text)
 
 
     def test_core_report_results_checkout_is_shallow_main_only(self) -> None:

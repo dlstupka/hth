@@ -79,10 +79,10 @@ on:
         type: string
         default: "all"
       report_golden_set:
-        description: "Golden Set used to select compatible detector calibrations"
+        description: "Immutable Golden Set release tag used to select compatible detector calibrations"
         required: false
         type: string
-        default: "config/golden_set.json"
+        default: "HTH-GOLDEN-0002"
       geometry_fail_on:
         description: "Geometry validation failure policy"
         required: false
@@ -367,7 +367,10 @@ jobs:
           cd hth-pipeline
           python -m hth.resolve_document_detector \
             --index "../$calibration_index" \
-            --golden-set-id HTH-0001 \
+            --golden-set-freeze-root config/golden_sets \
+            --source-repository "$SOURCE_REPOSITORY" \
+            --source-release-tag "$SOURCE_RELEASE_TAG" \
+            --source-release-manifest-sha256 "${{ steps.build.outputs.source_release_manifest_sha256 }}" \
             --catalog config/document-detectors.json \
             --output "$RUNNER_TEMP/preferred-document-detector.json" \
             --github-output "$GITHUB_OUTPUT" \
@@ -429,6 +432,7 @@ jobs:
         env:
           SOURCE_COMMIT: ${{ steps.build.outputs.source_commit }}
           SOURCE_RELEASE_MANIFEST_SHA256: ${{ steps.build.outputs.source_release_manifest_sha256 }}
+          GOLDEN_SET_ID: ${{ steps.preferred_document_detector.outputs.golden_set_id }}
           PIPELINE_COMMIT: ${{ steps.build.outputs.pipeline_commit }}
         run: |
           set -euo pipefail
@@ -453,6 +457,9 @@ jobs:
             release: {quote(os.environ["SOURCE_RELEASE_TAG"])}
             release_manifest_sha256: {quote(os.environ["SOURCE_RELEASE_MANIFEST_SHA256"])}
             commit: {quote(os.environ["SOURCE_COMMIT"])}
+
+          calibration:
+            golden_set_id: {quote(os.environ.get("GOLDEN_SET_ID", ""))}
 
           pipeline:
             repository: {quote(os.environ["GITHUB_REPOSITORY"])}
@@ -1001,6 +1008,8 @@ jobs:
         env:
           HTH_SOURCE_REPOSITORY: ${{ inputs.source_repository }}
           HTH_SOURCE_COMMIT: ${{ steps.build.outputs.source_commit }}
+          HTH_SOURCE_RELEASE: ${{ steps.build.outputs.source_release_tag }}
+          HTH_GOLDEN_SET_ID: ${{ steps.preferred_document_detector.outputs.golden_set_id }}
           PIPELINE_START_EPOCH: ${{ steps.pipeline_start.outputs.epoch }}
         run: |
           set -u
@@ -1201,6 +1210,8 @@ jobs:
         env:
           HTH_SOURCE_REPOSITORY: ${{ inputs.source_repository }}
           HTH_SOURCE_COMMIT: ${{ steps.build.outputs.source_commit }}
+          HTH_SOURCE_RELEASE: ${{ steps.build.outputs.source_release_tag }}
+          HTH_GOLDEN_SET_ID: ${{ steps.preferred_document_detector.outputs.golden_set_id }}
           PIPELINE_START_EPOCH: ${{ steps.pipeline_start.outputs.epoch }}
         run: |
           set -u
@@ -1313,6 +1324,19 @@ jobs:
           runner-label: ${{ env.HTH_RUNNER_LABEL }}
           diagnostics: "false"
 
+      - name: Resolve report Golden Set release
+        id: report_golden_set
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          python -m hth.golden_set_catalog \
+            --freeze-root hth-pipeline/config/golden_sets \
+            --repository-root hth-pipeline \
+            --release-tag "${{ inputs.report_golden_set }}" \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Generate selected report
         shell: bash
         env:
@@ -1326,7 +1350,7 @@ jobs:
           if [[ "${{ inputs.report_type }}" == "detector-calibration-manifest" ]]; then
             python -m hth.report_generator detector-calibration-manifest \
               --results-root results-repo \
-              --golden-set "hth-pipeline/${{ inputs.report_golden_set }}" \
+              --golden-set "${{ steps.report_golden_set.outputs.golden_set_path }}" \
               --output generated-report/detector-calibration-manifest.md \
               --pipeline-repository "${{ github.repository }}" \
               --results-repository "$RESULTS_REPOSITORY" \
@@ -1370,7 +1394,7 @@ jobs:
             if [[ "${{ inputs.report_type }}" == "detector-calibration-manifest" ]]; then
               python -m hth.report_generator detector-calibration-manifest \
                 --results-root results-repo \
-                --golden-set "hth-pipeline/${{ inputs.report_golden_set }}" \
+                --golden-set "${{ steps.report_golden_set.outputs.golden_set_path }}" \
                 --output generated-report/detector-calibration-manifest.md \
                 --pipeline-repository "${{ github.repository }}" \
                 --results-repository "$RESULTS_REPOSITORY" \
@@ -1431,13 +1455,11 @@ jobs:
           mkdir -p report-research-artifact/golden-set
 
           cp -a generated-report/. report-research-artifact/generated-report/
-          GOLDEN_SOURCE="hth-pipeline/${{ inputs.report_golden_set }}"
+          GOLDEN_SOURCE="${{ steps.report_golden_set.outputs.golden_set_path }}"
           cp "$GOLDEN_SOURCE" report-research-artifact/golden-set/selected-golden-set.json
-          GOLDEN_ID="$(python -c 'import json,sys; p=json.load(open(sys.argv[1], encoding="utf-8")); print(p.get("collection_id") or p.get("id") or "unknown")' "$GOLDEN_SOURCE")"
-          FREEZE_SOURCE="hth-pipeline/config/golden_sets/${GOLDEN_ID}.freeze.json"
-          if [[ -f "$FREEZE_SOURCE" ]]; then
-            cp "$FREEZE_SOURCE" "report-research-artifact/golden-set/${GOLDEN_ID}.freeze.json"
-          fi
+          GOLDEN_ID="${{ steps.report_golden_set.outputs.golden_set_id }}"
+          FREEZE_SOURCE="${{ steps.report_golden_set.outputs.freeze_path }}"
+          cp "$FREEZE_SOURCE" "report-research-artifact/golden-set/${GOLDEN_ID}.freeze.json"
 
           # Persisted research intelligence: calibration identity/quality, runtime,
           # parallelism, optimizer, provenance, scheduling, and source metadata.

@@ -1,7 +1,7 @@
 name: HTH generate report
 
 run-name: >-
-  Generate ${{ inputs.report }} report on ${{ inputs.runner }}
+  Generate ${{ inputs.report }} report for ${{ inputs.golden_release_tag }} on ${{ inputs.runner }}
 
 on:
   workflow_dispatch:
@@ -44,11 +44,14 @@ on:
         required: true
         default: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
         type: string
-      golden_set:
-        description: Golden Set used to select compatible detector calibrations
+      golden_release_tag:
+        description: Immutable Golden Set release tag
         required: true
-        default: config/golden_set.json
-        type: string
+        default: HTH-GOLDEN-0002
+        type: choice
+        options:
+          - HTH-GOLDEN-0001
+          - HTH-GOLDEN-0002
       runner:
         description: Execution runner
         required: true
@@ -92,7 +95,7 @@ jobs:
       results_repository: ${{ inputs.results_repository }}
       report_type: ${{ inputs.report }}
       report_algorithm: ${{ inputs.algorithm }}
-      report_golden_set: ${{ inputs.golden_set }}
+      report_golden_set: ${{ inputs.golden_release_tag }}
       publish_results: true
       upload_full_artifact: false
     secrets: inherit
