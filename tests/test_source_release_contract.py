@@ -50,6 +50,17 @@ class SourceReleaseContractTests(unittest.TestCase):
         core = (ROOT / ".github/workflows/_core-hth.yml").read_text(encoding="utf-8")
         self.assertIn('LIMIT_ARGS+=(--limit "$IMAGE_LIMIT")', core)
 
+    def test_collection_dispatch_uses_source_release_choice_menu(self):
+        workflow = (ROOT / ".github/workflows/preprocess.yml").read_text(encoding="utf-8")
+        dispatch = workflow.split("workflow_dispatch:", 1)[1].split("permissions:", 1)[0]
+        source_release = dispatch.split("source_release_tag:", 1)[1].split(
+            "results_repository:", 1
+        )[0]
+        self.assertIn("type: choice", source_release)
+        self.assertIn("default: HTH-SOURCE-0002", source_release)
+        self.assertIn("- HTH-SOURCE-0001", source_release)
+        self.assertIn("- HTH-SOURCE-0002", source_release)
+
     def test_generated_artifact_contains_canonical_build_info(self):
         core = (ROOT / ".github/workflows/_core-hth.yml").read_text(encoding="utf-8")
         self.assertIn("Record build identity in generated artifact", core)

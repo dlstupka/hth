@@ -11,8 +11,11 @@ on:
       source_release_tag:
         description: "Immutable source Release tag"
         required: true
-        type: string
-        default: "HTH-SOURCE-0001"
+        default: HTH-SOURCE-0002
+        type: choice
+        options:
+          - HTH-SOURCE-0001
+          - HTH-SOURCE-0002
       results_repository:
         description: "Results repository"
         required: true
