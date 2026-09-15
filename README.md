@@ -114,6 +114,7 @@ Useful starting points:
 - **[Architecture](docs/architecture.md)** — repository responsibilities, canonical stages, reporting, and durable design principles.
 - **[Workflow architecture](docs/workflow-architecture.md)** — CI/execution organization and workflow responsibilities.
 - **[Preprocessor](docs/preprocessor.md)** — source extraction and preprocessing behavior.
+- **[Canonical Build Evidence](docs/canonical-build-evidence.md)** — deterministic build identity, audit, reuse, and forced-verification contract.
 - **[Physical geometry evaluation](docs/physical-geometry-evaluation.md)** — geometry-analysis and validation model.
 - **[Regression](docs/regression.md)** — detector calibration, metrics, search spaces, and reporting conventions.
 - **[Canonical learned-evidence cache](docs/learned-evidence-cache.md)** — reusable neural evidence identity, local/release resolution, validation, and recovery.

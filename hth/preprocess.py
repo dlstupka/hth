@@ -47,7 +47,11 @@ class ImageRecord:
     word_crop_applied: bool
     duplicate_group: str
     analysis_file: str
+    analysis_bytes: int
+    analysis_sha256: str
     thumbnail_file: str
+    thumbnail_bytes: int
+    thumbnail_sha256: str
 
     source_repository: str
     source_commit: str
@@ -323,11 +327,17 @@ def main():
                 raw_path = args.output / raw_rel
                 raw_path.write_bytes(data)
                 analysis_rel = ""
+                analysis_bytes = 0
+                analysis_sha256 = ""
                 if args.derive:
                     analysis_rel = (Path("analysis") / f"fs_{next_global:04d}_analysis.png").as_posix()
-                    make_analysis(raw_path, args.output / analysis_rel, cfg)
+                    analysis_path = args.output / analysis_rel
+                    make_analysis(raw_path, analysis_path, cfg)
+                    analysis_bytes = analysis_path.stat().st_size
+                    analysis_sha256 = hashlib.sha256(analysis_path.read_bytes()).hexdigest()
                 thumb_rel = Path("thumbnails") / f"fs_{next_global:04d}.jpg"
-                make_thumb(raw_path, args.output / thumb_rel, cfg)
+                thumb_path = args.output / thumb_rel
+                make_thumb(raw_path, thumb_path, cfg)
                 records.append(ImageRecord(
                     global_ordinal=next_global,
                     source_docx=doc.name,
@@ -350,7 +360,11 @@ def main():
                     word_crop_applied=any(crop),
                     duplicate_group="",
                     analysis_file=analysis_rel,
+                    analysis_bytes=analysis_bytes,
+                    analysis_sha256=analysis_sha256,
                     thumbnail_file=thumb_rel.as_posix(),
+                    thumbnail_bytes=thumb_path.stat().st_size,
+                    thumbnail_sha256=hashlib.sha256(thumb_path.read_bytes()).hexdigest(),
                     
                     source_repository=args.source_repository,
                     source_commit=args.source_commit,
@@ -379,7 +393,7 @@ def main():
         write_csv(records, meta / "image_manifest.csv")
         write_csv(records, meta / "page_map_template.csv")
         (meta / "image_manifest.json").write_text(json.dumps({
-            "schema_version": "0.1",
+            "schema_version": "1.0",
             "collection_id": cfg["collection_id"],
             "collection_title": cfg["collection_title"],
             "image_count": len(records),

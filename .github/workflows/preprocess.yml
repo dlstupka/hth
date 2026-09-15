@@ -50,7 +50,17 @@ on:
         description: "Upload the complete generated build as a temporary artifact"
         required: true
         type: boolean
-        default: true
+        default: false
+      canonical_build_policy:
+        description: "Canonical Build Evidence policy"
+        required: true
+        type: choice
+        default: auto
+        options:
+          - auto
+          - audit
+          - force-verify
+          - rebuild
 
 permissions:
   contents: read
@@ -78,6 +88,7 @@ jobs:
       output_directory: hth-pipeline/build/preprocessed
       publish_results: true
       upload_full_artifact: ${{ inputs.upload_full_artifact }}
+      canonical_build_policy: ${{ inputs.canonical_build_policy }}
       artifact_retention_days: 14
       document_detector: preferred
     secrets: inherit

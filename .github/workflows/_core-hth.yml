@@ -48,6 +48,11 @@ on:
         required: false
         type: boolean
         default: true
+      canonical_build_policy:
+        description: "Canonical Build Evidence policy: auto, audit, force-verify, or rebuild"
+        required: false
+        type: string
+        default: "auto"
       artifact_retention_days:
         description: "Temporary artifact retention period"
         required: false
@@ -386,12 +391,72 @@ jobs:
           pipeline-path: hth-pipeline
           need-doc-ufcn: ${{ steps.preferred_document_detector.outputs.needs_doc_ufcn || 'false' }}
 
+      - name: Evaluate HTH Preprocess Canonical Build Evidence
+        id: cbe_plan
+        if: ${{ inputs.mode == 'production' }}
+        shell: bash
+        env:
+          CBE_POLICY: ${{ inputs.canonical_build_policy }}
+          CBE_ARTIFACT_REQUIRED: ${{ inputs.upload_full_artifact }}
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          ARTIFACT_ARGS=()
+          if [[ "$CBE_ARTIFACT_REQUIRED" == "true" ]]; then
+            ARTIFACT_ARGS+=(--artifact-required)
+          fi
+
+          python -m hth.canonical_build_evidence prepare \
+            --policy "$CBE_POLICY" \
+            --mode "$HTH_MODE" \
+            --image-limit "$IMAGE_LIMIT" \
+            --operation source-image-extract \
+            --operation word-crop \
+            --operation analysis-derivative \
+            --operation thumbnail \
+            --operation page-quality-analysis \
+            --operation physical-document-detection \
+            --repository-root hth-pipeline \
+            --source-root source-repo/images \
+            --source-repository "$SOURCE_REPOSITORY" \
+            --source-release "$SOURCE_RELEASE_TAG" \
+            --source-manifest-sha256 "${{ steps.build.outputs.source_release_manifest_sha256 }}" \
+            --source-commit "${{ steps.build.outputs.source_commit }}" \
+            --config hth-pipeline/config/preprocess.json \
+            --config hth-pipeline/config/analyze_pages.json \
+            --implementation hth-pipeline/hth \
+            --runtime-contract hth-pipeline/requirements.txt \
+            --runtime-contract hth-pipeline/.github/actions/setup-hth-python/action.yml \
+            --runtime-contract hth-pipeline/.github/actions/setup-hth-managed-runtime/action.yml \
+            --runtime-contract hth-pipeline/tools/ensure-managed-runtime.sh \
+            --runtime-package Pillow \
+            --runtime-package opencv-python-headless \
+            --runtime-package scikit-image \
+            --runtime-package numpy \
+            --runtime-package torch \
+            --runtime-component doc-ufcn=0.2.0rc4 \
+            --selection "$RUNNER_TEMP/preferred-document-detector.json" \
+            --results-root results-repo \
+            --evidence results-repo/metadata/canonical-build-evidence.json \
+            --plan "$RUNNER_TEMP/hth-cbe-plan.json" \
+            --pipeline-repository "${{ github.repository }}" \
+            --pipeline-commit "${{ steps.build.outputs.pipeline_commit }}" \
+            --workflow-run-id "${{ github.run_id }}" \
+            --runner-name "${{ runner.name }}" \
+            --runner-environment "${{ runner.environment }}" \
+            --runner-os "${{ runner.os }}" \
+            --runner-arch "${{ runner.arch }}" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY" \
+            "${ARTIFACT_ARGS[@]}"
+
       ############################################################
       # STAGE_PREPROCESS
       ############################################################
 
       - name: STAGE_PREPROCESS
         id: stage_preprocess_start
+        if: ${{ inputs.mode != 'production' || steps.cbe_plan.outputs.decision == 'execute' }}
         shell: bash
         run: |
           python hth-pipeline/hth/stage_timing.py start \
@@ -399,6 +464,7 @@ jobs:
 
       - name: Run preprocessor
         id: run_preprocessor
+        if: ${{ inputs.mode != 'production' || steps.cbe_plan.outputs.decision == 'execute' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -428,6 +494,7 @@ jobs:
             "${LIMIT_ARGS[@]}"
 
       - name: Record build identity in generated artifact
+        if: ${{ inputs.mode != 'production' || steps.cbe_plan.outputs.decision == 'execute' }}
         shell: bash
         env:
           SOURCE_COMMIT: ${{ steps.build.outputs.source_commit }}
@@ -488,6 +555,7 @@ jobs:
 
       - name: STAGE_DETECT_CURRENT
         id: stage_detect_current_start
+        if: ${{ inputs.mode != 'production' || steps.cbe_plan.outputs.decision == 'execute' }}
         shell: bash
         run: |
           python hth-pipeline/hth/stage_timing.py start \
@@ -495,6 +563,7 @@ jobs:
 
       - name: Run physical page analysis
         id: run_physical_page_analysis
+        if: ${{ inputs.mode != 'production' || steps.cbe_plan.outputs.decision == 'execute' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -524,7 +593,7 @@ jobs:
             --timings-file "$RUNNER_TEMP/hth-stage-timings.jsonl"
 
       - name: Run approved detector over production collection
-        if: ${{ (inputs.mode == 'production' || inputs.mode == 'test') && inputs.document_detector == 'preferred' }}
+        if: ${{ (inputs.mode == 'production' || inputs.mode == 'test') && inputs.document_detector == 'preferred' && (inputs.mode != 'production' || steps.cbe_plan.outputs.decision == 'execute') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -545,6 +614,22 @@ jobs:
             --overwrite
           mv "$OUTPUT_DIRECTORY/page-analysis/page-analysis-with-detector.json" \
              "$OUTPUT_DIRECTORY/page-analysis/page-analysis.json"
+
+      - name: Finalize HTH Preprocess Canonical Build Evidence
+        id: cbe_finalize
+        if: ${{ inputs.mode == 'production' && steps.cbe_plan.outputs.decision == 'execute' }}
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          python -m hth.canonical_build_evidence finalize \
+            --plan "$RUNNER_TEMP/hth-cbe-plan.json" \
+            --output-root "$OUTPUT_DIRECTORY" \
+            --evidence-store results-repo/metadata/canonical-build-evidence.json \
+            --evidence-output "$OUTPUT_DIRECTORY/metadata/canonical-build-evidence.json" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
 
       ############################################################
       # STAGE_DETECT_CANDIDATES
@@ -631,13 +716,14 @@ jobs:
 
       - name: STAGE_VALIDATE_OUTPUTS
         id: stage_validate_outputs_start
+        if: ${{ inputs.mode != 'production' || steps.cbe_plan.outputs.decision == 'execute' }}
         shell: bash
         run: |
           python hth-pipeline/hth/stage_timing.py start \
             --stage "STAGE_VALIDATE_OUTPUTS"
 
       - name: Verify production build
-        if: ${{ inputs.mode == 'production' }}
+        if: ${{ inputs.mode == 'production' && steps.cbe_plan.outputs.decision == 'execute' }}
         id: verify
         shell: bash
         run: |
@@ -798,7 +884,7 @@ jobs:
 
       - name: STAGE_PUBLISH_PRODUCTION
         id: stage_publish_production_start
-        if: ${{ inputs.mode == 'production' && inputs.publish_results }}
+        if: ${{ inputs.mode == 'production' && inputs.publish_results && steps.cbe_plan.outputs.decision == 'execute' }}
         shell: bash
         run: |
           python hth-pipeline/hth/stage_timing.py start \
@@ -806,7 +892,7 @@ jobs:
 
       - name: Prepare production publication
         id: prepare_production_publication
-        if: ${{ inputs.mode == 'production' && inputs.publish_results }}
+        if: ${{ inputs.mode == 'production' && inputs.publish_results && steps.cbe_plan.outputs.decision == 'execute' }}
         shell: bash
         env:
           SOURCE_COMMIT: ${{ steps.build.outputs.source_commit }}
@@ -819,6 +905,10 @@ jobs:
           IMAGE_COUNT: ${{ steps.verify.outputs.image_count }}
           FIRST_IMAGE: ${{ steps.verify.outputs.first_image }}
           LAST_IMAGE: ${{ steps.verify.outputs.last_image }}
+          CBE_POLICY: ${{ inputs.canonical_build_policy }}
+          CBE_EFFECTIVE_BUILD_IDENTITY: ${{ steps.cbe_plan.outputs.effective_build_identity }}
+          CBE_CANONICAL_RESULT_IDENTITY: ${{ steps.cbe_finalize.outputs.canonical_result_identity }}
+          CBE_VERIFIED_AGAINST_INCUMBENT: ${{ steps.cbe_finalize.outputs.verified_against_incumbent }}
         run: |
           set -euo pipefail
 
@@ -881,6 +971,16 @@ jobs:
             branch: "main"
             full_resolution_images_published: false
 
+          canonical_build_evidence:
+            schema_version: "1.0"
+            path: "metadata/canonical-build-evidence.json"
+            policy: {quote(os.environ["CBE_POLICY"])}
+            activity: "EXECUTED"
+            domain_result: "APPLY"
+            effective_build_identity: {quote(os.environ["CBE_EFFECTIVE_BUILD_IDENTITY"])}
+            canonical_result_identity: {quote(os.environ["CBE_CANONICAL_RESULT_IDENTITY"])}
+            verified_against_incumbent: {quote(os.environ["CBE_VERIFIED_AGAINST_INCUMBENT"])}
+
           build:
             processed_at_utc: {quote(os.environ["PROCESSED_AT"])}
             python_version: "3.12"
@@ -932,8 +1032,10 @@ jobs:
 
       - name: Publish production publication
         id: publish_production_publication
-        if: ${{ inputs.mode == 'production' && inputs.publish_results }}
+        if: ${{ inputs.mode == 'production' && inputs.publish_results && steps.cbe_plan.outputs.decision == 'execute' }}
         shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
         run: |
           set -euo pipefail
           source hth-pipeline/tools/hardened-persistence.sh
@@ -952,6 +1054,11 @@ jobs:
             # These are the production writer's owned paths. Remove them before
             # restoring the run snapshot so deletions are persisted as well as
             # additions, while every unrelated results-repo path remains intact.
+            remote_cbe="$RUNNER_TEMP/hth-remote-cbe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${HTH_PERSIST_ATTEMPTS}.json"
+            rm -f "$remote_cbe"
+            if [[ -f results-repo/metadata/canonical-build-evidence.json ]]; then
+              cp results-repo/metadata/canonical-build-evidence.json "$remote_cbe"
+            fi
             rm -rf \
               results-repo/metadata results-repo/analysis \
               results-repo/ocr results-repo/transcriptions results-repo/translations \
@@ -959,6 +1066,12 @@ jobs:
               results-repo/BUILD-INFO.yaml results-repo/README.md \
               results-repo/reports/preprocess-summary.json
             tar -C results-repo -xf "$publication_payload"
+            if [[ -f "$remote_cbe" ]]; then
+              python -m hth.canonical_build_evidence merge \
+                --base "$remote_cbe" \
+                --incoming results-repo/metadata/canonical-build-evidence.json \
+                --output results-repo/metadata/canonical-build-evidence.json
+            fi
             hth_results_remove_legacy_indexes results-repo
 
             hth_results_stage results-repo \
@@ -1243,7 +1356,7 @@ jobs:
       ############################################################
 
       - name: Add processing result to job summary
-        if: always()
+        if: ${{ always() && (inputs.mode != 'production' || steps.cbe_plan.outputs.decision == 'execute') }}
         shell: bash
         run: |
           {
@@ -1270,7 +1383,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload generated build artifact
-        if: ${{ success() && inputs.upload_full_artifact }}
+        if: ${{ success() && inputs.upload_full_artifact && (inputs.mode != 'production' || steps.cbe_plan.outputs.decision == 'execute') }}
         uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
         with:
           name: hth-${{ inputs.mode }}-${{ github.run_number }}-${{ steps.build.outputs.source_short_commit }}
