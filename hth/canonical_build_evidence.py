@@ -482,6 +482,16 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         f"- Decision: `{decision}`",
         f"- Pages marked unnecessary: `{len(page_evaluations)}`",
     ])
+    print(
+        "[canonical-build-evidence] "
+        f"policy={args.policy} "
+        f"decision={decision} "
+        f"activity={activity} "
+        f"domain_result={domain_result} "
+        f"pages_marked_unnecessary={len(page_evaluations)} "
+        f"identity={identity}",
+        flush=True,
+    )
     return plan
 
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import tempfile
 import unittest
@@ -181,7 +183,9 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
 
     def test_unchanged_auto_run_reuses_and_marks_every_page_skipped(self) -> None:
         evidence = self.establish()
-        plan = prepare(self.args())
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            plan = prepare(self.args())
         self.assertEqual(plan["decision"], "reuse")
         self.assertEqual(plan["activity"], "REUSED")
         self.assertEqual(plan["page_evaluations"], [{
@@ -190,6 +194,11 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
             "activity": "REUSED",
             "domain_result": "SKIP",
         }])
+        log_line = stdout.getvalue()
+        self.assertIn("[canonical-build-evidence]", log_line)
+        self.assertIn("policy=auto decision=reuse activity=REUSED domain_result=SKIP", log_line)
+        self.assertIn("pages_marked_unnecessary=1", log_line)
+        self.assertIn(f"identity={plan['effective_build_identity']}", log_line)
 
     def test_artifact_request_executes_but_requires_incumbent_equivalence(self) -> None:
         self.establish()
