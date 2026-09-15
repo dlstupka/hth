@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import io
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -36,6 +37,7 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
         self.source.mkdir()
         self.results.mkdir()
         (self.pipeline / "hth" / "stage.py").write_text("VERSION = 1\n", encoding="utf-8")
+        (self.pipeline / "hth" / "unrelated_report.py").write_text("FORMAT = 1\n", encoding="utf-8")
         (self.pipeline / "config.json").write_text('{"threshold": 1}\n', encoding="utf-8")
         (self.pipeline / "requirements.txt").write_text("Pillow\n", encoding="utf-8")
         (self.source / "master.docx").write_bytes(b"immutable source")
@@ -58,7 +60,8 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
             source_manifest_sha256="a" * 64,
             source_commit="b" * 40,
             config=[self.pipeline / "config.json"],
-            implementation=[self.pipeline / "hth"],
+            implementation=[self.pipeline / "hth/stage.py"],
+            detector_implementation_root=None,
             runtime_contract=[self.pipeline / "requirements.txt"],
             runtime_package=[],
             runtime_component=["doc-ufcn=0.2.0rc4"],
@@ -152,13 +155,39 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
         self.assertEqual(canonical_hash(canonicalize_result(left)), canonical_hash(canonicalize_result(right)))
 
     def test_implementation_fingerprint_ignores_runtime_bytecode(self) -> None:
+        args = self.args()
+        args.implementation = [self.pipeline / "hth"]
         cached = self.pipeline / "hth/__pycache__/stage.pyc"
         cached.parent.mkdir()
         cached.write_bytes(b"host-specific bytecode")
-        first = prepare(self.args())["effective_build_identity"]
+        first = prepare(args)["effective_build_identity"]
         cached.write_bytes(b"different bytecode")
-        second = prepare(self.args())["effective_build_identity"]
+        second = prepare(args)["effective_build_identity"]
         self.assertEqual(first, second)
+
+    def test_boundary_excludes_unrelated_code_and_tracks_selected_detector_closure(self) -> None:
+        geometry = self.pipeline / "hth/geometry"
+        geometry.mkdir()
+        (geometry / "detector_selected.py").write_text(
+            "from .helper import VALUE\nRESULT = VALUE\n", encoding="utf-8"
+        )
+        (geometry / "helper.py").write_text("VALUE = 1\n", encoding="utf-8")
+        (geometry / "detector_unselected.py").write_text("RESULT = 1\n", encoding="utf-8")
+        selection = self.root / "selection.json"
+        write_json(selection, {"detector": "selected", "parameters": {}})
+        args = self.args()
+        args.selection = selection
+        args.detector_implementation_root = geometry
+        first = prepare(args)["effective_build_identity"]
+
+        (self.pipeline / "hth/unrelated_report.py").write_text("FORMAT = 2\n", encoding="utf-8")
+        (geometry / "detector_unselected.py").write_text("RESULT = 2\n", encoding="utf-8")
+        second = prepare(args)["effective_build_identity"]
+        self.assertEqual(first, second)
+
+        (geometry / "helper.py").write_text("VALUE = 2\n", encoding="utf-8")
+        third = prepare(args)["effective_build_identity"]
+        self.assertNotEqual(first, third)
 
     def test_runner_is_observational_and_does_not_change_effective_identity(self) -> None:
         first = prepare(self.args())
@@ -330,7 +359,16 @@ class CanonicalBuildEvidenceWorkflowTests(unittest.TestCase):
         )[0]
         self.assertIn("python -m hth.canonical_build_evidence prepare", block)
         self.assertIn("--source-manifest-sha256", block)
-        self.assertIn("--implementation hth-pipeline/hth", block)
+        self.assertIn("--implementation hth-pipeline/hth/preprocess.py", block)
+        self.assertIn("--implementation hth-pipeline/hth/analyze_pages.py", block)
+        self.assertIn("--implementation hth-pipeline/hth/geometry/registry.py", block)
+        self.assertIn("--detector-implementation-root hth-pipeline/hth/geometry", block)
+        self.assertNotIn("--implementation hth-pipeline/hth \\", block)
+        self.assertNotIn("--implementation hth-pipeline/hth/canonical_build_evidence.py", block)
+        declared = re.findall(r"--implementation hth-pipeline/([^ ]+)", block)
+        self.assertTrue(declared)
+        for relative in declared:
+            self.assertTrue((self.root / relative).is_file(), relative)
         self.assertIn("--runtime-contract hth-pipeline/requirements.txt", block)
         self.assertIn("--selection \"$RUNNER_TEMP/preferred-document-detector.json\"", block)
         self.assertIn("--artifact-required", block)

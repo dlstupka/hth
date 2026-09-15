@@ -424,7 +424,20 @@ jobs:
             --source-commit "${{ steps.build.outputs.source_commit }}" \
             --config hth-pipeline/config/preprocess.json \
             --config hth-pipeline/config/analyze_pages.json \
-            --implementation hth-pipeline/hth \
+            --implementation hth-pipeline/hth/version.py \
+            --implementation hth-pipeline/hth/preprocess.py \
+            --implementation hth-pipeline/hth/analyze_pages.py \
+            --implementation hth-pipeline/hth/run_document_detector.py \
+            --implementation hth-pipeline/hth/detect_geometry_candidates.py \
+            --implementation hth-pipeline/hth/detector_lifecycle.py \
+            --implementation hth-pipeline/hth/model_variants.py \
+            --implementation hth-pipeline/hth/artifact_mirror.py \
+            --implementation hth-pipeline/hth/network_retry.py \
+            --implementation hth-pipeline/hth/thread_safe_stderr.py \
+            --implementation hth-pipeline/hth/geometry/common.py \
+            --implementation hth-pipeline/hth/geometry/model.py \
+            --implementation hth-pipeline/hth/geometry/registry.py \
+            --detector-implementation-root hth-pipeline/hth/geometry \
             --runtime-contract hth-pipeline/requirements.txt \
             --runtime-contract hth-pipeline/.github/actions/setup-hth-python/action.yml \
             --runtime-contract hth-pipeline/.github/actions/setup-hth-managed-runtime/action.yml \

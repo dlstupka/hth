@@ -23,7 +23,9 @@ The **Effective Build Identity** is a SHA-256 over canonical JSON containing:
 - source repository, immutable release, release-manifest SHA-256, source commit,
   and the verified SHA-256 and size of every selected DOCX;
 - configuration-file identities;
-- implementation-file identities;
+- the explicitly declared preprocessing implementation files;
+- the selected detector implementation and its transitive local detector
+  dependencies;
 - runtime setup/lock-file identities;
 - Python implementation/version/ABI and exact relevant package versions; and
 - the resolved preferred-detector calibration and parameter identity.
@@ -38,6 +40,14 @@ The pipeline commit and workflow run are also retained as execution provenance.
 They are not blanket invalidators because the hashed implementation,
 configuration, runtime contracts, and operation declaration identify the
 effective process.
+
+The implementation boundary deliberately excludes Canonical Build Evidence
+orchestration, reporting, regression, optimization, stage timing, and unrelated
+detectors. Changes in those surfaces cannot alter the preprocessing algorithm's
+identity. Changing a declared preprocessing implementation file, the selected
+detector, or any local implementation imported by that detector does create a
+new identity. This keeps invalidation conservative around executable domain
+logic without turning every repository edit into a collection rebuild.
 
 The **Canonical Result Identity** is a SHA-256 over the canonical published JSON
 surfaces and page-result identities. Timestamps, timings, and duplicated source or

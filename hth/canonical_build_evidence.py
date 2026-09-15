@@ -9,6 +9,7 @@ CLI by declaring their own scope and artifact profile.
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import importlib.metadata
 import json
@@ -159,6 +160,55 @@ def fingerprint_paths(paths: Iterable[Path], repository_root: Path) -> list[dict
     return records
 
 
+def fingerprint_selected_detector(
+    selection: dict[str, Any] | None,
+    detector_root: Path | None,
+    repository_root: Path,
+) -> list[dict[str, Any]]:
+    """Fingerprint only the selected detector and its local detector dependencies."""
+    if selection is None:
+        return []
+    if detector_root is None:
+        raise EvidenceError("A detector implementation root is required with detector selection")
+    detector_id = str(selection.get("detector") or "").strip()
+    if not detector_id or not all(character.isalnum() or character == "_" for character in detector_id):
+        raise EvidenceError(f"Detector selection has an invalid detector ID: {detector_id!r}")
+    root = Path(detector_root).resolve()
+    entrypoint = root / f"detector_{detector_id}.py"
+    if not entrypoint.is_file():
+        raise EvidenceError(f"Selected detector implementation does not exist: {entrypoint}")
+
+    pending = [entrypoint]
+    discovered: set[Path] = set()
+    while pending:
+        path = pending.pop().resolve()
+        if path in discovered:
+            continue
+        discovered.add(path)
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, SyntaxError) as exc:
+            raise EvidenceError(f"Cannot inspect selected detector implementation {path}: {exc}") from exc
+        relative_parent = path.relative_to(root).parent.parts
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or node.level < 1:
+                continue
+            climb = node.level - 1
+            if climb > len(relative_parent):
+                continue
+            prefix = list(relative_parent[: len(relative_parent) - climb])
+            modules: list[list[str]] = []
+            if node.module:
+                modules.append(prefix + node.module.split("."))
+            else:
+                modules.extend(prefix + alias.name.split(".") for alias in node.names)
+            for module_parts in modules:
+                candidate = root.joinpath(*module_parts).with_suffix(".py")
+                if candidate.is_file() and candidate.resolve() not in discovered:
+                    pending.append(candidate)
+    return fingerprint_paths(sorted(discovered), repository_root)
+
+
 def runtime_identity(packages: Iterable[str]) -> dict[str, Any]:
     versions: dict[str, str] = {}
     for package in sorted(set(packages)):
@@ -221,6 +271,11 @@ def build_effective_inputs(args: argparse.Namespace) -> dict[str, Any]:
     selection: dict[str, Any] | None = None
     if args.selection:
         selection = canonicalize_result(_load_json_object(args.selection, "detector selection"))
+    selected_detector_implementation = fingerprint_selected_detector(
+        selection,
+        getattr(args, "detector_implementation_root", None),
+        repository_root,
+    )
     return {
         "contract": {
             "name": args.scope,
@@ -238,6 +293,7 @@ def build_effective_inputs(args: argparse.Namespace) -> dict[str, Any]:
         },
         "configuration": configuration,
         "implementation": implementation,
+        "selected_detector_implementation": selected_detector_implementation,
         "runtime_contract": runtime_contract,
         "runtime": {
             **runtime_identity(args.runtime_package),
@@ -647,6 +703,7 @@ def parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--source-commit", required=True)
     prepare_parser.add_argument("--config", type=Path, action="append", default=[])
     prepare_parser.add_argument("--implementation", type=Path, action="append", default=[])
+    prepare_parser.add_argument("--detector-implementation-root", type=Path)
     prepare_parser.add_argument("--runtime-contract", type=Path, action="append", default=[])
     prepare_parser.add_argument("--runtime-package", action="append", default=[])
     prepare_parser.add_argument("--runtime-component", action="append", default=[])
