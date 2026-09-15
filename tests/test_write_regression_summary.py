@@ -274,6 +274,8 @@ class RegressionSummaryTests(unittest.TestCase):
                 "estimated_serial_runtime_seconds": 612.0, "effective_acceleration": 10.0,
                 "golden_set": "config/golden_set.json",
                 "golden_set_sha256": "abc123",
+                "detector_config": "config/detectors/grabcut.json",
+                "source_commit": "fedcba0987654321",
                 "runner_name": "rh8-test",
                 "threads": 48,
                 "detector_pipeline": {
@@ -409,6 +411,9 @@ class RegressionSummaryTests(unittest.TestCase):
                     "rating": "Moderate",
                     "reasons": ["partial search"],
                 },
+                "persistence": {
+                    "record_path": "source-documents/source/golden-sets/HTH-TEST/abc123/calibrations/grabcut/run-1"
+                },
             }), encoding="utf-8")
 
             text = build_summary(
@@ -438,9 +443,9 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("https://github.com/dlstupka/hth", text)
             self.assertIn("Results repository: [dlstupka/hth-results](https://github.com/dlstupka/hth-results).", text)
             self.assertIn("https://github.com/dlstupka/hth-results", text)
-            self.assertIn("https://github.com/dlstupka/hth-results/blob/abc123def456/indexes/calibration-index.json", text)
-            self.assertIn("https://github.com/dlstupka/hth-results/blob/abc123def456/indexes/runtime-index.json", text)
-            self.assertIn("Results commit: [abc123def456](https://github.com/dlstupka/hth-results/commit/abc123def456).", text)
+            self.assertIn("https://github.com/dlstupka/hth-results/raw/abc123def456/indexes/calibration-index.json", text)
+            self.assertIn("https://github.com/dlstupka/hth-results/raw/abc123def456/indexes/runtime-index.json", text)
+            self.assertIn("Results commit: [`abc123def456`](https://github.com/dlstupka/hth-results/commit/abc123def456).", text)
             self.assertIn("Workflow run: [Open workflow run](https://example.invalid/run).", text)
             self.assertEqual(text.count("### Calibration Intelligence Persistence"), 1)
             self.assertNotIn("open repository", text)
@@ -450,9 +455,15 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("`binary-refine`", text)
             self.assertIn("`1234567890ab`", text)
             self.assertIn("| Result | Golden Set ID | Detector Config ID* | Family ID** | Parameter Set ID | Parameter Short Name |", text)
-            self.assertIn("| Winner | `HTH-0001` | `unknown` | `unknown` | `winner` | `calibrated-winner` | 0.9700", text)
+            self.assertIn("| Winner | [`HTH-0001`](https://github.com/dlstupka/source/releases/tag/HTH-TEST) | `unknown` | `unknown` | `winner` | `calibrated-winner` | 0.9700", text)
             self.assertIn("19 ms", text)
-            self.assertIn("SHA-256: `abc123`", text)
+            self.assertIn("SHA-256: [`abc123`](https://github.com/dlstupka/source/releases/tag/HTH-TEST)", text)
+            self.assertIn("[`config/detectors/grabcut.json`](https://github.com/dlstupka/hth/blob/1234567890abcdef/config/detectors/grabcut.json)", text)
+            self.assertIn("[`config/golden_set.json`](https://github.com/dlstupka/hth/blob/1234567890abcdef/config/golden_set.json)", text)
+            self.assertIn("[`fedcba098765`](https://github.com/dlstupka/source/commit/fedcba0987654321)", text)
+            self.assertIn("[`grabcut`](https://github.com/dlstupka/hth/blob/1234567890abcdef/docs/detector-grabcut.md)", text)
+            self.assertIn("[`manifest.json`](https://github.com/dlstupka/hth-results/blob/abc123def456/source-documents/source/golden-sets/HTH-TEST/abc123/calibrations/grabcut/run-1/manifest.json) — present", text)
+            self.assertIn("[`raw/results.csv`](https://github.com/dlstupka/hth-results/blob/abc123def456/source-documents/source/golden-sets/HTH-TEST/abc123/calibrations/grabcut/run-1/raw/results.csv.gz) — present", text)
             self.assertIn("Configured named profiles: `baseline`", text)
             self.assertIn("Evaluation Time", text)
             self.assertIn("**Detector Config ID** is the short SHA-256", text)
@@ -485,7 +496,7 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("| Total metric improvements | 9 |", text)
             self.assertIn("| Winner changes | 2 |", text)
             self.assertIn("| Baseline surpassed | yes |", text)
-            self.assertIn("| Baseline | `HTH-0001` | `unknown` | `unknown` | `base` | `baseline` | 0.9000", text)
+            self.assertIn("| Baseline | [`HTH-0001`](https://github.com/dlstupka/source/releases/tag/HTH-TEST) | `unknown` | `unknown` | `base` | `baseline` | 0.9000", text)
             self.assertIn("21 ms", text)
             self.assertLess(text.index("## Run Information — grabcut"), text.index("## Results — grabcut"))
             self.assertLess(text.index("## Results — grabcut"), text.index("## Page Analysis — grabcut"))
@@ -497,8 +508,8 @@ class RegressionSummaryTests(unittest.TestCase):
                 text.index("### Preferred Execution Shape"),
                 text.index("### Top Parameter Sets"),
             )
-            self.assertIn("`raw/results.csv` — present", text)
-            self.assertIn("`reports/summary.json` — present", text)
+            self.assertIn("[`raw/results.csv`](https://github.com/dlstupka/hth-results/blob/abc123def456/source-documents/source/golden-sets/HTH-TEST/abc123/calibrations/grabcut/run-1/raw/results.csv.gz) — present", text)
+            self.assertIn("[`reports/summary.json`](https://github.com/dlstupka/hth-results/blob/abc123def456/source-documents/source/golden-sets/HTH-TEST/abc123/calibrations/grabcut/run-1/summary.json) — present", text)
             self.assertIn("## Best Known Detector Calibrations — grabcut", text)
             self.assertIn("| Rank | Detector | Detector ID | Role | Golden Set ID | Date | Build* | Est. Serial Runtime** | Family ID | Parameter Set ID | Parameter Sets | Search Type | Successful Parameter Sets |", text)
             self.assertLess(text.index("## Best Known Detector Calibrations — grabcut"), text.index("## Calibration Intelligence — grabcut"))
@@ -810,9 +821,9 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("### Runtime Intelligence Persistence", text)
             self.assertIn("Pipeline repository: [dlstupka/hth](https://github.com/dlstupka/hth).", text)
             self.assertIn("Results repository: [dlstupka/hth-results](https://github.com/dlstupka/hth-results).", text)
-            self.assertIn("https://github.com/dlstupka/hth-results/blob/abc123def456/indexes/calibration-index.json", text)
-            self.assertIn("https://github.com/dlstupka/hth-results/blob/abc123def456/indexes/runtime-index.json", text)
-            self.assertIn("Results commit: [abc123def456](https://github.com/dlstupka/hth-results/commit/abc123def456).", text)
+            self.assertIn("https://github.com/dlstupka/hth-results/raw/abc123def456/indexes/calibration-index.json", text)
+            self.assertIn("https://github.com/dlstupka/hth-results/raw/abc123def456/indexes/runtime-index.json", text)
+            self.assertIn("Results commit: [`abc123def456`](https://github.com/dlstupka/hth-results/commit/abc123def456).", text)
             self.assertIn("Workflow run: [Open workflow run](https://example.invalid/run).", text)
             self.assertEqual(text.count("### Calibration Intelligence Persistence"), 1)
             self.assertNotIn("open repository", text)
@@ -835,7 +846,7 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("This table is the authoritative detector ranking for this Golden Set.", text)
             self.assertIn("**Parameter-space note:**", text)
             self.assertIn("`exhaustive` means every valid set in that declared grid was evaluated", text)
-            self.assertIn("| **1** | **Contour Envelope** | **`contour`** |", text)
+            self.assertIn("| **1** | **[Contour Envelope](https://github.com/dlstupka/hth/blob/1234567890abcdef/docs/detector-contour.md)** | **[`contour`](https://github.com/dlstupka/hth/blob/1234567890abcdef/docs/detector-contour.md)** |", text)
             self.assertIn("| Rank | Detector | Detector ID | Role | Golden Set ID | Date | Build* | Est. Serial Runtime** | Family ID | Parameter Set ID | Parameter Sets | Search Type | Successful Parameter Sets |", text)
             self.assertNotIn("| Coverage |", text)
             self.assertIn("| Calibration Evidence | Approval Level |", text)
@@ -856,8 +867,8 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertLess(text.index("<summary><h2>Detector Calibration Report</h2></summary>"), text.index("<summary><h2>Detector Regression Reports</h2></summary>"))
             self.assertIn("| Rank | Detector | Detector ID | Role | Golden Set ID | Status | Family ID | Parameter Set ID | Parameter Short Name | Avg IoU |", text)
             self.assertIn("| Eval Rate | Doc Time | Run Elapsed |", text)
-            contour_row = "| 1 | Contour Envelope | `contour` | Generator | `HTH-TEST` | complete | `unknown` | `contour` | `baseline` | 0.9200 | 0.7800 | 0.0300 | 0.9200 | 0 | 1 | 10.00 pg/s | 1m 33s | 1s |"
-            grabcut_row = "| 2 | GrabCut Segmentation | `grabcut` | Generator | `HTH-TEST` | complete | `unknown` | `grabcut` | `baseline` | 0.8800 | 0.8200 | 0.0200 | 0.8800 | 0 | 1 | 4.000 pg/s | 3m 52s | 1s |"
+            contour_row = "| 1 | [Contour Envelope](https://github.com/dlstupka/hth/blob/1234567890abcdef/docs/detector-contour.md) | [`contour`](https://github.com/dlstupka/hth/blob/1234567890abcdef/docs/detector-contour.md) | Generator | `HTH-TEST` | complete | `unknown` | `contour` | `baseline` | 0.9200 | 0.7800 | 0.0300 | 0.9200 | 0 | 1 | 10.00 pg/s | 1m 33s | 1s |"
+            grabcut_row = "| 2 | [GrabCut Segmentation](https://github.com/dlstupka/hth/blob/1234567890abcdef/docs/detector-grabcut.md) | [`grabcut`](https://github.com/dlstupka/hth/blob/1234567890abcdef/docs/detector-grabcut.md) | Generator | `HTH-TEST` | complete | `unknown` | `grabcut` | `baseline` | 0.8800 | 0.8200 | 0.0200 | 0.8800 | 0 | 1 | 4.000 pg/s | 3m 52s | 1s |"
             self.assertIn(contour_row, text)
             self.assertIn(grabcut_row, text)
             self.assertLess(text.index(contour_row), text.index(grabcut_row))

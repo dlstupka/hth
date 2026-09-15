@@ -6,6 +6,7 @@ from hth.markdown_links import (
     github_commit_url,
     github_release_url,
     github_repository_url,
+    github_raw_url,
     github_tree_url,
 )
 
@@ -36,6 +37,10 @@ class MarkdownLinkTests(unittest.TestCase):
         self.assertEqual(
             github_tree_url("owner/repo", "abc123", "records/run 1"),
             "https://github.com/owner/repo/tree/abc123/records/run%201",
+        )
+        self.assertEqual(
+            github_raw_url("owner/repo", "abc123", "indexes/large index.json"),
+            "https://github.com/owner/repo/raw/abc123/indexes/large%20index.json",
         )
 
 

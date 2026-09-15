@@ -13,7 +13,16 @@ from pathlib import Path
 from hth.results_layout import resolve_index_relative_path
 from typing import Any
 
-from hth.markdown_links import code_link, github_blob_url, github_commit_url, github_release_url, link
+from hth.markdown_links import (
+    code_link,
+    github_blob_url,
+    github_commit_url,
+    github_raw_url,
+    github_release_url,
+    github_repository_url,
+    github_tree_url,
+    link,
+)
 
 from hth.regression.result_metrics import normalize_summary_metrics
 from hth.regression.authoritative_record import authoritative_record
@@ -64,7 +73,60 @@ def _detector_documentation_url(
     pipeline_commit: str,
 ) -> str:
     path = f"docs/detector-{detector.replace('_', '-')}.md"
-    return github_blob_url(pipeline_repository, pipeline_commit, path) if Path(path).is_file() else ""
+    return github_blob_url(pipeline_repository, pipeline_commit, path)
+
+
+def _pipeline_path_url(repository: str, commit: str, configured_path: object) -> str:
+    """Link a recorded pipeline path independent of its checkout directory."""
+    path = str(configured_path or "").strip().replace("\\", "/")
+    if path.lower() == "unknown":
+        return ""
+    if path.startswith("hth-pipeline/"):
+        path = path.removeprefix("hth-pipeline/")
+    return github_blob_url(repository, commit, path)
+
+
+def _persisted_record_path(calibration_payload: dict[str, Any] | None) -> str:
+    persistence = calibration_payload.get("persistence") if isinstance(calibration_payload, dict) else {}
+    persistence = persistence if isinstance(persistence, dict) else {}
+    return str(persistence.get("record_path") or "").strip().strip("/")
+
+
+def _persisted_output_path(record_path: str, output: object) -> str:
+    """Map a run artifact path to its durable calibration-record location."""
+    value = str(output or "").strip().replace("\\", "/")
+    if not record_path or not value:
+        return ""
+    persisted = {
+        "manifest.json",
+        "parameters.json",
+        "parameter-provenance.json",
+        "RUN-INFO.json",
+        "raw/results.csv",
+        "raw/evidence.jsonl",
+        "reports/summary.json",
+        "reports/winner-pages.json",
+        "reports/calibration-intelligence.json",
+    }
+    if value not in persisted:
+        return ""
+    if value.startswith("reports/"):
+        value = Path(value).name
+    elif value in {"raw/results.csv", "raw/evidence.jsonl"}:
+        value = f"{value}.gz"
+    return f"{record_path}/{value}"
+
+
+def _results_blob(
+    repository: str,
+    commit: str,
+    path: str,
+) -> str:
+    return github_blob_url(repository, commit, path) if path else ""
+
+
+def _index_download(repository: str, commit: str, filename: str) -> str:
+    return github_raw_url(repository, commit or "main", f"indexes/{filename}")
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -923,6 +985,7 @@ def build_summary(
     info = _read_json(run_dir / "RUN-INFO.json")
     parameters = _read_json(run_dir / "parameters.json")
     summary = normalize_summary_metrics(_read_json(run_dir / "reports" / "summary.json"))
+    calibration_payload = _calibration_payload(run_dir)
 
     if parameter_build_index is None:
         parameter_build_index = _build_parameter_build_index(calibration_index)
@@ -943,6 +1006,7 @@ def build_summary(
     pipeline_commit = str(info.get("pipeline_commit") or "")
     source_commit = str(info.get("source_commit") or summary.get("source_commit") or "")
     golden_set_name = str(info.get("golden_set", parameters.get("golden_set", "unknown")))
+    detector_config_name = str(info.get("detector_config", parameters.get("detector_config", "unknown")))
     golden_set_id, _ = _golden_set_identity(run_dir, info, parameters, summary)
     golden_set_url = github_release_url(
         golden_set_repository,
@@ -952,6 +1016,24 @@ def build_summary(
         detector_name,
         pipeline_repository=pipeline_repository,
         pipeline_commit=pipeline_commit,
+    )
+    golden_set_config_url = _pipeline_path_url(
+        pipeline_repository,
+        pipeline_commit,
+        golden_set_name,
+    )
+    detector_config_url = _pipeline_path_url(
+        pipeline_repository,
+        pipeline_commit,
+        detector_config_name,
+    )
+    record_path = _persisted_record_path(calibration_payload)
+    record_url = github_tree_url(results_repository, results_commit, record_path)
+    run_identity_url = record_url or run_url
+    parameter_provenance_url = _results_blob(
+        results_repository,
+        results_commit,
+        _persisted_output_path(record_path, "parameter-provenance.json"),
     )
     lines = []
     if include_title:
@@ -963,11 +1045,14 @@ def build_summary(
         "",
         "### Build Provenance",
         "",
-        f"- Run ID: {code_link(manifest.get('run_id', 'unknown'), run_url)}",
+        f"- Run ID: {code_link(manifest.get('run_id', 'unknown'), run_identity_url)}",
         f"- Detector: {code_link(manifest.get('detector', 'unknown'), detector_doc_url)}",
+        *([f"- Detector configuration: {code_link(detector_config_name, detector_config_url)}"] if detector_config_name.lower() != "unknown" else []),
         *([f"- Model variant: `{summary.get('model_selection', {}).get('variant')}`", f"- Model ID: `{summary.get('model_selection', {}).get('model_id')}`"] if isinstance(summary.get("model_selection"), dict) and summary.get("model_selection", {}).get("variant") else []),
         f"- Strategy: `{manifest.get('strategy', 'unknown')}`",
         f"- Pipeline commit: {code_link(_short(pipeline_commit), github_commit_url(pipeline_repository, pipeline_commit))}",
+        *([f"- Source commit: {code_link(_short(source_commit), github_commit_url(golden_set_repository, source_commit))}"] if source_commit else []),
+        *([f"- Persisted calibration record: {code_link(record_path, record_url)}"] if record_path else []),
         f"- Python: `{info.get('python_version', 'unknown')}`",
         f"- OpenCV: `{info.get('opencv_version', 'unknown')}`",
         f"- Started: `{info.get('started_at_utc', manifest.get('started_at_utc', 'unknown'))}`",
@@ -978,8 +1063,9 @@ def build_summary(
         "",
         "### Golden Set",
         "",
-        f"- Configuration: {code_link(golden_set_name, golden_set_url)}",
-        f"- SHA-256: `{_short(info.get('golden_set_sha256', parameters.get('golden_set_sha256', summary.get('golden_set_sha256', 'unknown'))), 12)}`",
+        f"- Configuration: {code_link(golden_set_name, golden_set_config_url)}",
+        f"- Canonical release: {code_link(golden_set_id, golden_set_url)}",
+        f"- SHA-256: {code_link(_short(info.get('golden_set_sha256', parameters.get('golden_set_sha256', summary.get('golden_set_sha256', 'unknown'))), 12), golden_set_url)}",
         f"- Pages: `{len(page_ordinals)}`",
         f"- Ordinals: `{', '.join(str(v) for v in page_ordinals) if page_ordinals else 'unknown'}`",
         "",
@@ -991,12 +1077,17 @@ def build_summary(
         f"- Configured named profiles: `{', '.join(sorted(profiles)) if profiles else 'none'}`",
     ])
 
-    if outputs:
+    display_outputs = list(outputs)
+    if record_path and "manifest.json" not in display_outputs:
+        display_outputs.insert(0, "manifest.json")
+    if display_outputs:
         lines.extend(["", "### Outputs", ""])
-        for output in outputs:
+        for output in display_outputs:
             path = run_dir / str(output)
             state = "present" if path.exists() else "missing"
-            lines.append(f"- `{output}` — {state}")
+            persisted_path = _persisted_output_path(record_path, output)
+            output_url = _results_blob(results_repository, results_commit, persisted_path)
+            lines.append(f"- {code_link(output, output_url)} — {state}")
 
     detector_config_sha = str(
         info.get("detector_config_sha256")
@@ -1020,12 +1111,12 @@ def build_summary(
         "",
         "| Result | Golden Set ID | Detector Config ID* | Family ID** | Parameter Set ID | Parameter Short Name | Avg IoU | Min IoU | StdDev | Avg IoU Success | Failures | Evaluation Time |",
         "|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|",
-        f"| Winner | `{golden_set_id}` | `{detector_config_id}` | `{_parameter_family_id(winner)}` | `{_parameter_id(winner)}` | `{_parameter_short_name(winner)}` | {_number(winner_stats.get('mean_iou'))} | {_number(winner_stats.get('minimum_iou'))} | {_number(winner_stats.get('stddev_iou'))} | {_number(winner_stats.get('mean_iou_success', winner_stats.get('mean_iou')))} | {winner_stats.get('failure_count', 'unknown')} | {_duration(_evaluation_seconds(winner))} |",
+        f"| Winner | {code_link(golden_set_id, golden_set_url)} | `{detector_config_id}` | `{_parameter_family_id(winner)}` | `{_parameter_id(winner)}` | `{_parameter_short_name(winner)}` | {_number(winner_stats.get('mean_iou'))} | {_number(winner_stats.get('minimum_iou'))} | {_number(winner_stats.get('stddev_iou'))} | {_number(winner_stats.get('mean_iou_success', winner_stats.get('mean_iou')))} | {winner_stats.get('failure_count', 'unknown')} | {_duration(_evaluation_seconds(winner))} |",
     ])
     if baseline:
         baseline_label = "Baseline (same as winner)" if _parameter_id(baseline) == _parameter_id(winner) else "Baseline"
         lines.append(
-            f"| {baseline_label} | `{golden_set_id}` | `{detector_config_id}` | `{_parameter_family_id(baseline)}` | `{_parameter_id(baseline)}` | `{_parameter_short_name(baseline)}` | "
+            f"| {baseline_label} | {code_link(golden_set_id, golden_set_url)} | `{detector_config_id}` | `{_parameter_family_id(baseline)}` | `{_parameter_id(baseline)}` | `{_parameter_short_name(baseline)}` | "
             f"{_number(baseline_stats.get('mean_iou'))} | "
             f"{_number(baseline_stats.get('minimum_iou'))} | "
             f"{_number(baseline_stats.get('stddev_iou'))} | "
@@ -1284,6 +1375,7 @@ def build_summary(
         best_known_lines = _render_best_known_calibrations(
             best_known,
             heading_level=2,
+            pipeline_repository=pipeline_repository,
             results_repository=results_repository,
             results_ref=results_commit or "main",
         )
@@ -1291,7 +1383,6 @@ def build_summary(
             best_known_lines[0] = f"## {_individual_heading('Best Known Detector Calibrations', detector_name)}"
         lines.extend(["", *best_known_lines])
 
-    calibration_payload = _calibration_payload(run_dir)
     if calibration_payload is not None:
         requested_strategy = manifest.get("requested_strategy", info.get("requested_strategy", manifest.get("strategy", "unknown")))
         resolved_strategy = manifest.get("strategy", info.get("strategy", "unknown"))
@@ -1307,12 +1398,13 @@ def build_summary(
             "",
             "### Calibration Identity",
             "",
-            f"- Calibration run ID: {code_link(manifest.get('run_id', 'unknown'), run_url)}",
+            f"- Calibration run ID: {code_link(manifest.get('run_id', 'unknown'), run_identity_url)}",
             f"- Calibration schema: `{calibration_payload.get('schema_version', 'unknown')}`",
             f"- Detector: {code_link(manifest.get('detector', 'unknown'), detector_doc_url)}",
-            f"- Detector configuration: `{info.get('detector_config', parameters.get('detector_config', 'unknown'))}`",
-            f"- Golden Set configuration: {code_link(golden_set_name, golden_set_url)}",
-            f"- Golden Set SHA-256: `{info.get('golden_set_sha256', parameters.get('golden_set_sha256', summary.get('golden_set_sha256', 'unknown')))}`",
+            f"- Detector configuration: {code_link(detector_config_name, detector_config_url)}",
+            f"- Golden Set configuration: {code_link(golden_set_name, golden_set_config_url)}",
+            f"- Golden Set release: {code_link(golden_set_id, golden_set_url)}",
+            f"- Golden Set SHA-256: {code_link(info.get('golden_set_sha256', parameters.get('golden_set_sha256', summary.get('golden_set_sha256', 'unknown'))), golden_set_url)}",
             f"- Pipeline commit: {code_link(info.get('pipeline_commit', 'unknown'), github_commit_url(pipeline_repository, pipeline_commit))}",
             f"- Source commit: {code_link(source_commit, github_commit_url(golden_set_repository, source_commit))}",
             f"- Requested search strategy: `{requested_strategy}`",
@@ -1326,8 +1418,8 @@ def build_summary(
         lines.extend([
             "### Detector-Selection Intelligence",
             "",
-            f"- Recommended parameter set: `{_parameter_id(winner)}`",
-            f"- Recommended parameter short name: `{_parameter_short_name(winner)}`",
+            f"- Recommended parameter set: {code_link(_parameter_id(winner), parameter_provenance_url)}",
+            f"- Recommended parameter short name: {code_link(_parameter_short_name(winner), parameter_provenance_url)}",
             f"- Best observed Avg IoU: `{_number(winner_stats.get('mean_iou'))}`",
             f"- Avg IoU Success: `{_number(winner_stats.get('mean_iou_success', winner_stats.get('mean_iou')))}`",
             f"- Worst Golden Set page (Min IoU): `{_number(winner_stats.get('minimum_iou'))}`",
@@ -1670,6 +1762,7 @@ def _render_best_known_calibrations(
     records: list[dict[str, Any]],
     *,
     heading_level: int = 3,
+    pipeline_repository: str = "",
     results_repository: str = "",
     results_ref: str = "main",
     include_build_footnote: bool = True,
@@ -1685,6 +1778,12 @@ def _render_best_known_calibrations(
         "|---:|---|---|---|---|---|---|---:|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
     ]
     for rank, row in enumerate(records, start=1):
+        detector = str(row["detector"])
+        detector_url = _detector_documentation_url(
+            detector,
+            pipeline_repository=pipeline_repository,
+            pipeline_commit=str(row.get("implementation_revision") or ""),
+        )
         delta = row.get("delta_baseline_mean_iou")
         delta_text = f"{float(delta):+.4f}" if delta is not None else "unknown"
         build_number = str(row.get("build_number") or "unknown")
@@ -1695,8 +1794,8 @@ def _render_best_known_calibrations(
         approval_level = _calibration_approval_level(search_type, calibration_evidence)
         cells = [
             str(rank),
-            _detector_friendly_name(str(row["detector"])),
-            f"`{row['detector']}`",
+            link(_detector_friendly_name(detector), detector_url),
+            code_link(detector, detector_url),
             str(row.get("role", "Unknown")),
             f"`{_display_golden_set_id(row.get('golden_set_id', 'unknown'))}`",
             str(row.get("date", "unknown")),
@@ -1981,6 +2080,7 @@ def _render_calibration_report(
     combined_rows: list[dict[str, Any]],
     calibration_index: Path | None = None,
     *,
+    pipeline_repository: str = "",
     results_repository: str = "",
     results_ref: str = "main",
 ) -> list[str]:
@@ -2013,6 +2113,7 @@ def _render_calibration_report(
     lines.extend(_render_best_known_calibrations(
         best_known,
         heading_level=3,
+        pipeline_repository=pipeline_repository,
         results_repository=results_repository,
         results_ref=results_ref,
         include_build_footnote=False,
@@ -2784,6 +2885,18 @@ def _engineering_continuous_improvement_lines(
     results_repository: str = "",
     results_commit: str = "",
 ) -> list[str]:
+    results_ref = results_commit or "main"
+    calibration_index_url = _index_download(results_repository, results_ref, "calibration-index.json")
+    parameter_index_url = _index_download(results_repository, results_ref, "parameter-provenance-index.json")
+    runtime_index_url = _index_download(results_repository, results_ref, "runtime-index.json")
+    parallelism_index_url = _index_download(results_repository, results_ref, "parallelism-index.json")
+    multidetector_index_url = _index_download(results_repository, results_ref, "multidetector-index.json")
+    optimizer_index_url = _index_download(results_repository, results_ref, "optimizer-index.json")
+    predictions_url = github_blob_url(
+        results_repository,
+        results_ref,
+        "indexes/optimizer-predictions.json",
+    )
     return [
         "## Engineering Continuous Improvement",
         "",
@@ -2791,20 +2904,22 @@ def _engineering_continuous_improvement_lines(
         "",
         "### Calibration Intelligence Persistence",
         "",
-        "- `calibration-index.json` retains detector quality, winner, parameter influence, domain-space, page-sensitivity, and calibration-evidence metadata.",
+        f"- {code_link('calibration-index.json', calibration_index_url)} retains detector quality, winner, parameter influence, domain-space, page-sensitivity, and calibration-evidence metadata (full-index download).",
+        f"- {code_link('parameter-provenance-index.json', parameter_index_url)} retains the durable reverse index for exact parameter identities (full-index download).",
         "- Compatible authoritative calibrations remain preferred over provisional smoke observations.",
-        f"- Results commit: {_markdown_link(results_commit, _github_url(results_repository) + '/commit/' + results_commit) if results_repository and results_commit else '`unknown`'}.",
-        f"- Workflow run: {_markdown_link('Open workflow run', run_url) if run_url else 'unknown'}.",
-        f"- Pipeline repository: {_markdown_link(pipeline_repository, _github_url(pipeline_repository)) if pipeline_repository else 'unknown'}.",
-        f"- Results repository: {_markdown_link(results_repository, _github_url(results_repository)) if results_repository else 'unknown'}.",
-        f"- Calibration index: {_markdown_link('calibration-index.json', _github_url(results_repository) + '/blob/' + (results_commit or 'main') + '/indexes/calibration-index.json') if results_repository else '`calibration-index.json`'}.",
-        f"- Runtime index: {_markdown_link('runtime-index.json', _github_url(results_repository) + '/blob/' + (results_commit or 'main') + '/indexes/runtime-index.json') if results_repository else '`runtime-index.json`'}.",
+        f"- Results commit: {code_link(results_commit, github_commit_url(results_repository, results_commit))}.",
+        f"- Workflow run: {link('Open workflow run', run_url) if run_url else 'unknown'}.",
+        f"- Pipeline repository: {link(pipeline_repository, github_repository_url(pipeline_repository)) if pipeline_repository else 'unknown'}.",
+        f"- Results repository: {link(results_repository, github_repository_url(results_repository)) if results_repository else 'unknown'}.",
         "- Smoke records are provisional; complete exhaustive full regressions are authoritative.",
         "",
         "### Runtime Intelligence Persistence",
         "",
-        "- `runtime-index.json` retains detector wall-clock time, workload size, threads, pipeline placement, loading strategy, runner characteristics, and scheduler estimates.",
-        "- `parallelism-index.json` retains measured shard, pipeline, and thread execution shapes so equivalent workloads can be compared by wall-clock time and effective acceleration.",
+        f"- {code_link('runtime-index.json', runtime_index_url)} retains detector wall-clock time, workload size, threads, pipeline placement, loading strategy, runner characteristics, and scheduler estimates (full-index download).",
+        f"- {code_link('parallelism-index.json', parallelism_index_url)} retains measured shard, pipeline, and thread execution shapes so equivalent workloads can be compared by wall-clock time and effective acceleration (full-index download).",
+        f"- {code_link('multidetector-index.json', multidetector_index_url)} retains completed multi-detector execution observations used for scheduling feedback (full-index download).",
+        f"- {code_link('optimizer-index.json', optimizer_index_url)} retains derived optimizer planning state (full-index download).",
+        f"- {code_link('optimizer-predictions.json', predictions_url)} is the compact, directly viewable optimizer prediction index.",
         "- Runtime history supports LPT queueing, regression-duration estimates, and future evidence-based thread recommendations.",
         "",
         "### Engineering Notes",
@@ -2867,6 +2982,7 @@ def _combined_result_row(run_dir: Path) -> dict[str, Any]:
         "started_at_utc": info.get("started_at_utc"),
         "finished_at_utc": info.get("finished_at_utc"),
         "detector_pipeline": _pipeline_context(run_dir),
+        "pipeline_commit": str(info.get("pipeline_commit") or ""),
     }
 
 
@@ -3056,8 +3172,13 @@ def build_combined_summary(
         "|---:|---|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ])
     for rank, row in enumerate(combined_rows, start=1):
+        detector_url = _detector_documentation_url(
+            str(row["detector"]),
+            pipeline_repository=pipeline_repository,
+            pipeline_commit=str(row.get("pipeline_commit") or ""),
+        )
         lines.append(
-            f"| {rank} | {row['detector_name']} | `{row['detector']}` | {_detector_characterization(str(row['detector'])).get('role', 'Unknown')} | `{_display_golden_set_id(row.get('golden_set_id', 'unknown'))}` | {row['status']} | "
+            f"| {rank} | {link(row['detector_name'], detector_url)} | {code_link(row['detector'], detector_url)} | {_detector_characterization(str(row['detector'])).get('role', 'Unknown')} | `{_display_golden_set_id(row.get('golden_set_id', 'unknown'))}` | {row['status']} | "
             f"`{row.get('parameter_set_equivalence_family_id', 'unknown')}` | `{row['parameter_set_id']}` | `{row['parameter_short_name']}` | {_number(row['mean_iou'])} | "
             f"{_number(row['minimum_iou'])} | {_number(row['stddev_iou'])} | "
             f"{_number(row.get('mean_iou_success', row['mean_iou']))} | {row['failures']} | {row['parameter_sets']} | "
@@ -3081,6 +3202,7 @@ def build_combined_summary(
         run_dirs,
         combined_rows,
         calibration_index,
+        pipeline_repository=pipeline_repository,
         results_repository=results_repository,
         results_ref=results_commit or "main",
     ))
@@ -3168,9 +3290,9 @@ def build_combined_summary(
             f"| Scheduling intelligence | `{smoke_reference['source']}` |",
             f"| Smoke evidence | {('GitHub run `' + smoke_reference['evidence_run'] + '`') if smoke_reference['evidence_run'] else 'No matching persisted GitHub-hosted smoke observation; runtime estimates used.'} |",
             "| Pipeline start stagger | 0m |",
-            "| Runtime intelligence | `runtime-index.json` |",
-            "| Parallelism intelligence | `parallelism-index.json` |",
-            "| Calibration intelligence | `calibration-index.json` |",
+            f"| Runtime intelligence | {code_link('runtime-index.json', _index_download(results_repository, results_commit or 'main', 'runtime-index.json'))} |",
+            f"| Parallelism intelligence | {code_link('parallelism-index.json', _index_download(results_repository, results_commit or 'main', 'parallelism-index.json'))} |",
+            f"| Calibration intelligence | {code_link('calibration-index.json', _index_download(results_repository, results_commit or 'main', 'calibration-index.json'))} |",
             "",
             "| Pipeline | Smoke-test schedule | Est Work | Threads |",
             "|---:|---|---:|---:|",
@@ -3208,9 +3330,9 @@ def build_combined_summary(
             ),
             f"| Execution shape provenance | `{execution['source']}` |",
             "| Pipeline start stagger | 0m |",
-            "| Runtime intelligence | `runtime-index.json` |",
-            "| Parallelism intelligence | `parallelism-index.json` |",
-            "| Calibration intelligence | `calibration-index.json` |",
+            f"| Runtime intelligence | {code_link('runtime-index.json', _index_download(results_repository, results_commit or 'main', 'runtime-index.json'))} |",
+            f"| Parallelism intelligence | {code_link('parallelism-index.json', _index_download(results_repository, results_commit or 'main', 'parallelism-index.json'))} |",
+            f"| Calibration intelligence | {code_link('calibration-index.json', _index_download(results_repository, results_commit or 'main', 'calibration-index.json'))} |",
             "| Persistence | Results are accumulated during execution and published as one post-run calibration/index transaction. |",
             "",
         ])

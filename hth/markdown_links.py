@@ -65,6 +65,22 @@ def github_blob_url(
     return f"{base}/blob/{encoded_ref}/{encoded_path}"
 
 
+def github_raw_url(
+    repository: str,
+    ref: str,
+    path: str,
+    *,
+    server_url: str = "https://github.com",
+) -> str:
+    """Return GitHub's direct-file URL for large downloadable evidence."""
+    base = github_repository_url(repository, server_url=server_url)
+    if not base or not ref.strip() or not path.strip():
+        return ""
+    encoded_ref = quote(ref.strip(), safe="")
+    encoded_path = quote(path.strip().lstrip("/"), safe="/")
+    return f"{base}/raw/{encoded_ref}/{encoded_path}"
+
+
 def github_tree_url(
     repository: str,
     ref: str,
