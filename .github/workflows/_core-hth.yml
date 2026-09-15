@@ -337,20 +337,20 @@ jobs:
             echo "### Build provenance"
             echo
             echo "- Mode: \`$HTH_MODE\`"
-            echo "- Source repository: \`$SOURCE_REPOSITORY\`"
-            echo "- Source release: \`$SOURCE_RELEASE_TAG\`"
-            echo "- Source release manifest SHA-256: \`$SOURCE_RELEASE_MANIFEST_SHA256\`"
-            echo "- Recorded source commit: \`$SOURCE_COMMIT\`"
+            echo "- Source repository: [\`$SOURCE_REPOSITORY\`](${GITHUB_SERVER_URL}/${SOURCE_REPOSITORY})"
+            echo "- Source release: [\`$SOURCE_RELEASE_TAG\`](${GITHUB_SERVER_URL}/${SOURCE_REPOSITORY}/releases/tag/${SOURCE_RELEASE_TAG})"
+            echo "- Source release manifest SHA-256: [\`$SOURCE_RELEASE_MANIFEST_SHA256\`](${GITHUB_SERVER_URL}/${SOURCE_REPOSITORY}/releases/download/${SOURCE_RELEASE_TAG}/source-release-manifest.json)"
+            echo "- Recorded source commit: [\`$SOURCE_COMMIT\`](${GITHUB_SERVER_URL}/${SOURCE_REPOSITORY}/commit/${SOURCE_COMMIT})"
             if [[ "$HTH_MODE" != "production" ]]; then
               echo "- Source file: \`${{ steps.source.outputs.test_file }}\`"
               if [[ "$IMAGE_LIMIT" -gt 0 ]]; then
                 echo "- Image limit: \`$IMAGE_LIMIT\`"
               fi
             fi
-            echo "- Pipeline repository: \`${GITHUB_REPOSITORY}\`"
-            echo "- Pipeline commit: \`$PIPELINE_COMMIT\`"
-            echo "- Results repository: \`$RESULTS_REPOSITORY\`"
-            echo "- Workflow run: \`${GITHUB_RUN_ID}\`"
+            echo "- Pipeline repository: [\`${GITHUB_REPOSITORY}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY})"
+            echo "- Pipeline commit: [\`$PIPELINE_COMMIT\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${PIPELINE_COMMIT})"
+            echo "- Results repository: [\`$RESULTS_REPOSITORY\`](${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY})"
+            echo "- Workflow run: [\`${GITHUB_RUN_ID}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
             echo "- Processed at: \`$PROCESSED_AT\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -369,6 +369,7 @@ jobs:
             echo "::error::Preferred document inference requires results-repo/indexes/calibration-index.json (or the legacy root calibration-index.json during migration)"
             exit 1
           fi
+          RESULTS_REF="$(git -C results-repo rev-parse HEAD)"
           cd hth-pipeline
           python -m hth.resolve_document_detector \
             --index "../$calibration_index" \
@@ -377,6 +378,11 @@ jobs:
             --source-release-tag "$SOURCE_RELEASE_TAG" \
             --source-release-manifest-sha256 "${{ steps.build.outputs.source_release_manifest_sha256 }}" \
             --catalog config/document-detectors.json \
+            --pipeline-repository "${{ github.repository }}" \
+            --pipeline-commit "${{ steps.build.outputs.pipeline_commit }}" \
+            --results-repository "$RESULTS_REPOSITORY" \
+            --results-ref "$RESULTS_REF" \
+            --github-server-url "${{ github.server_url }}" \
             --output "$RUNNER_TEMP/preferred-document-detector.json" \
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
@@ -405,6 +411,7 @@ jobs:
           if [[ "$CBE_ARTIFACT_REQUIRED" == "true" ]]; then
             ARTIFACT_ARGS+=(--artifact-required)
           fi
+          CBE_RESULTS_REF="$(git -C results-repo rev-parse HEAD)"
 
           python -m hth.canonical_build_evidence prepare \
             --policy "$CBE_POLICY" \
@@ -454,6 +461,8 @@ jobs:
             --plan "$RUNNER_TEMP/hth-cbe-plan.json" \
             --pipeline-repository "${{ github.repository }}" \
             --pipeline-commit "${{ steps.build.outputs.pipeline_commit }}" \
+            --results-repository "$RESULTS_REPOSITORY" \
+            --results-ref "$CBE_RESULTS_REF" \
             --workflow-run-id "${{ github.run_id }}" \
             --runner-name "${{ runner.name }}" \
             --runner-environment "${{ runner.environment }}" \
@@ -1112,7 +1121,7 @@ jobs:
             else
               echo "- Production publication was already current"
             fi
-            echo "- Publication commit: \`$RESULTS_COMMIT\`"
+            echo "- Publication commit: [\`$RESULTS_COMMIT\`](${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/commit/${RESULTS_COMMIT})"
             echo "- Existing \`test/\` and calibration intelligence were preserved"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -1136,6 +1145,9 @@ jobs:
           HTH_SOURCE_COMMIT: ${{ steps.build.outputs.source_commit }}
           HTH_SOURCE_RELEASE: ${{ steps.build.outputs.source_release_tag }}
           HTH_GOLDEN_SET_ID: ${{ steps.preferred_document_detector.outputs.golden_set_id }}
+          HTH_GOLDEN_SET_REPOSITORY: ${{ steps.preferred_document_detector.outputs.golden_set_repository }}
+          HTH_GOLDEN_SET_RELEASE: ${{ steps.preferred_document_detector.outputs.golden_set_release_tag }}
+          HTH_RESULTS_COMMIT: ${{ steps.publish_production_publication.outputs.results_commit }}
           PIPELINE_START_EPOCH: ${{ steps.pipeline_start.outputs.epoch }}
         run: |
           set -u
@@ -1299,6 +1311,7 @@ jobs:
             "Test publication"
 
           RESULTS_COMMIT="$HTH_PERSIST_COMMIT"
+          echo "results_commit=$RESULTS_COMMIT" >> "$GITHUB_OUTPUT"
           {
             echo
             echo "### Publication repository validation"
@@ -1309,10 +1322,10 @@ jobs:
             else
               echo "- Test publication was already current"
             fi
-            echo "- Publication commit: \`$RESULTS_COMMIT\`"
-            echo "- Published history: \`test/history/run-${GITHUB_RUN_NUMBER}/\`"
+            echo "- Publication commit: [\`$RESULTS_COMMIT\`](${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/commit/${RESULTS_COMMIT})"
+            echo "- Published history: [\`test/history/run-${GITHUB_RUN_NUMBER}/\`](${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/tree/${RESULTS_COMMIT}/test/history/run-${GITHUB_RUN_NUMBER})"
             if (( publish_latest == 1 )); then
-              echo "- Published under: \`test/latest/\`"
+              echo "- Published under: [\`test/latest/\`](${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/tree/${RESULTS_COMMIT}/test/latest)"
             else
               echo "- Existing newer \`test/latest/\` preserved"
             fi
@@ -1338,6 +1351,9 @@ jobs:
           HTH_SOURCE_COMMIT: ${{ steps.build.outputs.source_commit }}
           HTH_SOURCE_RELEASE: ${{ steps.build.outputs.source_release_tag }}
           HTH_GOLDEN_SET_ID: ${{ steps.preferred_document_detector.outputs.golden_set_id }}
+          HTH_GOLDEN_SET_REPOSITORY: ${{ steps.preferred_document_detector.outputs.golden_set_repository }}
+          HTH_GOLDEN_SET_RELEASE: ${{ steps.preferred_document_detector.outputs.golden_set_release_tag }}
+          HTH_RESULTS_COMMIT: ${{ steps.publish_test_publication.outputs.results_commit }}
           PIPELINE_START_EPOCH: ${{ steps.pipeline_start.outputs.epoch }}
         run: |
           set -u

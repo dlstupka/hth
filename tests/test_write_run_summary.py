@@ -17,7 +17,13 @@ class RunSummaryTests(unittest.TestCase):
             source_release="HTH-SOURCE-0002",
             source_commit="1234567890abcdef",
             golden_set_id="HTH-GOLDEN-0002",
+            golden_set_repository="dlstupka/source",
+            golden_set_release="HTH-GOLDEN-0002",
             pipeline_commit="abcdef1234567890",
+            pipeline_repository="dlstupka/hth",
+            github_server_url="https://github.com",
+            results_repository="dlstupka/results",
+            results_commit="feed1234",
             workflow_name="HTH preprocess test",
             run_number="32",
             elapsed_seconds=83,
@@ -105,8 +111,11 @@ class RunSummaryTests(unittest.TestCase):
         text = build_summary(args)
         self.assertIn("## Publication outputs", text)
         self.assertIn("HTH-0001", text)
-        self.assertIn("| Source release | `HTH-SOURCE-0002` |", text)
-        self.assertIn("| Calibration Golden Set | `HTH-GOLDEN-0002` |", text)
+        self.assertIn("| Source repository | [`dlstupka/source`](https://github.com/dlstupka/source) |", text)
+        self.assertIn("| Source release | [`HTH-SOURCE-0002`](https://github.com/dlstupka/source/releases/tag/HTH-SOURCE-0002) |", text)
+        self.assertIn("| Source commit | [`1234567890ab`](https://github.com/dlstupka/source/commit/1234567890abcdef) |", text)
+        self.assertIn("| Calibration Golden Set | [`HTH-GOLDEN-0002`](https://github.com/dlstupka/source/releases/tag/HTH-GOLDEN-0002) |", text)
+        self.assertIn("| Pipeline commit | [`abcdef123456`](https://github.com/dlstupka/hth/commit/abcdef1234567890) |", text)
         self.assertIn("| DOCX masters | 1 |", text)
         self.assertIn("| Pages discovered | 10 |", text)
         self.assertIn("| Page processing errors | 0 |", text)

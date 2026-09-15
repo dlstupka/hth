@@ -415,6 +415,8 @@ class RegressionSummaryTests(unittest.TestCase):
                 run,
                 "https://example.invalid/run",
                 pipeline_repository="dlstupka/hth",
+                golden_set_repository="dlstupka/source",
+                golden_set_release="HTH-TEST",
                 results_repository="dlstupka/hth-results",
                 results_commit="abc123def456",
             )
@@ -733,6 +735,8 @@ class RegressionSummaryTests(unittest.TestCase):
                 run_dirs,
                 "https://example.invalid/run",
                 pipeline_repository="dlstupka/hth",
+                golden_set_repository="dlstupka/source",
+                golden_set_release="HTH-TEST",
                 results_repository="dlstupka/hth-results",
                 results_commit="abc123def456",
                 multidetector_index=multidetector_index,
@@ -750,6 +754,8 @@ class RegressionSummaryTests(unittest.TestCase):
                 run_dirs,
                 "https://example.invalid/run",
                 pipeline_repository="dlstupka/hth",
+                golden_set_repository="dlstupka/source",
+                golden_set_release="HTH-TEST",
                 results_repository="dlstupka/hth-results",
                 results_commit="abc123def456",
                 multidetector_index=multidetector_index,
@@ -814,7 +820,14 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertNotIn("open commit", text)
             self.assertIn("Detector short name", text)
             self.assertIn("## Detector Recommendation for this Golden Set", text)
-            self.assertIn("- **Golden Set:** `HTH-TEST`", text)
+            self.assertIn(
+                "- **Golden Set:** [`HTH-TEST`](https://github.com/dlstupka/source/releases/tag/HTH-TEST)",
+                text,
+            )
+            self.assertIn(
+                "- Pipeline commit: [`1234567890ab`](https://github.com/dlstupka/hth/commit/1234567890abcdef)",
+                text,
+            )
             self.assertIn("### Calibration Report Legend", text)
             self.assertIn("### Best Known Detector Calibrations", text)
             self.assertLess(text.index("### Best Known Detector Calibrations"), text.index("### Calibration Report Legend"))

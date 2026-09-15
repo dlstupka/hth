@@ -81,6 +81,26 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
             github_summary="",
         )
 
+    def test_summary_links_existing_persisted_evidence_store(self) -> None:
+        args = self.args()
+        summary = self.root / "summary.md"
+        write_json(args.evidence, {
+            "schema_version": "1.0",
+            "evidence_type": "canonical-build-evidence-store",
+            "scope": "hth-preprocess",
+            "records": {},
+        })
+        args.results_repository = "owner/results"
+        args.results_ref = "abc123"
+        args.github_summary = str(summary)
+
+        prepare(args)
+
+        self.assertIn(
+            "[`metadata/canonical-build-evidence.json`](https://github.com/owner/results/blob/abc123/metadata/canonical-build-evidence.json)",
+            summary.read_text(encoding="utf-8"),
+        )
+
     def materialize_outputs(self) -> None:
         image = {
             "global_ordinal": 1,
@@ -375,6 +395,8 @@ class CanonicalBuildEvidenceWorkflowTests(unittest.TestCase):
         self.assertIn('--runner-environment "${{ runner.environment }}"', block)
         self.assertIn('--runner-os "${{ runner.os }}"', block)
         self.assertIn('--runner-arch "${{ runner.arch }}"', block)
+        self.assertIn('--results-repository "$RESULTS_REPOSITORY"', block)
+        self.assertIn('--results-ref "$CBE_RESULTS_REF"', block)
 
     def test_production_execution_is_gated_and_results_are_finalized(self) -> None:
         self.assertIn("steps.cbe_plan.outputs.decision == 'execute'", self.core)

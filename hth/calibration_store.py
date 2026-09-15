@@ -599,6 +599,8 @@ def resolve_best_parameter_reference(
         "historic_calibration_id": selected.get("calibration_id"),
         "historic_created_at_utc": selected.get("created_at_utc"),
         "provenance_source": provenance_source,
+        "record_path": selected.get("record_path"),
+        "parameter_provenance_path": selected.get("parameter_provenance_path"),
         "model_variant": selected.get("model_variant"),
     }
 

@@ -110,10 +110,40 @@ class PreferredDocumentDetectorTests(unittest.TestCase):
             self.assertEqual(resolved["parameters"], params)
             self.assertEqual(resolved["parameter_set_id"], legacy)
             self.assertEqual(resolved["approval_level"], "Approved")
-            summary = render_summary(resolved, display_name="Fusion Gen3")
+            resolved["golden_set_repository"] = "dlstupka/source"
+            resolved["golden_set_release_tag"] = "HTH-GOLDEN-0001"
+            summary = render_summary(
+                resolved,
+                display_name="Fusion Gen3",
+                pipeline_repository="dlstupka/hth",
+                pipeline_commit="abc123",
+                results_repository="dlstupka/results",
+                results_ref="results456",
+            )
             self.assertIn("0.9897", summary)
             self.assertIn("0.9814", summary)
             self.assertIn("maximum_amsre_refined_support_fraction", summary)
+            self.assertIn(
+                "[`HTH-0001`](https://github.com/dlstupka/source/releases/tag/HTH-GOLDEN-0001)",
+                summary,
+            )
+            self.assertIn("[`#732`](https://example.invalid/732)", summary)
+            self.assertIn(
+                "[Fusion Gen3](https://github.com/dlstupka/hth/blob/abc123/docs/detector-amsre-doc-ufcn-fusion.md)",
+                summary,
+            )
+            self.assertIn(
+                "**Rank:** [#1](https://github.com/dlstupka/results/blob/results456/indexes/calibration-index.json)",
+                summary,
+            )
+            self.assertIn(
+                "[`cal-amsre_doc_ufcn_fusion`](https://github.com/dlstupka/results/tree/results456/source-documents/source/golden-sets/hth-0001/gold123/calibrations/amsre_doc_ufcn_fusion/cal)",
+                summary,
+            )
+            self.assertIn(
+                "[`parameter-provenance.json`](https://github.com/dlstupka/results/blob/results456/source-documents/source/golden-sets/hth-0001/gold123/calibrations/amsre_doc_ufcn_fusion/cal/parameter-provenance.json)",
+                summary,
+            )
 
     def test_approved_accepts_persisted_authoritative_index_semantics(self):
         from hth.resolve_document_detector import _approved
@@ -260,6 +290,11 @@ class PreferredDocumentDetectorTests(unittest.TestCase):
         self.assertIn("--golden-set-freeze-root config/golden_sets", core)
         self.assertIn('--source-release-tag "$SOURCE_RELEASE_TAG"', core)
         self.assertIn("--source-release-manifest-sha256", core)
+        self.assertIn('--results-repository "$RESULTS_REPOSITORY"', core)
+        self.assertIn('--results-ref "$RESULTS_REF"', core)
+        self.assertIn("HTH_GOLDEN_SET_REPOSITORY: ${{ steps.preferred_document_detector.outputs.golden_set_repository }}", core)
+        self.assertIn("HTH_GOLDEN_SET_RELEASE: ${{ steps.preferred_document_detector.outputs.golden_set_release_tag }}", core)
+        self.assertIn("releases/download/${SOURCE_RELEASE_TAG}/source-release-manifest.json", core)
         self.assertIn("GOLDEN_SET_ID: ${{ steps.preferred_document_detector.outputs.golden_set_id }}", core)
         self.assertIn("--selection \"$RUNNER_TEMP/preferred-document-detector.json\"", core)
         self.assertRegex(

@@ -13,6 +13,8 @@ from pathlib import Path
 from hth.results_layout import resolve_index_relative_path
 from typing import Any
 
+from hth.markdown_links import code_link, github_blob_url, github_commit_url, github_release_url, link
+
 from hth.regression.result_metrics import normalize_summary_metrics
 from hth.regression.authoritative_record import authoritative_record
 from hth.regression.calibration_intelligence import detector_characterization
@@ -53,6 +55,16 @@ def _detector_short_name(detector: str) -> str:
 
 def _detector_heading(detector: str) -> str:
     return f"{_detector_friendly_name(detector)} (`{detector}`)"
+
+
+def _detector_documentation_url(
+    detector: str,
+    *,
+    pipeline_repository: str,
+    pipeline_commit: str,
+) -> str:
+    path = f"docs/detector-{detector.replace('_', '-')}.md"
+    return github_blob_url(pipeline_repository, pipeline_commit, path) if Path(path).is_file() else ""
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -900,6 +912,8 @@ def build_summary(
     include_title: bool = True,
     include_metric_definitions: bool = True,
     pipeline_repository: str = "",
+    golden_set_repository: str = "",
+    golden_set_release: str = "",
     results_repository: str = "",
     results_commit: str = "",
     calibration_index: Path | None = None,
@@ -926,6 +940,19 @@ def build_summary(
     profiles = configuration.get("profiles", {}) if isinstance(configuration.get("profiles"), dict) else {}
 
     detector_name = str(manifest.get("detector", "unknown"))
+    pipeline_commit = str(info.get("pipeline_commit") or "")
+    source_commit = str(info.get("source_commit") or summary.get("source_commit") or "")
+    golden_set_name = str(info.get("golden_set", parameters.get("golden_set", "unknown")))
+    golden_set_id, _ = _golden_set_identity(run_dir, info, parameters, summary)
+    golden_set_url = github_release_url(
+        golden_set_repository,
+        golden_set_release or golden_set_id,
+    )
+    detector_doc_url = _detector_documentation_url(
+        detector_name,
+        pipeline_repository=pipeline_repository,
+        pipeline_commit=pipeline_commit,
+    )
     lines = []
     if include_title:
         lines.extend(["# Regression Manifest", ""])
@@ -936,11 +963,11 @@ def build_summary(
         "",
         "### Build Provenance",
         "",
-        f"- Run ID: `{manifest.get('run_id', 'unknown')}`",
-        f"- Detector: `{manifest.get('detector', 'unknown')}`",
+        f"- Run ID: {code_link(manifest.get('run_id', 'unknown'), run_url)}",
+        f"- Detector: {code_link(manifest.get('detector', 'unknown'), detector_doc_url)}",
         *([f"- Model variant: `{summary.get('model_selection', {}).get('variant')}`", f"- Model ID: `{summary.get('model_selection', {}).get('model_id')}`"] if isinstance(summary.get("model_selection"), dict) and summary.get("model_selection", {}).get("variant") else []),
         f"- Strategy: `{manifest.get('strategy', 'unknown')}`",
-        f"- Pipeline commit: `{_short(info.get('pipeline_commit'))}`",
+        f"- Pipeline commit: {code_link(_short(pipeline_commit), github_commit_url(pipeline_repository, pipeline_commit))}",
         f"- Python: `{info.get('python_version', 'unknown')}`",
         f"- OpenCV: `{info.get('opencv_version', 'unknown')}`",
         f"- Started: `{info.get('started_at_utc', manifest.get('started_at_utc', 'unknown'))}`",
@@ -951,7 +978,7 @@ def build_summary(
         "",
         "### Golden Set",
         "",
-        f"- Configuration: `{info.get('golden_set', parameters.get('golden_set', 'unknown'))}`",
+        f"- Configuration: {code_link(golden_set_name, golden_set_url)}",
         f"- SHA-256: `{_short(info.get('golden_set_sha256', parameters.get('golden_set_sha256', summary.get('golden_set_sha256', 'unknown'))), 12)}`",
         f"- Pages: `{len(page_ordinals)}`",
         f"- Ordinals: `{', '.join(str(v) for v in page_ordinals) if page_ordinals else 'unknown'}`",
@@ -971,7 +998,6 @@ def build_summary(
             state = "present" if path.exists() else "missing"
             lines.append(f"- `{output}` — {state}")
 
-    golden_set_id, _ = _golden_set_identity(run_dir, info, parameters, summary)
     detector_config_sha = str(
         info.get("detector_config_sha256")
         or parameters.get("detector_config_sha256")
@@ -1281,14 +1307,14 @@ def build_summary(
             "",
             "### Calibration Identity",
             "",
-            f"- Calibration run ID: `{manifest.get('run_id', 'unknown')}`",
+            f"- Calibration run ID: {code_link(manifest.get('run_id', 'unknown'), run_url)}",
             f"- Calibration schema: `{calibration_payload.get('schema_version', 'unknown')}`",
-            f"- Detector: `{manifest.get('detector', 'unknown')}`",
+            f"- Detector: {code_link(manifest.get('detector', 'unknown'), detector_doc_url)}",
             f"- Detector configuration: `{info.get('detector_config', parameters.get('detector_config', 'unknown'))}`",
-            f"- Golden Set configuration: `{info.get('golden_set', parameters.get('golden_set', 'unknown'))}`",
+            f"- Golden Set configuration: {code_link(golden_set_name, golden_set_url)}",
             f"- Golden Set SHA-256: `{info.get('golden_set_sha256', parameters.get('golden_set_sha256', summary.get('golden_set_sha256', 'unknown')))}`",
-            f"- Pipeline commit: `{info.get('pipeline_commit', 'unknown')}`",
-            f"- Source commit: `{info.get('source_commit', summary.get('source_commit', 'unknown'))}`",
+            f"- Pipeline commit: {code_link(info.get('pipeline_commit', 'unknown'), github_commit_url(pipeline_repository, pipeline_commit))}",
+            f"- Source commit: {code_link(source_commit, github_commit_url(golden_set_repository, source_commit))}",
             f"- Requested search strategy: `{requested_strategy}`",
             f"- Resolved search strategy: `{resolved_strategy}`",
             f"- Strategy fallback: `{fallback_reason or 'none'}`",
@@ -2935,6 +2961,8 @@ def build_combined_summary(
     run_url: str = "",
     *,
     pipeline_repository: str = "",
+    golden_set_repository: str = "",
+    golden_set_release: str = "",
     results_repository: str = "",
     results_commit: str = "",
     calibration_index: Path | None = None,
@@ -2950,6 +2978,8 @@ def build_combined_summary(
             run_dirs[0],
             run_url,
             pipeline_repository=pipeline_repository,
+            golden_set_repository=golden_set_repository,
+            golden_set_release=golden_set_release,
             results_repository=results_repository,
             results_commit=results_commit,
             calibration_index=calibration_index,
@@ -2982,7 +3012,19 @@ def build_combined_summary(
         lines.append(f"- **Images:** {source_document['image_count']}")
     best_row = combined_rows[0]
     best_detector = str(best_row.get("detector", "unknown"))
-    best_payload = _calibration_payload(next(run_dir for run_dir in run_dirs if str(_read_json(run_dir / "manifest.json").get("detector", run_dir.parent.name)) == best_detector))
+    best_run_dir = next(run_dir for run_dir in run_dirs if str(_read_json(run_dir / "manifest.json").get("detector", run_dir.parent.name)) == best_detector)
+    best_payload = _calibration_payload(best_run_dir)
+    best_pipeline_commit = str(_read_json(best_run_dir / "RUN-INFO.json").get("pipeline_commit") or "")
+    best_detector_doc_url = _detector_documentation_url(
+        best_detector,
+        pipeline_repository=pipeline_repository,
+        pipeline_commit=best_pipeline_commit,
+    )
+    best_golden_set_id = _display_golden_set_id(best_row.get("golden_set_id", "unknown"))
+    best_golden_set_url = github_release_url(
+        golden_set_repository,
+        golden_set_release or best_golden_set_id,
+    )
     recommendation_notes: list[str] = []
     if best_payload:
         findings, roi = _detector_summary_and_roi(best_detector, best_payload)
@@ -2992,10 +3034,10 @@ def build_combined_summary(
         "",
         "## Detector Recommendation for this Golden Set",
         "",
-        f"- **Recommended detector:** {_detector_friendly_name(best_detector)}",
-        f"- **Golden Set:** `{_display_golden_set_id(best_row.get('golden_set_id', 'unknown'))}`",
+        f"- **Recommended detector:** {link(_detector_friendly_name(best_detector), best_detector_doc_url)}",
+        f"- **Golden Set:** {code_link(best_golden_set_id, best_golden_set_url)}",
         f"- **Detector short name:** {_detector_short_name(best_detector)}",
-        f"- **Detector ID:** `{best_detector}`",
+        f"- **Detector ID:** {code_link(best_detector, best_detector_doc_url)}",
         f"- **Best observed Avg IoU:** `{_number(best_row.get('mean_iou'))}`",
         f"- **Worst Golden Set page (Min IoU):** `{_number(best_row.get('minimum_iou'))}`",
         f"- **Page-to-page StdDev:** `{_number(best_row.get('stddev_iou'))}`",
@@ -3287,8 +3329,14 @@ def build_combined_summary(
         lines.append(
             build_summary(
                 run_dir,
+                run_url=run_url,
                 include_title=False,
                 include_metric_definitions=False,
+                pipeline_repository=pipeline_repository,
+                golden_set_repository=golden_set_repository,
+                golden_set_release=golden_set_release,
+                results_repository=results_repository,
+                results_commit=results_commit,
                 calibration_index=calibration_index,
                 parameter_build_index=parameter_build_index,
             ).rstrip()
@@ -3315,6 +3363,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--output", type=Path)
     p.add_argument("--run-url", default=os.environ.get("HTH_RUN_URL", ""))
     p.add_argument("--pipeline-repository", default=os.environ.get("HTH_PIPELINE_REPOSITORY", ""))
+    p.add_argument("--golden-set-repository", default=os.environ.get("HTH_GOLDEN_SET_REPOSITORY", ""))
+    p.add_argument("--golden-set-release", default=os.environ.get("HTH_GOLDEN_SET_RELEASE", ""))
     p.add_argument("--results-repository", default=os.environ.get("HTH_RESULTS_REPOSITORY", ""))
     p.add_argument("--results-commit", default=os.environ.get("HTH_RESULTS_COMMIT", ""))
     p.add_argument("--calibration-index", type=Path)
@@ -3329,6 +3379,8 @@ def main(argv: list[str] | None = None) -> int:
         args.run_dir,
         args.run_url,
         pipeline_repository=args.pipeline_repository,
+        golden_set_repository=args.golden_set_repository,
+        golden_set_release=args.golden_set_release,
         results_repository=args.results_repository,
         results_commit=args.results_commit,
         calibration_index=args.calibration_index,

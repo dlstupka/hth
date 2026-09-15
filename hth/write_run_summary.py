@@ -14,6 +14,25 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+try:
+    from hth.markdown_links import (
+        code_link,
+        github_blob_url,
+        github_commit_url,
+        github_release_url,
+        github_repository_url,
+        github_tree_url,
+    )
+except ModuleNotFoundError:  # Direct script execution used by GitHub Actions.
+    from markdown_links import (  # type: ignore[no-redef]
+        code_link,
+        github_blob_url,
+        github_commit_url,
+        github_release_url,
+        github_repository_url,
+        github_tree_url,
+    )
+
 
 def _env(name: str, default: str = "") -> str:
     return os.environ.get(name, default).strip()
@@ -224,7 +243,13 @@ def _read_preferred_detector_performance(path: str) -> dict[str, Any] | None:
         "error": counts.get("error", 0),
     }
 
-def _existing_outputs(paths: Iterable[str]) -> list[str]:
+def _existing_outputs(
+    paths: Iterable[str],
+    *,
+    results_repository: str = "",
+    results_commit: str = "",
+    github_server_url: str = "https://github.com",
+) -> list[str]:
     result: list[str] = []
     for raw in paths:
         raw = raw.strip()
@@ -233,12 +258,37 @@ def _existing_outputs(paths: Iterable[str]) -> list[str]:
         path = Path(raw)
         suffix = "/" if path.is_dir() else ""
         state = "present" if path.exists() else "not created"
-        result.append(f"- `{raw}{suffix}` — {state}")
+        repository_path = raw.replace("\\", "/").removeprefix("results-repo/")
+        url = ""
+        if path.exists() and path.is_dir():
+            url = github_tree_url(
+                results_repository,
+                results_commit,
+                repository_path,
+                server_url=github_server_url,
+            )
+        elif path.exists():
+            url = github_blob_url(
+                results_repository,
+                results_commit,
+                repository_path,
+                server_url=github_server_url,
+            )
+        result.append(f"- {code_link(raw + suffix, url)} — {state}")
     return result
 
 
 def build_summary(args: argparse.Namespace) -> str:
     icon = _status_icon(args.status)
+    pipeline_repository = getattr(args, "pipeline_repository", "")
+    server_url = getattr(args, "github_server_url", "") or "https://github.com"
+    source_repository_url = github_repository_url(args.source_repository, server_url=server_url)
+    pipeline_repository_url = github_repository_url(pipeline_repository, server_url=server_url)
+    golden_set_url = github_release_url(
+        getattr(args, "golden_set_repository", ""),
+        getattr(args, "golden_set_release", ""),
+        server_url=server_url,
+    )
     lines = [
         f"# {icon} HTH {args.pipeline_name}",
         "",
@@ -248,13 +298,13 @@ def build_summary(args: argparse.Namespace) -> str:
         "|---|---|",
         f"| Status | **{args.status}** |",
         f"| Collection | `{args.collection_id or 'unknown'}` |",
-        f"| Source repository | `{args.source_repository or 'unknown'}` |",
-        f"| Source release | `{args.source_release or 'unknown'}` |",
-        f"| Source commit | `{_short(args.source_commit)}` |",
-        f"| Calibration Golden Set | `{args.golden_set_id or 'unknown'}` |",
-        f"| Pipeline commit | `{_short(args.pipeline_commit)}` |",
-        f"| Workflow | `{args.workflow_name or 'unknown'}` |",
-        f"| Run | `{args.run_number or 'unknown'}` |",
+        f"| Source repository | {code_link(args.source_repository, source_repository_url)} |",
+        f"| Source release | {code_link(args.source_release, github_release_url(args.source_repository, args.source_release, server_url=server_url))} |",
+        f"| Source commit | {code_link(_short(args.source_commit), github_commit_url(args.source_repository, args.source_commit, server_url=server_url))} |",
+        f"| Calibration Golden Set | {code_link(args.golden_set_id, golden_set_url)} |",
+        f"| Pipeline commit | {code_link(_short(args.pipeline_commit), github_commit_url(pipeline_repository, args.pipeline_commit, server_url=server_url))} |",
+        f"| Workflow | {code_link(args.workflow_name, args.run_url)} |",
+        f"| Run | {code_link(args.run_number, args.run_url)} |",
         f"| Pipeline started | `{args.pipeline_started_at or 'unknown'}` |",
         f"| Summary generated | `{args.summary_generated_at}` |",
         f"| Duration | `{_display_duration(args.elapsed_seconds)}` |",
@@ -343,7 +393,12 @@ def build_summary(args: argparse.Namespace) -> str:
     if args.notes:
         lines.extend(["", "## Notes", "", args.notes.strip()])
 
-    output_lines = _existing_outputs(args.output)
+    output_lines = _existing_outputs(
+        args.output,
+        results_repository=getattr(args, "results_repository", ""),
+        results_commit=getattr(args, "results_commit", ""),
+        github_server_url=server_url,
+    )
     if output_lines:
         lines.extend(["", "## Publication outputs", "", *output_lines])
 
@@ -363,7 +418,13 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--source-release", default=_env("HTH_SOURCE_RELEASE"))
     p.add_argument("--source-commit", default=_env("HTH_SOURCE_COMMIT"))
     p.add_argument("--golden-set-id", default=_env("HTH_GOLDEN_SET_ID"))
+    p.add_argument("--golden-set-repository", default=_env("HTH_GOLDEN_SET_REPOSITORY"))
+    p.add_argument("--golden-set-release", default=_env("HTH_GOLDEN_SET_RELEASE"))
     p.add_argument("--pipeline-commit", default=_env("GITHUB_SHA"))
+    p.add_argument("--pipeline-repository", default=_env("GITHUB_REPOSITORY"))
+    p.add_argument("--github-server-url", default=_env("GITHUB_SERVER_URL", "https://github.com"))
+    p.add_argument("--results-repository", default=_env("RESULTS_REPOSITORY"))
+    p.add_argument("--results-commit", default=_env("HTH_RESULTS_COMMIT"))
     p.add_argument("--workflow-name", default=_env("GITHUB_WORKFLOW"))
     p.add_argument("--run-number", default=_env("GITHUB_RUN_NUMBER"))
     p.add_argument("--run-url", default="")

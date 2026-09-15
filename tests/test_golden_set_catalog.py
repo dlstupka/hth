@@ -4,13 +4,26 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.golden_set_catalog import main, resolve_golden_set_release
+from hth.golden_set_catalog import canonical_release_for_golden_set, main, resolve_golden_set_release
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class GoldenSetCatalogTests(unittest.TestCase):
+    def test_resolves_canonical_release_identity_for_manifest_links(self) -> None:
+        release = canonical_release_for_golden_set(
+            ROOT / "config/golden_sets",
+            golden_set_id="HTH-GOLDEN-0002",
+        )
+        self.assertEqual(
+            release,
+            {
+                "repository": "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
+                "tag": "HTH-GOLDEN-0002",
+            },
+        )
+
     def test_resolves_legacy_and_current_release_tags_to_canonical_files(self) -> None:
         freeze_root = ROOT / "config/golden_sets"
 

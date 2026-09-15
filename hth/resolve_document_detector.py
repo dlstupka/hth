@@ -8,9 +8,11 @@ import re
 from pathlib import Path
 from typing import Any
 
+from hth.markdown_links import code_link, github_blob_url, github_release_url, github_tree_url, link
+
 from hth.calibration_store import resolve_best_parameter_reference, load_index_with_persisted_backfill
 from hth.domain.calibration import calibration_search_type, calibration_status
-from hth.golden_set_catalog import resolve_golden_set_for_source
+from hth.golden_set_catalog import canonical_release_for_golden_set, resolve_golden_set_for_source
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -104,6 +106,11 @@ def resolve_rank_one(index_path: Path, *, golden_set_id: str) -> dict[str, Any]:
         "build_url": build.get("run_url"),
         "created_at_utc": selected.get("created_at_utc"),
         "provenance_source": reference.get("provenance_source"),
+        "record_path": reference.get("record_path") or selected.get("record_path"),
+        "parameter_provenance_path": (
+            reference.get("parameter_provenance_path")
+            or selected.get("parameter_provenance_path")
+        ),
         "needs_doc_ufcn": detector in {"amsre_doc_ufcn_fusion", "doc_ufcn_page_mask"},
     }
 
@@ -117,17 +124,66 @@ def _display_name(detector: str, catalog: Path | None) -> str:
     return detector
 
 
-def render_summary(resolved: dict[str, Any], *, display_name: str) -> str:
+def render_summary(
+    resolved: dict[str, Any],
+    *,
+    display_name: str,
+    pipeline_repository: str = "",
+    pipeline_commit: str = "",
+    results_repository: str = "",
+    results_ref: str = "main",
+    github_server_url: str = "https://github.com",
+) -> str:
     params = resolved.get("parameters") or {}
+    golden_set_url = github_release_url(
+        str(resolved.get("golden_set_repository") or ""),
+        str(resolved.get("golden_set_release_tag") or ""),
+        server_url=github_server_url,
+    )
+    record_path = str(resolved.get("record_path") or "")
+    provenance_path = str(resolved.get("parameter_provenance_path") or "")
+    if not provenance_path and record_path and resolved.get("provenance_source") == "parameter-provenance":
+        provenance_path = f"{record_path.rstrip('/')}/parameter-provenance.json"
+    calibration_url = github_tree_url(
+        results_repository,
+        results_ref,
+        record_path,
+        server_url=github_server_url,
+    )
+    provenance_url = github_blob_url(
+        results_repository,
+        results_ref,
+        provenance_path,
+        server_url=github_server_url,
+    )
+    provenance_label = Path(provenance_path).name if provenance_path else resolved.get("provenance_source")
+    detector = str(resolved["detector"])
+    detector_doc_path = f"docs/detector-{detector.replace('_', '-')}.md"
+    detector_doc_url = github_blob_url(
+        pipeline_repository,
+        pipeline_commit,
+        detector_doc_path,
+        server_url=github_server_url,
+    ) if Path(detector_doc_path).is_file() else ""
+    detector_label = (
+        f"{link(display_name, detector_doc_url)} "
+        f"({code_link(detector, detector_doc_url)})"
+    )
+    ranking_url = github_blob_url(
+        results_repository,
+        results_ref,
+        "indexes/calibration-index.json",
+        server_url=github_server_url,
+    )
     lines = [
         "## Preferred document detector — Rank #1",
         "",
         "Production/test document inference automatically uses the strongest **Approved** authoritative calibration for the requested Golden Set.",
         "",
-        f"- **Detector:** {display_name} (`{resolved['detector']}`)",
-        f"- **Rank:** #1",
+        f"- **Detector:** {detector_label}",
+        f"- **Rank:** {link('#1', ranking_url)}",
         f"- **Approval:** `{resolved['approval_level']}` / evidence `{resolved.get('calibration_evidence')}`",
-        f"- **Golden Set:** `{resolved['golden_set_id']}` (`{resolved['golden_set_sha256']}`)",
+        f"- **Golden Set:** {code_link(resolved['golden_set_id'], golden_set_url)} (`{resolved['golden_set_sha256']}`)",
         f"- **Parameter Set ID:** `{resolved.get('parameter_set_id')}`",
         f"- **Absolute parameter SHA-256:** `{resolved.get('parameter_identity_sha256')}`",
         f"- **Best Avg IoU:** `{float(resolved['best_avg_iou']):.4f}`",
@@ -135,9 +191,9 @@ def render_summary(resolved: dict[str, Any], *, display_name: str) -> str:
         f"- **StdDev:** `{float(resolved['stddev_iou']):.4f}`",
         f"- **Failures:** `{resolved.get('failure_count')}`",
         f"- **Search:** `{resolved.get('search_strategy')}` / `{resolved.get('parameter_sets')}` parameter sets",
-        f"- **Calibration build:** `#{resolved.get('build_number')}`",
-        f"- **Calibration ID:** `{resolved.get('calibration_id')}`",
-        f"- **Parameter provenance:** `{resolved.get('provenance_source')}`",
+        f"- **Calibration build:** {code_link('#' + str(resolved.get('build_number')), str(resolved.get('build_url') or ''))}",
+        f"- **Calibration ID:** {code_link(resolved.get('calibration_id'), calibration_url)}",
+        f"- **Parameter provenance:** {code_link(provenance_label, provenance_url)}",
         "",
         "### Winning parameter specification",
         "",
@@ -158,6 +214,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--source-release-tag", default="")
     p.add_argument("--source-release-manifest-sha256", default="")
     p.add_argument("--catalog", type=Path)
+    p.add_argument("--pipeline-repository", default="")
+    p.add_argument("--pipeline-commit", default="")
+    p.add_argument("--results-repository", default="")
+    p.add_argument("--results-ref", default="main")
+    p.add_argument("--github-server-url", default="https://github.com")
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--github-output", type=Path)
     p.add_argument("--github-summary", type=Path)
@@ -179,16 +240,33 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     resolved = resolve_rank_one(args.index, golden_set_id=golden_set_id)
+    if args.golden_set_freeze_root is not None:
+        canonical_release = canonical_release_for_golden_set(
+            args.golden_set_freeze_root,
+            golden_set_id=golden_set_id,
+        )
+        resolved["golden_set_repository"] = canonical_release.get("repository")
+        resolved["golden_set_release_tag"] = canonical_release.get("tag")
     resolved["display_name"] = _display_name(resolved["detector"], args.catalog)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(resolved, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    summary = render_summary(resolved, display_name=resolved["display_name"])
+    summary = render_summary(
+        resolved,
+        display_name=resolved["display_name"],
+        pipeline_repository=args.pipeline_repository,
+        pipeline_commit=args.pipeline_commit,
+        results_repository=args.results_repository,
+        results_ref=args.results_ref,
+        github_server_url=args.github_server_url,
+    )
     print(summary, end="")
     if args.github_output:
         with args.github_output.open("a", encoding="utf-8") as handle:
             handle.write(f"detector={resolved['detector']}\n")
             handle.write(f"parameter_set_id={resolved.get('parameter_set_id')}\n")
             handle.write(f"golden_set_id={resolved.get('golden_set_id')}\n")
+            handle.write(f"golden_set_repository={resolved.get('golden_set_repository') or ''}\n")
+            handle.write(f"golden_set_release_tag={resolved.get('golden_set_release_tag') or ''}\n")
             handle.write(f"needs_doc_ufcn={'true' if resolved.get('needs_doc_ufcn') else 'false'}\n")
     if args.github_summary:
         with args.github_summary.open("a", encoding="utf-8") as handle:

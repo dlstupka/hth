@@ -705,6 +705,8 @@ jobs:
           python hth-pipeline/hth/write_regression_summary.py \
             "${summary_args[@]}" \
             --pipeline-repository "${{ github.repository }}" \
+            --golden-set-repository "${{ inputs.source_repository }}" \
+            --golden-set-release "${{ inputs.golden_release_tag }}" \
             --results-repository "$RESULTS_REPOSITORY" \
             --results-commit "${{ steps.persistence.outputs.results_commit }}" \
             --calibration-index results-repo/indexes/calibration-index.json \

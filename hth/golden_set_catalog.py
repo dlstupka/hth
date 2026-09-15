@@ -89,6 +89,28 @@ def resolve_golden_set_for_source(
     return matches[0][0]
 
 
+def canonical_release_for_golden_set(
+    freeze_root: Path,
+    *,
+    golden_set_id: str,
+) -> dict[str, str]:
+    """Return the persisted canonical release identity for one Golden Set."""
+    target = str(golden_set_id or "").strip()
+    matches: list[dict[str, str]] = []
+    for _path, payload in _frozen_manifests(freeze_root):
+        if str(payload.get("golden_set_id") or "").strip() != target:
+            continue
+        release = payload.get("canonical_release")
+        release = release if isinstance(release, dict) else {}
+        repository = str(release.get("repository") or "").strip()
+        tag = str(release.get("tag") or "").strip()
+        if repository and tag:
+            matches.append({"repository": repository, "tag": tag})
+    if len(matches) > 1:
+        raise SystemExit(f"Golden Set ID {target} has multiple canonical releases")
+    return matches[0] if matches else {}
+
+
 def resolve_golden_set_release(
     freeze_root: Path,
     *,

@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from hth.markdown_links import code_link, github_blob_url
+
 
 SCHEMA_VERSION = "1.0"
 EVIDENCE_TYPE = "canonical-build-evidence"
@@ -528,6 +530,13 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         "comparison_required": comparison_required,
         "page_count": len(page_evaluations),
     })
+    evidence_url = ""
+    if args.evidence.is_file():
+        evidence_url = github_blob_url(
+            getattr(args, "results_repository", ""),
+            getattr(args, "results_ref", "main"),
+            "metadata/canonical-build-evidence.json",
+        )
     _append_summary(args.github_summary, [
         "### Canonical Build Evidence",
         "",
@@ -537,6 +546,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         f"- Domain result: `{domain_result}`",
         f"- Decision: `{decision}`",
         f"- Pages marked unnecessary: `{len(page_evaluations)}`",
+        f"- Evidence: {code_link('metadata/canonical-build-evidence.json', evidence_url)}",
     ])
     print(
         "[canonical-build-evidence] "
@@ -714,6 +724,8 @@ def parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--artifact-required", action="store_true")
     prepare_parser.add_argument("--pipeline-repository", default="")
     prepare_parser.add_argument("--pipeline-commit", default="")
+    prepare_parser.add_argument("--results-repository", default="")
+    prepare_parser.add_argument("--results-ref", default="main")
     prepare_parser.add_argument("--workflow-run-id", default="")
     prepare_parser.add_argument("--runner-name", default="")
     prepare_parser.add_argument("--runner-environment", default="")
