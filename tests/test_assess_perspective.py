@@ -92,6 +92,9 @@ class PerspectiveAssessmentTests(unittest.TestCase):
         self.assertIn("python -m hth.assess_perspective evaluate", workflow)
         self.assertIn("python -m hth.assess_perspective recommend", workflow)
         self.assertIn("normalization/perspective-policy.json", workflow)
+        sparse_checkout = workflow.split("sparse-checkout: |", 1)[1].split("sparse-checkout-cone-mode:", 1)[0]
+        self.assertIn("/normalization/perspective/", sparse_checkout)
+        self.assertIn("/normalization/perspective-policy.json", sparse_checkout)
         self.assertIn("specific_runner:", workflow)
         self.assertNotIn("normalize_document_images", workflow)
         self.assertNotIn("git push", workflow)

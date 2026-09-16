@@ -91,6 +91,8 @@ jobs:
             /metadata/image_manifest.json
             /normalization/canonical-build-evidence.json
             /normalization/normalization-manifest.json
+            /normalization/perspective/
+            /normalization/perspective-policy.json
           sparse-checkout-cone-mode: false
           persist-credentials: true
 
