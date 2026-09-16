@@ -234,6 +234,7 @@ This directory contains the design, operating, and project-reference documentati
 - [Preprocessor](preprocessor.md)
 - [Immutable source releases](source-releases.md) — DOCX extraction and normalized publication inputs.
 - [Physical-page analysis](analyze-pages.md) — page analysis and review-queue generation.
+- [Crop and framing assessment](crop-framing-assessment.md) — GS0002 comparison of axis, rotation, and projective framing before production normalization policy is selected.
 
 ## Geometry and detectors
 

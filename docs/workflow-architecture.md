@@ -13,11 +13,22 @@ Thin entry workflows:
 ```text
 .github/workflows/preprocess.yml
 .github/workflows/preprocess-test.yml
-.github/workflows/calibrate-geometry.yml
 .github/workflows/generate-report.yml
 ```
 
 The wrappers select mode, source, publication behavior, retention, validation policy, and runner. Manual core-backed workflows expose the common runner vocabulary and default to GitHub-hosted execution unless a different runner is selected. Processing and report-only behavior remain centralized in the reusable core where practical to prevent drift.
+
+Standalone diagnostic workflows:
+
+```text
+.github/workflows/assess-crop-framing.yml
+.github/workflows/review-document-detector.yml
+```
+
+`assess-crop-framing.yml` resolves the approved detector, materializes the
+immutable GS0002 image bundle, and compares axis-aligned, rotation-crop, and
+projective framing. It uploads temporary assessment evidence only; it neither
+publishes normalization output nor mutates calibration intelligence.
 
 ## Canonical workflow stages
 

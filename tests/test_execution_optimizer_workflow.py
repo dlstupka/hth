@@ -265,7 +265,6 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         for name in (
             "execution-optimizer.yml",
             "regress-detector.yml",
-            "calibrate-geometry.yml",
             "preprocess.yml",
             "preprocess-test.yml",
             "generate-report.yml",
