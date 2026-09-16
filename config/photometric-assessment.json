@@ -23,7 +23,9 @@
     "preserve_maximum_highlight_clipping_fraction": 0.02,
     "candidate_minimum_highlight_clipping_fraction": 0.08,
     "preserve_maximum_background_chroma_variation": 8.0,
-    "candidate_minimum_background_chroma_variation": 16.0
+    "candidate_minimum_background_chroma_variation": 16.0,
+    "dark_frame_minimum_shadow_fraction": 0.75,
+    "mixed_polarity_minimum_shadow_fraction": 0.25
   },
   "recommendation": {
     "policy_id": "photometric-preservation-assessment-v1",

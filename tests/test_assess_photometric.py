@@ -41,10 +41,20 @@ class PhotometricAssessmentTests(unittest.TestCase):
 
     def test_black_ink_clipping_is_not_sufficient_for_correction(self) -> None:
         image = np.full((800, 600, 3), 220, dtype=np.uint8)
-        cv2.rectangle(image, (80, 80), (520, 220), (0, 0, 0), -1)
+        cv2.rectangle(image, (80, 80), (520, 380), (0, 0, 0), -1)
         result = estimate_photometric_condition(image, self._config())
         self.assertNotEqual(result["decision"], "correction-candidate")
+        self.assertEqual(result["archetype"], "mixed-polarity-page")
         self.assertGreater(result["shadow_clipping_fraction"], 0.025)
+
+    def test_dark_polarity_frame_is_explicitly_preserved(self) -> None:
+        image = np.zeros((800, 600, 3), dtype=np.uint8)
+        cv2.putText(image, "END OF ROLL", (40, 420), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (230, 230, 230), 8)
+        result = estimate_photometric_condition(image, self._config())
+        self.assertEqual(result["archetype"], "dark-polarity-frame")
+        self.assertEqual(result["decision"], "preserve")
+        self.assertEqual(result["candidate_reasons"], [])
+        self.assertEqual(result["decision_reasons"], ["intentional-dark-polarity"])
 
     def test_recommendation_rejects_tampered_evidence(self) -> None:
         assessment = {

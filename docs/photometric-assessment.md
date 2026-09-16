@@ -29,6 +29,13 @@ influence of handwriting and printed text. It records:
 - shadow and highlight endpoint occupancy; and
 - spatial background-chroma variation.
 
+Before correction candidacy is evaluated, endpoint occupancy assigns a
+photometric archetype. Predominantly dark roll targets and end markers are
+explicitly preserved as `dark-polarity-frame`. Pages combining a dark insert
+with ordinary paper are marked `mixed-polarity-page` and held for visual
+review. Only credible `paper-page` images can become automatic correction
+candidates.
+
 Dense black ink and bright paper legitimately occupy the luminance endpoints,
 so clipping is review evidence but cannot independently trigger a correction
 recommendation. A correction candidate requires strong uneven-background,

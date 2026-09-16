@@ -86,6 +86,15 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
     shadow_clipping = float(np.mean(luminance <= (2.0 / 255.0)))
     highlight_clipping = float(np.mean(luminance >= (253.0 / 255.0)))
 
+    dark_frame_minimum = float(cfg.get("dark_frame_minimum_shadow_fraction") or 0.75)
+    mixed_polarity_minimum = float(cfg.get("mixed_polarity_minimum_shadow_fraction") or 0.25)
+    if shadow_clipping >= dark_frame_minimum:
+        archetype = "dark-polarity-frame"
+    elif shadow_clipping >= mixed_polarity_minimum:
+        archetype = "mixed-polarity-page"
+    else:
+        archetype = "paper-page"
+
     preserve_checks = {
         "background_uniformity": background_span <= float(cfg.get("preserve_maximum_background_span") or 0.10),
         "tonal_span": tonal_span >= float(cfg.get("preserve_minimum_tonal_span") or 0.24),
@@ -94,24 +103,38 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
         "background_chroma_uniformity": chroma_variation <= float(cfg.get("preserve_maximum_background_chroma_variation") or 8.0),
     }
     candidate_reasons = []
-    if background_span >= float(cfg.get("candidate_minimum_background_span") or 0.18):
+    if archetype == "paper-page" and background_span >= float(cfg.get("candidate_minimum_background_span") or 0.18):
         candidate_reasons.append("uneven-background")
-    if tonal_span <= float(cfg.get("candidate_maximum_tonal_span") or 0.14) and edge_fraction >= 0.01:
+    if archetype == "paper-page" and tonal_span <= float(cfg.get("candidate_maximum_tonal_span") or 0.14) and edge_fraction >= 0.01:
         candidate_reasons.append("compressed-tonal-range")
     # Dense black ink and bright paper legitimately occupy the luminance endpoints.
     # Clipping remains review evidence, but is not independently sufficient to
     # recommend changing archival pixels.
-    if chroma_variation >= float(cfg.get("candidate_minimum_background_chroma_variation") or 16.0):
+    if archetype == "paper-page" and chroma_variation >= float(cfg.get("candidate_minimum_background_chroma_variation") or 16.0):
         candidate_reasons.append("uneven-color-cast")
 
     if valid_tiles < minimum_tiles:
         decision = "inconclusive"
+    elif archetype == "dark-polarity-frame":
+        decision = "preserve"
+    elif archetype == "mixed-polarity-page":
+        decision = "review"
     elif candidate_reasons:
         decision = "correction-candidate"
     elif all(preserve_checks.values()):
         decision = "preserve"
     else:
         decision = "review"
+    if archetype == "dark-polarity-frame":
+        decision_reasons = ["intentional-dark-polarity"]
+    elif archetype == "mixed-polarity-page":
+        decision_reasons = ["mixed-polarity-content"]
+    elif candidate_reasons:
+        decision_reasons = candidate_reasons
+    elif decision == "review":
+        decision_reasons = ["threshold-review"]
+    else:
+        decision_reasons = ["photometric-gates-passed"]
     severity = max(
         background_span / max(0.001, float(cfg.get("candidate_minimum_background_span") or 0.18)),
         max(0.0, float(cfg.get("preserve_minimum_tonal_span") or 0.24) - tonal_span) / 0.24,
@@ -121,7 +144,9 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
     )
     return {
         "decision": decision,
+        "archetype": archetype,
         "candidate_reasons": candidate_reasons,
+        "decision_reasons": decision_reasons,
         "valid_tile_count": valid_tiles,
         "background_luminance_span": round(background_span, 6),
         "tonal_span": round(tonal_span, 6),
@@ -152,7 +177,7 @@ def _contact_sheet(image: np.ndarray, result: dict[str, Any], ordinal: int) -> n
     canvas[90:, :display.shape[1]] = display
     canvas[90:, display.shape[1] + 12:] = heat
     label = (
-        f"Page {ordinal}: {result['decision']} | background span {result['background_luminance_span']:.3f} | "
+        f"Page {ordinal}: {result['decision']} ({result['archetype']}) | background span {result['background_luminance_span']:.3f} | "
         f"tonal span {result['tonal_span']:.3f}"
     )
     cv2.putText(canvas, label, (12, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (25, 25, 25), 1, cv2.LINE_AA)
@@ -172,15 +197,17 @@ def _summary(payload: dict[str, Any]) -> str:
         f"- Stratified sample: `{payload['sample_page_count']}` pages",
         f"- Preserve evidence: `{aggregate['preserve_pages']}` pages",
         f"- Correction candidates: `{aggregate['correction_candidate_pages']}` pages",
+        f"- Dark-polarity frames preserved: `{aggregate['dark_polarity_frame_pages']}` pages",
+        f"- Mixed-polarity pages held for review: `{aggregate['mixed_polarity_pages']}` pages",
         f"- Review: `{aggregate['review_pages']}` pages",
         f"- Inconclusive: `{aggregate['inconclusive_pages']}` pages", "",
         "## Highest-priority visual review", "",
-        "| Page | Decision | Background span | Tonal span | Reasons |",
-        "|---:|---|---:|---:|---|",
+        "| Page | Archetype | Decision | Background span | Tonal span | Reasons |",
+        "|---:|---|---|---:|---:|---|",
     ]
     for page in payload["priority_review_pages"]:
         lines.append(
-            f"| {page['global_ordinal']} | {page['decision']} | {page['background_span']:.3f} | "
+            f"| {page['global_ordinal']} | {page['archetype']} | {page['decision']} | {page['background_span']:.3f} | "
             f"{page['tonal_span']:.3f} | {', '.join(page['reasons']) or 'threshold review'} |"
         )
     lines.extend(["", "Open `index.html` from the artifact to inspect the sampled pages and background maps.", ""])
@@ -230,13 +257,16 @@ def assess(image_root: Path, manifest_path: Path, sample_path: Path, config_path
             "correction_candidate_pages": counts["correction-candidate"],
             "review_pages": counts["review"],
             "inconclusive_pages": counts["inconclusive"],
+            "dark_polarity_frame_pages": sum(page["estimate"]["archetype"] == "dark-polarity-frame" for page in pages),
+            "mixed_polarity_pages": sum(page["estimate"]["archetype"] == "mixed-polarity-page" for page in pages),
         },
         "priority_review_pages": [{
             "global_ordinal": page["global_ordinal"],
+            "archetype": page["estimate"]["archetype"],
             "decision": page["estimate"]["decision"],
             "background_span": page["estimate"]["background_luminance_span"],
             "tonal_span": page["estimate"]["tonal_span"],
-            "reasons": page["estimate"]["candidate_reasons"],
+            "reasons": page["estimate"]["decision_reasons"],
         } for page in priority],
         "pages": pages,
     }
@@ -244,13 +274,13 @@ def assess(image_root: Path, manifest_path: Path, sample_path: Path, config_path
     payload["assessment_identity"] = canonical_hash({key: payload[key] for key in identity_fields})
     (output / "assessment.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     with (output / "assessment.csv").open("w", encoding="utf-8", newline="") as handle:
-        fields = ("global_ordinal", "decision", "background_span", "tonal_span", "shadow_clipping", "highlight_clipping", "chroma_variation")
+        fields = ("global_ordinal", "archetype", "decision", "background_span", "tonal_span", "shadow_clipping", "highlight_clipping", "chroma_variation")
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         for page in pages:
             estimate = page["estimate"]
             writer.writerow({
-                "global_ordinal": page["global_ordinal"], "decision": estimate["decision"],
+                "global_ordinal": page["global_ordinal"], "archetype": estimate["archetype"], "decision": estimate["decision"],
                 "background_span": estimate["background_luminance_span"], "tonal_span": estimate["tonal_span"],
                 "shadow_clipping": estimate["shadow_clipping_fraction"], "highlight_clipping": estimate["highlight_clipping_fraction"],
                 "chroma_variation": estimate["background_chroma_variation"],
