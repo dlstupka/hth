@@ -16,6 +16,12 @@ Golden Set image bundle, runs that detector over the images, and uploads a
 diagnostic artifact. It does not publish normalized images, alter calibration
 intelligence, or select a production normalization policy.
 
+The initial assessment selected `axis-aligned` as the conservative production
+policy. It had the strongest approved-box retention and avoids resampling when
+the available detector geometry contains no independently established
+perspective information. The implemented artifact-only normalization workflow
+is documented in [Document normalization](normalization.md).
+
 The manual dispatch menu uses the standard HTH runner controls. `Execution
 runner` selects GitHub-hosted or one of the self-hosted runner classes;
 `Specific self-hosted runner` can be changed to `custom` to route the job to

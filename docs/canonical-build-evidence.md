@@ -1,7 +1,7 @@
 # HTH Canonical Build Evidence
 
 Canonical Build Evidence (CBE) is the deterministic execution contract shared by
-HTH collection preprocessing and future processing stages such as normalization.
+HTH collection preprocessing and downstream stages such as normalization.
 It answers two separate questions:
 
 1. Are the complete effective inputs and process contract identical to a proven
@@ -55,9 +55,9 @@ pipeline provenance are excluded from domain-result comparison. They remain
 available as execution metadata.
 
 Each page records its operation identity, canonical extracted-image SHA-256,
-canonical analysis SHA-256, activity, and domain result. These page boundaries are
-the forward-compatible handoff for normalization; this initial implementation
-does not introduce a page-asset cache.
+canonical analysis SHA-256, activity, and domain result. These page boundaries
+are the handoff used by artifact-only GS0002 normalization. The current
+implementation does not introduce a page-asset cache.
 
 ## Policies
 

@@ -18,10 +18,11 @@ Thin entry workflows:
 
 The wrappers select mode, source, publication behavior, retention, validation policy, and runner. Manual core-backed workflows expose the common runner vocabulary and default to GitHub-hosted execution unless a different runner is selected. Processing and report-only behavior remain centralized in the reusable core where practical to prevent drift.
 
-Standalone diagnostic workflows:
+Standalone review and diagnostic workflows:
 
 ```text
 .github/workflows/assess-crop-framing.yml
+.github/workflows/normalize-gs0002.yml
 .github/workflows/review-document-detector.yml
 ```
 
@@ -29,6 +30,12 @@ Standalone diagnostic workflows:
 immutable GS0002 image bundle, and compares axis-aligned, rotation-crop, and
 projective framing. It uploads temporary assessment evidence only; it neither
 publishes normalization output nor mutates calibration intelligence.
+
+`normalize-gs0002.yml` is the artifact-only validation entry point for the
+selected axis-aligned framing policy. It validates authoritative Canonical
+Build Evidence and the published preprocess artifacts, materializes immutable
+GS0002 source images, and applies the stored preferred-detector geometry. It
+does not rerun detector inference or publish normalized collection assets.
 
 ## Canonical workflow stages
 

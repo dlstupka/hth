@@ -234,7 +234,8 @@ This directory contains the design, operating, and project-reference documentati
 - [Preprocessor](preprocessor.md)
 - [Immutable source releases](source-releases.md) — DOCX extraction and normalized publication inputs.
 - [Physical-page analysis](analyze-pages.md) — page analysis and review-queue generation.
-- [Crop and framing assessment](crop-framing-assessment.md) — GS0002 comparison of axis, rotation, and projective framing before production normalization policy is selected.
+- [Crop and framing assessment](crop-framing-assessment.md) — GS0002 comparison that selected conservative axis-aligned framing for initial normalization.
+- [Document normalization](normalization.md) — artifact-only GS0002 axis-aligned framing from validated canonical preprocess evidence.
 
 ## Geometry and detectors
 
