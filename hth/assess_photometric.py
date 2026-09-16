@@ -70,9 +70,22 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
     valid_tiles = len(tile_luminance)
     minimum_tiles = int(cfg.get("minimum_valid_tiles") or 32)
     if valid_tiles:
-        background_span = float(np.percentile(tile_luminance, 90) - np.percentile(tile_luminance, 10))
+        full_frame_background_span = float(np.percentile(tile_luminance, 90) - np.percentile(tile_luminance, 10))
     else:
-        background_span = 0.0
+        full_frame_background_span = 0.0
+    boundary_trim = max(0, int(cfg.get("background_boundary_trim_tiles") or 1))
+    complete_grid = valid_tiles == rows * columns
+    if complete_grid and rows > 2 * boundary_trim and columns > 2 * boundary_trim:
+        background_grid = np.asarray(tile_luminance, dtype=np.float32).reshape(rows, columns)
+        interior = background_grid[
+            boundary_trim:rows - boundary_trim,
+            boundary_trim:columns - boundary_trim,
+        ].reshape(-1)
+        background_span = float(np.percentile(interior, 90) - np.percentile(interior, 10))
+    else:
+        # An incomplete grid cannot prove that variation is confined to framing.
+        # Fail conservatively by retaining the full-frame measurement.
+        background_span = full_frame_background_span
     if tile_chroma:
         chroma = np.asarray(tile_chroma, dtype=np.float32)
         chroma_variation = float(np.hypot(
@@ -113,6 +126,12 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
     if archetype == "paper-page" and chroma_variation >= float(cfg.get("candidate_minimum_background_chroma_variation") or 16.0):
         candidate_reasons.append("uneven-color-cast")
 
+    boundary_geometry = (
+        complete_grid
+        and full_frame_background_span >= float(cfg.get("boundary_geometry_minimum_full_frame_span") or 0.18)
+        and background_span < float(cfg.get("candidate_minimum_background_span") or 0.18)
+    )
+
     if valid_tiles < minimum_tiles:
         decision = "inconclusive"
     elif archetype == "dark-polarity-frame":
@@ -121,6 +140,8 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
         decision = "review"
     elif candidate_reasons:
         decision = "correction-candidate"
+    elif boundary_geometry:
+        decision = "preserve"
     elif all(preserve_checks.values()):
         decision = "preserve"
     else:
@@ -131,6 +152,8 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
         decision_reasons = ["mixed-polarity-content"]
     elif candidate_reasons:
         decision_reasons = candidate_reasons
+    elif boundary_geometry:
+        decision_reasons = ["boundary-dominated-background-geometry"]
     elif decision == "review":
         decision_reasons = ["threshold-review"]
     else:
@@ -149,6 +172,8 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
         "decision_reasons": decision_reasons,
         "valid_tile_count": valid_tiles,
         "background_luminance_span": round(background_span, 6),
+        "full_frame_background_luminance_span": round(full_frame_background_span, 6),
+        "boundary_geometry_detected": boundary_geometry,
         "tonal_span": round(tonal_span, 6),
         "edge_fraction": round(edge_fraction, 6),
         "shadow_clipping_fraction": round(shadow_clipping, 6),

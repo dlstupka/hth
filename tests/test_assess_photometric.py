@@ -39,6 +39,20 @@ class PhotometricAssessmentTests(unittest.TestCase):
         self.assertEqual(result["decision"], "correction-candidate")
         self.assertIn("uneven-background", result["candidate_reasons"])
 
+    def test_boundary_geometry_is_preserved_instead_of_becoming_a_candidate(self) -> None:
+        image = self._document(198)
+        height, width = image.shape[:2]
+        cv2.rectangle(image, (0, 0), (width - 1, 28), (255, 255, 255), -1)
+        cv2.rectangle(image, (0, height - 29), (width - 1, height - 1), (255, 255, 255), -1)
+        cv2.rectangle(image, (0, 0), (28, height - 1), (255, 255, 255), -1)
+        cv2.rectangle(image, (width - 29, 0), (width - 1, height - 1), (255, 255, 255), -1)
+        result = estimate_photometric_condition(image, self._config())
+        self.assertEqual(result["decision"], "preserve")
+        self.assertEqual(result["decision_reasons"], ["boundary-dominated-background-geometry"])
+        self.assertTrue(result["boundary_geometry_detected"])
+        self.assertGreater(result["full_frame_background_luminance_span"], 0.18)
+        self.assertLess(result["background_luminance_span"], 0.025)
+
     def test_black_ink_clipping_is_not_sufficient_for_correction(self) -> None:
         image = np.full((800, 600, 3), 220, dtype=np.uint8)
         cv2.rectangle(image, (80, 80), (520, 380), (0, 0, 0), -1)
