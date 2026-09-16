@@ -49,6 +49,13 @@ detector, or any local implementation imported by that detector does create a
 new identity. This keeps invalidation conservative around executable domain
 logic without turning every repository edit into a collection rebuild.
 
+Normalization applies the same boundary explicitly. Its canonical engine is
+declared as implementation; `hth/normalization_report.py` is not. Review cadence,
+contact-sheet selection and rendering, HTML, CSV presentation, and Markdown are
+non-canonical surfaces recorded outside `normalization-manifest.json`. Changes to
+those surfaces therefore do not create a new Effective Build Identity or alter
+the canonical normalization result.
+
 The **Canonical Result Identity** is a SHA-256 over the canonical published JSON
 surfaces and page-result identities. Timestamps, timings, and duplicated source or
 pipeline provenance are excluded from domain-result comparison. They remain

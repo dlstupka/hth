@@ -111,8 +111,6 @@ def select_sample(
     for index, ordinal in enumerate(ordered):
         if index % cadence == 0:
             include(ordinal, f"cadence-{cadence}")
-    for ordinal in normalization_manifest.get("review_contact_sheet_ordinals") or []:
-        include(int(ordinal), "canonical-crop-review")
     for ordinal in golden_ordinals or []:
         include(int(ordinal), "golden-set")
 

@@ -4,9 +4,7 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import hashlib
-import html
 import json
 import math
 from pathlib import Path
@@ -23,6 +21,12 @@ from hth.canonical_build_evidence import (
 )
 from hth.preprocess import canonical_image, extension, ordered_images
 from hth.orientation_deskew import evaluate_hough_policy
+from hth.normalization_report import (
+    render_summary,
+    should_render_review,
+    write_contact_sheet,
+    write_reports,
+)
 
 
 SCHEMA_VERSION = "1.0"
@@ -137,50 +141,6 @@ def load_authoritative_preprocess_evidence(store_path: Path, results_root: Path)
     return evidence
 
 
-def _display_image(image: np.ndarray) -> np.ndarray:
-    if image.ndim == 2:
-        return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-    if image.shape[2] == 4:
-        return cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
-    return image
-
-
-def _fit_panel(image: np.ndarray, width: int = 700, height: int = 620) -> np.ndarray:
-    image = _display_image(image)
-    scale = min(width / image.shape[1], height / image.shape[0])
-    resized = cv2.resize(
-        image,
-        (max(1, round(image.shape[1] * scale)), max(1, round(image.shape[0] * scale))),
-        interpolation=cv2.INTER_AREA,
-    )
-    panel = np.full((height, width, 3), 255, dtype=np.uint8)
-    y = (height - resized.shape[0]) // 2
-    x = (width - resized.shape[1]) // 2
-    panel[y:y + resized.shape[0], x:x + resized.shape[1]] = resized
-    return panel
-
-
-def _contact_sheet(
-    original: np.ndarray,
-    normalized: np.ndarray,
-    bounds: tuple[int, int, int, int],
-    ordinal: int,
-    collection_label: str,
-) -> np.ndarray:
-    overlay = _display_image(original.copy())
-    left, top, right, bottom = bounds
-    cv2.rectangle(overlay, (left, top), (right - 1, bottom - 1), (0, 0, 255), max(2, round(min(original.shape[:2]) / 500)))
-    panels = []
-    for image, label in ((overlay, "Canonical source + crop boundary"), (normalized, "Canonical normalized image")):
-        panel = _fit_panel(image)
-        cv2.rectangle(panel, (0, 0), (panel.shape[1], 42), (20, 20, 20), -1)
-        cv2.putText(panel, label, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (255, 255, 255), 1, cv2.LINE_AA)
-        panels.append(panel)
-    sheet = np.concatenate(panels, axis=1)
-    cv2.putText(sheet, f"{collection_label} page {ordinal}", (12, sheet.shape[0] - 14), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (30, 30, 30), 1, cv2.LINE_AA)
-    return sheet
-
-
 def materialize_canonical_images(source_root: Path, manifest_path: Path, output: Path) -> dict[str, Any]:
     """Reconstruct only canonical raw images and prove them against the published manifest."""
     manifest = _read_json(manifest_path)
@@ -253,77 +213,6 @@ def materialize_canonical_images(source_root: Path, manifest_path: Path, output:
     }
 
 
-def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
-    fields = [
-        "global_ordinal", "source_sha256", "output_sha256", "output_pixel_sha256",
-        "base_crop_pixel_sha256", "transform_decision", "deskew_correction_degrees",
-        "crop_left", "crop_top", "crop_right_exclusive", "crop_bottom_exclusive",
-        "source_width", "source_height", "output_width", "output_height", "detector_confidence",
-    ]
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows({field: row[field] for field in fields} for row in rows)
-
-
-def _summary(payload: dict[str, Any]) -> str:
-    detector = payload["detector_selection"]
-    label = payload["collection"]["id"]
-    scope = "Golden Set validation" if payload["target"]["type"] == "golden-set" else "complete collection"
-    transform = payload.get("transform_summary") or {}
-    transform_description = (
-        "Axis-aligned framing with conservative Hough deskew on pages that pass every safety gate. Gross page orientation is preserved."
-        if transform.get("policy_requested") else
-        "Axis-aligned framing only. No rotation or geometric resampling was performed."
-    )
-    lines = [
-        f"# {label} Canonical Normalization",
-        "",
-        f"> Canonical {scope} normalization. {transform_description}",
-        "",
-        "## Result",
-        "",
-        f"- Status: `{payload['status']}`",
-        f"- Policy: `{payload['policy']['id']}`",
-        f"- Pages normalized: `{payload['page_count']}`",
-        f"- Detector evidence: `{detector.get('detector')}` / `{detector.get('parameter_set_id')}`",
-        f"- Canonical preprocess build: `{payload['canonical_preprocess']['effective_build_identity']}`",
-        f"- Canonical preprocess result: `{payload['canonical_preprocess']['canonical_result_identity']}`",
-        f"- Normalization identity: `{payload['normalization_identity']}`",
-        f"- Canonical normalization result: `{payload['canonical_result_identity']}`",
-    ]
-    if transform.get("policy_requested"):
-        lines.extend([
-            f"- Pages conservatively deskewed: `{transform['pages_transformed']}`",
-            f"- Pages preserved without resampling: `{transform['pages_preserved']}`",
-        ])
-    lines.extend([
-        "",
-        "## Review artifact",
-        "",
-        "Open `index.html` after extracting the artifact. The red rectangle is the exact half-open crop boundary; the normalized panel shows the final policy output.",
-        "",
-    ])
-    return "\n".join(lines)
-
-
-def _write_html(path: Path, payload: dict[str, Any]) -> None:
-    cards = "".join(
-        f'<article><h2>Page {ordinal}</h2><a href="contact-sheets/fs_{ordinal:04d}.jpg">'
-        f'<img loading="lazy" src="contact-sheets/fs_{ordinal:04d}.jpg" alt="Normalization review for page {ordinal}"></a></article>'
-        for ordinal in payload["review_contact_sheet_ordinals"]
-    )
-    policy = html.escape(payload["policy"]["id"])
-    path.write_text(f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{html.escape(str(payload['collection']['id']))} Canonical Normalization</title><style>
-body{{font-family:system-ui,sans-serif;margin:2rem;background:#111820;color:#e6edf3}}main{{max-width:1500px;margin:auto}}
-article{{margin:2rem 0;padding:1rem;background:#18212b;border:1px solid #34404c;border-radius:.5rem}}img{{width:100%;height:auto}}
-code{{background:#26313c;padding:.15rem .35rem;border-radius:.25rem}}
-</style></head><body><main><h1>{html.escape(str(payload['collection']['id']))} Canonical Normalization</h1>
-<p>Policy: <code>{policy}</code>. Gross page orientation is preserved; deskew is applied only when every recorded safety gate passes.</p>{cards}</main></body></html>""", encoding="utf-8")
-
-
 def normalize(
     golden_set_path: Path | None,
     image_root: Path,
@@ -373,6 +262,7 @@ def normalize(
     contacts_root.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, Any]] = []
     geometry_records: list[dict[str, Any]] = []
+    review_ordinals: list[int] = []
 
     ordered_pages = sorted(pages, key=lambda item: int(item["global_ordinal"]))
     for page_index, page in enumerate(ordered_pages):
@@ -444,17 +334,21 @@ def normalize(
         }
         rows.append(row)
         geometry_records.append({"global_ordinal": ordinal, "geometry_candidate": candidate})
-        regular_review_page = (
-            contact_sheet_every > 0
-            and (page_index == 0 or page_index == len(ordered_pages) - 1 or page_index % contact_sheet_every == 0)
-        )
-        # Every pixel-changing transform belongs on the review surface even
-        # when it falls between the collection's regular sampling cadence.
-        review_page = regular_review_page or transformation["decision"] == "apply"
-        if review_page:
-            sheet = _contact_sheet(image, normalized, bounds, ordinal, collection_id)
-            if not cv2.imwrite(str(contacts_root / f"fs_{ordinal:04d}.jpg"), sheet, [cv2.IMWRITE_JPEG_QUALITY, 92]):
-                raise ValueError(f"Could not write normalization contact sheet for page {ordinal}")
+        if should_render_review(
+            page_index,
+            len(ordered_pages),
+            contact_sheet_every,
+            str(transformation["decision"]),
+        ):
+            write_contact_sheet(
+                contacts_root / f"fs_{ordinal:04d}.jpg",
+                image,
+                normalized,
+                bounds,
+                ordinal,
+                collection_id,
+            )
+            review_ordinals.append(ordinal)
 
     effective_identity = str(preprocess_evidence["effective_build_identity"])
     canonical_result_identity = str(preprocess_evidence["canonical_result"]["identity"])
@@ -518,10 +412,6 @@ def normalize(
         "canonical_result_identity": result_identity,
         "page_count": len(rows),
         "ordinals": [row["global_ordinal"] for row in rows],
-        "review_contact_sheet_ordinals": [
-            row["global_ordinal"] for row in rows
-            if (contacts_root / f"fs_{row['global_ordinal']:04d}.jpg").is_file()
-        ],
         "pages": rows,
     }
     payload["transform_summary"] = {
@@ -536,9 +426,7 @@ def normalize(
         (output / "normalization-policy.json").write_text(
             json.dumps(transform_policy, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
-    _write_csv(output / "normalization-manifest.csv", rows)
-    (output / "summary.md").write_text(_summary(payload), encoding="utf-8")
-    _write_html(output / "index.html", payload)
+    write_reports(output, payload, rows, review_ordinals, contact_sheet_every)
     return payload
 
 
@@ -590,7 +478,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.github_summary:
         with args.github_summary.open("a", encoding="utf-8") as handle:
-            handle.write(_summary(payload))
+            handle.write(render_summary(payload))
     return 0
 
 

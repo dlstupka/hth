@@ -230,7 +230,6 @@ jobs:
             --config hth-pipeline/config/normalization.json \
             --implementation hth-pipeline/hth/normalize_document_images.py \
             --implementation hth-pipeline/hth/preprocess.py \
-            --implementation hth-pipeline/hth/canonical_build_evidence.py \
             --runtime-contract hth-pipeline/requirements.txt \
             --runtime-contract hth-pipeline/.github/actions/setup-hth-python/action.yml \
             --runtime-package Pillow \

@@ -60,6 +60,7 @@ normalization-manifest.json
 normalization-manifest.csv
 preprocess-evidence.json
 geometry-evidence.json
+review-manifest.json
 summary.md
 index.html
 normalized/
@@ -70,7 +71,9 @@ The normalization manifest records the half-open crop coordinates, source and
 output dimensions, byte and pixel hashes, detector identity, canonical
 preprocess identities, normalization policy identity, and canonical
 normalization-result identity. Each PNG is decoded after writing and compared
-pixel-for-pixel with the in-memory crop.
+pixel-for-pixel with the in-memory crop. Review cadence and contact-sheet
+membership live separately in `review-manifest.json`; they are not canonical
+normalization results.
 
 ## Complete collection workflow
 
@@ -91,7 +94,10 @@ results repository receives only compact durable material under
 
 The evidence scope is `hth-normalization`. Its effective identity fingerprints
 the complete canonical preprocess handoff, normalization policy/configuration,
-the small implementation closure, and runtime contract. `auto` therefore has
+the pixel-affecting normalization engine, and runtime contract. The separate
+review/report renderer is deliberately excluded: changing contact sheets, HTML,
+CSV formatting, Markdown, or review cadence cannot invalidate proven normalized
+pixels. `auto` therefore has
 two useful modes:
 
 - with **Upload full artifact** enabled, the workflow reconstructs the package

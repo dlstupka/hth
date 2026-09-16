@@ -20,9 +20,16 @@ from hth.normalize_document_images import (
     normalize,
 )
 from hth.orientation_deskew import rotate_expand
+from hth.normalization_report import should_render_review
 
 
 class NormalizeDocumentImagesTests(unittest.TestCase):
+    def test_review_selection_is_noncanonical_and_always_includes_transforms(self) -> None:
+        self.assertFalse(should_render_review(4, 10, 0, "preserve"))
+        self.assertTrue(should_render_review(4, 10, 0, "apply"))
+        self.assertTrue(should_render_review(0, 10, 25, "preserve"))
+        self.assertTrue(should_render_review(9, 10, 25, "preserve"))
+
     def test_axis_aligned_crop_is_an_exact_pixel_slice(self) -> None:
         image = np.arange(40 * 60 * 3, dtype=np.uint8).reshape(40, 60, 3)
         corners = [[10.8, 5.2], [49.1, 6.0], [48.6, 34.2], [11.1, 33.8]]
@@ -101,7 +108,7 @@ class NormalizeDocumentImagesTests(unittest.TestCase):
             for relative in (
                 "normalization-manifest.json", "normalization-manifest.csv",
                 "preprocess-evidence.json", "geometry-evidence.json",
-                "contact-sheets/fs_0003.jpg", "index.html",
+                "review-manifest.json", "contact-sheets/fs_0003.jpg", "index.html",
             ):
                 self.assertTrue((output / relative).is_file(), relative)
 
@@ -230,7 +237,11 @@ class NormalizeDocumentImagesTests(unittest.TestCase):
             self.assertEqual(payload["policy"]["transform_policy_id"], "hough-lines-conservative-v1")
             self.assertTrue((root / "output/normalization-policy.json").is_file())
             self.assertTrue((root / "output/contact-sheets/fs_0001.jpg").is_file())
-            self.assertEqual(payload["review_contact_sheet_ordinals"], [1])
+            review = json.loads((root / "output/review-manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(review["contact_sheet_ordinals"], [1])
+            canonical = json.loads((root / "output/normalization-manifest.json").read_text(encoding="utf-8"))
+            self.assertNotIn("contact_sheet_ordinals", canonical)
+            self.assertNotIn("review_contact_sheet_ordinals", canonical)
 
             policy_payload["deskew"]["minimum_confidence"] = 0.1
             policy.write_text(json.dumps(policy_payload), encoding="utf-8")
@@ -312,6 +323,9 @@ class NormalizeDocumentImagesTests(unittest.TestCase):
         self.assertIn("--scope hth-normalization", collection)
         self.assertIn("canonical_normalization_policy:", collection)
         self.assertIn("upload_full_artifact:", collection)
+        self.assertIn("--implementation hth-pipeline/hth/normalize_document_images.py", collection)
+        self.assertNotIn("--implementation hth-pipeline/hth/normalization_report.py", collection)
+        self.assertNotIn("--implementation hth-pipeline/hth/canonical_build_evidence.py", collection)
 
 
 if __name__ == "__main__":

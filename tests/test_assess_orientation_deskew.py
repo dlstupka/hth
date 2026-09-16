@@ -50,7 +50,6 @@ class OrientationDeskewAssessmentTests(unittest.TestCase):
             "collection": {"id": "HTH-TEST"},
             "normalization_identity": "a" * 64,
             "canonical_result_identity": "b" * 64,
-            "review_contact_sheet_ordinals": [1, 26, 40],
             "pages": pages,
         }
 
@@ -70,7 +69,7 @@ class OrientationDeskewAssessmentTests(unittest.TestCase):
         self.assertIn(40, selected)
         self.assertIn(3, selected)
         self.assertIn("golden-set", selected[17])
-        self.assertIn("canonical-crop-review", selected[26])
+        self.assertIn("cadence-10", selected[11])
         self.assertIn("low-detector-confidence", selected[40])
         self.assertEqual(sample["population_page_count"], 40)
         self.assertEqual(len(sample["sample_identity"]), 64)
