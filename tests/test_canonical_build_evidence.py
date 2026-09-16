@@ -359,6 +359,48 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceError, "use force-verify"):
             prepare(self.args("rebuild"))
 
+    def test_normalization_scope_establishes_and_reuses_compact_page_evidence(self) -> None:
+        args = self.args()
+        args.scope = "hth-normalization"
+        args.operation = ["reconstruct", "crop", "verify"]
+        args.evidence = self.results / "normalization/canonical-build-evidence.json"
+        plan = prepare(args)
+        self.assertEqual(plan["decision"], "execute")
+        write_json(self.output / "normalization-manifest.json", {
+            "schema_version": "1.0",
+            "pages": [{
+                "global_ordinal": 1,
+                "source_sha256": "1" * 64,
+                "output_sha256": "2" * 64,
+                "output_pixel_sha256": "3" * 64,
+                "crop_left": 1,
+                "crop_top": 2,
+                "crop_right_exclusive": 101,
+                "crop_bottom_exclusive": 202,
+                "source_width": 120,
+                "source_height": 220,
+                "output_width": 100,
+                "output_height": 200,
+            }],
+        })
+        evidence = finalize(argparse.Namespace(
+            plan=args.plan,
+            output_root=self.output,
+            evidence_store=args.evidence,
+            evidence_output=self.output / "canonical-build-evidence.json",
+            github_output="",
+            github_summary="",
+        ))
+        published_manifest = self.results / "normalization/normalization-manifest.json"
+        published_manifest.parent.mkdir(parents=True, exist_ok=True)
+        published_manifest.write_bytes((self.output / "normalization-manifest.json").read_bytes())
+        args.evidence.write_bytes((self.output / "canonical-build-evidence.json").read_bytes())
+
+        page = evidence["canonical_result"]["pages"][0]
+        self.assertEqual(page["source_image_sha256"], "1" * 64)
+        self.assertEqual(page["normalized_image_sha256"], "2" * 64)
+        self.assertEqual(prepare(args)["decision"], "reuse")
+
 
 class CanonicalBuildEvidenceWorkflowTests(unittest.TestCase):
     @classmethod

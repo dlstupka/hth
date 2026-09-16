@@ -23,6 +23,7 @@ Standalone review and diagnostic workflows:
 ```text
 .github/workflows/assess-crop-framing.yml
 .github/workflows/normalize-gs0002.yml
+.github/workflows/normalize.yml
 .github/workflows/review-document-detector.yml
 ```
 
@@ -36,6 +37,13 @@ selected axis-aligned framing policy. It validates authoritative Canonical
 Build Evidence and the published preprocess artifacts, materializes immutable
 GS0002 source images, and applies the stored preferred-detector geometry. It
 does not rerun detector inference or publish normalized collection assets.
+
+`normalize.yml` applies the approved crop policy to the complete canonical
+collection. It reconstructs manifest-verified pixels from the immutable source
+release, consumes stored preferred-detector geometry, publishes compact
+`hth-normalization` Canonical Build Evidence, and optionally uploads the full
+normalized PNG package. Exact evidence-only reruns reuse the canonical result
+without downloading or processing collection images.
 
 ## Canonical workflow stages
 

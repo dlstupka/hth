@@ -233,9 +233,9 @@ This directory contains the design, operating, and project-reference documentati
 - [Acquisition pipeline](acquisition-pipeline.md) — source-image capture and ingestion.
 - [Preprocessor](preprocessor.md)
 - [Immutable source releases](source-releases.md) — DOCX extraction and normalized publication inputs.
+- [Document normalization](normalization.md) — validated GS0002 framing and canonical full-collection normalization/reuse.
 - [Physical-page analysis](analyze-pages.md) — page analysis and review-queue generation.
 - [Crop and framing assessment](crop-framing-assessment.md) — GS0002 comparison that selected conservative axis-aligned framing for initial normalization.
-- [Document normalization](normalization.md) — artifact-only GS0002 axis-aligned framing from validated canonical preprocess evidence.
 
 ## Geometry and detectors
 

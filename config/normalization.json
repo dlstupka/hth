@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "policy": "axis-aligned-detector-envelope-v1",
+  "operation": "axis-aligned crop of the preferred detector quadrilateral envelope",
+  "coordinate_contract": "floor minima, ceil maxima, clamp to source, half-open bounds",
+  "resampling": "none",
+  "output_format": "lossless PNG",
+  "png_compression": 6,
+  "collection_review_contact_sheet_every": 25
+}

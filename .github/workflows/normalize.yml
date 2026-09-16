@@ -1,0 +1,332 @@
+name: HTH normalize collection
+
+run-name: Normalize complete collection with canonical preprocess evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Execution runner
+        required: true
+        default: github-hosted
+        type: choice
+        options:
+          - github-hosted
+          - self-hosted-hth
+          - self-hosted-windows
+          - self-hosted-rhel8
+          - self-hosted-e7k
+          - self-hosted-e9k
+      specific_runner:
+        description: "Specific self-hosted runner; any keeps the selected runner class"
+        required: true
+        default: any
+        type: choice
+        options:
+          - any
+          - custom
+      custom_runner_label:
+        description: "Custom self-hosted runner label; used only when Specific self-hosted runner is custom"
+        required: false
+        default: ""
+        type: string
+      upload_full_artifact:
+        description: "Build and upload all normalized images; disable for a fast evidence-only reuse check"
+        required: true
+        default: true
+        type: boolean
+      canonical_normalization_policy:
+        description: Canonical normalization evidence policy
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - audit
+          - force-verify
+          - rebuild
+      artifact_retention_days:
+        description: Days to retain the complete normalized collection artifact
+        required: true
+        default: 14
+        type: number
+
+permissions:
+  contents: read
+
+concurrency:
+  group: normalize-collection-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: init.defaultBranch
+  GIT_CONFIG_VALUE_0: main
+  RESULTS_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
+
+jobs:
+  normalize:
+    name: Normalize complete collection from canonical preprocess evidence
+    runs-on: >-
+      ${{    inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && fromJSON(format('["self-hosted","{0}"]', inputs.custom_runner_label))
+          || inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+          || inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
+          || inputs.runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
+          || inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
+          || inputs.runner == 'self-hosted-e9k'     && fromJSON('["self-hosted","Linux","X64","e9k"]')
+          || 'ubuntu-latest' }}
+    timeout-minutes: 90
+    env:
+      HTH_SELECTED_RUNNER_LABEL: >-
+        ${{  inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && inputs.custom_runner_label
+          || inputs.runner == 'self-hosted-hth' && 'hth'
+          || inputs.runner == 'self-hosted-rhel8' && 'rhel8'
+          || inputs.runner == 'self-hosted-e7k' && 'e7k'
+          || inputs.runner == 'self-hosted-e9k' && 'e9k'
+          || inputs.runner == 'self-hosted-windows' && 'windows'
+          || 'github-hosted' }}
+    steps:
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
+        with:
+          path: hth-pipeline
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout canonical collection evidence
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.RESULTS_REPOSITORY }}
+          path: results-repo
+          ref: main
+          token: ${{ secrets.HTH_RESULTS_TOKEN }}
+          fetch-depth: 1
+          sparse-checkout: |
+            /metadata/canonical-build-evidence.json
+            /metadata/image_manifest.json
+            /metadata/exact_duplicates.json
+            /reports/preprocess-summary.json
+            /analysis/page-analysis.json
+            /analysis/analysis-summary.json
+            /normalization/
+          sparse-checkout-cone-mode: false
+          persist-credentials: true
+
+      - name: Set up canonical HTH Python runtime
+        uses: ./hth-pipeline/.github/actions/setup-hth-python
+        with:
+          pipeline-path: hth-pipeline
+          runner-label: ${{ env.HTH_SELECTED_RUNNER_LABEL }}
+
+      - name: Resolve authoritative preprocess identity
+        id: preprocess
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          store = json.loads(Path("results-repo/metadata/canonical-build-evidence.json").read_text(encoding="utf-8"))
+          identity = str(store.get("authoritative_identity") or "")
+          record = (store.get("records") or {}).get(identity)
+          if not identity or not isinstance(record, dict):
+              raise SystemExit("Canonical preprocess evidence has no authoritative record")
+          result = str((record.get("canonical_result") or {}).get("identity") or "")
+          source = (record.get("effective_inputs") or {}).get("source") or {}
+          if len(result) != 64:
+              raise SystemExit("Canonical preprocess evidence has no valid result identity")
+          if not source.get("repository") or not source.get("release") or len(str(source.get("release_manifest_sha256") or "")) != 64:
+              raise SystemExit("Canonical preprocess evidence has incomplete source-release provenance")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+              handle.write(f"effective_build_identity={identity}\n")
+              handle.write(f"canonical_result_identity={result}\n")
+              handle.write(f"source_repository={source['repository']}\n")
+              handle.write(f"source_release={source['release']}\n")
+              handle.write(f"source_manifest_sha256={source['release_manifest_sha256']}\n")
+          PY
+
+      - name: Assemble canonical normalization inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          effective="$RUNNER_TEMP/normalization-effective-source"
+          rm -rf "$effective"
+          mkdir -p "$effective/metadata" "$effective/analysis" "$effective/reports"
+          cp results-repo/metadata/image_manifest.json "$effective/metadata/"
+          cp results-repo/metadata/exact_duplicates.json "$effective/metadata/"
+          cp results-repo/analysis/page-analysis.json "$effective/analysis/"
+          cp results-repo/analysis/analysis-summary.json "$effective/analysis/"
+          cp results-repo/reports/preprocess-summary.json "$effective/reports/"
+
+      - name: Evaluate canonical normalization evidence
+        id: normalization_plan
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+          NORMALIZATION_POLICY: ${{ inputs.canonical_normalization_policy }}
+          FULL_ARTIFACT: ${{ inputs.upload_full_artifact }}
+        run: |
+          set -euo pipefail
+          artifact_args=()
+          if [[ "$FULL_ARTIFACT" == "true" ]]; then
+            artifact_args+=(--artifact-required)
+          fi
+          results_ref="$(git -C results-repo rev-parse HEAD)"
+          python -m hth.canonical_build_evidence prepare \
+            --scope hth-normalization \
+            --contract-version 1 \
+            --policy "$NORMALIZATION_POLICY" \
+            --mode production \
+            --operation canonical-source-reconstruction \
+            --operation axis-aligned-document-crop \
+            --operation lossless-png-encoding \
+            --operation pixel-roundtrip-verification \
+            --repository-root hth-pipeline \
+            --source-root "$RUNNER_TEMP/normalization-effective-source" \
+            --source-repository "$RESULTS_REPOSITORY" \
+            --source-release "${{ steps.preprocess.outputs.effective_build_identity }}" \
+            --source-manifest-sha256 "${{ steps.preprocess.outputs.canonical_result_identity }}" \
+            --source-commit "${{ steps.preprocess.outputs.canonical_result_identity }}" \
+            --config hth-pipeline/config/normalization.json \
+            --implementation hth-pipeline/hth/normalize_document_images.py \
+            --implementation hth-pipeline/hth/preprocess.py \
+            --implementation hth-pipeline/hth/canonical_build_evidence.py \
+            --runtime-contract hth-pipeline/requirements.txt \
+            --runtime-contract hth-pipeline/.github/actions/setup-hth-python/action.yml \
+            --runtime-package Pillow \
+            --runtime-package opencv-python-headless \
+            --runtime-package numpy \
+            --results-root results-repo \
+            --evidence results-repo/normalization/canonical-build-evidence.json \
+            --plan "$RUNNER_TEMP/hth-normalization-plan.json" \
+            --pipeline-repository "${{ github.repository }}" \
+            --pipeline-commit "${{ github.sha }}" \
+            --results-repository "$RESULTS_REPOSITORY" \
+            --results-ref "$results_ref" \
+            --workflow-run-id "${{ github.run_id }}" \
+            --runner-name "${{ runner.name }}" \
+            --runner-environment "${{ runner.environment }}" \
+            --runner-os "${{ runner.os }}" \
+            --runner-arch "${{ runner.arch }}" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY" \
+            "${artifact_args[@]}"
+
+      - name: Download immutable source release
+        id: source_release
+        if: ${{ steps.normalization_plan.outputs.decision == 'execute' }}
+        shell: bash
+        env:
+          HTH_SOURCE_TOKEN: ${{ secrets.HTH_SOURCE_TOKEN || github.token }}
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          rm -rf source-repo
+          python -m hth.source_release \
+            --repository "${{ steps.preprocess.outputs.source_repository }}" \
+            --tag "${{ steps.preprocess.outputs.source_release }}" \
+            --destination source-repo \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Verify immutable source release against canonical preprocess evidence
+        if: ${{ steps.normalization_plan.outputs.decision == 'execute' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.source_release.outputs.manifest_sha256 }}" != "${{ steps.preprocess.outputs.source_manifest_sha256 }}" ]]; then
+            echo "::error::Downloaded source release manifest does not match canonical preprocess evidence"
+            exit 1
+          fi
+
+      - name: Normalize complete collection
+        if: ${{ steps.normalization_plan.outputs.decision == 'execute' }}
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          python -m hth.normalize_document_images \
+            --source-root source-repo/images \
+            --materialized-image-root "$RUNNER_TEMP/canonical-collection-images" \
+            --results-root results-repo \
+            --output normalized-collection \
+            --status complete \
+            --contact-sheet-every 25 \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Finalize canonical normalization evidence
+        id: normalization_finalize
+        if: ${{ steps.normalization_plan.outputs.decision == 'execute' }}
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          python -m hth.canonical_build_evidence finalize \
+            --plan "$RUNNER_TEMP/hth-normalization-plan.json" \
+            --output-root normalized-collection \
+            --evidence-store results-repo/normalization/canonical-build-evidence.json \
+            --evidence-output normalized-collection/canonical-build-evidence.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish canonical normalization evidence
+        id: publish
+        if: ${{ steps.normalization_plan.outputs.decision == 'execute' }}
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          source hth-pipeline/tools/hardened-persistence.sh
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          payload="$RUNNER_TEMP/hth-normalization-publication-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar"
+          staging="$RUNNER_TEMP/hth-normalization-publication"
+          rm -rf "$staging"
+          mkdir -p "$staging/normalization"
+          cp normalized-collection/normalization-manifest.json "$staging/normalization/"
+          cp normalized-collection/normalization-manifest.csv "$staging/normalization/"
+          cp normalized-collection/summary.md "$staging/normalization/"
+          cp normalized-collection/canonical-build-evidence.json "$staging/normalization/"
+          tar -C "$staging" -cf "$payload" normalization
+
+          apply_normalization_publication() {
+            remote_store="$RUNNER_TEMP/hth-remote-normalization-cbe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${HTH_PERSIST_ATTEMPTS}.json"
+            rm -f "$remote_store"
+            if [[ -f results-repo/normalization/canonical-build-evidence.json ]]; then
+              cp results-repo/normalization/canonical-build-evidence.json "$remote_store"
+            fi
+            rm -rf results-repo/normalization
+            tar -C results-repo -xf "$payload"
+            if [[ -f "$remote_store" ]]; then
+              python -m hth.canonical_build_evidence merge \
+                --scope hth-normalization \
+                --base "$remote_store" \
+                --incoming results-repo/normalization/canonical-build-evidence.json \
+                --output results-repo/normalization/canonical-build-evidence.json
+            fi
+            hth_results_stage results-repo normalization
+          }
+
+          hth_hardened_persist \
+            results-repo main \
+            "Publish canonical normalization evidence ${{ steps.normalization_finalize.outputs.canonical_result_identity }}" \
+            apply_normalization_publication \
+            "Canonical normalization publication"
+          echo "results_commit=$HTH_PERSIST_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "- Results commit: [\`$HTH_PERSIST_COMMIT\`](${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/commit/${HTH_PERSIST_COMMIT})" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload complete normalized collection
+        if: ${{ steps.normalization_plan.outputs.decision == 'execute' && inputs.upload_full_artifact }}
+        uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
+        with:
+          name: hth-normalized-collection-${{ github.run_number }}
+          path: normalized-collection
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact_retention_days }}
+          compression-level: 0

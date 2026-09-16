@@ -21,6 +21,7 @@ from hth.canonical_build_evidence import (
     load_evidence_store,
     validate_published_results,
 )
+from hth.preprocess import canonical_image, extension, ordered_images
 
 
 SCHEMA_VERSION = "1.0"
@@ -118,7 +119,13 @@ def _fit_panel(image: np.ndarray, width: int = 700, height: int = 620) -> np.nda
     return panel
 
 
-def _contact_sheet(original: np.ndarray, normalized: np.ndarray, bounds: tuple[int, int, int, int], ordinal: int) -> np.ndarray:
+def _contact_sheet(
+    original: np.ndarray,
+    normalized: np.ndarray,
+    bounds: tuple[int, int, int, int],
+    ordinal: int,
+    collection_label: str,
+) -> np.ndarray:
     overlay = _display_image(original.copy())
     left, top, right, bottom = bounds
     cv2.rectangle(overlay, (left, top), (right - 1, bottom - 1), (0, 0, 255), max(2, round(min(original.shape[:2]) / 500)))
@@ -129,8 +136,80 @@ def _contact_sheet(original: np.ndarray, normalized: np.ndarray, bounds: tuple[i
         cv2.putText(panel, label, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (255, 255, 255), 1, cv2.LINE_AA)
         panels.append(panel)
     sheet = np.concatenate(panels, axis=1)
-    cv2.putText(sheet, f"GS0002 page {ordinal}", (12, sheet.shape[0] - 14), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (30, 30, 30), 1, cv2.LINE_AA)
+    cv2.putText(sheet, f"{collection_label} page {ordinal}", (12, sheet.shape[0] - 14), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (30, 30, 30), 1, cv2.LINE_AA)
     return sheet
+
+
+def materialize_canonical_images(source_root: Path, manifest_path: Path, output: Path) -> dict[str, Any]:
+    """Reconstruct only canonical raw images and prove them against the published manifest."""
+    manifest = _read_json(manifest_path)
+    records = manifest.get("records") or []
+    if not isinstance(records, list) or not records:
+        raise ValueError("Canonical image manifest has no records")
+    by_docx: dict[str, dict[int, dict[str, Any]]] = {}
+    for record in records:
+        source_docx = str(record.get("source_docx") or "")
+        source_ordinal = int(record.get("source_ordinal") or 0)
+        if not source_docx or source_ordinal <= 0:
+            raise ValueError("Canonical image manifest contains an invalid source identity")
+        if source_ordinal in by_docx.setdefault(source_docx, {}):
+            raise ValueError(f"Canonical image manifest duplicates {source_docx} image {source_ordinal}")
+        by_docx[source_docx][source_ordinal] = record
+
+    if output.exists() and any(output.iterdir()):
+        raise ValueError(f"Canonical image materialization target is not empty: {output}")
+    output.mkdir(parents=True, exist_ok=True)
+    materialized: list[int] = []
+    for source_docx, expected_by_ordinal in sorted(by_docx.items()):
+        docx = source_root / source_docx
+        if not docx.is_file():
+            matches = list(source_root.rglob(source_docx))
+            if len(matches) != 1:
+                raise FileNotFoundError(f"Cannot uniquely resolve canonical source DOCX: {source_docx}")
+            docx = matches[0]
+        remaining = dict(expected_by_ordinal)
+        for source_ordinal, (relationship_id, media_path, embedded_data, crop) in enumerate(ordered_images(docx), 1):
+            record = remaining.pop(source_ordinal, None)
+            if record is None:
+                continue
+            if str(record.get("relationship_id") or "") != relationship_id:
+                raise ValueError(f"Page {record.get('global_ordinal')} relationship identity changed")
+            if str(record.get("media_path") or "") != media_path:
+                raise ValueError(f"Page {record.get('global_ordinal')} embedded media identity changed")
+            if int(record.get("embedded_bytes") or 0) != len(embedded_data):
+                raise ValueError(f"Page {record.get('global_ordinal')} embedded byte count changed")
+            if str(record.get("embedded_sha256") or "") != hashlib.sha256(embedded_data).hexdigest():
+                raise ValueError(f"Page {record.get('global_ordinal')} embedded image SHA-256 changed")
+            expected_crop = tuple(int(record.get(f"word_crop_{side}") or 0) for side in ("left", "top", "right", "bottom"))
+            if tuple(crop) != expected_crop:
+                raise ValueError(f"Page {record.get('global_ordinal')} Word crop contract changed")
+            data, detected_format, width, height, mode = canonical_image(embedded_data, crop)
+            ordinal = int(record["global_ordinal"])
+            if hashlib.sha256(data).hexdigest() != str(record.get("sha256") or ""):
+                raise ValueError(f"Page {ordinal} reconstructed canonical image SHA-256 does not match")
+            if (width, height, mode, detected_format) != (
+                int(record.get("width_px") or 0),
+                int(record.get("height_px") or 0),
+                str(record.get("mode") or ""),
+                str(record.get("detected_format") or ""),
+            ):
+                raise ValueError(f"Page {ordinal} reconstructed canonical image metadata does not match")
+            target = output / f"fs_{ordinal:04d}{extension(detected_format)}"
+            target.write_bytes(data)
+            materialized.append(ordinal)
+        if remaining:
+            missing = ", ".join(str(value.get("global_ordinal")) for value in remaining.values())
+            raise ValueError(f"Source DOCX {source_docx} is missing canonical pages: {missing}")
+    ordinals = sorted(materialized)
+    expected_ordinals = sorted(int(record["global_ordinal"]) for record in records)
+    if ordinals != expected_ordinals:
+        raise ValueError("Materialized canonical image population does not match the published manifest")
+    return {
+        "collection_id": manifest.get("collection_id"),
+        "page_count": len(ordinals),
+        "first_page": ordinals[0],
+        "last_page": ordinals[-1],
+    }
 
 
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -147,10 +226,12 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 def _summary(payload: dict[str, Any]) -> str:
     detector = payload["detector_selection"]
+    label = payload["collection"]["id"]
+    scope = "Golden Set validation" if payload["target"]["type"] == "golden-set" else "complete collection"
     return "\n".join([
-        "# GS0002 Axis-Aligned Normalization",
+        f"# {label} Axis-Aligned Normalization",
         "",
-        "> Artifact-only validation of the first production normalization policy. No detector inference, rotation, perspective warp, resizing, enhancement, or publication was performed.",
+        f"> Canonical {scope} normalization. No detector inference, rotation, perspective warp, resizing, enhancement, or binarization was performed.",
         "",
         "## Result",
         "",
@@ -174,28 +255,31 @@ def _write_html(path: Path, payload: dict[str, Any]) -> None:
     cards = "".join(
         f'<article><h2>Page {ordinal}</h2><a href="contact-sheets/fs_{ordinal:04d}.jpg">'
         f'<img loading="lazy" src="contact-sheets/fs_{ordinal:04d}.jpg" alt="Normalization review for page {ordinal}"></a></article>'
-        for ordinal in payload["ordinals"]
+        for ordinal in payload["review_contact_sheet_ordinals"]
     )
     policy = html.escape(payload["policy"]["id"])
     path.write_text(f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>GS0002 Axis-Aligned Normalization</title><style>
+<title>{html.escape(str(payload['collection']['id']))} Axis-Aligned Normalization</title><style>
 body{{font-family:system-ui,sans-serif;margin:2rem;background:#111820;color:#e6edf3}}main{{max-width:1500px;margin:auto}}
 article{{margin:2rem 0;padding:1rem;background:#18212b;border:1px solid #34404c;border-radius:.5rem}}img{{width:100%;height:auto}}
 code{{background:#26313c;padding:.15rem .35rem;border-radius:.25rem}}
-</style></head><body><main><h1>GS0002 Axis-Aligned Normalization</h1>
+</style></head><body><main><h1>{html.escape(str(payload['collection']['id']))} Axis-Aligned Normalization</h1>
 <p>Policy: <code>{policy}</code>. Pixels were cropped only; no geometric resampling was applied.</p>{cards}</main></body></html>""", encoding="utf-8")
 
 
 def normalize(
-    golden_set_path: Path,
+    golden_set_path: Path | None,
     image_root: Path,
     manifest_path: Path,
     analysis_path: Path,
     preprocess_evidence: dict[str, Any],
     output: Path,
+    *,
+    status: str = "artifact-only",
+    contact_sheet_every: int = 1,
 ) -> dict[str, Any]:
-    golden_set = _read_json(golden_set_path)
+    golden_set = _read_json(golden_set_path) if golden_set_path else None
     manifest = _read_json(manifest_path)
     analysis = _read_json(analysis_path)
     selection = analysis.get("document_detector") or {}
@@ -209,13 +293,22 @@ def normalize(
         int(item["global_ordinal"]): item
         for item in (preprocess_evidence.get("canonical_result") or {}).get("pages") or []
     }
-    pages = [
-        item for item in golden_set.get("pages") or []
-        if item.get("review_status") == "approved" and item.get("image_sha256")
-    ]
+    if golden_set is not None:
+        pages = [
+            item for item in golden_set.get("pages") or []
+            if item.get("review_status") == "approved" and item.get("image_sha256")
+        ]
+        target_type = "golden-set"
+        collection_id = str(golden_set.get("collection_id") or "Golden Set")
+    else:
+        pages = list(manifest.get("records") or [])
+        target_type = "collection"
+        collection_id = str(manifest.get("collection_id") or "Collection")
     if not pages:
-        raise ValueError("Golden Set has no approved image records")
+        raise ValueError("Normalization target has no image records")
 
+    if output.exists() and any(output.iterdir()):
+        raise ValueError(f"Normalization output target is not empty: {output}")
     normalized_root = output / "normalized"
     contacts_root = output / "contact-sheets"
     normalized_root.mkdir(parents=True, exist_ok=True)
@@ -223,17 +316,19 @@ def normalize(
     rows: list[dict[str, Any]] = []
     geometry_records: list[dict[str, Any]] = []
 
-    for page in sorted(pages, key=lambda item: int(item["global_ordinal"])):
+    ordered_pages = sorted(pages, key=lambda item: int(item["global_ordinal"]))
+    for page_index, page in enumerate(ordered_pages):
         ordinal = int(page["global_ordinal"])
         image_path = _find_image(image_root, ordinal)
         source_sha256 = _sha256(image_path)
         manifest_record = manifest_by_ordinal.get(ordinal) or {}
         evidence_page = evidence_pages.get(ordinal) or {}
         expected_hashes = {
-            "Golden Set": str(page.get("image_sha256") or ""),
             "canonical image manifest": str(manifest_record.get("sha256") or ""),
             "Canonical Build Evidence": str(evidence_page.get("canonical_image_sha256") or ""),
         }
+        if golden_set is not None:
+            expected_hashes["Golden Set"] = str(page.get("image_sha256") or "")
         for source, expected in expected_hashes.items():
             if expected != source_sha256:
                 raise ValueError(f"Page {ordinal} {source} image SHA-256 does not match the materialized image")
@@ -274,16 +369,24 @@ def normalize(
         }
         rows.append(row)
         geometry_records.append({"global_ordinal": ordinal, "geometry_candidate": candidate})
-        sheet = _contact_sheet(image, normalized, bounds, ordinal)
-        if not cv2.imwrite(str(contacts_root / f"fs_{ordinal:04d}.jpg"), sheet, [cv2.IMWRITE_JPEG_QUALITY, 92]):
-            raise ValueError(f"Could not write normalization contact sheet for page {ordinal}")
+        review_page = (
+            contact_sheet_every > 0
+            and (page_index == 0 or page_index == len(ordered_pages) - 1 or page_index % contact_sheet_every == 0)
+        )
+        if review_page:
+            sheet = _contact_sheet(image, normalized, bounds, ordinal, collection_id)
+            if not cv2.imwrite(str(contacts_root / f"fs_{ordinal:04d}.jpg"), sheet, [cv2.IMWRITE_JPEG_QUALITY, 92]):
+                raise ValueError(f"Could not write normalization contact sheet for page {ordinal}")
 
     effective_identity = str(preprocess_evidence["effective_build_identity"])
     canonical_result_identity = str(preprocess_evidence["canonical_result"]["identity"])
     normalization_identity = canonical_hash({
         "schema_version": SCHEMA_VERSION,
         "policy": POLICY_ID,
-        "golden_set_sha256": _sha256(golden_set_path),
+        "target": {
+            "type": target_type,
+            "identity": _sha256(golden_set_path) if golden_set_path else canonical_hash(manifest),
+        },
         "canonical_preprocess_effective_build_identity": effective_identity,
         "canonical_preprocess_result_identity": canonical_result_identity,
         "detector": detector,
@@ -301,14 +404,21 @@ def normalize(
     payload = {
         "schema_version": SCHEMA_VERSION,
         "normalization_type": "document-crop",
-        "status": "artifact-only",
+        "status": status,
         "policy": {
             "id": POLICY_ID,
             "operation": "axis-aligned crop of detector quadrilateral envelope",
             "resampling": "none",
             "output_format": "lossless PNG",
         },
-        "golden_set": {"id": golden_set.get("collection_id"), "sha256": _sha256(golden_set_path)},
+        "collection": {"id": collection_id},
+        **({
+            "golden_set": {"id": collection_id, "sha256": _sha256(golden_set_path)},
+        } if golden_set_path else {}),
+        "target": {
+            "type": target_type,
+            "sha256": _sha256(golden_set_path) if golden_set_path else canonical_hash(manifest),
+        },
         "canonical_preprocess": {
             "effective_build_identity": effective_identity,
             "canonical_result_identity": canonical_result_identity,
@@ -320,6 +430,10 @@ def normalize(
         "canonical_result_identity": result_identity,
         "page_count": len(rows),
         "ordinals": [row["global_ordinal"] for row in rows],
+        "review_contact_sheet_ordinals": [
+            row["global_ordinal"] for row in rows
+            if (contacts_root / f"fs_{row['global_ordinal']:04d}.jpg").is_file()
+        ],
         "pages": rows,
     }
     (output / "normalization-manifest.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -333,23 +447,43 @@ def normalize(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--golden-set", type=Path, required=True)
-    parser.add_argument("--image-root", type=Path, required=True)
+    parser.add_argument("--golden-set", type=Path)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--image-root", type=Path)
+    source.add_argument("--source-root", type=Path, help="Immutable source DOCX directory to reconstruct canonical images")
+    parser.add_argument("--materialized-image-root", type=Path)
     parser.add_argument("--results-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--github-summary", type=Path)
+    parser.add_argument("--status", default="artifact-only")
+    parser.add_argument("--contact-sheet-every", type=int, default=1)
     args = parser.parse_args(argv)
+    if args.contact_sheet_every < 0:
+        parser.error("--contact-sheet-every must be zero or positive")
     evidence = load_authoritative_preprocess_evidence(
         args.results_root / "metadata/canonical-build-evidence.json",
         args.results_root,
     )
+    image_root = args.image_root
+    if args.source_root:
+        if args.materialized_image_root is None:
+            parser.error("--materialized-image-root is required with --source-root")
+        materialize_canonical_images(
+            args.source_root,
+            args.results_root / "metadata/image_manifest.json",
+            args.materialized_image_root,
+        )
+        image_root = args.materialized_image_root
+    assert image_root is not None
     payload = normalize(
         args.golden_set,
-        args.image_root,
+        image_root,
         args.results_root / "metadata/image_manifest.json",
         args.results_root / "analysis/page-analysis.json",
         evidence,
         args.output,
+        status=args.status,
+        contact_sheet_every=args.contact_sheet_every,
     )
     if args.github_summary:
         with args.github_summary.open("a", encoding="utf-8") as handle:

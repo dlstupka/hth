@@ -27,6 +27,7 @@ SCHEMA_VERSION = "1.0"
 EVIDENCE_TYPE = "canonical-build-evidence"
 STORE_TYPE = "canonical-build-evidence-store"
 PREPROCESS_SCOPE = "hth-preprocess"
+NORMALIZATION_SCOPE = "hth-normalization"
 POLICIES = ("auto", "audit", "force-verify", "rebuild")
 
 # These fields are observations or duplicated provenance, not domain results.
@@ -63,6 +64,22 @@ PREPROCESS_ARTIFACTS = (
     ArtifactSpec("page-analysis", "page-analysis/page-analysis.json", "analysis/page-analysis.json"),
     ArtifactSpec("analysis-summary", "page-analysis/analysis-summary.json", "analysis/analysis-summary.json"),
 )
+
+NORMALIZATION_ARTIFACTS = (
+    ArtifactSpec(
+        "normalization-manifest",
+        "normalization-manifest.json",
+        "normalization/normalization-manifest.json",
+    ),
+)
+
+
+def artifact_profile(scope: str) -> tuple[ArtifactSpec, ...]:
+    if scope == PREPROCESS_SCOPE:
+        return PREPROCESS_ARTIFACTS
+    if scope == NORMALIZATION_SCOPE:
+        return NORMALIZATION_ARTIFACTS
+    raise EvidenceError(f"Canonical Build Evidence scope has no artifact profile: {scope!r}")
 
 
 class EvidenceError(RuntimeError):
@@ -364,18 +381,17 @@ def validate_evidence(payload: dict[str, Any], *, scope: str) -> None:
         raise EvidenceError("Persisted canonical result is incomplete")
     if result.get("identity") != _result_identity(artifacts, pages):
         raise EvidenceError("Persisted canonical result identity does not match its evidence")
-    if scope == PREPROCESS_SCOPE:
-        expected_artifacts = [
-            (spec.logical_name, spec.published_path, spec.format)
-            for spec in PREPROCESS_ARTIFACTS
-        ]
-        actual_artifacts = [
-            (record.get("logical_name"), record.get("published_path"), record.get("format"))
-            for record in artifacts
-            if isinstance(record, dict)
-        ]
-        if actual_artifacts != expected_artifacts:
-            raise EvidenceError("Persisted preprocess canonical artifact contract is incomplete or unexpected")
+    expected_artifacts = [
+        (spec.logical_name, spec.published_path, spec.format)
+        for spec in artifact_profile(scope)
+    ]
+    actual_artifacts = [
+        (record.get("logical_name"), record.get("published_path"), record.get("format"))
+        for record in artifacts
+        if isinstance(record, dict)
+    ]
+    if actual_artifacts != expected_artifacts:
+        raise EvidenceError(f"Persisted {scope} canonical artifact contract is incomplete or unexpected")
     for record in artifacts:
         if not isinstance(record, dict) or not _is_sha256(record.get("canonical_sha256")):
             raise EvidenceError("Persisted canonical result contains an invalid artifact hash")
@@ -387,13 +403,24 @@ def validate_evidence(payload: dict[str, Any], *, scope: str) -> None:
             ordinal = int(page["global_ordinal"])
         except (KeyError, TypeError, ValueError) as exc:
             raise EvidenceError("Persisted canonical result contains an invalid page ordinal") from exc
-        if not all(_is_sha256(page.get(field)) for field in (
-            "operation_identity",
-            "canonical_image_sha256",
-            "analysis_derivative_sha256",
-            "thumbnail_sha256",
-            "canonical_page_result_sha256",
-        )):
+        required_page_hashes = (
+            (
+                "operation_identity",
+                "canonical_image_sha256",
+                "analysis_derivative_sha256",
+                "thumbnail_sha256",
+                "canonical_page_result_sha256",
+            )
+            if scope == PREPROCESS_SCOPE
+            else (
+                "operation_identity",
+                "source_image_sha256",
+                "normalized_image_sha256",
+                "normalized_pixel_sha256",
+                "canonical_page_result_sha256",
+            )
+        )
+        if not all(_is_sha256(page.get(field)) for field in required_page_hashes):
             raise EvidenceError(f"Persisted canonical result contains invalid hashes for page {ordinal}")
         ordinals.append(ordinal)
     if ordinals != sorted(set(ordinals)):
@@ -531,11 +558,16 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         "page_count": len(page_evaluations),
     })
     evidence_url = ""
+    evidence_relative = (
+        "metadata/canonical-build-evidence.json"
+        if args.scope == PREPROCESS_SCOPE
+        else "normalization/canonical-build-evidence.json"
+    )
     if args.evidence.is_file():
         evidence_url = github_blob_url(
             getattr(args, "results_repository", ""),
             getattr(args, "results_ref", "main"),
-            "metadata/canonical-build-evidence.json",
+            evidence_relative,
         )
     _append_summary(args.github_summary, [
         "### Canonical Build Evidence",
@@ -546,7 +578,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         f"- Domain result: `{domain_result}`",
         f"- Decision: `{decision}`",
         f"- Pages marked unnecessary: `{len(page_evaluations)}`",
-        f"- Evidence: {code_link('metadata/canonical-build-evidence.json', evidence_url)}",
+        f"- Evidence: {code_link(evidence_relative, evidence_url)}",
     ])
     print(
         "[canonical-build-evidence] "
@@ -612,17 +644,57 @@ def _page_results(
     return pages
 
 
+def _normalization_page_results(
+    output_root: Path,
+    activity: str,
+    domain_result: str,
+    effective_build_identity: str,
+) -> list[dict[str, Any]]:
+    manifest = _load_json_object(output_root / "normalization-manifest.json", "normalization manifest")
+    records = manifest.get("pages")
+    if not isinstance(records, list) or not records:
+        raise EvidenceError("Normalization manifest does not contain page records")
+    pages = []
+    for record in records:
+        if not isinstance(record, dict):
+            raise EvidenceError("Normalization manifest contains an invalid page record")
+        ordinal = int(record["global_ordinal"])
+        canonical_page = {
+            "global_ordinal": ordinal,
+            "source_image_sha256": record.get("source_sha256"),
+            "normalized_image_sha256": record.get("output_sha256"),
+            "normalized_pixel_sha256": record.get("output_pixel_sha256"),
+            "crop": [
+                record.get("crop_left"),
+                record.get("crop_top"),
+                record.get("crop_right_exclusive"),
+                record.get("crop_bottom_exclusive"),
+            ],
+            "source_dimensions": [record.get("source_width"), record.get("source_height")],
+            "output_dimensions": [record.get("output_width"), record.get("output_height")],
+        }
+        pages.append({
+            **canonical_page,
+            "operation_identity": canonical_hash({
+                "effective_build_identity": effective_build_identity,
+                "global_ordinal": ordinal,
+                "source_image_sha256": record.get("source_sha256"),
+            }),
+            "canonical_page_result_sha256": canonical_hash(canonical_page),
+            "activity": activity,
+            "domain_result": domain_result,
+        })
+    return pages
+
+
 def finalize(args: argparse.Namespace) -> dict[str, Any]:
     plan = _load_json_object(args.plan, "Canonical Build Evidence plan")
     if plan.get("decision") != "execute":
         raise EvidenceError("Only an executed plan can establish canonical results")
-    artifacts = _artifact_records(args.output_root, PREPROCESS_ARTIFACTS, published=False)
-    pages = _page_results(
-        args.output_root,
-        "EXECUTED",
-        "APPLY",
-        str(plan["effective_build_identity"]),
-    )
+    scope = str(plan["scope"])
+    artifacts = _artifact_records(args.output_root, artifact_profile(scope), published=False)
+    page_builder = _page_results if scope == PREPROCESS_SCOPE else _normalization_page_results
+    pages = page_builder(args.output_root, "EXECUTED", "APPLY", str(plan["effective_build_identity"]))
     result_identity = _result_identity(artifacts, pages)
     incumbent = plan.get("incumbent_result_identity")
     if plan.get("comparison_required") and incumbent != result_identity:

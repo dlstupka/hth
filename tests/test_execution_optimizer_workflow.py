@@ -270,6 +270,7 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
             "generate-report.yml",
             "assess-crop-framing.yml",
             "normalize-gs0002.yml",
+            "normalize.yml",
         ):
             text = (workflow_dir / name).read_text(encoding="utf-8")
             self.assertIn("specific_runner:", text, name)
