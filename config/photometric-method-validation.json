@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "validation_type": "photometric-method-held-out-validation",
+  "sampling": {
+    "scope": "all-held-out-pages",
+    "maximum_known_review_controls": 16,
+    "maximum_known_preserve_controls": 16,
+    "include_all_protected_archetypes": true,
+    "exclude_method_development_pages": true
+  },
+  "gates": {
+    "minimum_held_out_population_fraction": 1.0,
+    "minimum_held_out_correction_candidates": 2,
+    "require_every_candidate_safe": true,
+    "minimum_mean_candidate_background_reduction_fraction": 0.25,
+    "require_every_protected_control_preserved": true
+  },
+  "recommendation": {
+    "policy_id": "selective-luminance-background-field-correction-v1"
+  }
+}

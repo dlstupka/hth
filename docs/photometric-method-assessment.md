@@ -61,3 +61,26 @@ The temporary artifact contains lossless output variants and contact sheets.
 A `validation-candidate` result means the method is ready for an explicit
 validation run over a larger held-out sample. It does not yet mean that the
 method should be applied to the full collection.
+
+## Complete held-out validation
+
+`HTH validate photometric method` consumes the persisted validation candidate
+and audits every canonical normalized page that was not used to select the
+method. The development candidates are excluded by identity rather than by a
+manually maintained page list. The workflow reconstructs and hash-verifies the
+complete held-out population, reruns the photometric classifier, applies the
+fixed method only to newly discovered paper-page candidates, and preserves all
+other pixels.
+
+The integration decision requires full held-out coverage, enough newly
+discovered targets, every target passing every method safety gate, sufficient
+mean background improvement, and byte-equivalent preservation of every dark or
+mixed-polarity control. A single unsafe target blocks collection-wide
+integration. If the complete held-out population contains too few targets,
+the result is `integration-not-justified`; current pixels remain authoritative.
+
+Compact evidence is persisted in `normalization/photometric-validation/` and
+the current decision in `normalization/photometric-integration-policy.json`.
+Only discovered targets and preselected controls receive review images, which
+keeps the temporary artifact practical while the machine-readable audit still
+covers every held-out page.
