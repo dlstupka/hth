@@ -35,6 +35,14 @@ on:
         required: true
         default: true
         type: boolean
+      normalization_recipe:
+        description: "Apply the prepared recommendation, or crop only without resampling"
+        required: true
+        default: prepared-recommendation
+        type: choice
+        options:
+          - prepared-recommendation
+          - axis-aligned-only
       canonical_normalization_policy:
         description: Canonical normalization evidence policy
         required: true
@@ -162,6 +170,26 @@ jobs:
           cp results-repo/analysis/analysis-summary.json "$effective/analysis/"
           cp results-repo/reports/preprocess-summary.json "$effective/reports/"
 
+      - name: Resolve researcher-selected normalization recipe
+        id: recipe
+        shell: bash
+        env:
+          NORMALIZATION_RECIPE: ${{ inputs.normalization_recipe }}
+        run: |
+          set -euo pipefail
+          if [[ "$NORMALIZATION_RECIPE" == "prepared-recommendation" ]]; then
+            policy="results-repo/normalization/orientation-deskew-policy.json"
+            if [[ ! -f "$policy" ]]; then
+              echo "::error::No prepared normalization recommendation exists. Run 'HTH prepare normalization recommendation' first, or choose axis-aligned-only."
+              exit 1
+            fi
+            echo "transform_policy=$policy" >> "$GITHUB_OUTPUT"
+            printf '## Normalization recipe\n\nUsing the prepared, evidence-backed recommendation. Gross page orientation remains unchanged; only pages passing every deskew safety gate may be resampled.\n\n' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "transform_policy=" >> "$GITHUB_OUTPUT"
+            printf '## Normalization recipe\n\nUsing axis-aligned framing only. No page will be rotated or resampled.\n\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Evaluate canonical normalization evidence
         id: normalization_plan
         shell: bash
@@ -169,11 +197,19 @@ jobs:
           PYTHONPATH: hth-pipeline
           NORMALIZATION_POLICY: ${{ inputs.canonical_normalization_policy }}
           FULL_ARTIFACT: ${{ inputs.upload_full_artifact }}
+          TRANSFORM_POLICY: ${{ steps.recipe.outputs.transform_policy }}
         run: |
           set -euo pipefail
           artifact_args=()
+          transform_args=()
           if [[ "$FULL_ARTIFACT" == "true" ]]; then
             artifact_args+=(--artifact-required)
+          fi
+          if [[ -n "$TRANSFORM_POLICY" ]]; then
+            transform_args+=(--config "$TRANSFORM_POLICY")
+            transform_args+=(--implementation hth-pipeline/hth/orientation_deskew.py)
+            transform_args+=(--operation preserve-gross-page-orientation)
+            transform_args+=(--operation gated-conservative-hough-deskew)
           fi
           results_ref="$(git -C results-repo rev-parse HEAD)"
           python -m hth.canonical_build_evidence prepare \
@@ -214,7 +250,8 @@ jobs:
             --runner-arch "${{ runner.arch }}" \
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY" \
-            "${artifact_args[@]}"
+            "${artifact_args[@]}" \
+            "${transform_args[@]}"
 
       - name: Download immutable source release
         id: source_release
@@ -247,8 +284,13 @@ jobs:
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
+          TRANSFORM_POLICY: ${{ steps.recipe.outputs.transform_policy }}
         run: |
           set -euo pipefail
+          transform_args=()
+          if [[ -n "$TRANSFORM_POLICY" ]]; then
+            transform_args+=(--transform-policy "$TRANSFORM_POLICY")
+          fi
           python -m hth.normalize_document_images \
             --source-root source-repo/images \
             --materialized-image-root "$RUNNER_TEMP/canonical-collection-images" \
@@ -256,7 +298,8 @@ jobs:
             --output normalized-collection \
             --status complete \
             --contact-sheet-every 25 \
-            --github-summary "$GITHUB_STEP_SUMMARY"
+            --github-summary "$GITHUB_STEP_SUMMARY" \
+            "${transform_args[@]}"
 
       - name: Finalize canonical normalization evidence
         id: normalization_finalize
@@ -293,6 +336,15 @@ jobs:
           cp normalized-collection/normalization-manifest.csv "$staging/normalization/"
           cp normalized-collection/summary.md "$staging/normalization/"
           cp normalized-collection/canonical-build-evidence.json "$staging/normalization/"
+          if [[ -f normalized-collection/normalization-policy.json ]]; then
+            cp normalized-collection/normalization-policy.json "$staging/normalization/applied-normalization-policy.json"
+          fi
+          if [[ -d results-repo/normalization/orientation-deskew ]]; then
+            cp -a results-repo/normalization/orientation-deskew "$staging/normalization/"
+          fi
+          if [[ -f results-repo/normalization/orientation-deskew-policy.json ]]; then
+            cp results-repo/normalization/orientation-deskew-policy.json "$staging/normalization/"
+          fi
           tar -C "$staging" -cf "$payload" normalization
 
           apply_normalization_publication() {

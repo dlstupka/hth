@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create pixel-preserving axis-aligned document crops from canonical geometry."""
+"""Create canonical document images from proven crop and transform policies."""
 
 from __future__ import annotations
 
@@ -22,10 +22,51 @@ from hth.canonical_build_evidence import (
     validate_published_results,
 )
 from hth.preprocess import canonical_image, extension, ordered_images
+from hth.orientation_deskew import evaluate_hough_policy
 
 
 SCHEMA_VERSION = "1.0"
 POLICY_ID = "axis-aligned-detector-envelope-v1"
+
+
+def _load_transform_policy(
+    path: Path | None,
+    preprocess_evidence: dict[str, Any],
+    detector_selection: dict[str, Any],
+) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    policy = _read_json(path)
+    claimed_identity = str(policy.get("policy_identity") or "")
+    identity_payload = dict(policy)
+    identity_payload.pop("policy_identity", None)
+    if len(claimed_identity) != 64 or canonical_hash(identity_payload) != claimed_identity:
+        raise ValueError("Transform policy identity does not match its contents")
+    if policy.get("policy_type") != "orientation-deskew-normalization":
+        raise ValueError("Transform policy has an unsupported policy_type")
+    if policy.get("policy_id") != "hough-lines-conservative-v1":
+        raise ValueError("Transform policy is not a supported conservative Hough policy")
+    if policy.get("status") != "recommended-for-validation":
+        raise ValueError("Transform policy is not recommended for validation")
+    if (policy.get("gross_orientation") or {}).get("action") != "preserve":
+        raise ValueError("Automatic gross-orientation changes are not supported")
+    deskew = policy.get("deskew") or {}
+    if deskew.get("estimator") != "hough-lines":
+        raise ValueError("Transform policy does not use the supported Hough estimator")
+    if deskew.get("canvas") != "expanded-white" or deskew.get("interpolation") != "linear":
+        raise ValueError("Transform policy has an unsupported resampling contract")
+    compatibility = policy.get("compatibility") or {}
+    current_preprocess = str((preprocess_evidence.get("canonical_result") or {}).get("identity") or "")
+    expected = str(compatibility.get("canonical_preprocess_result_identity") or "")
+    if not expected or expected != current_preprocess:
+        raise ValueError("Transform policy was assessed against a different canonical preprocess result")
+    if compatibility.get("detector") != detector_selection.get("detector"):
+        raise ValueError("Transform policy was assessed with a different document detector")
+    if compatibility.get("parameter_identity_sha256") != detector_selection.get("parameter_identity_sha256"):
+        raise ValueError("Transform policy was assessed with different detector parameters")
+    if compatibility.get("base_normalization_policy_id") != POLICY_ID:
+        raise ValueError("Transform policy was assessed against a different crop policy")
+    return policy
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -130,7 +171,7 @@ def _contact_sheet(
     left, top, right, bottom = bounds
     cv2.rectangle(overlay, (left, top), (right - 1, bottom - 1), (0, 0, 255), max(2, round(min(original.shape[:2]) / 500)))
     panels = []
-    for image, label in ((overlay, "Canonical source + crop boundary"), (normalized, "Axis-aligned normalized image")):
+    for image, label in ((overlay, "Canonical source + crop boundary"), (normalized, "Canonical normalized image")):
         panel = _fit_panel(image)
         cv2.rectangle(panel, (0, 0), (panel.shape[1], 42), (20, 20, 20), -1)
         cv2.putText(panel, label, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (255, 255, 255), 1, cv2.LINE_AA)
@@ -215,6 +256,7 @@ def materialize_canonical_images(source_root: Path, manifest_path: Path, output:
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     fields = [
         "global_ordinal", "source_sha256", "output_sha256", "output_pixel_sha256",
+        "base_crop_pixel_sha256", "transform_decision", "deskew_correction_degrees",
         "crop_left", "crop_top", "crop_right_exclusive", "crop_bottom_exclusive",
         "source_width", "source_height", "output_width", "output_height", "detector_confidence",
     ]
@@ -228,10 +270,16 @@ def _summary(payload: dict[str, Any]) -> str:
     detector = payload["detector_selection"]
     label = payload["collection"]["id"]
     scope = "Golden Set validation" if payload["target"]["type"] == "golden-set" else "complete collection"
-    return "\n".join([
-        f"# {label} Axis-Aligned Normalization",
+    transform = payload.get("transform_summary") or {}
+    transform_description = (
+        "Axis-aligned framing with conservative Hough deskew on pages that pass every safety gate. Gross page orientation is preserved."
+        if transform.get("policy_requested") else
+        "Axis-aligned framing only. No rotation or geometric resampling was performed."
+    )
+    lines = [
+        f"# {label} Canonical Normalization",
         "",
-        f"> Canonical {scope} normalization. No detector inference, rotation, perspective warp, resizing, enhancement, or binarization was performed.",
+        f"> Canonical {scope} normalization. {transform_description}",
         "",
         "## Result",
         "",
@@ -243,12 +291,20 @@ def _summary(payload: dict[str, Any]) -> str:
         f"- Canonical preprocess result: `{payload['canonical_preprocess']['canonical_result_identity']}`",
         f"- Normalization identity: `{payload['normalization_identity']}`",
         f"- Canonical normalization result: `{payload['canonical_result_identity']}`",
+    ]
+    if transform.get("policy_requested"):
+        lines.extend([
+            f"- Pages conservatively deskewed: `{transform['pages_transformed']}`",
+            f"- Pages preserved without resampling: `{transform['pages_preserved']}`",
+        ])
+    lines.extend([
         "",
         "## Review artifact",
         "",
-        "Open `index.html` after extracting the artifact. The red rectangle is the exact half-open crop boundary applied to the canonical source pixels.",
+        "Open `index.html` after extracting the artifact. The red rectangle is the exact half-open crop boundary; the normalized panel shows the final policy output.",
         "",
     ])
+    return "\n".join(lines)
 
 
 def _write_html(path: Path, payload: dict[str, Any]) -> None:
@@ -260,12 +316,12 @@ def _write_html(path: Path, payload: dict[str, Any]) -> None:
     policy = html.escape(payload["policy"]["id"])
     path.write_text(f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{html.escape(str(payload['collection']['id']))} Axis-Aligned Normalization</title><style>
+<title>{html.escape(str(payload['collection']['id']))} Canonical Normalization</title><style>
 body{{font-family:system-ui,sans-serif;margin:2rem;background:#111820;color:#e6edf3}}main{{max-width:1500px;margin:auto}}
 article{{margin:2rem 0;padding:1rem;background:#18212b;border:1px solid #34404c;border-radius:.5rem}}img{{width:100%;height:auto}}
 code{{background:#26313c;padding:.15rem .35rem;border-radius:.25rem}}
-</style></head><body><main><h1>{html.escape(str(payload['collection']['id']))} Axis-Aligned Normalization</h1>
-<p>Policy: <code>{policy}</code>. Pixels were cropped only; no geometric resampling was applied.</p>{cards}</main></body></html>""", encoding="utf-8")
+</style></head><body><main><h1>{html.escape(str(payload['collection']['id']))} Canonical Normalization</h1>
+<p>Policy: <code>{policy}</code>. Gross page orientation is preserved; deskew is applied only when every recorded safety gate passes.</p>{cards}</main></body></html>""", encoding="utf-8")
 
 
 def normalize(
@@ -278,6 +334,7 @@ def normalize(
     *,
     status: str = "artifact-only",
     contact_sheet_every: int = 1,
+    transform_policy_path: Path | None = None,
 ) -> dict[str, Any]:
     golden_set = _read_json(golden_set_path) if golden_set_path else None
     manifest = _read_json(manifest_path)
@@ -286,6 +343,7 @@ def normalize(
     detector = str(selection.get("detector") or "").strip()
     if not detector:
         raise ValueError("Canonical page analysis has no resolved document_detector")
+    transform_policy = _load_transform_policy(transform_policy_path, preprocess_evidence, selection)
 
     manifest_by_ordinal = {int(item["global_ordinal"]): item for item in manifest.get("records") or []}
     analysis_by_ordinal = {int(item["global_ordinal"]): item for item in analysis.get("records") or []}
@@ -338,7 +396,18 @@ def normalize(
             raise ValueError(f"Could not decode canonical source image: {image_path}")
         analysis_record = analysis_by_ordinal.get(ordinal) or {}
         candidate = _candidate(analysis_record, detector)
-        normalized, bounds = axis_aligned_crop(image, candidate["corners"])
+        base_crop, bounds = axis_aligned_crop(image, candidate["corners"])
+        if transform_policy is None:
+            normalized = base_crop
+            transformation = {
+                "estimator": None,
+                "decision": "preserve",
+                "reason": "axis-aligned-only",
+                "estimated_correction_degrees": 0.0,
+                "applied_correction_degrees": 0.0,
+            }
+        else:
+            normalized, transformation = evaluate_hough_policy(base_crop, transform_policy)
         target = normalized_root / f"fs_{ordinal:04d}.png"
         if not cv2.imwrite(str(target), normalized, [cv2.IMWRITE_PNG_COMPRESSION, 6]):
             raise ValueError(f"Could not write normalized image: {target}")
@@ -355,6 +424,12 @@ def normalize(
             "output_file": target.relative_to(output).as_posix(),
             "output_sha256": _sha256(target),
             "output_pixel_sha256": _pixel_sha256(normalized),
+            "base_crop_pixel_sha256": _pixel_sha256(base_crop),
+            "base_crop_width": int(base_crop.shape[1]),
+            "base_crop_height": int(base_crop.shape[0]),
+            "transform_decision": transformation["decision"],
+            "deskew_correction_degrees": transformation["applied_correction_degrees"],
+            "transformation": transformation,
             "crop_left": left,
             "crop_top": top,
             "crop_right_exclusive": right,
@@ -391,6 +466,7 @@ def normalize(
         "canonical_preprocess_result_identity": canonical_result_identity,
         "detector": detector,
         "parameter_identity_sha256": selection.get("parameter_identity_sha256"),
+        "transform_policy_identity": transform_policy.get("policy_identity") if transform_policy else None,
     })
     result_identity = canonical_hash([
         {
@@ -398,6 +474,7 @@ def normalize(
             "source_sha256": row["source_sha256"],
             "output_pixel_sha256": row["output_pixel_sha256"],
             "crop": [row["crop_left"], row["crop_top"], row["crop_right_exclusive"], row["crop_bottom_exclusive"]],
+            "transformation": row["transformation"],
         }
         for row in rows
     ])
@@ -406,9 +483,17 @@ def normalize(
         "normalization_type": "document-crop",
         "status": status,
         "policy": {
-            "id": POLICY_ID,
-            "operation": "axis-aligned crop of detector quadrilateral envelope",
-            "resampling": "none",
+            "id": (
+                f"{POLICY_ID}+{transform_policy['policy_id']}" if transform_policy else POLICY_ID
+            ),
+            "base_policy_id": POLICY_ID,
+            "transform_policy_id": transform_policy.get("policy_id") if transform_policy else None,
+            "transform_policy_identity": transform_policy.get("policy_identity") if transform_policy else None,
+            "operation": (
+                "axis-aligned crop followed by gated conservative Hough deskew"
+                if transform_policy else "axis-aligned crop of detector quadrilateral envelope"
+            ),
+            "resampling": "conditional linear rotation on expanded white canvas" if transform_policy else "none",
             "output_format": "lossless PNG",
         },
         "collection": {"id": collection_id},
@@ -436,9 +521,18 @@ def normalize(
         ],
         "pages": rows,
     }
+    payload["transform_summary"] = {
+        "policy_requested": transform_policy is not None,
+        "pages_transformed": sum(row["transform_decision"] == "apply" for row in rows),
+        "pages_preserved": sum(row["transform_decision"] != "apply" for row in rows),
+    }
     (output / "normalization-manifest.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (output / "preprocess-evidence.json").write_text(json.dumps(preprocess_evidence, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (output / "geometry-evidence.json").write_text(json.dumps({"document_detector": selection, "records": geometry_records}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if transform_policy is not None:
+        (output / "normalization-policy.json").write_text(
+            json.dumps(transform_policy, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
     _write_csv(output / "normalization-manifest.csv", rows)
     (output / "summary.md").write_text(_summary(payload), encoding="utf-8")
     _write_html(output / "index.html", payload)
@@ -457,6 +551,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--github-summary", type=Path)
     parser.add_argument("--status", default="artifact-only")
     parser.add_argument("--contact-sheet-every", type=int, default=1)
+    parser.add_argument(
+        "--transform-policy",
+        type=Path,
+        help="Machine-readable recommendation produced by the normalization assessment flow",
+    )
     args = parser.parse_args(argv)
     if args.contact_sheet_every < 0:
         parser.error("--contact-sheet-every must be zero or positive")
@@ -484,6 +583,7 @@ def main(argv: list[str] | None = None) -> int:
         args.output,
         status=args.status,
         contact_sheet_every=args.contact_sheet_every,
+        transform_policy_path=args.transform_policy,
     )
     if args.github_summary:
         with args.github_summary.open("a", encoding="utf-8") as handle:

@@ -1,19 +1,37 @@
 # Document normalization
 
-`HTH normalize GS0002` is the artifact-only validation workflow for HTH's
-first production normalization operation. It applies the selected
-`axis-aligned-detector-envelope-v1` policy to the 18 immutable
+`HTH normalize GS0002` is the bounded validation workflow for HTH's canonical
+normalization recipe. It applies either the persisted prepared recommendation
+or the explicit `axis-aligned-only` fallback to the 18 immutable
 `HTH-GOLDEN-0002` images.
 
-`HTH normalize collection` is the production-scale continuation of that
-approved experiment. It applies the identical policy to every canonical image
-in the published collection manifest. The current San Antonio collection has
-929 pages.
+`HTH normalize collection` is the production-scale continuation. Its default
+is the latest compatible prepared recommendation; a researcher may select
+`axis-aligned-only` to preserve the crop without deskew. The current San
+Antonio collection has 929 pages.
 
-The policy takes the enclosing axis-aligned rectangle of the preferred
+The base policy takes the enclosing axis-aligned rectangle of the preferred
 document detector's stored quadrilateral. It performs a pixel slice only and
-writes the result as lossless PNG. It does not rotate, warp, resize, enhance,
-or binarize the source image.
+writes the result as lossless PNG. A compatible prepared recommendation may
+then apply conservative expanded-canvas Hough deskew only to pages that pass
+every recorded safety gate. It never changes gross orientation, performs
+perspective warping, resizes, enhances, or binarizes the source image.
+
+## Researcher workflow
+
+From an existing canonical crop, this stage has two human actions:
+
+1. Run **HTH prepare normalization recommendation**. Assessment, recommendation,
+   persistence, and review packaging happen in that one action.
+2. Review the plain-language result and run **HTH normalize collection**. Keep
+   the default prepared recommendation to approve it, or select
+   `axis-aligned-only` to preserve pixels after cropping.
+
+No artifact paths, evidence identities, policy files, or command-line options
+must be transferred between those actions. The approval boundary remains
+because deskew resamples archival pixels. This deliberately avoids using the
+current multi-step Golden Set creation flow as the usability model; that flow
+has its own simplification work to do.
 
 ## Canonical preprocess handoff
 
@@ -94,11 +112,11 @@ megabytes of duplicate JPEG previews.
 Neither workflow reruns document detection or mutates preprocess, calibration,
 or runtime intelligence.
 
-The next diagnostic stage is documented in
+The preparation and recommendation stage is documented in
 [Orientation and deskew assessment](orientation-deskew-assessment.md). It
 reconstructs and proves only a stratified sample of these canonical crops,
 then compares gross-orientation views and two conservative small-angle deskew
-estimators without publishing a production transform.
+estimators and preserves a compatible recommendation without applying it.
 
 Perspective correction, tonal correction, and binarization remain separate
 future normalization operations with independent evidence contracts.

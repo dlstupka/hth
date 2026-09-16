@@ -22,9 +22,10 @@ from hth.normalize_document_images import (
     _sha256,
     materialize_canonical_images,
 )
+from hth.orientation_deskew import estimate_hough_lines, rotate_expand
 
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "2.0"
 ESTIMATORS = ("projection-profile", "hough-lines")
 
 
@@ -33,6 +34,21 @@ def _read_json(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"Expected a JSON object: {path}")
     return payload
+
+
+def _require_current_schema(payload: dict[str, Any], label: str) -> None:
+    if payload.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError(
+            f"{label} must be regenerated with schema {SCHEMA_VERSION}; "
+            "development artifacts are not migrated or accepted as production evidence"
+        )
+
+
+def _require_sha256(value: Any, label: str) -> str:
+    text = str(value or "")
+    if len(text) != 64 or any(character not in "0123456789abcdef" for character in text.lower()):
+        raise ValueError(f"{label} must be a 64-character SHA-256 identity")
+    return text
 
 
 def _normalization_scope(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -279,29 +295,6 @@ def _rotate_same(image: np.ndarray, angle: float, interpolation: int, border_val
     return cv2.warpAffine(image, matrix, (width, height), flags=interpolation, borderMode=cv2.BORDER_CONSTANT, borderValue=border_value)
 
 
-def rotate_expand(image: np.ndarray, angle: float) -> np.ndarray:
-    if abs(angle) < 1e-12:
-        return image.copy()
-    height, width = image.shape[:2]
-    center = ((width - 1) / 2.0, (height - 1) / 2.0)
-    matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
-    cosine = abs(float(matrix[0, 0]))
-    sine = abs(float(matrix[0, 1]))
-    target_width = max(1, int(math.ceil(height * sine + width * cosine)))
-    target_height = max(1, int(math.ceil(height * cosine + width * sine)))
-    matrix[0, 2] += (target_width - width) / 2.0
-    matrix[1, 2] += (target_height - height) / 2.0
-    value: int | tuple[int, ...] = 255 if image.ndim == 2 else tuple(255 for _ in range(image.shape[2]))
-    return cv2.warpAffine(
-        image,
-        matrix,
-        (target_width, target_height),
-        flags=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=value,
-    )
-
-
 def _projection_score(mask: np.ndarray, angle: float) -> float:
     rotated = _rotate_same(mask, angle, cv2.INTER_NEAREST, 0)
     margin_y = max(1, rotated.shape[0] // 50)
@@ -342,75 +335,6 @@ def estimate_projection_profile(
         "zero_score": round(zero_score, 6),
         "best_score": round(best_score, 6),
         "relative_improvement": round(improvement, 6),
-        "boundary_limited": boundary_limited,
-    }
-
-
-def _weighted_median(values: np.ndarray, weights: np.ndarray) -> float:
-    order = np.argsort(values)
-    ordered_values = values[order]
-    ordered_weights = weights[order]
-    cutoff = float(np.sum(ordered_weights)) / 2.0
-    return float(ordered_values[np.searchsorted(np.cumsum(ordered_weights), cutoff, side="left")])
-
-
-def estimate_hough_lines(
-    image: np.ndarray,
-    maximum_degrees: float,
-    deadband_degrees: float,
-) -> dict[str, Any]:
-    gray = _analysis_gray(image)
-    edges = cv2.Canny(gray, 60, 180, apertureSize=3)
-    minimum_length = max(30, int(gray.shape[1] * 0.08))
-    lines = cv2.HoughLinesP(
-        edges,
-        1,
-        np.pi / 720.0,
-        threshold=max(30, int(gray.shape[1] * 0.025)),
-        minLineLength=minimum_length,
-        maxLineGap=max(8, int(gray.shape[1] * 0.015)),
-    )
-    angles: list[float] = []
-    lengths: list[float] = []
-    if lines is not None:
-        for line in np.asarray(lines).reshape(-1, 4):
-            x1, y1, x2, y2 = (float(value) for value in line)
-            angle = math.degrees(math.atan2(y2 - y1, x2 - x1))
-            while angle <= -90.0:
-                angle += 180.0
-            while angle > 90.0:
-                angle -= 180.0
-            if abs(angle) <= maximum_degrees:
-                angles.append(angle)
-                lengths.append(math.hypot(x2 - x1, y2 - y1))
-    if not angles:
-        return {
-            "estimated_correction_degrees": 0.0,
-            "applied_correction_degrees": 0.0,
-            "confidence": 0.0,
-            "line_count": 0,
-            "weighted_mad_degrees": None,
-            "boundary_limited": False,
-        }
-    angle_values = np.asarray(angles, dtype=np.float64)
-    weights = np.asarray(lengths, dtype=np.float64)
-    observed = _weighted_median(angle_values, weights)
-    mad = _weighted_median(np.abs(angle_values - observed), weights)
-    # Image-space y increases downward, while OpenCV's rotation argument uses
-    # the opposite visual sign.  Applying the measured image-space line angle
-    # therefore levels the detected baseline.
-    correction = observed
-    line_factor = min(1.0, len(angles) / 24.0)
-    dispersion_factor = max(0.0, 1.0 - mad / max(maximum_degrees, 1e-9))
-    confidence = line_factor * dispersion_factor
-    boundary_limited = abs(correction) >= maximum_degrees - 0.05
-    applied = 0.0 if abs(correction) < deadband_degrees else correction
-    return {
-        "estimated_correction_degrees": round(correction, 6),
-        "applied_correction_degrees": round(applied, 6),
-        "confidence": round(confidence, 6),
-        "line_count": len(angles),
-        "weighted_mad_degrees": round(mad, 6),
         "boundary_limited": boundary_limited,
     }
 
@@ -712,6 +636,9 @@ def assess(
             "Any non-zero deskew resamples pixels and requires explicit production approval.",
         ],
         "collection": _normalization_scope(manifest),
+        "base_normalization_policy": manifest.get("policy"),
+        "canonical_preprocess": manifest.get("canonical_preprocess"),
+        "detector_selection": manifest.get("detector_selection"),
         "canonical_normalization_result_identity": manifest.get("canonical_result_identity"),
         "population_page_count": sample.get("population_page_count"),
         "sample_page_count": len(rows),
@@ -730,12 +657,200 @@ def assess(
         ],
         "pages": rows,
     }
+    payload["assessment_identity"] = canonical_hash({
+        "assessment_type": payload["assessment_type"],
+        "canonical_normalization_result_identity": payload["canonical_normalization_result_identity"],
+        "sample_identity": payload["sample_identity"],
+        "config": payload["config"],
+        "pages": payload["pages"],
+    })
     (output / "assessment.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     _write_csv(output / "assessment.csv", rows)
     summary = _summary(payload)
     (output / "summary.md").write_text(summary, encoding="utf-8")
     _write_html(output / "index.html", payload)
     return payload
+
+
+def recommend_policy(
+    assessment_path: Path,
+    output_path: Path,
+    github_summary: Path | None = None,
+) -> dict[str, Any]:
+    """Convert diagnostic evidence into a bounded, explicitly activated policy candidate."""
+    assessment = _read_json(assessment_path)
+    _require_current_schema(assessment, "Orientation/deskew assessment")
+    if assessment.get("assessment_type") != "orientation-deskew-comparison":
+        raise ValueError("Recommendation input is not an orientation/deskew assessment")
+    if assessment.get("status") != "diagnostic-only":
+        raise ValueError("Recommendation input is not completed diagnostic evidence")
+    assessment_identity = _require_sha256(assessment.get("assessment_identity"), "Assessment identity")
+    expected_assessment_identity = canonical_hash({
+        "assessment_type": assessment["assessment_type"],
+        "canonical_normalization_result_identity": assessment.get("canonical_normalization_result_identity"),
+        "sample_identity": assessment.get("sample_identity"),
+        "config": assessment.get("config"),
+        "pages": assessment.get("pages"),
+    })
+    if assessment_identity != expected_assessment_identity:
+        raise ValueError("Assessment identity does not match its contents")
+    _require_sha256(
+        assessment.get("canonical_normalization_result_identity"),
+        "Canonical normalization result identity",
+    )
+    _require_sha256(assessment.get("sample_identity"), "Assessment sample identity")
+    preprocess = assessment.get("canonical_preprocess")
+    detector = assessment.get("detector_selection")
+    base_policy = assessment.get("base_normalization_policy")
+    if not isinstance(preprocess, dict) or not isinstance(detector, dict) or not isinstance(base_policy, dict):
+        raise ValueError("Assessment is missing current canonical normalization provenance; regenerate it")
+    _require_sha256(preprocess.get("canonical_result_identity"), "Canonical preprocess result identity")
+    if not str(detector.get("detector") or ""):
+        raise ValueError("Assessment has no authoritative detector identity")
+    _require_sha256(detector.get("parameter_identity_sha256"), "Detector parameter identity")
+    if base_policy.get("id") != "axis-aligned-detector-envelope-v1":
+        raise ValueError("Assessment was not generated from the current canonical crop policy")
+    pages = assessment.get("pages")
+    if not isinstance(pages, list) or not pages:
+        raise ValueError("Assessment contains no evaluated pages")
+    if int(assessment.get("sample_page_count") or 0) != len(pages):
+        raise ValueError("Assessment page count does not match its evidence records")
+    config = assessment.get("config") or {}
+    recommendation = config.get("recommendation") or {}
+    deskew = recommendation.get("deskew") or {}
+    aggregate = assessment.get("aggregate") or {}
+    hough = aggregate.get("hough-lines") or {}
+    projection = aggregate.get("projection-profile") or {}
+    required = {
+        "policy_id": recommendation.get("policy_id"),
+        "minimum_sample_pages": recommendation.get("minimum_sample_pages"),
+        "minimum_mean_hough_confidence": recommendation.get("minimum_mean_hough_confidence"),
+        "minimum_hough_over_projection_confidence_gap": recommendation.get("minimum_hough_over_projection_confidence_gap"),
+        "maximum_hough_boundary_limited_pages": recommendation.get("maximum_hough_boundary_limited_pages"),
+        "gross_orientation_action": recommendation.get("gross_orientation_action"),
+        "minimum_absolute_correction_degrees": deskew.get("minimum_absolute_correction_degrees"),
+        "maximum_absolute_correction_degrees": deskew.get("maximum_absolute_correction_degrees"),
+        "minimum_confidence": deskew.get("minimum_confidence"),
+        "minimum_line_count": deskew.get("minimum_line_count"),
+        "maximum_weighted_mad_degrees": deskew.get("maximum_weighted_mad_degrees"),
+        "canvas": deskew.get("canvas"),
+        "interpolation": deskew.get("interpolation"),
+    }
+    missing = [name for name, value in required.items() if value is None or value == ""]
+    if missing:
+        raise ValueError(f"Assessment recommendation configuration is incomplete: {', '.join(missing)}")
+    if recommendation["gross_orientation_action"] != "preserve":
+        raise ValueError("Automatic gross-orientation changes are outside the current evidence contract")
+    if deskew["canvas"] != "expanded-white" or deskew["interpolation"] != "linear":
+        raise ValueError("Recommendation requests an unsupported resampling contract")
+
+    confidence_gap = float(hough.get("mean_confidence") or 0.0) - float(projection.get("mean_confidence") or 0.0)
+    evidence_gates = {
+        "sample_size": int(assessment.get("sample_page_count") or 0) >= int(recommendation.get("minimum_sample_pages") or 0),
+        "hough_mean_confidence": float(hough.get("mean_confidence") or 0.0) >= float(recommendation.get("minimum_mean_hough_confidence") or 0.0),
+        "hough_confidence_advantage": confidence_gap >= float(recommendation.get("minimum_hough_over_projection_confidence_gap") or 0.0),
+        "hough_not_boundary_limited": int(hough.get("boundary_limited_pages") or 0) <= int(recommendation.get("maximum_hough_boundary_limited_pages") or 0),
+        "observed_corrections_within_policy_bound": float(hough.get("maximum_absolute_correction_degrees") or 0.0) <= float(deskew["maximum_absolute_correction_degrees"]),
+    }
+    eligible = all(evidence_gates.values())
+    selected: list[dict[str, Any]] = []
+    for page in assessment.get("pages") or []:
+        estimate = (page.get("estimators") or {}).get("hough-lines") or {}
+        angle = float(estimate.get("estimated_correction_degrees") or 0.0)
+        mad = estimate.get("weighted_mad_degrees")
+        checks = (
+            abs(angle) >= float(deskew["minimum_absolute_correction_degrees"]),
+            abs(angle) <= float(deskew["maximum_absolute_correction_degrees"]),
+            float(estimate.get("confidence") or 0.0) >= float(deskew["minimum_confidence"]),
+            int(estimate.get("line_count") or 0) >= int(deskew["minimum_line_count"]),
+            mad is not None and float(mad) <= float(deskew["maximum_weighted_mad_degrees"]),
+            not bool(estimate.get("boundary_limited")),
+        )
+        if all(checks):
+            selected.append({
+                "global_ordinal": int(page["global_ordinal"]),
+                "correction_degrees": angle,
+                "confidence": estimate.get("confidence"),
+            })
+
+    policy = {
+        "schema_version": "1.0",
+        "policy_type": "orientation-deskew-normalization",
+        "policy_id": str(recommendation["policy_id"]),
+        "status": "recommended-for-validation" if eligible else "insufficient-evidence",
+        "activation": "explicit-normalization-workflow-selection-required",
+        "plain_language": {
+            "recommendation": (
+                "Keep every page in its existing gross orientation and straighten only clearly tilted pages using conservative line evidence."
+                if eligible else
+                "Keep the current axis-aligned normalization until more representative evidence is available."
+            ),
+            "pixel_change": "Only pages passing every safety gate are resampled; all other pages remain byte-for-byte equivalent at the pixel-array level.",
+            "review": "The assessment contact sheets remain the human-readable evidence for this recommendation.",
+        },
+        "gross_orientation": {
+            "action": str(recommendation.get("gross_orientation_action") or "preserve"),
+            "degrees": 0,
+            "reason": "The assessment has no independent semantic truth for upright versus upside-down pages.",
+        },
+        "deskew": {
+            "estimator": "hough-lines",
+            "minimum_absolute_correction_degrees": float(deskew["minimum_absolute_correction_degrees"]),
+            "maximum_absolute_correction_degrees": float(deskew["maximum_absolute_correction_degrees"]),
+            "minimum_confidence": float(deskew["minimum_confidence"]),
+            "minimum_line_count": int(deskew["minimum_line_count"]),
+            "maximum_weighted_mad_degrees": float(deskew["maximum_weighted_mad_degrees"]),
+            "canvas": str(deskew.get("canvas") or "expanded-white"),
+            "interpolation": str(deskew.get("interpolation") or "linear"),
+        },
+        "compatibility": {
+            "canonical_preprocess_result_identity": preprocess.get("canonical_result_identity"),
+            "detector": detector.get("detector"),
+            "parameter_identity_sha256": detector.get("parameter_identity_sha256"),
+            "base_normalization_policy_id": base_policy.get("id"),
+        },
+        "evidence": {
+            "assessment_identity": assessment_identity,
+            "canonical_normalization_result_identity": assessment.get("canonical_normalization_result_identity"),
+            "sample_page_count": assessment.get("sample_page_count"),
+            "population_page_count": assessment.get("population_page_count"),
+            "evidence_gates": evidence_gates,
+            "confidence_gap": round(confidence_gap, 6),
+            "sample_pages_passing_transform_gates": selected,
+        },
+    }
+    policy["policy_identity"] = canonical_hash(policy)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(policy, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    gate_lines = [f"- {'Passed' if passed else 'Needs more evidence'}: `{name}`" for name, passed in evidence_gates.items()]
+    summary = "\n".join([
+        "## Normalization recommendation",
+        "",
+        f"**{'Recommended for a validation run' if eligible else 'Not ready for validation'}:** {policy['plain_language']['recommendation']}",
+        "",
+        f"- Suggested policy: `{policy['policy_id']}`",
+        "- Gross page orientation: preserve as-is",
+        f"- Expected sample impact: `{len(selected)}` of `{assessment.get('sample_page_count')}` sampled pages",
+        "- Activation: a researcher must explicitly choose the recommended policy when starting normalization",
+        "",
+        "### Automated evidence checks",
+        "",
+        *gate_lines,
+        "",
+        "The evidence and machine-readable policy were preserved automatically. The run artifact adds contact sheets for optional visual review; no production pixels were changed.",
+        "",
+        "**Next step:** review the recommendation, then start collection normalization. Its default prepared-recommendation option is the explicit approval to apply this policy; choose axis-aligned-only to preserve cropped pixels.",
+        "",
+    ])
+    (output_path.parent / "recommendation.md").write_text(summary, encoding="utf-8")
+    existing_summary = output_path.parent / "summary.md"
+    if existing_summary.is_file():
+        with existing_summary.open("a", encoding="utf-8") as handle:
+            handle.write("\n" + summary)
+    if github_summary:
+        with github_summary.open("a", encoding="utf-8") as handle:
+            handle.write("\n" + summary)
+    return policy
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -759,6 +874,10 @@ def main(argv: list[str] | None = None) -> int:
     evaluate.add_argument("--config", type=Path, required=True)
     evaluate.add_argument("--output", type=Path, required=True)
     evaluate.add_argument("--github-summary", type=Path)
+    recommend = commands.add_parser("recommend", help="Create a safe machine-readable normalization policy candidate")
+    recommend.add_argument("--assessment", type=Path, required=True)
+    recommend.add_argument("--output", type=Path, required=True)
+    recommend.add_argument("--github-summary", type=Path)
     args = parser.parse_args(argv)
     if args.command == "prepare":
         prepare_sample(args.normalization_manifest, args.config, args.output, args.golden_set)
@@ -770,11 +889,13 @@ def main(argv: list[str] | None = None) -> int:
             args.sample_plan,
             args.output,
         )
-    else:
+    elif args.command == "evaluate":
         payload = assess(args.image_root, args.normalization_manifest, args.sample_plan, args.config, args.output)
         if args.github_summary:
             with args.github_summary.open("a", encoding="utf-8") as handle:
                 handle.write(_summary(payload))
+    else:
+        recommend_policy(args.assessment, args.output, args.github_summary)
     return 0
 
 

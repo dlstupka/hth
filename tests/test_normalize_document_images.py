@@ -19,6 +19,7 @@ from hth.normalize_document_images import (
     materialize_canonical_images,
     normalize,
 )
+from hth.orientation_deskew import rotate_expand
 
 
 class NormalizeDocumentImagesTests(unittest.TestCase):
@@ -148,6 +149,95 @@ class NormalizeDocumentImagesTests(unittest.TestCase):
             self.assertEqual(payload["status"], "complete")
             self.assertEqual(payload["ordinals"], [1])
 
+    def test_recommended_hough_policy_is_compatibility_checked_and_selective(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            images = root / "images"
+            images.mkdir()
+            level = np.full((700, 900, 3), 255, dtype=np.uint8)
+            for y in range(60, 660, 24):
+                cv2.line(level, (70, y), (830, y), (0, 0, 0), 2)
+            image = rotate_expand(level, 1.0)
+            source = images / "fs_0001.png"
+            self.assertTrue(cv2.imwrite(str(source), image))
+            source_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+            manifest = root / "manifest.json"
+            manifest.write_text(json.dumps({
+                "collection_id": "HTH-TEST",
+                "records": [{"global_ordinal": 1, "sha256": source_sha}],
+            }), encoding="utf-8")
+            analysis = root / "analysis.json"
+            analysis.write_text(json.dumps({
+                "document_detector": {
+                    "detector": "test",
+                    "parameter_identity_sha256": "a" * 64,
+                },
+                "records": [{
+                    "global_ordinal": 1,
+                    "geometry_candidates": [{
+                        "method": "test", "status": "ok", "confidence": 1.0,
+                        "corners": [[0, 0], [image.shape[1], 0], [image.shape[1], image.shape[0]], [0, image.shape[0]]],
+                    }],
+                }],
+            }), encoding="utf-8")
+            evidence = {
+                "effective_build_identity": "b" * 64,
+                "canonical_result": {
+                    "identity": "c" * 64,
+                    "pages": [{
+                        "global_ordinal": 1,
+                        "canonical_image_sha256": source_sha,
+                        "canonical_page_result_sha256": "d" * 64,
+                    }],
+                },
+            }
+            policy = root / "policy.json"
+            policy_payload = {
+                "policy_type": "orientation-deskew-normalization",
+                "policy_id": "hough-lines-conservative-v1",
+                "status": "recommended-for-validation",
+                "gross_orientation": {"action": "preserve", "degrees": 0},
+                "deskew": {
+                    "estimator": "hough-lines",
+                    "minimum_absolute_correction_degrees": 0.5,
+                    "maximum_absolute_correction_degrees": 1.5,
+                    "minimum_confidence": 0.7,
+                    "minimum_line_count": 20,
+                    "maximum_weighted_mad_degrees": 1.0,
+                    "canvas": "expanded-white",
+                    "interpolation": "linear",
+                },
+                "compatibility": {
+                    "canonical_preprocess_result_identity": "c" * 64,
+                    "detector": "test",
+                    "parameter_identity_sha256": "a" * 64,
+                    "base_normalization_policy_id": POLICY_ID,
+                },
+            }
+            from hth.canonical_build_evidence import canonical_hash
+            policy_payload["policy_identity"] = canonical_hash(policy_payload)
+            policy.write_text(json.dumps(policy_payload), encoding="utf-8")
+
+            payload = normalize(
+                None, images, manifest, analysis, evidence, root / "output",
+                status="complete", transform_policy_path=policy,
+            )
+
+            page = payload["pages"][0]
+            self.assertEqual(page["transform_decision"], "apply")
+            self.assertGreater(abs(page["deskew_correction_degrees"]), 0.5)
+            self.assertEqual(payload["transform_summary"]["pages_transformed"], 1)
+            self.assertEqual(payload["policy"]["transform_policy_id"], "hough-lines-conservative-v1")
+            self.assertTrue((root / "output/normalization-policy.json").is_file())
+
+            policy_payload["deskew"]["minimum_confidence"] = 0.1
+            policy.write_text(json.dumps(policy_payload), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "identity does not match"):
+                normalize(
+                    None, images, manifest, analysis, evidence, root / "tampered-output",
+                    status="complete", transform_policy_path=policy,
+                )
+
     def test_materialization_reconstructs_manifest_image_from_docx(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -206,6 +296,9 @@ class NormalizeDocumentImagesTests(unittest.TestCase):
             self.assertIn("metadata/canonical-build-evidence.json", workflow)
             self.assertIn("analysis/page-analysis.json", workflow)
             self.assertIn("python -m hth.normalize_document_images", workflow)
+            self.assertIn("normalization_recipe:", workflow)
+            self.assertIn("prepared-recommendation", workflow)
+            self.assertIn("--transform-policy", workflow)
             self.assertIn("specific_runner:", workflow)
             self.assertIn("custom_runner_label:", workflow)
             self.assertNotIn("run_document_detector", workflow)

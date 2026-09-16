@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "assessment_type": "orientation-deskew-comparison",
   "sampling": {
     "cadence": 25,
@@ -14,6 +14,23 @@
     "projection_fine_step_degrees": 0.05,
     "agreement_tolerance_degrees": 0.25,
     "conflict_threshold_degrees": 0.75
+  },
+  "recommendation": {
+    "policy_id": "hough-lines-conservative-v1",
+    "minimum_sample_pages": 50,
+    "minimum_mean_hough_confidence": 0.75,
+    "minimum_hough_over_projection_confidence_gap": 0.4,
+    "maximum_hough_boundary_limited_pages": 0,
+    "gross_orientation_action": "preserve",
+    "deskew": {
+      "minimum_absolute_correction_degrees": 0.5,
+      "maximum_absolute_correction_degrees": 1.5,
+      "minimum_confidence": 0.7,
+      "minimum_line_count": 20,
+      "maximum_weighted_mad_degrees": 1.0,
+      "canvas": "expanded-white",
+      "interpolation": "linear"
+    }
   },
   "review": {
     "jpeg_quality": 92,

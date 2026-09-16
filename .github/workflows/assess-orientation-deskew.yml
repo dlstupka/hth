@@ -1,6 +1,6 @@
-name: HTH assess orientation and deskew
+name: HTH prepare normalization recommendation
 
-run-name: Assess orientation / deskew against canonical HTH-0001 crops
+run-name: Prepare a safe normalization recommendation for HTH-0001
 
 on:
   workflow_dispatch:
@@ -94,7 +94,7 @@ jobs:
             /normalization/canonical-build-evidence.json
             /normalization/normalization-manifest.json
           sparse-checkout-cone-mode: false
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Set up canonical HTH Python runtime
         uses: ./hth-pipeline/.github/actions/setup-hth-python
@@ -218,6 +218,55 @@ jobs:
             --github-summary "$GITHUB_STEP_SUMMARY"
           cp "$RUNNER_TEMP/orientation-deskew-sample.json" orientation-deskew-assessment/sample-plan.json
           cp "$RUNNER_TEMP/orientation-deskew-materialized/materialization-evidence.json" orientation-deskew-assessment/materialization-evidence.json
+
+      - name: Prepare plain-language normalization recommendation
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          python -m hth.assess_orientation_deskew recommend \
+            --assessment orientation-deskew-assessment/assessment.json \
+            --output orientation-deskew-assessment/normalization-policy.json \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve recommendation and compact assessment evidence
+        id: publish_recommendation
+        shell: bash
+        run: |
+          set -euo pipefail
+          source hth-pipeline/tools/hardened-persistence.sh
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          payload="$RUNNER_TEMP/hth-normalization-recommendation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$payload"
+          mkdir -p "$payload"
+          cp orientation-deskew-assessment/assessment.json "$payload/"
+          cp orientation-deskew-assessment/sample-plan.json "$payload/"
+          cp orientation-deskew-assessment/materialization-evidence.json "$payload/"
+          cp orientation-deskew-assessment/recommendation.md "$payload/"
+          cp orientation-deskew-assessment/normalization-policy.json "$payload/"
+
+          apply_normalization_recommendation() {
+            mkdir -p results-repo/normalization/orientation-deskew
+            cp "$payload/assessment.json" results-repo/normalization/orientation-deskew/
+            cp "$payload/sample-plan.json" results-repo/normalization/orientation-deskew/
+            cp "$payload/materialization-evidence.json" results-repo/normalization/orientation-deskew/
+            cp "$payload/recommendation.md" results-repo/normalization/orientation-deskew/
+            cp "$payload/normalization-policy.json" results-repo/normalization/orientation-deskew/
+            cp "$payload/normalization-policy.json" results-repo/normalization/orientation-deskew-policy.json
+            hth_results_stage results-repo \
+              normalization/orientation-deskew \
+              normalization/orientation-deskew-policy.json
+          }
+
+          hth_hardened_persist \
+            results-repo main \
+            "Publish normalization assessment recommendation ${{ github.run_id }}" \
+            apply_normalization_recommendation \
+            "Normalization recommendation publication"
+          echo "results_commit=$HTH_PERSIST_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "- Recommendation evidence: [results commit \`$HTH_PERSIST_COMMIT\`](${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/commit/${HTH_PERSIST_COMMIT})" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload orientation and deskew assessment
         uses: ./hth-pipeline/.github/actions/hardened-upload-artifact

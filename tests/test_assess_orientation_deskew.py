@@ -12,12 +12,14 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from hth.canonical_build_evidence import canonical_hash
 from hth.assess_orientation_deskew import (
     assess,
     estimate_hough_lines,
     estimate_projection_profile,
     materialize_sample,
     orientation_axis_scores,
+    recommend_policy,
     rotate_expand,
     select_sample,
 )
@@ -142,6 +144,86 @@ class OrientationDeskewAssessmentTests(unittest.TestCase):
             self.assertFalse((output / "variants").exists())
             self.assertIn("No production normalization policy", (output / "summary.md").read_text(encoding="utf-8"))
 
+    def test_recommendation_automates_safe_policy_but_requires_explicit_activation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            assessment = root / "assessment.json"
+            assessment_payload = {
+                "schema_version": "2.0",
+                "assessment_type": "orientation-deskew-comparison",
+                "status": "diagnostic-only",
+                "sample_identity": "a" * 64,
+                "sample_page_count": 1,
+                "population_page_count": 929,
+                "canonical_normalization_result_identity": "b" * 64,
+                "canonical_preprocess": {"canonical_result_identity": "c" * 64},
+                "detector_selection": {
+                    "detector": "doc_ufcn_page_mask",
+                    "parameter_identity_sha256": "d" * 64,
+                },
+                "base_normalization_policy": {"id": "axis-aligned-detector-envelope-v1"},
+                "config": {
+                    "recommendation": {
+                        "policy_id": "hough-lines-conservative-v1",
+                        "minimum_sample_pages": 1,
+                        "minimum_mean_hough_confidence": 0.75,
+                        "minimum_hough_over_projection_confidence_gap": 0.4,
+                        "maximum_hough_boundary_limited_pages": 0,
+                        "gross_orientation_action": "preserve",
+                        "deskew": {
+                            "minimum_absolute_correction_degrees": 0.5,
+                            "maximum_absolute_correction_degrees": 1.5,
+                            "minimum_confidence": 0.7,
+                            "minimum_line_count": 20,
+                            "maximum_weighted_mad_degrees": 1.0,
+                            "canvas": "expanded-white",
+                            "interpolation": "linear",
+                        },
+                    }
+                },
+                "aggregate": {
+                    "hough-lines": {
+                        "mean_confidence": 0.84,
+                        "maximum_absolute_correction_degrees": 1.38,
+                        "boundary_limited_pages": 0,
+                    },
+                    "projection-profile": {"mean_confidence": 0.17},
+                },
+                "pages": [{
+                    "global_ordinal": 26,
+                    "estimators": {"hough-lines": {
+                        "estimated_correction_degrees": -1.38,
+                        "confidence": 0.72,
+                        "line_count": 532,
+                        "weighted_mad_degrees": 0.84,
+                        "boundary_limited": False,
+                    }},
+                }],
+            }
+            assessment_payload["assessment_identity"] = canonical_hash({
+                "assessment_type": assessment_payload["assessment_type"],
+                "canonical_normalization_result_identity": assessment_payload["canonical_normalization_result_identity"],
+                "sample_identity": assessment_payload["sample_identity"],
+                "config": assessment_payload["config"],
+                "pages": assessment_payload["pages"],
+            })
+            assessment.write_text(json.dumps(assessment_payload), encoding="utf-8")
+
+            policy = recommend_policy(assessment, root / "normalization-policy.json")
+
+            self.assertEqual(policy["status"], "recommended-for-validation")
+            self.assertEqual(policy["activation"], "explicit-normalization-workflow-selection-required")
+            self.assertEqual(policy["gross_orientation"]["action"], "preserve")
+            self.assertEqual(policy["evidence"]["sample_pages_passing_transform_gates"][0]["global_ordinal"], 26)
+            self.assertEqual(len(policy["policy_identity"]), 64)
+            self.assertTrue((root / "recommendation.md").is_file())
+
+            stale = dict(assessment_payload)
+            stale["schema_version"] = "1.0"
+            assessment.write_text(json.dumps(stale), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "must be regenerated"):
+                recommend_policy(assessment, root / "stale-policy.json")
+
     def test_materialization_reconstructs_and_proves_exact_canonical_crop(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -228,7 +310,7 @@ class OrientationDeskewAssessmentTests(unittest.TestCase):
             self.assertTrue(np.array_equal(actual, crop))
             self.assertTrue((output / "materialization-evidence.json").is_file())
 
-    def test_workflow_reuses_canonical_crop_evidence_and_is_diagnostic_only(self) -> None:
+    def test_workflow_prepares_and_persists_a_reusable_recommendation(self) -> None:
         root = Path(__file__).resolve().parents[1]
         workflow = (root / ".github/workflows/assess-orientation-deskew.yml").read_text(encoding="utf-8")
 
@@ -238,12 +320,18 @@ class OrientationDeskewAssessmentTests(unittest.TestCase):
         self.assertIn("python -m hth.assess_orientation_deskew prepare", workflow)
         self.assertIn("python -m hth.assess_orientation_deskew materialize", workflow)
         self.assertIn("python -m hth.assess_orientation_deskew evaluate", workflow)
+        self.assertIn("python -m hth.assess_orientation_deskew recommend", workflow)
+        self.assertIn("normalization/orientation-deskew-policy.json", workflow)
+        self.assertIn("hth_hardened_persist", workflow)
         self.assertIn("specific_runner:", workflow)
         self.assertIn("custom_runner_label:", workflow)
         self.assertIn("fromJSON(format('[\"self-hosted\",\"{0}\"]', inputs.custom_runner_label))", workflow)
         self.assertNotIn("run_document_detector", workflow)
         self.assertNotIn("git push", workflow)
-        self.assertNotIn("hth_hardened_persist", workflow)
+        pipeline_checkout = workflow.split("- name: Checkout HTH pipeline", 1)[1].split("- name:", 1)[0]
+        results_checkout = workflow.split("- name: Checkout canonical normalization evidence", 1)[1].split("- name:", 1)[0]
+        self.assertIn("persist-credentials: false", pipeline_checkout)
+        self.assertIn("persist-credentials: true", results_checkout)
 
 
 if __name__ == "__main__":

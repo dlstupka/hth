@@ -1,9 +1,17 @@
 # Orientation and deskew assessment
 
-`HTH assess orientation and deskew` is the diagnostic entry point for the
-second normalization-stage decision. It consumes the persisted canonical crop
-manifest rather than rerunning document detection or treating a temporary
-image artifact as authoritative.
+`HTH prepare normalization recommendation` is the researcher-facing entry
+point for the second normalization decision. One run reconstructs the review
+sample, assesses orientation and deskew candidates, produces a plain-language
+recommendation, and preserves the compact evidence and machine-readable policy.
+It consumes the persisted canonical crop manifest rather than rerunning
+document detection or treating a temporary image artifact as authoritative.
+
+The workflow deliberately does not reproduce the current Golden Set creation
+experience. Researchers do not download an artifact, copy identifiers, edit
+JSON, or invoke separate assessment and recommendation jobs. Those remain
+separate internal operations so they can be tested and maintained, but the
+normal path exposes them as one guided preparation action.
 
 The assessment reconstructs a bounded stratified sample directly from the
 immutable source DOCX release. Each source image is checked against the
@@ -43,11 +51,12 @@ pixels. Metrics include estimator angle and confidence, estimator agreement,
 expanded area, a foreground-retention proxy, foreground near the output
 boundary, and a sharpness ratio.
 
-Gross orientation is explicitly review-only. Image geometry can distinguish
+Gross orientation remains explicitly review-only. Image geometry can distinguish
 the horizontal text axis from the vertical text axis, but it cannot reliably
 distinguish upright from upside down without independently accepted semantic
-evidence. Deskew is also diagnostic because every non-zero correction
-resamples pixels.
+evidence. Every non-zero deskew correction resamples pixels, so the preparation
+workflow may recommend a conservative policy but never applies it to the
+canonical collection.
 
 ## Artifact
 
@@ -58,6 +67,8 @@ assessment.json
 assessment.csv
 summary.md
 index.html
+recommendation.md
+normalization-policy.json
 sample-plan.json
 materialization-evidence.json
 contact-sheets/
@@ -67,7 +78,11 @@ It does not contain a second lossless image corpus. Open `index.html` to review
 all sampled pages. The GitHub Actions summary presents aggregate estimator
 behavior and prioritizes estimator conflicts for visual review.
 
-The workflow publishes no production normalization policy and does not mutate
-the results repository. A later production orientation/deskew stage requires
-an explicit decision grounded in this artifact.
+The workflow persists the compact assessment, recommendation, and proposed
+policy in the results repository. This removes artifact hand-carrying and makes
+the decision reproducible. It does not resample or publish normalized images.
 
+The remaining human boundary is intentional and simple: review the recommendation,
+then run collection normalization with either the default prepared recommendation
+or `axis-aligned-only`. This is approval of a pixel-changing operation, not a
+request to assemble the pipeline by hand.
