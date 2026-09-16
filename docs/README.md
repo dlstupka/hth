@@ -253,6 +253,7 @@ This directory contains the design, operating, and project-reference documentati
 - [Multi-Scale Radial Edge Search detector](detector-multi-scale-radial-edge.md) — scale-space radial fusion for boundaries that appear differently across spatial scales.
 - [Page Background detector](detector-page-background.md) — robustly models the surrounding capture/background and extracts the enclosed non-background page region.
 - [Projective Gradient Vote detector](detector-projective-gradient-vote.md) — long gradient-supported line families intersected into a perspective-aware quadrilateral.
+- [Perspective assessment](perspective-assessment.md) — independent line-convergence evidence that explicitly recommends preserving pixels or withholding projective correction.
 - [Border Fusion Quad detector](detector-border-fusion-quad.md) — side-level fusion across radial, polar, and gradient boundary hypotheses.
 - [Border Energy Validator detector](detector-border-energy.md) — contour geometry validated by gradient energy along all four borders.
 - [Edge-Contour Hybrid detector](detector-edge-contour.md) — contour hypotheses verified by independent line-segment evidence.

@@ -272,6 +272,7 @@ class OrientationDeskewAssessmentTests(unittest.TestCase):
             decoded = cv2.imdecode(np.frombuffer(embedded, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
             crop = decoded[1:7, 2:10].copy()
             normalization_manifest = root / "normalization.json"
+            normalized = rotate_expand(crop, 1.0)
             normalization_manifest.write_text(json.dumps({
                 "canonical_result_identity": "c" * 64,
                 "pages": [{
@@ -283,9 +284,11 @@ class OrientationDeskewAssessmentTests(unittest.TestCase):
                     "crop_top": 1,
                     "crop_right_exclusive": 10,
                     "crop_bottom_exclusive": 7,
-                    "output_width": 8,
-                    "output_height": 6,
-                    "output_pixel_sha256": _pixel_sha256(crop),
+                    "output_width": normalized.shape[1],
+                    "output_height": normalized.shape[0],
+                    "output_pixel_sha256": _pixel_sha256(normalized),
+                    "transform_decision": "apply",
+                    "deskew_correction_degrees": 1.0,
                 }],
             }), encoding="utf-8")
             sample = root / "sample.json"
@@ -306,7 +309,7 @@ class OrientationDeskewAssessmentTests(unittest.TestCase):
             self.assertEqual(payload["status"], "verified")
             self.assertEqual(payload["page_count"], 1)
             actual = cv2.imread(str(output / "normalized/fs_0001.png"), cv2.IMREAD_UNCHANGED)
-            self.assertTrue(np.array_equal(actual, crop))
+            self.assertTrue(np.array_equal(actual, normalized))
             self.assertTrue((output / "materialization-evidence.json").is_file())
 
     def test_workflow_prepares_and_persists_a_reusable_recommendation(self) -> None:

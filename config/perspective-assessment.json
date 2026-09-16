@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "assessment_type": "perspective-convergence-comparison",
+  "sampling": {
+    "cadence": 25,
+    "lowest_detector_confidence": 12,
+    "lowest_area_retention": 12,
+    "largest_crop_asymmetry": 8
+  },
+  "estimator": {
+    "maximum_analysis_dimension": 1400,
+    "canny_low": 60,
+    "canny_high": 180,
+    "minimum_line_length_fraction": 0.08,
+    "maximum_axis_angle_degrees": 15.0,
+    "minimum_line_count": 12,
+    "full_confidence_line_count": 40,
+    "maximum_family_deviation_degrees": 3.0,
+    "minimum_confidence": 0.6,
+    "required_confirming_families": 2,
+    "preserve_maximum_degrees": 0.35,
+    "correction_minimum_degrees": 0.75
+  },
+  "recommendation": {
+    "policy_id": "projective-convergence-conservative-v1",
+    "minimum_sample_pages": 50,
+    "maximum_candidate_fraction_for_skip": 0.025,
+    "maximum_inconclusive_fraction_for_skip": 0.25
+  }
+}

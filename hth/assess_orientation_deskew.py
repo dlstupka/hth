@@ -143,9 +143,10 @@ def select_sample(
         }
         for ordinal in sorted(reasons)
     ]
+    assessment_type = str(config.get("assessment_type") or "orientation-deskew-comparison")
     return {
         "schema_version": SCHEMA_VERSION,
-        "assessment_type": "orientation-deskew-sample-plan",
+        "assessment_type": assessment_type.replace("-comparison", "-sample-plan"),
         "normalization_identity": normalization_manifest.get("normalization_identity"),
         "canonical_normalization_result_identity": normalization_manifest.get("canonical_result_identity"),
         "collection": _normalization_scope(normalization_manifest),
@@ -225,21 +226,25 @@ def materialize_sample(
         right = int(record["crop_right_exclusive"])
         bottom = int(record["crop_bottom_exclusive"])
         cropped = image[top:bottom, left:right].copy()
-        if (cropped.shape[1], cropped.shape[0]) != (int(record["output_width"]), int(record["output_height"])):
-            raise ValueError(f"Page {ordinal} crop dimensions do not match normalization evidence")
-        if _pixel_sha256(cropped) != str(record.get("output_pixel_sha256") or ""):
-            raise ValueError(f"Page {ordinal} crop pixels do not match the canonical normalization result")
+        if record.get("transform_decision") == "apply":
+            normalized = rotate_expand(cropped, float(record.get("deskew_correction_degrees") or 0.0))
+        else:
+            normalized = cropped
+        if (normalized.shape[1], normalized.shape[0]) != (int(record["output_width"]), int(record["output_height"])):
+            raise ValueError(f"Page {ordinal} normalized dimensions do not match normalization evidence")
+        if _pixel_sha256(normalized) != str(record.get("output_pixel_sha256") or ""):
+            raise ValueError(f"Page {ordinal} pixels do not match the canonical normalization result")
         target = normalized_root / f"fs_{ordinal:04d}.png"
-        if not cv2.imwrite(str(target), cropped, [cv2.IMWRITE_PNG_COMPRESSION, 6]):
+        if not cv2.imwrite(str(target), normalized, [cv2.IMWRITE_PNG_COMPRESSION, 6]):
             raise ValueError(f"Could not write sampled normalized page {ordinal}")
         round_trip = cv2.imread(str(target), cv2.IMREAD_UNCHANGED)
-        if round_trip is None or not np.array_equal(round_trip, cropped):
+        if round_trip is None or not np.array_equal(round_trip, normalized):
             raise ValueError(f"Sampled normalized page {ordinal} failed lossless round-trip validation")
         rows.append({
             "global_ordinal": ordinal,
             "source_sha256": record["source_sha256"],
             "canonical_normalized_pixel_sha256": record["output_pixel_sha256"],
-            "materialized_pixel_sha256": _pixel_sha256(cropped),
+            "materialized_pixel_sha256": _pixel_sha256(normalized),
             "output_file": target.relative_to(output).as_posix(),
         })
     payload = {

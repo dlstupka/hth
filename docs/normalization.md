@@ -119,11 +119,18 @@ pages are never hidden between sampling intervals.
 Neither workflow reruns document detection or mutates preprocess, calibration,
 or runtime intelligence.
 
-The preparation and recommendation stage is documented in
+The orientation preparation and recommendation stage is documented in
 [Orientation and deskew assessment](orientation-deskew-assessment.md). It
 reconstructs and proves only a stratified sample of these canonical crops,
 then compares gross-orientation views and two conservative small-angle deskew
 estimators and preserves a compatible recommendation without applying it.
 
-Perspective correction, tonal correction, and binarization remain separate
-future normalization operations with independent evidence contracts.
+The next independent stage is documented in
+[Perspective assessment](perspective-assessment.md). It measures line-family
+convergence on a proven stratified sample and persists an explicit `preserve`
+or `withhold` recommendation. A `preserve` recommendation is positive evidence
+that projective correction should be skipped; it does not silently omit the
+stage and it does not change normalized pixels.
+
+Tonal correction and binarization remain separate future normalization
+operations with independent evidence contracts.
