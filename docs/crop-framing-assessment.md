@@ -16,6 +16,13 @@ Golden Set image bundle, runs that detector over the images, and uploads a
 diagnostic artifact. It does not publish normalized images, alter calibration
 intelligence, or select a production normalization policy.
 
+The manual dispatch menu uses the standard HTH runner controls. `Execution
+runner` selects GitHub-hosted or one of the self-hosted runner classes;
+`Specific self-hosted runner` can be changed to `custom` to route the job to
+the exact label entered in `Custom self-hosted runner label`. This makes the
+image-heavy comparison easy to move to a faster available self-hosted runner
+without changing the workflow.
+
 ## Assessment artifact
 
 The artifact contains:
@@ -56,4 +63,3 @@ Golden Set must add immutable four-corner truth or another independently
 approved normalized-image contract. The current workflow deliberately labels
 its results diagnostic rather than presenting a box-derived proxy as
 perspective ground truth.
-

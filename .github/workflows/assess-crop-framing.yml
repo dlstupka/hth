@@ -5,6 +5,31 @@ run-name: Assess crop / framing against HTH-GOLDEN-0002
 on:
   workflow_dispatch:
     inputs:
+      runner:
+        description: Execution runner
+        required: true
+        default: github-hosted
+        type: choice
+        options:
+          - github-hosted
+          - self-hosted-hth
+          - self-hosted-windows
+          - self-hosted-rhel8
+          - self-hosted-e7k
+          - self-hosted-e9k
+      specific_runner:
+        description: "Specific self-hosted runner; any keeps the selected runner class"
+        required: true
+        default: any
+        type: choice
+        options:
+          - any
+          - custom
+      custom_runner_label:
+        description: "Custom self-hosted runner label; used only when Specific self-hosted runner is custom"
+        required: false
+        default: ""
+        type: string
       artifact_retention_days:
         description: Days to retain the diagnostic comparison artifact
         required: true
@@ -32,8 +57,24 @@ env:
 jobs:
   assess-crop-framing:
     name: Compare crop and framing transforms on GS0002
-    runs-on: ubuntu-latest
+    runs-on: >-
+      ${{    inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && fromJSON(format('["self-hosted","{0}"]', inputs.custom_runner_label))
+          || inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+          || inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
+          || inputs.runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
+          || inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
+          || inputs.runner == 'self-hosted-e9k'     && fromJSON('["self-hosted","Linux","X64","e9k"]')
+          || 'ubuntu-latest' }}
     timeout-minutes: 45
+    env:
+      HTH_SELECTED_RUNNER_LABEL: >-
+        ${{  inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && inputs.custom_runner_label
+          || inputs.runner == 'self-hosted-hth' && 'hth'
+          || inputs.runner == 'self-hosted-rhel8' && 'rhel8'
+          || inputs.runner == 'self-hosted-e7k' && 'e7k'
+          || inputs.runner == 'self-hosted-e9k' && 'e9k'
+          || inputs.runner == 'self-hosted-windows' && 'windows'
+          || 'github-hosted' }}
     steps:
       - name: Checkout HTH pipeline
         uses: actions/checkout@v6
@@ -62,7 +103,7 @@ jobs:
         uses: ./hth-pipeline/.github/actions/setup-hth-python
         with:
           pipeline-path: hth-pipeline
-          runner-label: github-hosted
+          runner-label: ${{ env.HTH_SELECTED_RUNNER_LABEL }}
 
       - name: Resolve Rank #1 approved GS0002 detector
         id: detector

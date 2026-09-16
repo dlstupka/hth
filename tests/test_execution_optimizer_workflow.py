@@ -268,6 +268,7 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
             "preprocess.yml",
             "preprocess-test.yml",
             "generate-report.yml",
+            "assess-crop-framing.yml",
         ):
             text = (workflow_dir / name).read_text(encoding="utf-8")
             self.assertIn("specific_runner:", text, name)
