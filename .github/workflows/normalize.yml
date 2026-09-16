@@ -286,6 +286,10 @@ jobs:
           TRANSFORM_POLICY: ${{ steps.recipe.outputs.transform_policy }}
         run: |
           set -euo pipefail
+          # Self-hosted workspaces and runner temp directories may retain a
+          # prior attempt. These paths are owned exclusively by this job; the
+          # normalization engine itself remains fail-closed for every caller.
+          rm -rf normalized-collection "$RUNNER_TEMP/canonical-collection-images"
           transform_args=()
           if [[ -n "$TRANSFORM_POLICY" ]]; then
             transform_args+=(--transform-policy "$TRANSFORM_POLICY")

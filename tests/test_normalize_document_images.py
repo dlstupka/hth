@@ -326,6 +326,9 @@ class NormalizeDocumentImagesTests(unittest.TestCase):
         self.assertIn("--implementation hth-pipeline/hth/normalize_document_images.py", collection)
         self.assertNotIn("--implementation hth-pipeline/hth/normalization_report.py", collection)
         self.assertNotIn("--implementation hth-pipeline/hth/canonical_build_evidence.py", collection)
+        cleanup = 'rm -rf normalized-collection "$RUNNER_TEMP/canonical-collection-images"'
+        self.assertIn(cleanup, collection)
+        self.assertLess(collection.index(cleanup), collection.index("python -m hth.normalize_document_images"))
 
 
 if __name__ == "__main__":
