@@ -106,8 +106,9 @@ in Git.
 
 The complete artifact contains every normalized PNG plus manifests and a
 bounded review surface. Contact sheets are generated for the first and last
-pages and every 25th page to keep review useful without adding hundreds of
-megabytes of duplicate JPEG previews.
+pages, every 25th page, and every page on which a pixel-changing transform was
+actually applied. This keeps regular review bounded while ensuring the changed
+pages are never hidden between sampling intervals.
 
 Neither workflow reruns document detection or mutates preprocess, calibration,
 or runtime intelligence.

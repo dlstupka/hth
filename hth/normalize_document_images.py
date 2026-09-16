@@ -444,10 +444,13 @@ def normalize(
         }
         rows.append(row)
         geometry_records.append({"global_ordinal": ordinal, "geometry_candidate": candidate})
-        review_page = (
+        regular_review_page = (
             contact_sheet_every > 0
             and (page_index == 0 or page_index == len(ordered_pages) - 1 or page_index % contact_sheet_every == 0)
         )
+        # Every pixel-changing transform belongs on the review surface even
+        # when it falls between the collection's regular sampling cadence.
+        review_page = regular_review_page or transformation["decision"] == "apply"
         if review_page:
             sheet = _contact_sheet(image, normalized, bounds, ordinal, collection_id)
             if not cv2.imwrite(str(contacts_root / f"fs_{ordinal:04d}.jpg"), sheet, [cv2.IMWRITE_JPEG_QUALITY, 92]):

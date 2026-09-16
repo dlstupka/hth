@@ -220,7 +220,7 @@ class NormalizeDocumentImagesTests(unittest.TestCase):
 
             payload = normalize(
                 None, images, manifest, analysis, evidence, root / "output",
-                status="complete", transform_policy_path=policy,
+                status="complete", contact_sheet_every=0, transform_policy_path=policy,
             )
 
             page = payload["pages"][0]
@@ -229,6 +229,8 @@ class NormalizeDocumentImagesTests(unittest.TestCase):
             self.assertEqual(payload["transform_summary"]["pages_transformed"], 1)
             self.assertEqual(payload["policy"]["transform_policy_id"], "hough-lines-conservative-v1")
             self.assertTrue((root / "output/normalization-policy.json").is_file())
+            self.assertTrue((root / "output/contact-sheets/fs_0001.jpg").is_file())
+            self.assertEqual(payload["review_contact_sheet_ordinals"], [1])
 
             policy_payload["deskew"]["minimum_confidence"] = 0.1
             policy.write_text(json.dumps(policy_payload), encoding="utf-8")
