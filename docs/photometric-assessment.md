@@ -16,7 +16,9 @@ evidence, and uploads review contact sheets.
 `skip-recommended` means preserve the existing pixels. `manual-review-required`
 means withhold automatic correction while researchers review the affected
 pages and a bounded correction policy is developed. It does not authorize a
-generic enhancement filter.
+generic enhancement filter. When credible paper-page candidates exist, run
+**HTH assess photometric methods** to compare the bounded methods described in
+[Photometric method assessment](photometric-method-assessment.md).
 
 ## Measurements
 

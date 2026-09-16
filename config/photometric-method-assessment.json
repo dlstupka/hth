@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "assessment_type": "photometric-method-comparison",
+  "background_field": {
+    "grid_rows": 8,
+    "grid_columns": 8,
+    "background_percentile": 85.0,
+    "smoothing_sigma_fraction": 0.02
+  },
+  "methods": [
+    {"id": "background-subtraction-50", "mode": "subtract", "strength": 0.50},
+    {"id": "background-subtraction-75", "mode": "subtract", "strength": 0.75},
+    {"id": "background-division-50", "mode": "divide", "strength": 0.50},
+    {"id": "background-division-75", "mode": "divide", "strength": 0.75}
+  ],
+  "safety_gates": {
+    "minimum_background_span_reduction_fraction": 0.25,
+    "minimum_high_frequency_correlation": 0.97,
+    "maximum_new_endpoint_clipping_fraction": 0.01,
+    "maximum_absolute_median_luminance_shift": 0.25
+  },
+  "recommendation": {
+    "policy_id": "luminance-background-field-correction-v1",
+    "require_one_method_safe_for_every_candidate": true,
+    "selection_rule": "minimum-strength-then-highest-score"
+  }
+}

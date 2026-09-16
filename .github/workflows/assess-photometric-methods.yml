@@ -1,0 +1,279 @@
+name: HTH assess photometric methods
+
+run-name: Compare bounded photometric methods for canonical HTH-0001 candidates
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Execution runner
+        required: true
+        default: github-hosted
+        type: choice
+        options:
+          - github-hosted
+          - self-hosted-hth
+          - self-hosted-windows
+          - self-hosted-rhel8
+          - self-hosted-e7k
+          - self-hosted-e9k
+      specific_runner:
+        description: "Specific self-hosted runner; any keeps the selected runner class"
+        required: true
+        default: any
+        type: choice
+        options: [any, custom]
+      custom_runner_label:
+        description: "Custom self-hosted runner label; used only when Specific self-hosted runner is custom"
+        required: false
+        default: ""
+        type: string
+      artifact_retention_days:
+        description: Days to retain the diagnostic method-comparison artifact
+        required: true
+        default: 14
+        type: number
+
+permissions:
+  contents: read
+
+concurrency:
+  group: assess-photometric-methods-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: init.defaultBranch
+  GIT_CONFIG_VALUE_0: main
+  RESULTS_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
+  PHOTOMETRIC_CONFIG: hth-pipeline/config/photometric-assessment.json
+  METHOD_CONFIG: hth-pipeline/config/photometric-method-assessment.json
+
+jobs:
+  assess-photometric-methods:
+    name: Compare deterministic illumination corrections and prepare validation recommendation
+    runs-on: >-
+      ${{    inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && fromJSON(format('["self-hosted","{0}"]', inputs.custom_runner_label))
+          || inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+          || inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
+          || inputs.runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
+          || inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
+          || inputs.runner == 'self-hosted-e9k'     && fromJSON('["self-hosted","Linux","X64","e9k"]')
+          || 'ubuntu-latest' }}
+    timeout-minutes: 45
+    env:
+      HTH_SELECTED_RUNNER_LABEL: >-
+        ${{  inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && inputs.custom_runner_label
+          || inputs.runner == 'self-hosted-hth' && 'hth'
+          || inputs.runner == 'self-hosted-rhel8' && 'rhel8'
+          || inputs.runner == 'self-hosted-e7k' && 'e7k'
+          || inputs.runner == 'self-hosted-e9k' && 'e9k'
+          || inputs.runner == 'self-hosted-windows' && 'windows'
+          || 'github-hosted' }}
+    steps:
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
+        with:
+          path: hth-pipeline
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout canonical photometric evidence
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.RESULTS_REPOSITORY }}
+          path: results-repo
+          ref: main
+          token: ${{ secrets.HTH_RESULTS_TOKEN || github.token }}
+          fetch-depth: 1
+          sparse-checkout: |
+            /metadata/canonical-build-evidence.json
+            /metadata/image_manifest.json
+            /normalization/canonical-build-evidence.json
+            /normalization/normalization-manifest.json
+            /normalization/photometric/
+            /normalization/photometric-policy.json
+            /normalization/photometric-methods/
+            /normalization/photometric-method-policy.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: true
+
+      - name: Set up canonical HTH Python runtime
+        uses: ./hth-pipeline/.github/actions/setup-hth-python
+        with:
+          pipeline-path: hth-pipeline
+          runner-label: ${{ env.HTH_SELECTED_RUNNER_LABEL }}
+
+      - name: Validate normalization, photometric candidates, and source provenance
+        id: provenance
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from hth.canonical_build_evidence import NORMALIZATION_SCOPE, canonical_hash, load_evidence_store, validate_published_results
+
+          results = Path("results-repo")
+          store = load_evidence_store(results / "normalization/canonical-build-evidence.json", scope=NORMALIZATION_SCOPE)
+          identity = str(store.get("authoritative_identity") or "")
+          record = (store.get("records") or {}).get(identity)
+          if not identity or not isinstance(record, dict):
+              raise SystemExit("Canonical normalization evidence has no authoritative record")
+          validate_published_results(record, results)
+          manifest = json.loads((results / "normalization/normalization-manifest.json").read_text(encoding="utf-8"))
+          result_identity = str(manifest.get("canonical_result_identity") or "")
+          if len(result_identity) != 64:
+              raise SystemExit("Canonical normalization manifest has no result identity")
+
+          assessment = json.loads((results / "normalization/photometric/assessment.json").read_text(encoding="utf-8"))
+          fields = ("assessment_type", "canonical_normalization_result_identity", "sample_identity", "config", "pages")
+          expected = canonical_hash({key: assessment[key] for key in fields})
+          if assessment.get("assessment_identity") != expected:
+              raise SystemExit("Photometric assessment identity does not match its contents")
+          if assessment.get("canonical_normalization_result_identity") != result_identity:
+              raise SystemExit("Photometric assessment does not match the authoritative normalization result")
+          candidates = [page for page in assessment.get("pages") or [] if (page.get("estimate") or {}).get("decision") == "correction-candidate" and (page.get("estimate") or {}).get("archetype") == "paper-page"]
+          if not candidates:
+              raise SystemExit("Photometric assessment has no actionable paper-page candidates")
+
+          policy = json.loads((results / "normalization/photometric-policy.json").read_text(encoding="utf-8"))
+          claimed_policy_identity = policy.pop("policy_identity", None)
+          if claimed_policy_identity != canonical_hash(policy):
+              raise SystemExit("Photometric policy identity does not match its contents")
+          if policy.get("action") != "withhold" or policy.get("status") != "manual-review-required":
+              raise SystemExit("Method assessment requires a photometric withhold/manual-review decision")
+          compatibility = policy.get("compatibility") or {}
+          if compatibility.get("canonical_normalization_result_identity") != result_identity:
+              raise SystemExit("Photometric policy does not match the authoritative normalization result")
+          if (policy.get("evidence") or {}).get("assessment_identity") != assessment.get("assessment_identity"):
+              raise SystemExit("Photometric policy does not reference the authoritative assessment")
+
+          preprocess_store = json.loads((results / "metadata/canonical-build-evidence.json").read_text(encoding="utf-8"))
+          preprocess = (preprocess_store.get("records") or {}).get(preprocess_store.get("authoritative_identity"))
+          if not isinstance(preprocess, dict):
+              raise SystemExit("Canonical preprocess evidence has no authoritative record")
+          source = (preprocess.get("effective_inputs") or {}).get("source") or {}
+          if not source.get("repository") or not source.get("release") or len(str(source.get("release_manifest_sha256") or "")) != 64:
+              raise SystemExit("Canonical preprocess evidence has incomplete source provenance")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+              handle.write(f"source_repository={source['repository']}\n")
+              handle.write(f"source_release={source['release']}\n")
+              handle.write(f"source_manifest_sha256={source['release_manifest_sha256']}\n")
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as handle:
+              handle.write("## Canonical inputs\n\n")
+              handle.write(f"- Normalized-pixel result: `{result_identity}`\n")
+              handle.write(f"- Photometric assessment: `{assessment['assessment_identity']}`\n")
+              handle.write(f"- Persisted correction candidates: `{len(candidates)}`\n")
+          PY
+
+      - name: Select exact persisted photometric candidates
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          python -m hth.assess_photometric_methods prepare \
+            --photometric-assessment results-repo/normalization/photometric/assessment.json \
+            --normalization-manifest results-repo/normalization/normalization-manifest.json \
+            --output "$RUNNER_TEMP/photometric-method-sample.json"
+
+      - name: Download immutable source release
+        id: source_release
+        shell: bash
+        env:
+          HTH_SOURCE_TOKEN: ${{ secrets.HTH_SOURCE_TOKEN || github.token }}
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          rm -rf source-repo
+          python -m hth.source_release \
+            --repository "${{ steps.provenance.outputs.source_repository }}" \
+            --tag "${{ steps.provenance.outputs.source_release }}" \
+            --destination source-repo \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Verify immutable source release
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${{ steps.source_release.outputs.manifest_sha256 }}" == "${{ steps.provenance.outputs.source_manifest_sha256 }}" ]]
+
+      - name: Reconstruct and prove exact candidate normalized pages
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/photometric-method-materialized"
+          python -m hth.assess_orientation_deskew materialize \
+            --source-root source-repo/images \
+            --canonical-image-manifest results-repo/metadata/image_manifest.json \
+            --normalization-manifest results-repo/normalization/normalization-manifest.json \
+            --sample-plan "$RUNNER_TEMP/photometric-method-sample.json" \
+            --output "$RUNNER_TEMP/photometric-method-materialized"
+
+      - name: Compare deterministic photometric methods
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          rm -rf photometric-method-assessment
+          python -m hth.assess_photometric_methods evaluate \
+            --image-root "$RUNNER_TEMP/photometric-method-materialized/normalized" \
+            --photometric-assessment results-repo/normalization/photometric/assessment.json \
+            --normalization-manifest results-repo/normalization/normalization-manifest.json \
+            --sample-plan "$RUNNER_TEMP/photometric-method-sample.json" \
+            --photometric-config "$PHOTOMETRIC_CONFIG" \
+            --method-config "$METHOD_CONFIG" \
+            --output photometric-method-assessment \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+          cp "$RUNNER_TEMP/photometric-method-sample.json" photometric-method-assessment/sample-plan.json
+          cp "$RUNNER_TEMP/photometric-method-materialized/materialization-evidence.json" photometric-method-assessment/materialization-evidence.json
+
+      - name: Prepare photometric method validation recommendation
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          python -m hth.assess_photometric_methods recommend \
+            --assessment photometric-method-assessment/assessment.json \
+            --output photometric-method-assessment/photometric-method-policy.json \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve compact photometric method evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          source hth-pipeline/tools/hardened-persistence.sh
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          payload="$RUNNER_TEMP/hth-photometric-methods-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$payload"
+          mkdir -p "$payload"
+          cp photometric-method-assessment/{assessment.json,assessment.csv,sample-plan.json,materialization-evidence.json,recommendation.md,photometric-method-policy.json} "$payload/"
+
+          apply_photometric_method_assessment() {
+            mkdir -p results-repo/normalization/photometric-methods
+            cp "$payload"/* results-repo/normalization/photometric-methods/
+            cp "$payload/photometric-method-policy.json" results-repo/normalization/photometric-method-policy.json
+            hth_results_stage results-repo normalization/photometric-methods normalization/photometric-method-policy.json
+          }
+          hth_hardened_persist results-repo main \
+            "Publish photometric method assessment ${{ github.run_id }}" \
+            apply_photometric_method_assessment \
+            "Photometric method assessment publication"
+
+      - name: Upload photometric method assessment
+        uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
+        with:
+          name: hth-photometric-method-assessment-${{ github.run_number }}
+          path: photometric-method-assessment
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact_retention_days }}
+          compression-level: 6
