@@ -132,5 +132,12 @@ or `withhold` recommendation. A `preserve` recommendation is positive evidence
 that projective correction should be skipped; it does not silently omit the
 stage and it does not change normalized pixels.
 
-Tonal correction and binarization remain separate future normalization
-operations with independent evidence contracts.
+The following independent stage is documented in
+[Photometric assessment](photometric-assessment.md). It measures bright-paper
+background uniformity, usable tonal range, endpoint clipping, and spatial color
+variation. It consumes the compatible perspective-preservation decision and
+persists its own `preserve` or `withhold` recommendation without changing
+pixels.
+
+Binarization remains a separate future normalization operation with its own
+evidence contract.

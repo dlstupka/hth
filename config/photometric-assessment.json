@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0",
+  "assessment_type": "photometric-uniformity-comparison",
+  "sampling": {
+    "cadence": 25,
+    "lowest_detector_confidence": 12,
+    "lowest_area_retention": 12,
+    "largest_crop_asymmetry": 8
+  },
+  "estimator": {
+    "maximum_analysis_dimension": 1400,
+    "grid_rows": 8,
+    "grid_columns": 8,
+    "minimum_tile_pixels": 64,
+    "background_percentile": 85.0,
+    "minimum_valid_tiles": 32,
+    "preserve_maximum_background_span": 0.10,
+    "candidate_minimum_background_span": 0.18,
+    "preserve_minimum_tonal_span": 0.24,
+    "candidate_maximum_tonal_span": 0.14,
+    "preserve_maximum_shadow_clipping_fraction": 0.005,
+    "candidate_minimum_shadow_clipping_fraction": 0.025,
+    "preserve_maximum_highlight_clipping_fraction": 0.02,
+    "candidate_minimum_highlight_clipping_fraction": 0.08,
+    "preserve_maximum_background_chroma_variation": 8.0,
+    "candidate_minimum_background_chroma_variation": 16.0
+  },
+  "recommendation": {
+    "policy_id": "photometric-preservation-assessment-v1",
+    "minimum_sample_pages": 50,
+    "maximum_candidate_fraction_for_skip": 0.025,
+    "maximum_inconclusive_fraction_for_skip": 0.20
+  }
+}
