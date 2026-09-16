@@ -123,7 +123,12 @@ jobs:
           if not identity or not isinstance(record, dict):
               raise SystemExit("Canonical normalization evidence has no authoritative record")
           validate_published_results(record, results)
-          result_identity = str(record["canonical_result"]["identity"])
+          manifest = json.loads(
+              (results / "normalization/normalization-manifest.json").read_text(encoding="utf-8")
+          )
+          result_identity = str(manifest.get("canonical_result_identity") or "")
+          if len(result_identity) != 64:
+              raise SystemExit("Canonical normalization manifest has no result identity")
 
           perspective_path = results / "normalization/perspective-policy.json"
           perspective = json.loads(perspective_path.read_text(encoding="utf-8"))
@@ -149,7 +154,8 @@ jobs:
               handle.write(f"source_manifest_sha256={source['release_manifest_sha256']}\n")
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as handle:
               handle.write("## Canonical inputs\n\n")
-              handle.write(f"- Normalization result: `{result_identity}`\n")
+              handle.write(f"- Normalized-pixel result: `{result_identity}`\n")
+              handle.write(f"- Canonical evidence result: `{record['canonical_result']['identity']}`\n")
               handle.write(f"- Perspective decision: `{perspective['action']}`\n")
           PY
 
