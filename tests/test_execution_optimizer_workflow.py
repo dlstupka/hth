@@ -269,6 +269,7 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
             "preprocess-test.yml",
             "generate-report.yml",
             "assess-crop-framing.yml",
+            "assess-orientation-deskew.yml",
             "normalize-gs0002.yml",
             "normalize.yml",
         ):

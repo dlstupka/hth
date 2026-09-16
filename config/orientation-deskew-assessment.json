@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "assessment_type": "orientation-deskew-comparison",
+  "sampling": {
+    "cadence": 25,
+    "lowest_detector_confidence": 12,
+    "lowest_area_retention": 12,
+    "largest_crop_asymmetry": 8
+  },
+  "deskew": {
+    "maximum_correction_degrees": 3.0,
+    "deadband_degrees": 0.15,
+    "projection_coarse_step_degrees": 0.25,
+    "projection_fine_step_degrees": 0.05,
+    "agreement_tolerance_degrees": 0.25,
+    "conflict_threshold_degrees": 0.75
+  },
+  "review": {
+    "jpeg_quality": 92,
+    "panel_width": 520,
+    "panel_height": 420
+  }
+}

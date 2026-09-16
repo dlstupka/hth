@@ -234,6 +234,7 @@ This directory contains the design, operating, and project-reference documentati
 - [Preprocessor](preprocessor.md)
 - [Immutable source releases](source-releases.md) — DOCX extraction and normalized publication inputs.
 - [Document normalization](normalization.md) — validated GS0002 framing and canonical full-collection normalization/reuse.
+- [Orientation and deskew assessment](orientation-deskew-assessment.md) — stratified canonical-crop review of gross orientation and conservative small-angle deskew candidates.
 - [Physical-page analysis](analyze-pages.md) — page analysis and review-queue generation.
 - [Crop and framing assessment](crop-framing-assessment.md) — GS0002 comparison that selected conservative axis-aligned framing for initial normalization.
 

@@ -94,5 +94,11 @@ megabytes of duplicate JPEG previews.
 Neither workflow reruns document detection or mutates preprocess, calibration,
 or runtime intelligence.
 
-Deskew, perspective correction, tonal correction, and binarization remain
-separate future normalization operations with independent evidence contracts.
+The next diagnostic stage is documented in
+[Orientation and deskew assessment](orientation-deskew-assessment.md). It
+reconstructs and proves only a stratified sample of these canonical crops,
+then compares gross-orientation views and two conservative small-angle deskew
+estimators without publishing a production transform.
+
+Perspective correction, tonal correction, and binarization remain separate
+future normalization operations with independent evidence contracts.

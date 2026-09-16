@@ -22,6 +22,7 @@ Standalone review and diagnostic workflows:
 
 ```text
 .github/workflows/assess-crop-framing.yml
+.github/workflows/assess-orientation-deskew.yml
 .github/workflows/normalize-gs0002.yml
 .github/workflows/normalize.yml
 .github/workflows/review-document-detector.yml
@@ -31,6 +32,13 @@ Standalone review and diagnostic workflows:
 immutable GS0002 image bundle, and compares axis-aligned, rotation-crop, and
 projective framing. It uploads temporary assessment evidence only; it neither
 publishes normalization output nor mutates calibration intelligence.
+
+`assess-orientation-deskew.yml` validates the persisted canonical crop
+evidence, reconstructs only a stratified sample from the immutable source
+release, and proves every sampled crop by pixel hash. It compares all four
+gross-orientation views plus bounded projection-profile and Hough-line deskew
+candidates. The artifact is diagnostic only and contains contact sheets and
+machine-readable evidence rather than another full image corpus.
 
 `normalize-gs0002.yml` is the artifact-only validation entry point for the
 selected axis-aligned framing policy. It validates authoritative Canonical
