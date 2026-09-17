@@ -35,6 +35,56 @@ def _bgr(image: np.ndarray) -> np.ndarray:
     return image[:, :, :3].copy()
 
 
+def _background_structure(
+    tile_luminance: list[float],
+    rows: int,
+    columns: int,
+    boundary_trim: int,
+) -> dict[str, float | bool]:
+    """Separate smooth interior illumination from boundaries and page steps."""
+    values = np.asarray(tile_luminance, dtype=np.float32)
+    complete_grid = values.size == rows * columns
+    full_span = float(np.percentile(values, 90) - np.percentile(values, 10)) if values.size else 0.0
+    if not complete_grid or rows <= 2 * boundary_trim or columns <= 2 * boundary_trim:
+        return {
+            "complete_grid": complete_grid,
+            "full_span": full_span,
+            "interior_span": full_span,
+            "gradient_fit_r_squared": 0.0,
+            "dominant_profile_step_fraction": 1.0,
+        }
+
+    grid = values.reshape(rows, columns)
+    interior = grid[
+        boundary_trim:rows - boundary_trim,
+        boundary_trim:columns - boundary_trim,
+    ]
+    interior_values = interior.reshape(-1)
+    interior_span = float(np.percentile(interior_values, 90) - np.percentile(interior_values, 10))
+
+    y, x = np.mgrid[0:interior.shape[0], 0:interior.shape[1]]
+    x_scale = max(1, interior.shape[1] - 1)
+    y_scale = max(1, interior.shape[0] - 1)
+    design = np.column_stack((np.ones(interior.size), x.reshape(-1) / x_scale, y.reshape(-1) / y_scale))
+    fitted = design @ np.linalg.lstsq(design, interior_values, rcond=None)[0]
+    total_variation = float(np.sum(np.square(interior_values - float(np.mean(interior_values)))))
+    residual_variation = float(np.sum(np.square(interior_values - fitted)))
+    gradient_fit = 1.0 if total_variation <= 1e-12 else 1.0 - residual_variation / total_variation
+
+    profiles = (np.median(interior, axis=0), np.median(interior, axis=1))
+    dominant = max(profiles, key=lambda profile: abs(float(profile[-1] - profile[0])))
+    differences = np.abs(np.diff(dominant))
+    profile_variation = float(np.sum(differences))
+    step_fraction = float(np.max(differences) / profile_variation) if profile_variation > 1e-12 else 0.0
+    return {
+        "complete_grid": complete_grid,
+        "full_span": full_span,
+        "interior_span": interior_span,
+        "gradient_fit_r_squared": gradient_fit,
+        "dominant_profile_step_fraction": step_fraction,
+    }
+
+
 def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) -> dict[str, Any]:
     """Measure background uniformity, usable tonal range, clipping, and color variation."""
     cfg = config.get("estimator") or {}
@@ -69,23 +119,13 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
 
     valid_tiles = len(tile_luminance)
     minimum_tiles = int(cfg.get("minimum_valid_tiles") or 32)
-    if valid_tiles:
-        full_frame_background_span = float(np.percentile(tile_luminance, 90) - np.percentile(tile_luminance, 10))
-    else:
-        full_frame_background_span = 0.0
     boundary_trim = max(0, int(cfg.get("background_boundary_trim_tiles") or 1))
-    complete_grid = valid_tiles == rows * columns
-    if complete_grid and rows > 2 * boundary_trim and columns > 2 * boundary_trim:
-        background_grid = np.asarray(tile_luminance, dtype=np.float32).reshape(rows, columns)
-        interior = background_grid[
-            boundary_trim:rows - boundary_trim,
-            boundary_trim:columns - boundary_trim,
-        ].reshape(-1)
-        background_span = float(np.percentile(interior, 90) - np.percentile(interior, 10))
-    else:
-        # An incomplete grid cannot prove that variation is confined to framing.
-        # Fail conservatively by retaining the full-frame measurement.
-        background_span = full_frame_background_span
+    structure = _background_structure(tile_luminance, rows, columns, boundary_trim)
+    complete_grid = bool(structure["complete_grid"])
+    full_frame_background_span = float(structure["full_span"])
+    background_span = float(structure["interior_span"])
+    gradient_fit = float(structure["gradient_fit_r_squared"])
+    profile_step_fraction = float(structure["dominant_profile_step_fraction"])
     if tile_chroma:
         chroma = np.asarray(tile_chroma, dtype=np.float32)
         chroma_variation = float(np.hypot(
@@ -115,8 +155,14 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
         "highlight_clipping": highlight_clipping <= float(cfg.get("preserve_maximum_highlight_clipping_fraction") or 0.02),
         "background_chroma_uniformity": chroma_variation <= float(cfg.get("preserve_maximum_background_chroma_variation") or 8.0),
     }
+    minimum_candidate_span = float(cfg.get("candidate_minimum_background_span") or 0.18)
+    coherent_gradient = (
+        complete_grid
+        and gradient_fit >= float(cfg.get("candidate_minimum_gradient_fit_r_squared") or 0.60)
+        and profile_step_fraction <= float(cfg.get("candidate_maximum_profile_step_fraction") or 0.55)
+    )
     candidate_reasons = []
-    if archetype == "paper-page" and background_span >= float(cfg.get("candidate_minimum_background_span") or 0.18):
+    if archetype == "paper-page" and background_span >= minimum_candidate_span and coherent_gradient:
         candidate_reasons.append("uneven-background")
     if archetype == "paper-page" and tonal_span <= float(cfg.get("candidate_maximum_tonal_span") or 0.14) and edge_fraction >= 0.01:
         candidate_reasons.append("compressed-tonal-range")
@@ -129,7 +175,19 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
     boundary_geometry = (
         complete_grid
         and full_frame_background_span >= float(cfg.get("boundary_geometry_minimum_full_frame_span") or 0.18)
-        and background_span < float(cfg.get("candidate_minimum_background_span") or 0.18)
+        and background_span < minimum_candidate_span
+    )
+    piecewise_geometry = (
+        archetype == "paper-page"
+        and complete_grid
+        and background_span >= minimum_candidate_span
+        and profile_step_fraction > float(cfg.get("candidate_maximum_profile_step_fraction") or 0.55)
+    )
+    unresolved_background_structure = (
+        archetype == "paper-page"
+        and background_span >= minimum_candidate_span
+        and not coherent_gradient
+        and not piecewise_geometry
     )
 
     if valid_tiles < minimum_tiles:
@@ -140,8 +198,10 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
         decision = "review"
     elif candidate_reasons:
         decision = "correction-candidate"
-    elif boundary_geometry:
+    elif boundary_geometry or piecewise_geometry:
         decision = "preserve"
+    elif unresolved_background_structure:
+        decision = "review"
     elif all(preserve_checks.values()):
         decision = "preserve"
     else:
@@ -154,6 +214,10 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
         decision_reasons = candidate_reasons
     elif boundary_geometry:
         decision_reasons = ["boundary-dominated-background-geometry"]
+    elif piecewise_geometry:
+        decision_reasons = ["piecewise-page-background-geometry"]
+    elif unresolved_background_structure:
+        decision_reasons = ["noncoherent-background-variation"]
     elif decision == "review":
         decision_reasons = ["threshold-review"]
     else:
@@ -174,6 +238,9 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
         "background_luminance_span": round(background_span, 6),
         "full_frame_background_luminance_span": round(full_frame_background_span, 6),
         "boundary_geometry_detected": boundary_geometry,
+        "piecewise_geometry_detected": piecewise_geometry,
+        "background_gradient_fit_r_squared": round(gradient_fit, 6),
+        "dominant_profile_step_fraction": round(profile_step_fraction, 6),
         "tonal_span": round(tonal_span, 6),
         "edge_fraction": round(edge_fraction, 6),
         "shadow_clipping_fraction": round(shadow_clipping, 6),

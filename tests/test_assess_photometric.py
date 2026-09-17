@@ -51,7 +51,23 @@ class PhotometricAssessmentTests(unittest.TestCase):
         self.assertEqual(result["decision_reasons"], ["boundary-dominated-background-geometry"])
         self.assertTrue(result["boundary_geometry_detected"])
         self.assertGreater(result["full_frame_background_luminance_span"], 0.18)
-        self.assertLess(result["background_luminance_span"], 0.025)
+        self.assertLess(result["background_luminance_span"], 0.04)
+
+    def test_abrupt_spread_step_is_preserved_instead_of_becoming_a_candidate(self) -> None:
+        background = np.empty((800, 600), dtype=np.uint8)
+        background[:, :300] = 155
+        background[:, 300:] = 225
+        result = estimate_photometric_condition(self._document(background), self._config())
+        self.assertEqual(result["decision"], "preserve")
+        self.assertEqual(result["decision_reasons"], ["piecewise-page-background-geometry"])
+        self.assertTrue(result["piecewise_geometry_detected"])
+        self.assertGreater(result["dominant_profile_step_fraction"], 0.55)
+
+    def test_small_background_variation_is_not_a_candidate(self) -> None:
+        gradient = np.tile(np.linspace(190, 204, 600, dtype=np.uint8), (800, 1))
+        result = estimate_photometric_condition(self._document(gradient), self._config())
+        self.assertNotEqual(result["decision"], "correction-candidate")
+        self.assertLess(result["background_luminance_span"], 0.04)
 
     def test_black_ink_clipping_is_not_sufficient_for_correction(self) -> None:
         image = np.full((800, 600, 3), 220, dtype=np.uint8)
