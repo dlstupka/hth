@@ -94,6 +94,37 @@ def _validate_method_config(config: dict[str, Any]) -> None:
         raise ValueError(f"Unsupported photometric method selection rule: {recommendation.get('selection_rule')}")
 
 
+def _require_correction_eligible(estimate: dict[str, Any], ordinal: int, config: dict[str, Any]) -> None:
+    """Fail closed if persisted candidate evidence violates geometry eligibility."""
+    if estimate.get("decision") != "correction-candidate":
+        return
+    if estimate.get("archetype") != "paper-page":
+        raise ValueError(f"Photometric candidate page {ordinal} is not a paper page")
+    if estimate.get("pipeline_action") != "evaluate-correction":
+        raise ValueError(f"Photometric candidate page {ordinal} does not authorize correction evaluation")
+    if estimate.get("correction_eligible") is not True:
+        raise ValueError(f"Photometric candidate page {ordinal} is not correction eligible")
+    if estimate.get("correction_exclusion_reasons") != []:
+        raise ValueError(f"Photometric candidate page {ordinal} has correction exclusions")
+    cfg = config.get("estimator") or {}
+    rows = int(cfg.get("grid_rows") or 8)
+    columns = int(cfg.get("grid_columns") or 8)
+    grid = estimate.get("background_grid") or []
+    geometry_consistent = (
+        int(estimate.get("valid_tile_count") or 0) >= int(cfg.get("minimum_valid_tiles") or 32)
+        and estimate.get("background_grid_shape") == [rows, columns]
+        and len(grid) == rows * columns
+        and float(estimate.get("background_gradient_fit_r_squared") or 0.0)
+        >= float(cfg.get("candidate_minimum_gradient_fit_r_squared") or 0.60)
+        and float(estimate.get("dominant_profile_step_fraction") or 1.0)
+        <= float(cfg.get("candidate_maximum_profile_step_fraction") or 0.55)
+        and estimate.get("boundary_geometry_detected") is False
+        and estimate.get("piecewise_geometry_detected") is False
+    )
+    if not geometry_consistent:
+        raise ValueError(f"Photometric candidate page {ordinal} has inconsistent geometry eligibility evidence")
+
+
 def _derive_recommendation(
     config: dict[str, Any], pages: list[dict[str, Any]]
 ) -> tuple[list[dict[str, Any]], list[str], dict[str, Any] | None]:
@@ -140,6 +171,8 @@ def prepare_sample(photometric: dict[str, Any], normalization: dict[str, Any]) -
     _validate_photometric_assessment(photometric)
     if photometric.get("canonical_normalization_result_identity") != normalization.get("canonical_result_identity"):
         raise ValueError("Photometric evidence does not match canonical normalization")
+    for page in photometric.get("pages") or []:
+        _require_correction_eligible(page.get("estimate") or {}, int(page["global_ordinal"]), photometric.get("config") or {})
     candidates = [
         page for page in photometric.get("pages") or []
         if (page.get("estimate") or {}).get("decision") == "correction-candidate"

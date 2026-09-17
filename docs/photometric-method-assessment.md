@@ -4,6 +4,9 @@
 small, deterministic method-selection experiment. It consumes only persisted
 `paper-page` correction candidates; preserved dark frames, mixed-polarity
 pages, and ordinary review pages cannot enter the experiment by accident.
+Persisted candidates must also carry affirmative geometry eligibility and an
+empty exclusion list. The workflow rejects the entire candidate plan if any
+candidate violates that contract.
 
 The workflow is diagnostic. It does not change the canonical normalized
 collection or authorize a full-collection photometric transform.
@@ -25,6 +28,8 @@ source provenance. It then:
 There is no interactive page selection, random sampling, or environment-based
 method choice. Identical inputs and configuration produce identical candidate
 plans, output pixels, measurements, rankings, and identities.
+Review is limited to the exception evidence and generated comparison artifact;
+it is not required to construct or relay the candidate list.
 
 ## Bounded methods and safety gates
 

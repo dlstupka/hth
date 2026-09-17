@@ -46,7 +46,15 @@ class PhotometricMethodAssessmentTests(unittest.TestCase):
             "sample_page_count": 3,
             "config": {},
             "pages": [
-                {"global_ordinal": 8, "estimate": {"archetype": "paper-page", "decision": "correction-candidate", "decision_reasons": ["uneven-background"]}},
+                {"global_ordinal": 8, "estimate": {
+                    "archetype": "paper-page", "decision": "correction-candidate",
+                    "pipeline_action": "evaluate-correction",
+                    "correction_eligible": True, "correction_exclusion_reasons": [],
+                    "valid_tile_count": 64, "background_grid_shape": [8, 8], "background_grid": [0.5] * 64,
+                    "background_gradient_fit_r_squared": 0.9, "dominant_profile_step_fraction": 0.1,
+                    "boundary_geometry_detected": False, "piecewise_geometry_detected": False,
+                    "decision_reasons": ["uneven-background"],
+                }},
                 {"global_ordinal": 9, "estimate": {"archetype": "dark-polarity-frame", "decision": "preserve", "decision_reasons": ["intentional-dark-polarity"]}},
                 {"global_ordinal": 10, "estimate": {"archetype": "paper-page", "decision": "review", "decision_reasons": ["threshold-review"]}},
             ],
@@ -71,6 +79,26 @@ class PhotometricMethodAssessmentTests(unittest.TestCase):
         assessment["pages"] = []
         with self.assertRaisesRegex(ValueError, "identity"):
             prepare_sample(assessment, {"canonical_result_identity": identity, "pages": []})
+
+    def test_prepare_rejects_candidate_with_geometry_exclusion(self) -> None:
+        identity = "a" * 64
+        assessment = self._photometric_assessment(identity)
+        estimate = assessment["pages"][0]["estimate"]
+        estimate["correction_eligible"] = False
+        estimate["correction_exclusion_reasons"] = ["noncoherent-background-variation"]
+        fields = ("assessment_type", "canonical_normalization_result_identity", "sample_identity", "config", "pages")
+        assessment["assessment_identity"] = canonical_hash({key: assessment[key] for key in fields})
+        with self.assertRaisesRegex(ValueError, "not correction eligible"):
+            prepare_sample(assessment, {"canonical_result_identity": identity, "pages": [{}, {}, {}]})
+
+    def test_prepare_rejects_candidate_with_inconsistent_geometry_evidence(self) -> None:
+        identity = "a" * 64
+        assessment = self._photometric_assessment(identity)
+        assessment["pages"][0]["estimate"]["background_gradient_fit_r_squared"] = 0.1
+        fields = ("assessment_type", "canonical_normalization_result_identity", "sample_identity", "config", "pages")
+        assessment["assessment_identity"] = canonical_hash({key: assessment[key] for key in fields})
+        with self.assertRaisesRegex(ValueError, "inconsistent geometry eligibility evidence"):
+            prepare_sample(assessment, {"canonical_result_identity": identity, "pages": [{}, {}, {}]})
 
     def test_fixed_method_is_pixel_deterministic(self) -> None:
         config = self._config("photometric-method-assessment.json")

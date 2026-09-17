@@ -161,16 +161,16 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
         and gradient_fit >= float(cfg.get("candidate_minimum_gradient_fit_r_squared") or 0.60)
         and profile_step_fraction <= float(cfg.get("candidate_maximum_profile_step_fraction") or 0.55)
     )
-    candidate_reasons = []
+    correction_signal_reasons = []
     if archetype == "paper-page" and background_span >= minimum_candidate_span and coherent_gradient:
-        candidate_reasons.append("uneven-background")
+        correction_signal_reasons.append("uneven-background")
     if archetype == "paper-page" and tonal_span <= float(cfg.get("candidate_maximum_tonal_span") or 0.14) and edge_fraction >= 0.01:
-        candidate_reasons.append("compressed-tonal-range")
+        correction_signal_reasons.append("compressed-tonal-range")
     # Dense black ink and bright paper legitimately occupy the luminance endpoints.
     # Clipping remains review evidence, but is not independently sufficient to
     # recommend changing archival pixels.
     if archetype == "paper-page" and chroma_variation >= float(cfg.get("candidate_minimum_background_chroma_variation") or 16.0):
-        candidate_reasons.append("uneven-color-cast")
+        correction_signal_reasons.append("uneven-color-cast")
 
     boundary_geometry = (
         complete_grid
@@ -190,18 +190,37 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
         and not piecewise_geometry
     )
 
+    # Correction eligibility is a hard geometry gate, independent of the
+    # photometric signals above. This prevents a secondary tonal or color
+    # signal from promoting an incoherent/background-geometry page.
+    correction_exclusion_reasons = []
+    if archetype != "paper-page":
+        correction_exclusion_reasons.append("non-paper-archetype")
+    if valid_tiles < minimum_tiles:
+        correction_exclusion_reasons.append("insufficient-background-evidence")
+    if not complete_grid:
+        correction_exclusion_reasons.append("incomplete-background-grid")
+    if boundary_geometry:
+        correction_exclusion_reasons.append("boundary-dominated-background-geometry")
+    elif piecewise_geometry:
+        correction_exclusion_reasons.append("piecewise-page-background-geometry")
+    elif not coherent_gradient:
+        correction_exclusion_reasons.append("noncoherent-background-variation")
+    correction_eligible = not correction_exclusion_reasons
+    candidate_reasons = correction_signal_reasons if correction_eligible else []
+
     if valid_tiles < minimum_tiles:
         decision = "inconclusive"
     elif archetype == "dark-polarity-frame":
         decision = "preserve"
     elif archetype == "mixed-polarity-page":
         decision = "review"
-    elif candidate_reasons:
-        decision = "correction-candidate"
     elif boundary_geometry or piecewise_geometry:
         decision = "preserve"
     elif unresolved_background_structure:
         decision = "review"
+    elif correction_eligible and candidate_reasons:
+        decision = "correction-candidate"
     elif all(preserve_checks.values()):
         decision = "preserve"
     else:
@@ -210,18 +229,19 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
         decision_reasons = ["intentional-dark-polarity"]
     elif archetype == "mixed-polarity-page":
         decision_reasons = ["mixed-polarity-content"]
-    elif candidate_reasons:
-        decision_reasons = candidate_reasons
     elif boundary_geometry:
         decision_reasons = ["boundary-dominated-background-geometry"]
     elif piecewise_geometry:
         decision_reasons = ["piecewise-page-background-geometry"]
     elif unresolved_background_structure:
         decision_reasons = ["noncoherent-background-variation"]
+    elif correction_eligible and candidate_reasons:
+        decision_reasons = candidate_reasons
     elif decision == "review":
         decision_reasons = ["threshold-review"]
     else:
         decision_reasons = ["photometric-gates-passed"]
+    pipeline_action = "evaluate-correction" if decision == "correction-candidate" else "preserve-and-continue"
     severity = max(
         background_span / max(0.001, float(cfg.get("candidate_minimum_background_span") or 0.18)),
         max(0.0, float(cfg.get("preserve_minimum_tonal_span") or 0.24) - tonal_span) / 0.24,
@@ -231,7 +251,11 @@ def estimate_photometric_condition(image: np.ndarray, config: dict[str, Any]) ->
     )
     return {
         "decision": decision,
+        "pipeline_action": pipeline_action,
         "archetype": archetype,
+        "correction_eligible": correction_eligible,
+        "correction_exclusion_reasons": correction_exclusion_reasons,
+        "correction_signal_reasons": correction_signal_reasons,
         "candidate_reasons": candidate_reasons,
         "decision_reasons": decision_reasons,
         "valid_tile_count": valid_tiles,

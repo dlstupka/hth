@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -37,7 +39,29 @@ class PhotometricAssessmentTests(unittest.TestCase):
         gradient = np.tile(np.linspace(100, 250, 600, dtype=np.uint8), (800, 1))
         result = estimate_photometric_condition(self._document(gradient), self._config())
         self.assertEqual(result["decision"], "correction-candidate")
+        self.assertEqual(result["pipeline_action"], "evaluate-correction")
+        self.assertTrue(result["correction_eligible"])
+        self.assertEqual(result["correction_exclusion_reasons"], [])
         self.assertIn("uneven-background", result["candidate_reasons"])
+
+    def test_noncoherent_background_is_held_out_despite_another_correction_signal(self) -> None:
+        config = deepcopy(self._config())
+        config["estimator"]["candidate_maximum_tonal_span"] = 1.0
+        structure = {
+            "complete_grid": True,
+            "full_span": 0.20,
+            "interior_span": 0.20,
+            "gradient_fit_r_squared": 0.10,
+            "dominant_profile_step_fraction": 0.20,
+        }
+        with patch("hth.assess_photometric._background_structure", return_value=structure):
+            result = estimate_photometric_condition(self._document(220), config)
+        self.assertEqual(result["decision"], "review")
+        self.assertEqual(result["pipeline_action"], "preserve-and-continue")
+        self.assertFalse(result["correction_eligible"])
+        self.assertIn("noncoherent-background-variation", result["correction_exclusion_reasons"])
+        self.assertIn("compressed-tonal-range", result["correction_signal_reasons"])
+        self.assertEqual(result["candidate_reasons"], [])
 
     def test_boundary_geometry_is_preserved_instead_of_becoming_a_candidate(self) -> None:
         image = self._document(198)
@@ -48,6 +72,9 @@ class PhotometricAssessmentTests(unittest.TestCase):
         cv2.rectangle(image, (width - 29, 0), (width - 1, height - 1), (255, 255, 255), -1)
         result = estimate_photometric_condition(image, self._config())
         self.assertEqual(result["decision"], "preserve")
+        self.assertEqual(result["pipeline_action"], "preserve-and-continue")
+        self.assertFalse(result["correction_eligible"])
+        self.assertIn("boundary-dominated-background-geometry", result["correction_exclusion_reasons"])
         self.assertEqual(result["decision_reasons"], ["boundary-dominated-background-geometry"])
         self.assertTrue(result["boundary_geometry_detected"])
         self.assertGreater(result["full_frame_background_luminance_span"], 0.18)
@@ -59,6 +86,9 @@ class PhotometricAssessmentTests(unittest.TestCase):
         background[:, 300:] = 225
         result = estimate_photometric_condition(self._document(background), self._config())
         self.assertEqual(result["decision"], "preserve")
+        self.assertEqual(result["pipeline_action"], "preserve-and-continue")
+        self.assertFalse(result["correction_eligible"])
+        self.assertIn("piecewise-page-background-geometry", result["correction_exclusion_reasons"])
         self.assertEqual(result["decision_reasons"], ["piecewise-page-background-geometry"])
         self.assertTrue(result["piecewise_geometry_detected"])
         self.assertGreater(result["dominant_profile_step_fraction"], 0.55)

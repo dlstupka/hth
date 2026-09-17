@@ -38,6 +38,16 @@ with ordinary paper are marked `mixed-polarity-page` and held for visual
 review. Only credible `paper-page` images can become automatic correction
 candidates.
 
+Correction eligibility is a hard geometry invariant. A page must have a
+complete background grid, a coherent smooth gradient, and no boundary- or
+piecewise-page geometry. Tonal compression or color variation may be recorded
+as correction signals, but those signals cannot override an eligibility
+failure. Ineligible pages are automatically preserved or routed to review with
+explicit exclusion reasons; they never enter the method experiment.
+They carry the machine-readable action `preserve-and-continue`, so the current
+canonical pixels remain valid input for later stages, including HTR. Eligible
+correction candidates alone carry `evaluate-correction`.
+
 Dense black ink and bright paper legitimately occupy the luminance endpoints,
 so clipping is review evidence but cannot independently trigger a correction
 recommendation. A correction candidate requires strong uneven-background,
@@ -54,6 +64,10 @@ The results repository receives `normalization/photometric/` and the current
 `normalization/photometric-policy.json`. The assessment identity fingerprints
 the normalization result, sample, configuration, and all page measurements;
 recommendation generation rejects modified evidence.
+
+Method assessment and held-out validation independently enforce the invariant
+that every `correction-candidate` is marked correction-eligible and has no
+exclusion reasons. Missing legacy fields or contradictory evidence fail closed.
 
 The temporary artifact adds visual background maps beside the canonical pages,
 plus JSON, CSV, Markdown, and HTML review material. Full normalized images are

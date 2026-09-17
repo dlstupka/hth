@@ -10,6 +10,28 @@ is the latest compatible prepared recommendation; a researcher may select
 `axis-aligned-only` to preserve the crop without deskew. The current San
 Antonio collection has 929 pages.
 
+## Automation contract
+
+Normalization is evidence-driven and automation-first. A deterministic safe
+path must advance without page-by-page selection or an operator relaying
+identities, artifacts, or commands between stages. Every automatic decision is
+still fingerprinted, persisted, and rendered for audit. Human attention is
+reserved for the bounded exception set: failed safety gates, inconclusive
+evidence, or explicit review routes. A small exception population—especially
+below one percent of the collection—is a review queue, not a reason to make the
+whole collection interactive.
+
+Downstream stages must revalidate upstream identities and hard eligibility
+invariants rather than trusting labels alone. They fail closed when evidence is
+missing or contradictory; they do not silently widen the exception set or
+apply a transform to an ineligible page.
+
+A page-level normalization miss is non-blocking. The page retains its latest
+canonical pixels, records the reason, and continues to downstream recognition.
+Only invalid provenance, contradictory evidence, or an unreadable canonical
+input stops the pipeline. Optional normalization quality must not prevent a
+meaningful later HTR result.
+
 The base policy takes the enclosing axis-aligned rectangle of the preferred
 document detector's stored quadrilateral. It performs a pixel slice only and
 writes the result as lossless PNG. A compatible prepared recommendation may
@@ -17,7 +39,7 @@ then apply conservative expanded-canvas Hough deskew only to pages that pass
 every recorded safety gate. It never changes gross orientation, performs
 perspective warping, resizes, enhances, or binarizes the source image.
 
-## Researcher workflow
+## Current researcher workflow
 
 From an existing canonical crop, this stage has two human actions:
 

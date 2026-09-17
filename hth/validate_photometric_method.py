@@ -255,7 +255,9 @@ def evaluate(
         if original is None:
             raise ValueError(f"Could not decode held-out page {ordinal}")
         condition_before = estimate_photometric_condition(original, photometric_config)
-        apply = condition_before["decision"] == "correction-candidate" and condition_before["archetype"] == "paper-page"
+        if condition_before["decision"] == "correction-candidate" and condition_before.get("correction_eligible") is not True:
+            raise ValueError(f"Held-out candidate page {ordinal} violates correction eligibility")
+        apply = condition_before["decision"] == "correction-candidate" and condition_before["archetype"] == "paper-page" and condition_before["correction_eligible"] is True
         page: dict[str, Any] = {
             "global_ordinal": ordinal,
             "sample_reasons": planned["reasons"],

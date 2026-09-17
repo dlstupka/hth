@@ -115,6 +115,7 @@ jobs:
           import json
           import os
           from pathlib import Path
+          from hth.assess_photometric_methods import _require_correction_eligible
           from hth.canonical_build_evidence import NORMALIZATION_SCOPE, canonical_hash, load_evidence_store, validate_published_results
 
           results = Path("results-repo")
@@ -139,6 +140,8 @@ jobs:
           candidates = [page for page in assessment.get("pages") or [] if (page.get("estimate") or {}).get("decision") == "correction-candidate" and (page.get("estimate") or {}).get("archetype") == "paper-page"]
           if not candidates:
               raise SystemExit("Photometric assessment has no actionable paper-page candidates")
+          for page in candidates:
+              _require_correction_eligible(page.get("estimate") or {}, int(page["global_ordinal"]), assessment.get("config") or {})
 
           policy = json.loads((results / "normalization/photometric-policy.json").read_text(encoding="utf-8"))
           claimed_policy_identity = policy.pop("policy_identity", None)
