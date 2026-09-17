@@ -360,7 +360,7 @@ Parallel parameter evaluation records `completion_index` in actual parameter-com
 
 ## Execution optimizer intelligence
 
-The manual `HTH execution optimizer` workflow evaluates execution shapes serially in one direct job on one selected runner. It performs the same checkout, Python/ABI/toolchain/OpenCV setup and benchmark sequence as the normal detector regression once, then repeats the normal detector-regression execution driver for every selected shape. Shards equal detector pipelines.
+The manual `HTH detector execution optimizer` workflow evaluates execution shapes serially in one direct job on one selected runner. It performs the same checkout, Python/ABI/toolchain/OpenCV setup and benchmark sequence as the normal detector regression once, then repeats the normal detector-regression execution driver for every selected shape. Shards equal detector pipelines.
 
 Pipeline enumeration supports exhaustive integer progression, `powers-of-2` sampling, and adaptive peak/plateau search. `powers-of-2` samples powers of two within the range plus both range endpoints. Adaptive starts from the lowest and highest clean/common legal shapes when possible and narrows toward the best measured throughput instead of filling the full shape curve. Threads per active pipeline are calculated as the smaller of the configured per-pipeline maximum and `floor(runner aggregate thread budget / pipelines)`; shapes that would fall below the configured minimum thread count are excluded. Thus runner policy controls total allocation while manual thread limits constrain each detector process.
 

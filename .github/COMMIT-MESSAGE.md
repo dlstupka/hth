@@ -19,5 +19,4 @@ Key files:
 
 Validation: 1,010 tests passed, compilation and git diff --check passed.
 
-After committing and pushing, manually run HTH assess crop and framing. Download the resulting artifact and open index.html for the page-by-page comparison.
-
+After committing and pushing, manually run HTH normalize crop and framing assess. Download the resulting artifact and open index.html for the page-by-page comparison.

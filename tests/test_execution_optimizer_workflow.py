@@ -14,7 +14,7 @@ DRIVER = ROOT / "tools" / "run-detector-regressions.sh"
 class ExecutionOptimizerWorkflowTests(unittest.TestCase):
     def test_execution_optimizer_is_manual_and_supports_exhaustive_powers_of_two_or_adaptive_enumeration(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("name: HTH execution optimizer", text)
+        self.assertIn("name: HTH detector execution optimizer", text)
         self.assertIn("workflow_dispatch:", text)
         self.assertIn("pipeline_enumeration:", text)
         self.assertIn("default: adaptive", text)

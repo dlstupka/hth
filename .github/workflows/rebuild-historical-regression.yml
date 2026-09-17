@@ -1,4 +1,4 @@
-name: HTH rebuild historical regression metrics
+name: HTH detector regression rebuild historical metrics
 
 run-name: >-
   Rebuild historical regression metrics — ${{ inputs.scope == 'single-build' && format('build #{0}', inputs.run_number) || 'all available artifacts' }}

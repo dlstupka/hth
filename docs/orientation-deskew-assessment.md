@@ -1,6 +1,6 @@
 # Orientation and deskew assessment
 
-`HTH prepare normalization recommendation` is the researcher-facing entry
+`HTH normalize prepare recommendation` is the researcher-facing entry
 point for the second normalization decision. One run reconstructs the review
 sample, assesses orientation and deskew candidates, produces a plain-language
 recommendation, and preserves the compact evidence and machine-readable policy.

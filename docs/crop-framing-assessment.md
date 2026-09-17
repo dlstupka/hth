@@ -1,6 +1,6 @@
 # Crop and framing assessment
 
-`HTH assess crop and framing` is the diagnostic entry point for the first
+`HTH normalize crop and framing assess` is the diagnostic entry point for the first
 normalization-stage decision. It compares three ways of applying the current
 Rank #1 approved document-detector geometry to the 18 immutable
 `HTH-GOLDEN-0002` images:

@@ -1,4 +1,4 @@
-name: HTH normalize GS0002
+name: HTH normalize HTH-GOLDEN-0002
 
 run-name: Normalize HTH-GOLDEN-0002 with canonical preprocess evidence
 
@@ -140,7 +140,7 @@ jobs:
           if [[ "$NORMALIZATION_RECIPE" == "prepared-recommendation" ]]; then
             policy="results-repo/normalization/orientation-deskew-policy.json"
             if [[ ! -f "$policy" ]]; then
-              echo "::error::No prepared normalization recommendation exists. Run 'HTH prepare normalization recommendation' first, or choose axis-aligned-only."
+              echo "::error::No prepared normalization recommendation exists. Run 'HTH normalize prepare recommendation' first, or choose axis-aligned-only."
               exit 1
             fi
             transform_args+=(--transform-policy "$policy")

@@ -1,13 +1,13 @@
 # Photometric assessment
 
-`HTH assess photometric normalization` evaluates whether the canonical
+`HTH normalize photometric assess` evaluates whether the canonical
 normalized collection would benefit from illumination, contrast, tonal, or
 background-color correction. It is diagnostic only: the workflow never changes
 or republishes normalized pixels.
 
 ## Researcher workflow
 
-Run **HTH assess photometric normalization** after the perspective assessment
+Run **HTH normalize photometric assess** after the perspective assessment
 has persisted a compatible `preserve` decision. One action selects a stratified
 sample, reconstructs and proves its canonical normalized pixels, measures the
 photometric evidence, writes a plain-language recommendation, persists compact
@@ -17,7 +17,7 @@ evidence, and uploads review contact sheets.
 means withhold automatic correction while researchers review the affected
 pages and a bounded correction policy is developed. It does not authorize a
 generic enhancement filter. When credible paper-page candidates exist, run
-**HTH assess photometric methods** to compare the bounded methods described in
+**HTH normalize photometric assess methods** to compare the bounded methods described in
 [Photometric method assessment](photometric-method-assessment.md).
 
 ## Measurements

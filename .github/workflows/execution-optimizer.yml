@@ -1,4 +1,4 @@
-name: HTH execution optimizer
+name: HTH detector execution optimizer
 
 run-name: >-
   Optimize ${{ inputs.algorithm }} execution on ${{ inputs.runner }}

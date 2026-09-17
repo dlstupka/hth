@@ -1,6 +1,6 @@
 # Document normalization
 
-`HTH normalize GS0002` is the bounded validation workflow for HTH's canonical
+`HTH normalize HTH-GOLDEN-0002` is the bounded validation workflow for HTH's canonical
 normalization recipe. It applies either the persisted prepared recommendation
 or the explicit `axis-aligned-only` fallback to the 18 immutable
 `HTH-GOLDEN-0002` images.
@@ -21,7 +21,7 @@ perspective warping, resizes, enhances, or binarizes the source image.
 
 From an existing canonical crop, this stage has two human actions:
 
-1. Run **HTH prepare normalization recommendation**. Assessment, recommendation,
+1. Run **HTH normalize prepare recommendation**. Assessment, recommendation,
    persistence, and review packaging happen in that one action.
 2. Review the plain-language result and run **HTH normalize collection**. Keep
    the default prepared recommendation to approve it, or select

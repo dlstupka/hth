@@ -1,6 +1,6 @@
 # Photometric method assessment
 
-`HTH assess photometric methods` turns a photometric `withhold` result into a
+`HTH normalize photometric assess methods` turns a photometric `withhold` result into a
 small, deterministic method-selection experiment. It consumes only persisted
 `paper-page` correction candidates; preserved dark frames, mixed-polarity
 pages, and ordinary review pages cannot enter the experiment by accident.
@@ -64,7 +64,7 @@ method should be applied to the full collection.
 
 ## Complete held-out validation
 
-`HTH validate photometric method` consumes the persisted validation candidate
+`HTH normalize photometric method validation` consumes the persisted validation candidate
 and audits every canonical normalized page that was not used to select the
 method. The development candidates are excluded by identity rather than by a
 manually maintained page list. The workflow reconstructs and hash-verifies the

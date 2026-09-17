@@ -1,4 +1,4 @@
-name: HTH validate photometric method
+name: HTH normalize photometric method validation
 
 run-name: Validate the selected photometric method against every held-out HTH-0001 page
 

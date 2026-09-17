@@ -1,4 +1,4 @@
-name: HTH generate report
+name: HTH report
 
 run-name: >-
   Generate ${{ inputs.report }} report for ${{ inputs.golden_release_tag }} on ${{ inputs.runner }}

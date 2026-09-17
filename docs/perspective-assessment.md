@@ -1,6 +1,6 @@
 # Perspective assessment
 
-`HTH assess perspective` is an independent diagnostic stage after canonical
+`HTH normalize perspective assess` is an independent diagnostic stage after canonical
 crop and conservative deskew. It answers a narrow question: does a stratified
 sample contain credible projective convergence that justifies evaluating a
 perspective warp?
@@ -11,7 +11,7 @@ pipeline step.
 
 ## Researcher workflow
 
-Run **HTH assess perspective** and review its plain-language recommendation.
+Run **HTH normalize perspective assess** and review its plain-language recommendation.
 The workflow automatically selects the sample, reconstructs the corresponding
 canonical normalized pages, verifies their stored pixel hashes, evaluates the
 evidence, persists the compact result, and uploads contact sheets. Researchers
