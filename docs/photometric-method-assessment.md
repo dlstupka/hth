@@ -89,3 +89,31 @@ the current decision in `normalization/photometric-integration-policy.json`.
 Only discovered targets and preselected controls receive review images, which
 keeps the temporary artifact practical while the machine-readable audit still
 covers every held-out page.
+
+## Production integration
+
+`HTH normalize photometric integration` is the automated apply stage. It runs
+only when the persisted method policy and complete held-out validation both
+authorize the same method. It joins the development and held-out evidence into
+an exact, non-overlapping partition of the canonical collection; a missing,
+duplicated, or unaccounted page stops publication.
+
+For every page, the workflow reconstructs and hash-verifies the canonical
+normalized input, reruns the deterministic classifier, and requires its route
+to reproduce the persisted assessment or validation route. Eligible candidates
+receive the selected illumination/background-field method and must reproduce
+the previously validated output pixel hash. All other pages remain byte-level
+pixel equivalent. Every manifest row records either
+`corrected-and-continue` or `preserve-and-continue`, so an excluded or
+uncorrected page remains available to later HTR rather than becoming a pipeline
+failure.
+
+The resulting lossless PNG collection is packaged as a deterministic Zip64
+asset in an immutable Results repository release tagged
+`HTH-PHOTOMETRIC-<result-identity>`. Compact manifests, the applied policy,
+source materialization evidence, release URL, asset SHA-256, and result identity
+are persisted under `normalization/photometric-integration/`. An exact rerun
+rebuilds the same bytes and reuses the release only after the remote asset
+digest matches. The integrated operation changes spatial illumination and
+paper-background uniformity only; it does not add a global contrast curve,
+tonal-range normalization, sharpening, denoising, or binarization.

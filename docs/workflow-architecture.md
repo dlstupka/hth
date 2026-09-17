@@ -23,6 +23,11 @@ Standalone review, preparation, and normalization workflows:
 ```text
 .github/workflows/assess-crop-framing.yml
 .github/workflows/assess-orientation-deskew.yml
+.github/workflows/assess-perspective.yml
+.github/workflows/assess-photometric.yml
+.github/workflows/assess-photometric-methods.yml
+.github/workflows/validate-photometric-method.yml
+.github/workflows/integrate-photometric.yml
 .github/workflows/normalize-gs0002.yml
 .github/workflows/normalize.yml
 .github/workflows/review-document-detector.yml
@@ -55,6 +60,15 @@ prepared transform recommendation, publishes compact
 `hth-normalization` Canonical Build Evidence, and optionally uploads the full
 normalized PNG package. Exact evidence-only reruns reuse the canonical result
 without downloading or processing collection images.
+
+`integrate-photometric.yml` is the terminal illumination/background stage. It
+requires a fully passing method policy and held-out validation, reconstructs
+and proves the entire canonical normalized population, reproduces every prior
+candidate route and output hash, and preserves all non-candidates. It publishes
+the complete transformed corpus as a deterministic immutable Results release
+while committing compact manifests and release provenance. Every page remains
+eligible for downstream HTR whether its action is `corrected-and-continue` or
+`preserve-and-continue`.
 
 The user-facing design is intentionally not modeled on the current Golden Set
 creation sequence. Internal commands remain composable for testing and

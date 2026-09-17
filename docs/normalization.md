@@ -161,5 +161,13 @@ variation. It consumes the compatible perspective-preservation decision and
 persists its own `preserve` or `withhold` recommendation without changing
 pixels.
 
+When deterministic method assessment and complete held-out validation pass,
+the production integration described in
+[Photometric method assessment and validation](photometric-method-assessment.md#production-integration)
+publishes a new immutable Results release. It selectively applies only the
+validated illumination/background-field correction. Corrected and preserved
+pages are both annotated and continue as downstream HTR inputs; optional
+normalization quality never removes a page from the transcription pipeline.
+
 Binarization remains a separate future normalization operation with its own
 evidence contract.
