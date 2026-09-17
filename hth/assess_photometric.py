@@ -235,7 +235,7 @@ def _summary(payload: dict[str, Any]) -> str:
             f"| {page['global_ordinal']} | {page['archetype']} | {page['decision']} | {page['background_span']:.3f} | "
             f"{page['tonal_span']:.3f} | {', '.join(page['reasons']) or 'threshold review'} |"
         )
-    lines.extend(["", "Open `index.html` from the artifact to inspect the sampled pages and background maps.", ""])
+    lines.extend(["", "Open [index.html](index.html) from the artifact to inspect the sampled pages and background maps.", ""])
     return "\n".join(lines)
 
 

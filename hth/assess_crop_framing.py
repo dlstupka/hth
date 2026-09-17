@@ -199,7 +199,7 @@ def _summary(payload: dict[str, Any]) -> str:
         "",
         "## Review artifact",
         "",
-        "Open `index.html` from the extracted artifact. Each contact sheet shows the original image with the approved box in red and the calibrated detector quadrilateral in blue, followed by the three framing variants.",
+        "Open [index.html](index.html) from the extracted artifact. Each contact sheet shows the original image with the approved box in red and the calibrated detector quadrilateral in blue, followed by the three framing variants.",
         "",
     ])
     return "\n".join(lines)

@@ -151,7 +151,7 @@ def render_summary(payload: dict[str, Any]) -> str:
         "",
         "## Review artifact",
         "",
-        "Open `index.html` after extracting the artifact. The red rectangle is the exact half-open crop boundary; the normalized panel shows the final policy output.",
+        "Open [index.html](index.html) after extracting the artifact. The red rectangle is the exact half-open crop boundary; the normalized panel shows the final policy output.",
         "",
     ])
     return "\n".join(lines)
