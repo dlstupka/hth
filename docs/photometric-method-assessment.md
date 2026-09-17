@@ -1,6 +1,6 @@
 # Photometric method assessment
 
-`HTH normalize photometric assess methods` turns a photometric `withhold` result into a
+`HTH normalize photometric method assessment` turns a photometric `withhold` result into a
 small, deterministic method-selection experiment. It consumes only persisted
 `paper-page` correction candidates; preserved dark frames, mixed-polarity
 pages, and ordinary review pages cannot enter the experiment by accident.

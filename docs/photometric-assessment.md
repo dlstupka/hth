@@ -17,7 +17,7 @@ evidence, and uploads review contact sheets.
 means withhold automatic correction while researchers review the affected
 pages and a bounded correction policy is developed. It does not authorize a
 generic enhancement filter. When credible paper-page candidates exist, run
-**HTH normalize photometric assess methods** to compare the bounded methods described in
+**HTH normalize photometric method assessment** to compare the bounded methods described in
 [Photometric method assessment](photometric-method-assessment.md).
 
 ## Measurements
