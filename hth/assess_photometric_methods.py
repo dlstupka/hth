@@ -294,7 +294,7 @@ def _summary(payload: dict[str, Any]) -> str:
             f"| {method['method_id']} | {method['safe_page_count']}/{payload['sample_page_count']} | "
             f"{method['mean_background_span_reduction_fraction']:.3f} | {method['mean_high_frequency_correlation']:.4f} |"
         )
-    lines.extend(["", "Open [index.html](index.html) to compare every candidate and deterministic variant.", ""])
+    lines.extend(["", "Download and extract the review artifact, then open `index.html` locally to compare every candidate and deterministic variant.", ""])
     return "\n".join(lines)
 
 

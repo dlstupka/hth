@@ -349,7 +349,7 @@ def _summary(payload: dict[str, Any]) -> str:
         "## Automated gates", "",
     ]
     lines.extend(f"- {'Passed' if value else 'Failed'}: `{name}`" for name, value in payload["gates"].items())
-    lines.extend(["", "## Recommendation", "", f"- Status: `{payload['recommendation_status']}`", f"- Action: `{payload['recommendation_action']}`", "", "Open [index.html](index.html) to inspect every held-out route and candidate output.", ""])
+    lines.extend(["", "## Recommendation", "", f"- Status: `{payload['recommendation_status']}`", f"- Action: `{payload['recommendation_action']}`", "", "Download and extract the review artifact, then open `index.html` locally to inspect every held-out route and candidate output.", ""])
     return "\n".join(lines)
 
 

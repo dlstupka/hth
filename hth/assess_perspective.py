@@ -176,7 +176,7 @@ def _summary(payload: dict[str, Any]) -> str:
     ]
     for page in payload["priority_review_pages"]:
         lines.append(f"| {page['global_ordinal']} | {page['decision']} | {page['convergence_degrees']:.3f} deg | {page['confidence']:.3f} |")
-    lines.extend(["", "Open [index.html](index.html) from the artifact to inspect the sampled pages.", ""])
+    lines.extend(["", "Download and extract the review artifact, then open `index.html` locally to inspect the sampled pages.", ""])
     return "\n".join(lines)
 
 

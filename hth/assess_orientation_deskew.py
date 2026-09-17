@@ -507,7 +507,7 @@ def _summary(payload: dict[str, Any]) -> str:
         "",
         "## Review artifact",
         "",
-        "Open [index.html](index.html). Each contact sheet contains the canonical crop, all four gross-orientation candidates, and both conservative deskew candidates.",
+        "Download and extract the review artifact, then open `index.html` locally. Each contact sheet contains the canonical crop, all four gross-orientation candidates, and both conservative deskew candidates.",
         "",
     ])
     return "\n".join(lines)
