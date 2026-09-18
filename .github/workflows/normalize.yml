@@ -42,6 +42,10 @@ on:
           - tonal-method-assessment
           - tonal-validation
           - tonal-integration
+          - chromatic-assessment
+          - chromatic-method-assessment
+          - chromatic-validation
+          - chromatic-integration
       upload_full_artifact:
         description: "Build and upload all normalized images; disable for a fast evidence-only reuse check"
         required: true
@@ -542,6 +546,58 @@ jobs:
       ${{ always() && !cancelled() && (needs.validate-tonal-method.result == 'success' || needs.validate-tonal-method.result == 'skipped')
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration"]'), inputs.start_stage) }}
     uses: ./.github/workflows/integrate-tonal.yml
+    with:
+      runner_target: ${{ inputs.runner_target }}
+      artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
+      canonical_build_policy: ${{ inputs.canonical_normalization_policy }}
+    secrets: inherit
+
+  assess-chromatic:
+    name: Assess chromatic and background-color consistency
+    needs: integrate-tonal
+    if: >-
+      ${{ always() && !cancelled() && (needs.integrate-tonal.result == 'success' || needs.integrate-tonal.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/_core-chromatic-evidence.yml
+    with:
+      stage: assess
+      runner_target: ${{ inputs.runner_target }}
+      artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
+    secrets: inherit
+
+  assess-chromatic-methods:
+    name: Compare bounded chromatic methods
+    needs: assess-chromatic
+    if: >-
+      ${{ always() && !cancelled() && (needs.assess-chromatic.result == 'success' || needs.assess-chromatic.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/_core-chromatic-evidence.yml
+    with:
+      stage: compare
+      runner_target: ${{ inputs.runner_target }}
+      artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
+    secrets: inherit
+
+  validate-chromatic-method:
+    name: Validate chromatic method on held-out pages
+    needs: assess-chromatic-methods
+    if: >-
+      ${{ always() && !cancelled() && (needs.assess-chromatic-methods.result == 'success' || needs.assess-chromatic-methods.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/_core-chromatic-evidence.yml
+    with:
+      stage: validate
+      runner_target: ${{ inputs.runner_target }}
+      artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
+    secrets: inherit
+
+  integrate-chromatic:
+    name: Integrate chromatic normalization with CBE
+    needs: validate-chromatic-method
+    if: >-
+      ${{ always() && !cancelled() && (needs.validate-chromatic-method.result == 'success' || needs.validate-chromatic-method.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/integrate-chromatic.yml
     with:
       runner_target: ${{ inputs.runner_target }}
       artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}

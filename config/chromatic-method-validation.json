@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "validation_type": "chromatic-method-held-out-validation",
+  "gates": {
+    "require_complete_candidate_coverage": true,
+    "require_every_candidate_safe": true,
+    "require_preserve_controls_unchanged": true,
+    "minimum_mean_background_cast_reduction_fraction": 0.20
+  },
+  "recommendation": {"policy_id": "selective-background-chromatic-normalization-v1"}
+}

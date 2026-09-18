@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "assessment_type": "chromatic-background-assessment",
+  "background": {"minimum_luminance_percentile": 65.0},
+  "candidate_gates": {
+    "minimum_candidate_background_cast": 0.035,
+    "maximum_safe_colorful_fraction": 0.08,
+    "maximum_safe_background_chroma_variation": 0.10
+  },
+  "partition": {"development_modulus": 5, "development_residue": 0},
+  "review": {"maximum_pages": 40}
+}

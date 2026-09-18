@@ -1,0 +1,285 @@
+name: _HTH chromatic evidence core (internal)
+
+on:
+  workflow_call:
+    inputs:
+      stage: {required: true, type: string}
+      runner_target: {required: true, type: string}
+      artifact_retention_days: {required: true, type: number}
+    secrets:
+      HTH_RESULTS_TOKEN: {required: true}
+
+permissions:
+  contents: read
+
+env:
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: init.defaultBranch
+  GIT_CONFIG_VALUE_0: main
+  RESULTS_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
+
+jobs:
+  chromatic-evidence:
+    name: Build deterministic ${{ inputs.stage }} evidence
+    # BEGIN GENERATED RUNNER TARGET ROUTING
+    runs-on: >-
+      ${{ inputs.runner_target == 'self-hosted-linux' && fromJSON('["self-hosted","Linux","X64"]')
+        || inputs.runner_target == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+        || inputs.runner_target == 'hth' && fromJSON('["self-hosted","Linux","X64","hth"]')
+        || inputs.runner_target == 'rhel8' && fromJSON('["self-hosted","Linux","X64","rhel8"]')
+        || inputs.runner_target == 'e7k' && fromJSON('["self-hosted","Linux","X64","e7k"]')
+        || inputs.runner_target == 'e9k' && fromJSON('["self-hosted","Linux","X64","e9k"]')
+        || inputs.runner_target == '192t' && fromJSON('["self-hosted","Linux","X64","192t"]')
+        || inputs.runner_target == '96t' && fromJSON('["self-hosted","Linux","X64","96t"]')
+        || inputs.runner_target == '32t' && fromJSON('["self-hosted","Linux","X64","32t"]')
+        || 'ubuntu-latest' }}
+    # END GENERATED RUNNER TARGET ROUTING
+    timeout-minutes: 90
+    env:
+      # BEGIN GENERATED RUNNER SETUP LABEL
+      HTH_SELECTED_RUNNER_LABEL: >-
+        ${{ inputs.runner_target == 'self-hosted-linux' && 'linux'
+          || inputs.runner_target == 'self-hosted-windows' && 'windows'
+          || inputs.runner_target == 'hth' && 'hth'
+          || inputs.runner_target == 'rhel8' && 'rhel8'
+          || inputs.runner_target == 'e7k' && 'e7k'
+          || inputs.runner_target == 'e9k' && 'e9k'
+          || inputs.runner_target == '192t' && '192t'
+          || inputs.runner_target == '96t' && '96t'
+          || inputs.runner_target == '32t' && '32t'
+          || 'github-hosted' }}
+      # END GENERATED RUNNER SETUP LABEL
+    steps:
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
+        with: {path: hth-pipeline, fetch-depth: 1, persist-credentials: false}
+
+      - name: Checkout chromatic and tonal evidence
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.RESULTS_REPOSITORY }}
+          path: results-repo
+          ref: main
+          token: ${{ secrets.HTH_RESULTS_TOKEN }}
+          fetch-depth: 1
+          sparse-checkout: |
+            /normalization/tonal-integration/
+            /normalization/chromatic/
+            /normalization/chromatic-methods/
+            /normalization/chromatic-validation/
+          sparse-checkout-cone-mode: false
+          persist-credentials: true
+
+      - name: Set up canonical HTH Python runtime
+        uses: ./hth-pipeline/.github/actions/setup-hth-python
+        with:
+          pipeline-path: hth-pipeline
+          runner-label: ${{ env.HTH_SELECTED_RUNNER_LABEL }}
+
+      - name: Resolve immutable tonal input identity
+        id: tonal_release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          record = json.loads(Path("results-repo/normalization/tonal-integration/release.json").read_text())
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as out:
+              for key in ("tag", "asset", "asset_sha256", "tonal_result_identity"):
+                  value = str(record.get(key) or "")
+                  if not value: raise SystemExit(f"Tonal release record has no {key}")
+                  out.write(f"{key}={value}\n")
+              out.write(f"results_commit={subprocess.check_output(['git','-C','results-repo','rev-parse','HEAD'], text=True).strip()}\n")
+          PY
+
+      - name: Assemble chromatic evidence effective-input contract
+        id: stage_contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_root="$RUNNER_TEMP/chromatic-${{ inputs.stage }}-effective-inputs"
+          rm -rf "$source_root"
+          mkdir -p "$source_root"
+          cp results-repo/normalization/tonal-integration/{release.json,tonal-normalization-manifest.json} "$source_root/"
+          case "${{ inputs.stage }}" in
+            assess)
+              scope=hth-chromatic-assessment
+              config=hth-pipeline/config/chromatic-assessment.json
+              destination=normalization/chromatic
+              output_name=assessment.json
+              ;;
+            compare)
+              scope=hth-chromatic-method-assessment
+              config=hth-pipeline/config/chromatic-method-assessment.json
+              destination=normalization/chromatic-methods
+              output_name=assessment.json
+              cp results-repo/normalization/chromatic/assessment.json "$source_root/chromatic-assessment.json"
+              ;;
+            validate)
+              scope=hth-chromatic-validation
+              config=hth-pipeline/config/chromatic-method-validation.json
+              destination=normalization/chromatic-validation
+              output_name=validation.json
+              cp results-repo/normalization/chromatic/assessment.json "$source_root/chromatic-assessment.json"
+              cp results-repo/normalization/chromatic-methods/assessment.json "$source_root/chromatic-method-assessment.json"
+              ;;
+            *) echo "Unknown chromatic evidence stage: ${{ inputs.stage }}" >&2; exit 2 ;;
+          esac
+          {
+            echo "source_root=$source_root"
+            echo "scope=$scope"
+            echo "config=$config"
+            echo "destination=$destination"
+            echo "output_name=$output_name"
+            echo "evidence=results-repo/$destination/canonical-build-evidence.json"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate chromatic evidence Canonical Build Evidence
+        id: cbe_plan
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          python -m hth.canonical_build_evidence prepare \
+            --scope "${{ steps.stage_contract.outputs.scope }}" \
+            --policy auto \
+            --contract-version 1 \
+            --mode diagnostic-evidence \
+            --operation "chromatic-${{ inputs.stage }}-evidence" \
+            --repository-root hth-pipeline \
+            --source-root "${{ steps.stage_contract.outputs.source_root }}" \
+            --source-repository "$RESULTS_REPOSITORY" \
+            --source-release "${{ steps.tonal_release.outputs.tag }}" \
+            --source-manifest-sha256 "${{ steps.tonal_release.outputs.asset_sha256 }}" \
+            --source-commit "${{ steps.tonal_release.outputs.tonal_result_identity }}" \
+            --config "${{ steps.stage_contract.outputs.config }}" \
+            --implementation hth-pipeline/hth/normalize_chromatic.py \
+            --runtime-contract hth-pipeline/requirements.txt \
+            --runtime-contract hth-pipeline/.github/actions/setup-hth-python/action.yml \
+            --runtime-package numpy \
+            --runtime-package opencv-python-headless \
+            --results-root results-repo \
+            --evidence "${{ steps.stage_contract.outputs.evidence }}" \
+            --plan "$RUNNER_TEMP/chromatic-${{ inputs.stage }}-cbe-plan.json" \
+            --pipeline-repository "$GITHUB_REPOSITORY" \
+            --pipeline-commit "$GITHUB_SHA" \
+            --results-repository "$RESULTS_REPOSITORY" \
+            --results-ref "${{ steps.tonal_release.outputs.results_commit }}" \
+            --workflow-run-id "$GITHUB_RUN_ID" \
+            --runner-name "$RUNNER_NAME" \
+            --runner-environment "${{ runner.environment }}" \
+            --runner-os "$RUNNER_OS" \
+            --runner-arch "$RUNNER_ARCH" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Restore cached immutable tonal collection
+        id: tonal_asset
+        if: steps.cbe_plan.outputs.decision == 'execute'
+        uses: ./hth-pipeline/.github/actions/restore-immutable-release
+        with:
+          repository: ${{ env.RESULTS_REPOSITORY }}
+          tag: ${{ steps.tonal_release.outputs.tag }}
+          asset: ${{ steps.tonal_release.outputs.asset }}
+          sha256: ${{ steps.tonal_release.outputs.asset_sha256 }}
+          token: ${{ secrets.HTH_RESULTS_TOKEN }}
+          destination: tonal-asset
+          extract-destination: tonal-input
+          collection-marker: tonal-normalization-manifest.json
+          required-subdirectory: tonal-normalized
+
+      - name: Produce deterministic chromatic evidence
+        if: steps.cbe_plan.outputs.decision == 'execute'
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+          TONAL_COLLECTION: ${{ steps.tonal_asset.outputs.collection-root }}
+          TONAL_MANIFEST: ${{ steps.tonal_asset.outputs.marker-path }}
+        run: |
+          set -euo pipefail
+          rm -rf chromatic-output
+          mkdir -p chromatic-output
+          case "${{ inputs.stage }}" in
+            assess)
+              python -m hth.normalize_chromatic assess --collection "$TONAL_COLLECTION" --upstream-manifest "$TONAL_MANIFEST" --config hth-pipeline/config/chromatic-assessment.json --output chromatic-output/assessment.json
+              ;;
+            compare)
+              python -m hth.normalize_chromatic compare --collection "$TONAL_COLLECTION" --upstream-manifest "$TONAL_MANIFEST" --assessment results-repo/normalization/chromatic/assessment.json --config hth-pipeline/config/chromatic-method-assessment.json --output chromatic-output/assessment.json
+              ;;
+            validate)
+              python -m hth.normalize_chromatic validate --collection "$TONAL_COLLECTION" --upstream-manifest "$TONAL_MANIFEST" --assessment results-repo/normalization/chromatic/assessment.json --comparison results-repo/normalization/chromatic-methods/assessment.json --config hth-pipeline/config/chromatic-method-validation.json --output chromatic-output/validation.json
+              ;;
+            *) echo "Unknown chromatic evidence stage: ${{ inputs.stage }}" >&2; exit 2 ;;
+          esac
+
+      - name: Summarize chromatic evidence
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          if [[ "${{ steps.cbe_plan.outputs.decision }}" == execute ]]; then
+            input="chromatic-output/${{ steps.stage_contract.outputs.output_name }}"
+          else
+            input="results-repo/${{ steps.stage_contract.outputs.destination }}/${{ steps.stage_contract.outputs.output_name }}"
+          fi
+          python -m hth.chromatic_summary \
+            --stage "${{ inputs.stage }}" \
+            --input "$input" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Finalize chromatic evidence Canonical Build Evidence
+        id: cbe_result
+        if: steps.cbe_plan.outputs.decision == 'execute'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          python -m hth.canonical_build_evidence finalize \
+            --plan "$RUNNER_TEMP/chromatic-${{ inputs.stage }}-cbe-plan.json" \
+            --output-root chromatic-output \
+            --evidence-store "${{ steps.stage_contract.outputs.evidence }}" \
+            --evidence-output chromatic-output/canonical-build-evidence.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish compact chromatic evidence
+        if: steps.cbe_plan.outputs.decision == 'execute'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          source hth-pipeline/tools/hardened-persistence.sh
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          destination="${{ steps.stage_contract.outputs.destination }}"
+          output_name="${{ steps.stage_contract.outputs.output_name }}"
+          payload="$RUNNER_TEMP/chromatic-${{ inputs.stage }}-publication"
+          incoming="$RUNNER_TEMP/chromatic-${{ inputs.stage }}-cbe-incoming.json"
+          rm -rf "$payload"
+          mkdir -p "$payload"
+          cp "chromatic-output/$output_name" "$payload/$output_name"
+          cp chromatic-output/canonical-build-evidence.json "$incoming"
+          apply_chromatic_evidence() {
+            python -m hth.canonical_build_evidence merge \
+              --scope "${{ steps.stage_contract.outputs.scope }}" \
+              --base "results-repo/$destination/canonical-build-evidence.json" \
+              --incoming "$incoming" \
+              --output "$payload/canonical-build-evidence.json"
+            rm -rf "results-repo/$destination"
+            mkdir -p "results-repo/$destination"
+            cp "$payload"/*.json "results-repo/$destination/"
+            hth_results_stage results-repo "$destination"
+          }
+          hth_hardened_persist results-repo main "Publish chromatic ${{ inputs.stage }} evidence" apply_chromatic_evidence "Chromatic ${{ inputs.stage }} publication"
+
+      - name: Upload compact chromatic evidence
+        if: steps.cbe_plan.outputs.decision == 'execute'
+        uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
+        with:
+          name: hth-chromatic-${{ inputs.stage }}-${{ github.run_number }}
+          path: chromatic-output
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact_retention_days }}
+          compression-level: 6

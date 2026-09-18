@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "assessment_type": "chromatic-method-comparison",
+  "methods": [
+    {"id": "background-neutralization-25", "mode": "background-neutralization", "strength": 0.25},
+    {"id": "background-neutralization-50", "mode": "background-neutralization", "strength": 0.50},
+    {"id": "background-neutralization-75", "mode": "background-neutralization", "strength": 0.75}
+  ],
+  "safety_gates": {
+    "minimum_background_cast_reduction_fraction": 0.20,
+    "minimum_luminance_detail_correlation": 0.995,
+    "minimum_chroma_structure_correlation": 0.98,
+    "maximum_new_gamut_clipping_fraction": 0.002,
+    "maximum_absolute_median_luminance_shift": 0.02
+  },
+  "recommendation": {"policy_id": "bounded-background-chromatic-normalization-v1", "selection_rule": "minimum-strength-safe-for-every-development-candidate"}
+}

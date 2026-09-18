@@ -33,10 +33,17 @@ TONAL_ASSESSMENT_SCOPE = "hth-tonal-assessment"
 TONAL_METHOD_ASSESSMENT_SCOPE = "hth-tonal-method-assessment"
 TONAL_VALIDATION_SCOPE = "hth-tonal-validation"
 TONAL_INTEGRATION_SCOPE = "hth-tonal-integration"
+CHROMATIC_ASSESSMENT_SCOPE = "hth-chromatic-assessment"
+CHROMATIC_METHOD_ASSESSMENT_SCOPE = "hth-chromatic-method-assessment"
+CHROMATIC_VALIDATION_SCOPE = "hth-chromatic-validation"
+CHROMATIC_INTEGRATION_SCOPE = "hth-chromatic-integration"
 COMPACT_EVIDENCE_SCOPES = frozenset({
     TONAL_ASSESSMENT_SCOPE,
     TONAL_METHOD_ASSESSMENT_SCOPE,
     TONAL_VALIDATION_SCOPE,
+    CHROMATIC_ASSESSMENT_SCOPE,
+    CHROMATIC_METHOD_ASSESSMENT_SCOPE,
+    CHROMATIC_VALIDATION_SCOPE,
 })
 POLICIES = ("auto", "audit", "force-verify", "rebuild")
 
@@ -155,6 +162,50 @@ TONAL_VALIDATION_ARTIFACTS = (
     ArtifactSpec("tonal-validation", "validation.json", "normalization/tonal-validation/validation.json"),
 )
 
+CHROMATIC_INTEGRATION_ARTIFACTS = (
+    ArtifactSpec(
+        "chromatic-normalization-manifest",
+        "chromatic-normalization-manifest.json",
+        "normalization/chromatic-integration/chromatic-normalization-manifest.json",
+    ),
+    ArtifactSpec(
+        "chromatic-assessment",
+        "chromatic-assessment.json",
+        "normalization/chromatic-integration/chromatic-assessment.json",
+    ),
+    ArtifactSpec(
+        "chromatic-method-assessment",
+        "chromatic-method-assessment.json",
+        "normalization/chromatic-integration/chromatic-method-assessment.json",
+    ),
+    ArtifactSpec(
+        "chromatic-validation",
+        "chromatic-validation.json",
+        "normalization/chromatic-integration/chromatic-validation.json",
+    ),
+    ArtifactSpec("release-record", "release.json", "normalization/chromatic-integration/release.json"),
+)
+
+CHROMATIC_ASSESSMENT_ARTIFACTS = (
+    ArtifactSpec("chromatic-assessment", "assessment.json", "normalization/chromatic/assessment.json"),
+)
+
+CHROMATIC_METHOD_ASSESSMENT_ARTIFACTS = (
+    ArtifactSpec(
+        "chromatic-method-assessment",
+        "assessment.json",
+        "normalization/chromatic-methods/assessment.json",
+    ),
+)
+
+CHROMATIC_VALIDATION_ARTIFACTS = (
+    ArtifactSpec(
+        "chromatic-validation",
+        "validation.json",
+        "normalization/chromatic-validation/validation.json",
+    ),
+)
+
 SCOPE_ARTIFACT_PROFILES = {
     PREPROCESS_SCOPE: PREPROCESS_ARTIFACTS,
     NORMALIZATION_SCOPE: NORMALIZATION_ARTIFACTS,
@@ -163,6 +214,10 @@ SCOPE_ARTIFACT_PROFILES = {
     TONAL_METHOD_ASSESSMENT_SCOPE: TONAL_METHOD_ASSESSMENT_ARTIFACTS,
     TONAL_VALIDATION_SCOPE: TONAL_VALIDATION_ARTIFACTS,
     TONAL_INTEGRATION_SCOPE: TONAL_INTEGRATION_ARTIFACTS,
+    CHROMATIC_ASSESSMENT_SCOPE: CHROMATIC_ASSESSMENT_ARTIFACTS,
+    CHROMATIC_METHOD_ASSESSMENT_SCOPE: CHROMATIC_METHOD_ASSESSMENT_ARTIFACTS,
+    CHROMATIC_VALIDATION_SCOPE: CHROMATIC_VALIDATION_ARTIFACTS,
+    CHROMATIC_INTEGRATION_SCOPE: CHROMATIC_INTEGRATION_ARTIFACTS,
 }
 
 SCOPE_EVIDENCE_PATHS = {
@@ -173,6 +228,10 @@ SCOPE_EVIDENCE_PATHS = {
     TONAL_METHOD_ASSESSMENT_SCOPE: "normalization/tonal-methods/canonical-build-evidence.json",
     TONAL_VALIDATION_SCOPE: "normalization/tonal-validation/canonical-build-evidence.json",
     TONAL_INTEGRATION_SCOPE: "normalization/tonal-integration/canonical-build-evidence.json",
+    CHROMATIC_ASSESSMENT_SCOPE: "normalization/chromatic/canonical-build-evidence.json",
+    CHROMATIC_METHOD_ASSESSMENT_SCOPE: "normalization/chromatic-methods/canonical-build-evidence.json",
+    CHROMATIC_VALIDATION_SCOPE: "normalization/chromatic-validation/canonical-build-evidence.json",
+    CHROMATIC_INTEGRATION_SCOPE: "normalization/chromatic-integration/canonical-build-evidence.json",
 }
 
 
@@ -936,6 +995,48 @@ def _tonal_integration_page_results(
     return pages
 
 
+def _chromatic_integration_page_results(
+    output_root: Path,
+    activity: str,
+    domain_result: str,
+    effective_build_identity: str,
+) -> list[dict[str, Any]]:
+    manifest = _load_json_object(
+        output_root / "chromatic-normalization-manifest.json",
+        "chromatic normalization manifest",
+    )
+    records = manifest.get("pages")
+    if not isinstance(records, list) or not records:
+        raise EvidenceError("Chromatic normalization manifest does not contain page records")
+    pages = []
+    for record in records:
+        if not isinstance(record, dict):
+            raise EvidenceError("Chromatic normalization manifest contains an invalid page record")
+        ordinal = int(record["global_ordinal"])
+        canonical_page = {
+            "global_ordinal": ordinal,
+            "route": record.get("route"),
+            "pipeline_action": record.get("pipeline_action"),
+            "decision_before": record.get("decision_before"),
+            "input_pixel_sha256": record.get("input_pixel_sha256"),
+            "output_pixel_sha256": record.get("output_pixel_sha256"),
+            "output_image_sha256": record.get("output_sha256"),
+            "output_dimensions": [record.get("output_width"), record.get("output_height")],
+        }
+        pages.append({
+            **canonical_page,
+            "operation_identity": canonical_hash({
+                "effective_build_identity": effective_build_identity,
+                "global_ordinal": ordinal,
+                "input_pixel_sha256": record.get("input_pixel_sha256"),
+            }),
+            "canonical_page_result_sha256": canonical_hash(canonical_page),
+            "activity": activity,
+            "domain_result": domain_result,
+        })
+    return pages
+
+
 def _compact_evidence_page_results(
     output_root: Path,
     filename: str,
@@ -999,6 +1100,35 @@ def _tonal_validation_page_results(
     )
 
 
+def _chromatic_assessment_page_results(
+    output_root: Path, activity: str, domain_result: str, effective_build_identity: str
+) -> list[dict[str, Any]]:
+    return _compact_evidence_page_results(
+        output_root, "assessment.json", "chromatic assessment", activity, domain_result, effective_build_identity
+    )
+
+
+def _chromatic_method_assessment_page_results(
+    output_root: Path, activity: str, domain_result: str, effective_build_identity: str
+) -> list[dict[str, Any]]:
+    return _compact_evidence_page_results(
+        output_root,
+        "assessment.json",
+        "chromatic method assessment",
+        activity,
+        domain_result,
+        effective_build_identity,
+    )
+
+
+def _chromatic_validation_page_results(
+    output_root: Path, activity: str, domain_result: str, effective_build_identity: str
+) -> list[dict[str, Any]]:
+    return _compact_evidence_page_results(
+        output_root, "validation.json", "chromatic validation", activity, domain_result, effective_build_identity
+    )
+
+
 def finalize(args: argparse.Namespace) -> dict[str, Any]:
     plan = _load_json_object(args.plan, "Canonical Build Evidence plan")
     if plan.get("decision") != "execute":
@@ -1013,6 +1143,10 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
         TONAL_METHOD_ASSESSMENT_SCOPE: _tonal_method_assessment_page_results,
         TONAL_VALIDATION_SCOPE: _tonal_validation_page_results,
         TONAL_INTEGRATION_SCOPE: _tonal_integration_page_results,
+        CHROMATIC_ASSESSMENT_SCOPE: _chromatic_assessment_page_results,
+        CHROMATIC_METHOD_ASSESSMENT_SCOPE: _chromatic_method_assessment_page_results,
+        CHROMATIC_VALIDATION_SCOPE: _chromatic_validation_page_results,
+        CHROMATIC_INTEGRATION_SCOPE: _chromatic_integration_page_results,
     }
     registered = set(SCOPE_ARTIFACT_PROFILES)
     if set(SCOPE_EVIDENCE_PATHS) != registered or set(page_builders) != registered:
