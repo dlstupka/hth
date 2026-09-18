@@ -336,7 +336,6 @@ jobs:
             --github-summary "$GITHUB_STEP_SUMMARY"
           cp "$RUNNER_TEMP/photometric-integration-plan.json" photometric-integrated-collection/integration-plan.json
           cp "$RUNNER_TEMP/photometric-integration-materialized/materialization-evidence.json" photometric-integrated-collection/materialization-evidence.json
-          cp results-repo/normalization/photometric-integration-policy.json photometric-integrated-collection/applied-integration-policy.json
           python <<'PY'
           import json
           import os
@@ -378,6 +377,16 @@ jobs:
               handle.write(f"asset={asset}\n")
               handle.write(f"asset_sha256={record['asset_sha256']}\n")
           PY
+
+      - name: Stage photometric Canonical Build Evidence metadata
+        if: steps.cbe_plan.outputs.decision == 'execute'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This policy is CBE metadata, not part of the immutable release asset.
+          # Stage it only after packaging so CBE adoption cannot change the bytes
+          # associated with an existing semantic photometric result identity.
+          cp results-repo/normalization/photometric-integration-policy.json photometric-integrated-collection/applied-integration-policy.json
 
       - name: Finalize photometric Canonical Build Evidence
         id: cbe_result

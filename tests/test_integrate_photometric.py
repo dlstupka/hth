@@ -233,6 +233,14 @@ class PhotometricIntegrationTests(unittest.TestCase):
         self.assertIn("steps.cbe_plan.outputs.decision == 'execute'", workflow)
         self.assertIn("steps.cbe_plan.outputs.decision != 'execute'", workflow)
         self.assertIn("Persisted release asset digest does not match Canonical Build Evidence", workflow)
+        package_position = workflow.index("- name: Package immutable photometric collection")
+        policy_position = workflow.index(
+            "cp results-repo/normalization/photometric-integration-policy.json "
+            "photometric-integrated-collection/applied-integration-policy.json"
+        )
+        finalize_position = workflow.index("- name: Finalize photometric Canonical Build Evidence")
+        self.assertLess(package_position, policy_position)
+        self.assertLess(policy_position, finalize_position)
         self.assertIn("gh release create", workflow)
         self.assertIn("photometric-normalization-manifest.json", workflow)
         self.assertIn("hth_hardened_persist", workflow)
