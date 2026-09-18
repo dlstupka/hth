@@ -130,6 +130,9 @@ class RestorationNormalizationTests(unittest.TestCase):
         self.assertIn("restore-immutable-release", core)
         self.assertIn("restore-immutable-release", integration)
         self.assertIn("release_provenance_summary", integration)
+        self.assertIn('normalize_restoration --domain "${{ inputs.domain }}" assess "${common[@]}"', core)
+        self.assertIn('normalize_restoration --domain "${{ inputs.domain }}" compare "${common[@]}"', core)
+        self.assertIn('normalize_restoration --domain "${{ inputs.domain }}" validate "${common[@]}"', core)
 
 
 if __name__ == "__main__":

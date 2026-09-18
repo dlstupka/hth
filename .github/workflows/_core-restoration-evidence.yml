@@ -134,11 +134,11 @@ jobs:
         env: {PYTHONPATH: hth-pipeline}
         run: |
           set -euo pipefail; rm -rf restoration-output; mkdir restoration-output
-          common=(--domain "${{ inputs.domain }}" --collection "${{ steps.asset.outputs.collection-root }}" --upstream-manifest "${{ steps.asset.outputs.marker-path }}")
+          common=(--collection "${{ steps.asset.outputs.collection-root }}" --upstream-manifest "${{ steps.asset.outputs.marker-path }}")
           case "${{ inputs.stage }}" in
-            assess) python -m hth.normalize_restoration "${common[@]}" assess --config "${{ steps.contract.outputs.config }}" --output restoration-output/assessment.json ;;
-            compare) python -m hth.normalize_restoration "${common[@]}" compare --assessment "results-repo/normalization/${{ inputs.domain }}/assessment.json" --config "${{ steps.contract.outputs.config }}" --output restoration-output/assessment.json ;;
-            validate) python -m hth.normalize_restoration "${common[@]}" validate --assessment "results-repo/normalization/${{ inputs.domain }}/assessment.json" --comparison "results-repo/normalization/${{ inputs.domain }}-methods/assessment.json" --config "${{ steps.contract.outputs.config }}" --output restoration-output/validation.json ;;
+            assess) python -m hth.normalize_restoration --domain "${{ inputs.domain }}" assess "${common[@]}" --config "${{ steps.contract.outputs.config }}" --output restoration-output/assessment.json ;;
+            compare) python -m hth.normalize_restoration --domain "${{ inputs.domain }}" compare "${common[@]}" --assessment "results-repo/normalization/${{ inputs.domain }}/assessment.json" --config "${{ steps.contract.outputs.config }}" --output restoration-output/assessment.json ;;
+            validate) python -m hth.normalize_restoration --domain "${{ inputs.domain }}" validate "${common[@]}" --assessment "results-repo/normalization/${{ inputs.domain }}/assessment.json" --comparison "results-repo/normalization/${{ inputs.domain }}-methods/assessment.json" --config "${{ steps.contract.outputs.config }}" --output restoration-output/validation.json ;;
           esac
       - name: Summarize restoration evidence
         shell: bash
