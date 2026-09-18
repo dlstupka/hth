@@ -77,6 +77,25 @@ runs:
         echo "asset_path=$HTH_RELEASE_DESTINATION/$HTH_RELEASE_ASSET" >> "$GITHUB_OUTPUT"
         echo "cache_source=$source" >> "$GITHUB_OUTPUT"
 
+    - name: Record immutable release provenance
+      shell: bash
+      env:
+        HTH_RELEASE_REPOSITORY: ${{ inputs.repository }}
+        HTH_RELEASE_TAG: ${{ inputs.tag }}
+        HTH_RELEASE_ASSET: ${{ inputs.asset }}
+        HTH_RELEASE_SHA256: ${{ inputs.sha256 }}
+        HTH_RELEASE_CACHE_SOURCE: ${{ steps.restore.outputs.cache_source }}
+      run: |
+        set -euo pipefail
+        PYTHONPATH="$GITHUB_ACTION_PATH/../../.." python -m hth.release_provenance_summary \
+          --title "Immutable release input" \
+          --repository "$HTH_RELEASE_REPOSITORY" \
+          --release-tag "$HTH_RELEASE_TAG" \
+          --input-asset "$HTH_RELEASE_ASSET" \
+          --input-asset-sha256 "$HTH_RELEASE_SHA256" \
+          --cache-source "$HTH_RELEASE_CACHE_SOURCE" \
+          --github-summary "$GITHUB_STEP_SUMMARY"
+
     - name: Safely extract and resolve immutable collection
       id: extract
       if: ${{ inputs.extract-destination != '' }}

@@ -251,6 +251,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN || github.token }}
+          PYTHONPATH: hth-pipeline
         run: |
           set -euo pipefail
           readarray -t release_fields < <(python <<'PY'
@@ -273,15 +274,14 @@ jobs:
             echo "Persisted release asset digest does not match Canonical Build Evidence" >&2
             exit 1
           }
-          release_url="${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/releases/tag/${tag}"
-          {
-            echo ""
-            echo "## Reusable photometric result"
-            echo ""
-            echo "- Photometric result: [\`$result_identity\`]($release_url)"
-            echo "- Release activity: \`AUDITED\`"
-            echo "- Release: $release_url"
-          } >> "$GITHUB_STEP_SUMMARY"
+          python -m hth.release_provenance_summary \
+            --title "Reusable photometric result" \
+            --result-label "Photometric result" \
+            --result-identity "$result_identity" \
+            --repository "$RESULTS_REPOSITORY" \
+            --release-tag "$tag" \
+            --release-activity AUDITED \
+            --github-summary "$GITHUB_STEP_SUMMARY"
 
       - name: Download immutable source release
         id: source_release
@@ -477,16 +477,18 @@ jobs:
             apply_photometric_integration \
             "Photometric integration publication"
           echo "results_commit=$HTH_PERSIST_COMMIT" >> "$GITHUB_OUTPUT"
-          {
-            echo ""
-            echo "## Durable photometric result"
-            echo ""
-            echo "- Base normalization result: [\`${{ steps.integration.outputs.base_normalization_identity }}\`](${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/blob/$HTH_PERSIST_COMMIT/normalization/normalization-manifest.json)"
-            echo "- Photometric result: [\`${{ steps.integration.outputs.result_identity }}\`](${{ steps.release.outputs.release_url }})"
-            echo "- Release activity: \`${{ steps.release.outputs.release_activity }}\`"
-            echo "- Release: ${{ steps.release.outputs.release_url }}"
-            echo "- Results commit: [\`$HTH_PERSIST_COMMIT\`](${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/commit/$HTH_PERSIST_COMMIT)"
-          } >> "$GITHUB_STEP_SUMMARY"
+          python -m hth.release_provenance_summary \
+            --title "Durable photometric result" \
+            --result-label "Photometric result" \
+            --result-identity "${{ steps.integration.outputs.result_identity }}" \
+            --repository "$RESULTS_REPOSITORY" \
+            --release-tag "${{ steps.integration.outputs.release_tag }}" \
+            --release-activity "${{ steps.release.outputs.release_activity }}" \
+            --results-commit "$HTH_PERSIST_COMMIT" \
+            --upstream-label "Base normalization result" \
+            --upstream-identity "${{ steps.integration.outputs.base_normalization_identity }}" \
+            --upstream-url "${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/blob/$HTH_PERSIST_COMMIT/normalization/normalization-manifest.json" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
 
       - name: Upload compact photometric review
         if: steps.cbe_plan.outputs.decision == 'execute'

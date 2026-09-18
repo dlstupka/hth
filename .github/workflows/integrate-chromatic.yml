@@ -170,6 +170,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: "${{ secrets.HTH_RESULTS_TOKEN || github.token }}"
+          PYTHONPATH: hth-pipeline
         run: |
           set -euo pipefail
           readarray -t fields < <(python <<'PY'
@@ -184,8 +185,14 @@ jobs:
           )
           digest="$(gh api "repos/$RESULTS_REPOSITORY/releases/tags/${fields[0]}" --jq ".assets[] | select(.name == \"${fields[1]}\") | .digest")"
           test "$digest" = "sha256:${fields[2]}"
-          url="${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/releases/tag/${fields[0]}"
-          printf '\n## Reusable chromatic result\n\n- Chromatic result: [`%s`](%s)\n- Release activity: `AUDITED`\n- Release: %s\n' "${fields[3]}" "$url" "$url" >> "$GITHUB_STEP_SUMMARY"
+          python -m hth.release_provenance_summary \
+            --title "Reusable chromatic result" \
+            --result-label "Chromatic result" \
+            --result-identity "${fields[3]}" \
+            --repository "$RESULTS_REPOSITORY" \
+            --release-tag "${fields[0]}" \
+            --release-activity AUDITED \
+            --github-summary "$GITHUB_STEP_SUMMARY"
 
       - name: Restore cached immutable tonal collection
         id: tonal_asset
@@ -321,7 +328,15 @@ jobs:
           }
           hth_hardened_persist results-repo main "Publish chromatic integration ${{ steps.integration.outputs.result_identity }}" apply_chromatic_integration "Chromatic integration publication"
           echo "results_commit=$HTH_PERSIST_COMMIT" >> "$GITHUB_OUTPUT"
-          printf '\n## Durable chromatic result\n\n- Chromatic result: [`%s`](%s)\n- Release activity: `%s`\n- Results commit: [`%s`](%s/%s/commit/%s)\n' "${{ steps.integration.outputs.result_identity }}" "${{ steps.release.outputs.release_url }}" "${{ steps.release.outputs.release_activity }}" "$HTH_PERSIST_COMMIT" "$GITHUB_SERVER_URL" "$RESULTS_REPOSITORY" "$HTH_PERSIST_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+          python -m hth.release_provenance_summary \
+            --title "Durable chromatic result" \
+            --result-label "Chromatic result" \
+            --result-identity "${{ steps.integration.outputs.result_identity }}" \
+            --repository "$RESULTS_REPOSITORY" \
+            --release-tag "${{ steps.integration.outputs.release_tag }}" \
+            --release-activity "${{ steps.release.outputs.release_activity }}" \
+            --results-commit "$HTH_PERSIST_COMMIT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
 
       - name: Upload compact chromatic review
         if: steps.cbe_plan.outputs.decision == 'execute'

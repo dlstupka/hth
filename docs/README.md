@@ -217,6 +217,15 @@ pixel-identical production result. New deterministic stages must not introduce
 an unconditional rebuild path or a stage-specific approximation of this
 contract.
 
+Every human-facing durable or reusable release summary must use
+`hth.release_provenance_summary`. It displays the canonical result identity,
+the immutable release tag as a link to that release, release activity, and the
+linked Results commit when one was published. Every shared immutable-release
+restore also identifies and links its authoritative release, asset, digest,
+and actual cache-resolution source. Release-backed cache reuse uses the same
+presentation so provenance never depends on whether a stage executed or reused
+an incumbent.
+
 ## Updating This Rulebook
 
 Update this file when the project adopts a recurring convention expressed as “always,” “never,” “from now on,” or “we decided.” Do not add a rule until it has actually been agreed.
