@@ -39,6 +39,11 @@ Imperative implementation requests are executable commands. When the user says `
 
 Interrupt execution only when a material requirement is genuinely ambiguous, required source material is missing, the request conflicts with this standard or the repository, or the proposed change is technically unsound. State the issue plainly rather than agreeing for the sake of agreement.
 
+Implementation changes must remain uncommitted so they can be tested and
+reviewed first. Create a Git commit only when the user explicitly requests one;
+an instruction to implement, fix, finish, or prepare an overlay does not imply
+permission to commit or push.
+
 ## Standing Commands
 
 - `create the overlay` means implement, test, document, and package `overlay.zip`.
