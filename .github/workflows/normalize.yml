@@ -91,7 +91,7 @@ jobs:
     uses: ./.github/workflows/assess-crop-framing.yml
     with:
       runner_target: ${{ inputs.runner_target }}
-      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+      artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
     secrets: inherit
 
   assess-orientation-deskew:
@@ -104,7 +104,7 @@ jobs:
     uses: ./.github/workflows/assess-orientation-deskew.yml
     with:
       runner_target: ${{ inputs.runner_target }}
-      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+      artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
     secrets: inherit
 
   normalize:
@@ -444,7 +444,7 @@ jobs:
     uses: ./.github/workflows/assess-perspective.yml
     with:
       runner_target: ${{ inputs.runner_target }}
-      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+      artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
     secrets: inherit
 
   assess-photometric:
@@ -456,7 +456,7 @@ jobs:
     uses: ./.github/workflows/assess-photometric.yml
     with:
       runner_target: ${{ inputs.runner_target }}
-      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+      artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
     secrets: inherit
 
   assess-photometric-methods:
@@ -468,7 +468,7 @@ jobs:
     uses: ./.github/workflows/assess-photometric-methods.yml
     with:
       runner_target: ${{ inputs.runner_target }}
-      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+      artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
     secrets: inherit
 
   validate-photometric-method:
@@ -480,7 +480,7 @@ jobs:
     uses: ./.github/workflows/validate-photometric-method.yml
     with:
       runner_target: ${{ inputs.runner_target }}
-      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+      artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
     secrets: inherit
 
   integrate-photometric:
@@ -492,7 +492,7 @@ jobs:
     uses: ./.github/workflows/integrate-photometric.yml
     with:
       runner_target: ${{ inputs.runner_target }}
-      review_artifact_retention_days: ${{ inputs.artifact_retention_days }}
+      review_artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
       canonical_build_policy: ${{ inputs.canonical_normalization_policy }}
     secrets: inherit
 
@@ -506,7 +506,7 @@ jobs:
     with:
       stage: assess
       runner_target: ${{ inputs.runner_target }}
-      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+      artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
     secrets: inherit
 
   assess-tonal-methods:
@@ -519,7 +519,7 @@ jobs:
     with:
       stage: compare
       runner_target: ${{ inputs.runner_target }}
-      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+      artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
     secrets: inherit
 
   validate-tonal-method:
@@ -532,7 +532,7 @@ jobs:
     with:
       stage: validate
       runner_target: ${{ inputs.runner_target }}
-      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+      artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
     secrets: inherit
 
   integrate-tonal:
@@ -544,6 +544,6 @@ jobs:
     uses: ./.github/workflows/integrate-tonal.yml
     with:
       runner_target: ${{ inputs.runner_target }}
-      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+      artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
       canonical_build_policy: ${{ inputs.canonical_normalization_policy }}
     secrets: inherit

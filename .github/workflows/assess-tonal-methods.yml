@@ -28,5 +28,5 @@ jobs:
     with:
       stage: compare
       runner_target: ${{ inputs.runner_target }}
-      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+      artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
     secrets: inherit

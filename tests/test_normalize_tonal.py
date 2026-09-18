@@ -145,6 +145,20 @@ class TonalNormalizationTests(unittest.TestCase):
         self.assertIn("uses: ./.github/workflows/assess-crop-framing.yml", orchestrator)
         self.assertIn("uses: ./.github/workflows/assess-orientation-deskew.yml", orchestrator)
 
+    def test_reusable_workflow_retention_inputs_are_explicitly_numeric(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        cast = "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}"
+        callers = {
+            "normalize.yml": 11,
+            "assess-tonal.yml": 1,
+            "assess-tonal-methods.yml": 1,
+            "validate-tonal-method.yml": 1,
+        }
+        for name, expected_count in callers.items():
+            with self.subTest(workflow=name):
+                text = (root / ".github/workflows" / name).read_text(encoding="utf-8")
+                self.assertEqual(text.count(cast), expected_count)
+
 
 if __name__ == "__main__":
     unittest.main()
