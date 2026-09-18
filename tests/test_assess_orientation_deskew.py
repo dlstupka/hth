@@ -325,9 +325,10 @@ class OrientationDeskewAssessmentTests(unittest.TestCase):
         self.assertIn("python -m hth.assess_orientation_deskew recommend", workflow)
         self.assertIn("normalization/orientation-deskew-policy.json", workflow)
         self.assertIn("hth_hardened_persist", workflow)
-        self.assertIn("specific_runner:", workflow)
-        self.assertIn("custom_runner_label:", workflow)
-        self.assertIn("fromJSON(format('[\"self-hosted\",\"{0}\"]', inputs.custom_runner_label))", workflow)
+        self.assertIn("runner_target:", workflow)
+        self.assertIn("inputs.runner_target == '192t'", workflow)
+        self.assertNotIn("specific_runner:", workflow)
+        self.assertNotIn("custom_runner_label:", workflow)
         self.assertNotIn("run_document_detector", workflow)
         self.assertNotIn("git push", workflow)
         pipeline_checkout = workflow.split("- name: Checkout HTH pipeline", 1)[1].split("- name:", 1)[0]

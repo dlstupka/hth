@@ -112,16 +112,12 @@ class CropFramingAssessmentTests(unittest.TestCase):
         self.assertIn("HTH-GOLDEN-0002", workflow)
         self.assertIn("Resolve Rank #1 approved GS0002 detector", workflow)
         self.assertIn("python -m hth.assess_crop_framing evaluate", workflow)
-        self.assertIn("runner:", workflow)
-        self.assertIn("specific_runner:", workflow)
-        self.assertIn("custom_runner_label:", workflow)
-        self.assertIn("- self-hosted-e7k", workflow)
-        self.assertIn("- self-hosted-e9k", workflow)
-        self.assertIn("inputs.specific_runner == 'custom'", workflow)
-        self.assertIn(
-            "fromJSON(format('[\"self-hosted\",\"{0}\"]', inputs.custom_runner_label))",
-            workflow,
-        )
+        self.assertIn("runner_target:", workflow)
+        self.assertNotIn("specific_runner:", workflow)
+        self.assertNotIn("custom_runner_label:", workflow)
+        self.assertIn("- e7k", workflow)
+        self.assertIn("- e9k", workflow)
+        self.assertIn("inputs.runner_target == '192t'", workflow)
         self.assertIn("runner-label: ${{ env.HTH_SELECTED_RUNNER_LABEL }}", workflow)
         self.assertNotIn("git push", workflow)
         self.assertNotIn("publish_results", workflow)

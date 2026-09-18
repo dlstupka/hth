@@ -170,31 +170,24 @@ on:
         required: true
         default: auto
         type: string
-      runner:
-        description: Execution runner
+      # BEGIN GENERATED RUNNER TARGET INPUT
+      runner_target:
+        description: "Execution runner target"
         required: true
         default: github-hosted
         type: choice
         options:
           - github-hosted
-          - self-hosted-hth
+          - self-hosted-linux
           - self-hosted-windows
-          - self-hosted-rhel8
-          - self-hosted-e7k
-          - self-hosted-e9k
-      specific_runner:
-        description: "Specific self-hosted runner; any keeps the selected runner class"
-        required: true
-        default: any
-        type: choice
-        options:
-          - any
-          - custom
-      custom_runner_label:
-        description: "Custom self-hosted runner label; used only when Specific self-hosted runner is custom"
-        required: false
-        default: ""
-        type: string
+          - hth
+          - rhel8
+          - e7k
+          - e9k
+          - 192t
+          - 96t
+          - 32t
+      # END GENERATED RUNNER TARGET INPUT
       clean_runner:
         description: "Advanced — Wipe runner workspace and rebuild from scratch"
         required: true
@@ -324,9 +317,7 @@ jobs:
             --golden-release-freeze "${{ inputs.golden_release_freeze }}" \
             --execution-shape "${{ inputs.execution_shape }}" \
             --manual-execution-shape "${{ inputs.manual_execution_shape }}" \
-            --runner "${{ inputs.runner }}" \
-            --specific-runner "${{ inputs.specific_runner }}" \
-            --custom-runner-label "${{ inputs.custom_runner_label }}" \
+            --runner-target "${{ inputs.runner_target }}" \
             --max-dimension "${{ inputs.max_dimension }}" \
             --sharding "${{ inputs.sharding }}" \
             --shard-target-minutes "${{ inputs.shard_target_minutes }}" \
@@ -397,9 +388,7 @@ jobs:
             --detector-config-root hth-pipeline/config/detectors \
             --golden-set "hth-pipeline/${{ github.event_name == 'workflow_dispatch' && inputs.golden_set || 'config/golden_set.json' }}" \
             --max-dimension "${{ github.event_name == 'workflow_dispatch' && inputs.max_dimension || '1800' }}" \
-            --requested-runner "${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'github-hosted' }}" \
-            --specific-runner "${{ github.event_name == 'workflow_dispatch' && inputs.specific_runner || 'any' }}" \
-            --custom-runner-label "${{ github.event_name == 'workflow_dispatch' && inputs.custom_runner_label || '' }}" \
+            --runner-target "${{ github.event_name == 'workflow_dispatch' && inputs.runner_target || 'github-hosted' }}" \
             --github-output "$GITHUB_OUTPUT"
 
   regress:

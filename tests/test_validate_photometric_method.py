@@ -184,7 +184,8 @@ class PhotometricMethodValidationTests(unittest.TestCase):
         self.assertIn("python -m hth.validate_photometric_method evaluate", workflow)
         self.assertIn("python -m hth.validate_photometric_method recommend", workflow)
         self.assertIn("normalization/photometric-integration-policy.json", workflow)
-        self.assertIn("specific_runner:", workflow)
+        self.assertIn("runner_target:", workflow)
+        self.assertNotIn("specific_runner:", workflow)
         self.assertNotIn("normalize_document_images", workflow)
         self.assertNotIn("git push", workflow)
 

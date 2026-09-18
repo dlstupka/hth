@@ -6,7 +6,7 @@ from hth.regression.runner import parse_args
 ROOT=Path(__file__).resolve().parents[1]
 class ShardingPolicyTests(unittest.TestCase):
     def test_regression_field_location_and_default(self):
-        s=(ROOT/'.github/workflows/regress-detector.yml').read_text(); self.assertLess(s.index('      manual_execution_shape:'),s.index('      sharding:')); self.assertLess(s.index('      sharding:'),s.index('      runner:')); self.assertIn('default: auto',s[s.index('      sharding:'):s.index('      runner:')]); self.assertNotIn('      shards:',s)
+        s=(ROOT/'.github/workflows/regress-detector.yml').read_text(); self.assertLess(s.index('      manual_execution_shape:'),s.index('      sharding:')); self.assertLess(s.index('      sharding:'),s.index('      runner_target:')); self.assertIn('default: auto',s[s.index('      sharding:'):s.index('      runner_target:')]); self.assertNotIn('      shards:',s)
     def test_optimizer_field_location_and_default(self):
         s=(ROOT/'.github/workflows/execution-optimizer.yml').read_text(); self.assertLess(s.index('      early_stop:'),s.index('      sharding:')); self.assertLess(s.index('      sharding:'),s.index('      resume:')); self.assertIn('default: "1"',s[s.index('      sharding:'):s.index('      resume:')])
     def test_driver_contract(self):

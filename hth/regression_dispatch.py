@@ -107,9 +107,7 @@ def main() -> int:
     parser.add_argument("--golden-release-freeze", default="")
     parser.add_argument("--execution-shape", required=True)
     parser.add_argument("--manual-execution-shape", default="")
-    parser.add_argument("--runner", required=True)
-    parser.add_argument("--specific-runner", required=True)
-    parser.add_argument("--custom-runner-label", default="")
+    parser.add_argument("--runner-target", required=True)
     parser.add_argument("--max-dimension", required=True)
     parser.add_argument("--sharding", default="auto")
     parser.add_argument("--shard-target-minutes", required=True)
@@ -141,9 +139,7 @@ def main() -> int:
         "golden_release_freeze": args.golden_release_freeze,
         "execution_shape": args.execution_shape,
         "manual_execution_shape": args.manual_execution_shape,
-        "runner": args.runner,
-        "specific_runner": args.specific_runner,
-        "custom_runner_label": args.custom_runner_label,
+        "runner_target": args.runner_target,
         "max_dimension": args.max_dimension,
         "sharding": args.sharding,
         "shard_target_minutes": args.shard_target_minutes,

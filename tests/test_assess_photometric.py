@@ -154,7 +154,8 @@ class PhotometricAssessmentTests(unittest.TestCase):
         self.assertIn("/normalization/photometric-policy.json", workflow)
         self.assertIn('manifest.get("canonical_result_identity")', workflow)
         self.assertNotIn('result_identity = str(record["canonical_result"]["identity"])', workflow)
-        self.assertIn("specific_runner:", workflow)
+        self.assertIn("runner_target:", workflow)
+        self.assertNotIn("specific_runner:", workflow)
         self.assertNotIn("normalize_document_images", workflow)
         self.assertNotIn("git push", workflow)
 

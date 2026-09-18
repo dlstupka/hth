@@ -5,29 +5,24 @@ run-name: Build the validated photometric collection for downstream HTR
 on:
   workflow_dispatch:
     inputs:
-      runner:
-        description: Execution runner
+      # BEGIN GENERATED RUNNER TARGET INPUT
+      runner_target:
+        description: "Execution runner target"
         required: true
         default: github-hosted
         type: choice
         options:
           - github-hosted
-          - self-hosted-hth
+          - self-hosted-linux
           - self-hosted-windows
-          - self-hosted-rhel8
-          - self-hosted-e7k
-          - self-hosted-e9k
-      specific_runner:
-        description: "Specific self-hosted runner; any keeps the selected runner class"
-        required: true
-        default: any
-        type: choice
-        options: [any, custom]
-      custom_runner_label:
-        description: "Custom self-hosted runner label; used only when Specific self-hosted runner is custom"
-        required: false
-        default: ""
-        type: string
+          - hth
+          - rhel8
+          - e7k
+          - e9k
+          - 192t
+          - 96t
+          - 32t
+      # END GENERATED RUNNER TARGET INPUT
       review_artifact_retention_days:
         description: Days to retain the compact review artifact
         required: true
@@ -60,24 +55,34 @@ env:
 jobs:
   integrate-photometric:
     name: Produce the validated illumination-normalized collection
+    # BEGIN GENERATED RUNNER TARGET ROUTING
     runs-on: >-
-      ${{    inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && fromJSON(format('["self-hosted","{0}"]', inputs.custom_runner_label))
-          || inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
-          || inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
-          || inputs.runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
-          || inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
-          || inputs.runner == 'self-hosted-e9k'     && fromJSON('["self-hosted","Linux","X64","e9k"]')
-          || 'ubuntu-latest' }}
+      ${{ inputs.runner_target == 'self-hosted-linux' && fromJSON('["self-hosted","Linux","X64"]')
+        || inputs.runner_target == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+        || inputs.runner_target == 'hth' && fromJSON('["self-hosted","Linux","X64","hth"]')
+        || inputs.runner_target == 'rhel8' && fromJSON('["self-hosted","Linux","X64","rhel8"]')
+        || inputs.runner_target == 'e7k' && fromJSON('["self-hosted","Linux","X64","e7k"]')
+        || inputs.runner_target == 'e9k' && fromJSON('["self-hosted","Linux","X64","e9k"]')
+        || inputs.runner_target == '192t' && fromJSON('["self-hosted","Linux","X64","192t"]')
+        || inputs.runner_target == '96t' && fromJSON('["self-hosted","Linux","X64","96t"]')
+        || inputs.runner_target == '32t' && fromJSON('["self-hosted","Linux","X64","32t"]')
+        || 'ubuntu-latest' }}
+    # END GENERATED RUNNER TARGET ROUTING
     timeout-minutes: 120
     env:
+      # BEGIN GENERATED RUNNER SETUP LABEL
       HTH_SELECTED_RUNNER_LABEL: >-
-        ${{  inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && inputs.custom_runner_label
-          || inputs.runner == 'self-hosted-hth' && 'hth'
-          || inputs.runner == 'self-hosted-rhel8' && 'rhel8'
-          || inputs.runner == 'self-hosted-e7k' && 'e7k'
-          || inputs.runner == 'self-hosted-e9k' && 'e9k'
-          || inputs.runner == 'self-hosted-windows' && 'windows'
+        ${{ inputs.runner_target == 'self-hosted-linux' && 'linux'
+          || inputs.runner_target == 'self-hosted-windows' && 'windows'
+          || inputs.runner_target == 'hth' && 'hth'
+          || inputs.runner_target == 'rhel8' && 'rhel8'
+          || inputs.runner_target == 'e7k' && 'e7k'
+          || inputs.runner_target == 'e9k' && 'e9k'
+          || inputs.runner_target == '192t' && '192t'
+          || inputs.runner_target == '96t' && '96t'
+          || inputs.runner_target == '32t' && '32t'
           || 'github-hosted' }}
+      # END GENERATED RUNNER SETUP LABEL
     steps:
       - name: Checkout HTH pipeline
         uses: actions/checkout@v6

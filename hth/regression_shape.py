@@ -21,6 +21,7 @@ from hth.optimizer_intelligence import (
     runner_from_row as intelligence_runner_from_row,
 )
 from hth.regression.sharding import runner_max_threads
+from hth.runner_targets import resolve_runner_target
 
 
 @dataclass(frozen=True)
@@ -96,32 +97,9 @@ def current_runner_profile(*, name: str | None = None, label: str | None = None)
 
 
 
-_RUNNER_TARGETS: dict[str, list[str]] = {
-    "github-hosted": ["ubuntu-latest"],
-    "hth": ["self-hosted", "Linux", "X64", "hth"],
-    "rhel8": ["self-hosted", "Linux", "X64", "rhel8"],
-    "e7k": ["self-hosted", "Linux", "X64", "e7k"],
-    "e9k": ["self-hosted", "Linux", "X64", "e9k"],
-    "windows": ["self-hosted", "Windows", "X64"],
-}
-
-
-def _requested_runner_target(
-    *, runner: str, specific_runner: str, custom_runner_label: str | None,
-) -> tuple[list[str], str]:
-    if specific_runner == "custom" and str(custom_runner_label or "").strip():
-        label = str(custom_runner_label).strip()
-        return ["self-hosted", label], label
-    mapping = {
-        "github-hosted": (["ubuntu-latest"], "github-hosted"),
-        "self-hosted-hth": (_RUNNER_TARGETS["hth"], "hth"),
-        "self-hosted-rhel8": (_RUNNER_TARGETS["rhel8"], "rhel8"),
-        "self-hosted-e7k": (_RUNNER_TARGETS["e7k"], "e7k"),
-        "self-hosted-e9k": (_RUNNER_TARGETS["e9k"], "e9k"),
-        "self-hosted-windows": (_RUNNER_TARGETS["windows"], "windows"),
-    }
-    labels, label = mapping.get(runner, mapping["github-hosted"])
-    return list(labels), label
+def _requested_runner_target(runner_target: str) -> tuple[list[str], str]:
+    target = resolve_runner_target(runner_target)
+    return list(target["runs_on"]), str(target["setup_label"])
 
 
 def parse_manual_shape(value: str) -> tuple[int, int]:
@@ -259,16 +237,10 @@ def resolve_preferred_dispatch(
     detector_config_root: Path,
     golden_set: Path,
     max_dimension: int,
-    requested_runner: str,
-    specific_runner: str,
-    custom_runner_label: str | None,
+    runner_target: str,
 ) -> dict[str, Any]:
     """Resolve runner + shape together before GitHub dispatches the regression job."""
-    requested_labels, requested_label = _requested_runner_target(
-        runner=requested_runner,
-        specific_runner=specific_runner,
-        custom_runner_label=custom_runner_label,
-    )
+    requested_labels, requested_label = _requested_runner_target(runner_target)
     fallback = {
         "runs_on": requested_labels,
         "runner_label": requested_label,
@@ -297,10 +269,15 @@ def resolve_preferred_dispatch(
         return fallback
 
     target_logical = logical_cpus_from_capacity_label(requested_label)
+    selector_labels = (
+        [requested_label]
+        if requested_label not in {"github-hosted", "linux", "windows"}
+        else requested_labels
+    )
     intelligence = resolve_selector_intelligence(
         detector=detector_id,
         rows=rows,
-        required_labels=requested_labels,
+        required_labels=selector_labels,
         target_runner_label=requested_label,
         target_logical_cpus=target_logical,
     )
@@ -617,9 +594,7 @@ def main() -> int:
     dispatch.add_argument("--detector-config-root", type=Path, required=True)
     dispatch.add_argument("--golden-set", type=Path, required=True)
     dispatch.add_argument("--max-dimension", type=int, required=True)
-    dispatch.add_argument("--requested-runner", required=True)
-    dispatch.add_argument("--specific-runner", default="any")
-    dispatch.add_argument("--custom-runner-label", default="")
+    dispatch.add_argument("--runner-target", required=True)
     dispatch.add_argument("--github-output", type=Path)
 
     workflow = sub.add_parser("workflow-resolve", help="Resolve workflow execution shape and write GitHub environment")
@@ -651,8 +626,7 @@ def main() -> int:
             strategy=args.strategy, limit=args.limit, detector=args.detector,
             parallelism_index=args.parallelism_index, detector_config_root=args.detector_config_root,
             golden_set=args.golden_set, max_dimension=args.max_dimension,
-            requested_runner=args.requested_runner, specific_runner=args.specific_runner,
-            custom_runner_label=args.custom_runner_label,
+            runner_target=args.runner_target,
         )
         values = dispatch_output_env(result)
         if args.github_output:

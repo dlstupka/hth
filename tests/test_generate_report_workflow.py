@@ -27,14 +27,14 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertIn("report_golden_set: ${{ inputs.golden_release_tag }}", text)
         self.assertIn("uses: ./.github/workflows/_core-hth.yml", text)
         self.assertIn("mode: report", text)
-        for runner in ("self-hosted-hth", "self-hosted-windows", "self-hosted-rhel8", "self-hosted-e7k", "self-hosted-e9k"):
+        for runner in ("self-hosted-linux", "self-hosted-windows", "hth", "rhel8", "e7k", "e9k", "192t", "96t", "32t"):
             self.assertIn(runner, text)
 
     def test_core_exposes_common_manual_runner_selection(self) -> None:
         text = CORE.read_text(encoding="utf-8")
-        self.assertIn('runner:\n        description: "Execution runner"', text)
-        self.assertIn("inputs.runner == 'self-hosted-e7k'", text)
-        self.assertIn("inputs.runner == 'self-hosted-e9k'", text)
+        self.assertIn('runner_target:\n        description: "Canonical execution runner target"', text)
+        self.assertIn("inputs.runner_target == 'e7k'", text)
+        self.assertIn("inputs.runner_target == 'e9k'", text)
 
     def test_core_resolves_report_release_tag_to_validated_canonical_file(self) -> None:
         text = CORE.read_text(encoding="utf-8")

@@ -58,21 +58,13 @@ on:
         required: false
         type: number
         default: 7
-      runner:
-        description: "Execution runner"
+      # BEGIN GENERATED RUNNER TARGET INPUT
+      runner_target:
+        description: "Canonical execution runner target"
         required: false
         type: string
         default: "github-hosted"
-      specific_runner:
-        description: "Specific self-hosted runner; any keeps the selected runner class"
-        required: false
-        type: string
-        default: "any"
-      custom_runner_label:
-        description: "Custom self-hosted runner label used when specific_runner is custom"
-        required: false
-        type: string
-        default: ""
+      # END GENERATED RUNNER TARGET INPUT
       report_type:
         description: "Report to regenerate when mode is report"
         required: false
@@ -113,19 +105,37 @@ env:
   GIT_CONFIG_COUNT: "1"
   GIT_CONFIG_KEY_0: init.defaultBranch
   GIT_CONFIG_VALUE_0: main
+  # BEGIN GENERATED RUNNER SETUP LABEL
+  HTH_RUNNER_LABEL: >-
+    ${{ inputs.runner_target == 'self-hosted-linux' && 'linux'
+      || inputs.runner_target == 'self-hosted-windows' && 'windows'
+      || inputs.runner_target == 'hth' && 'hth'
+      || inputs.runner_target == 'rhel8' && 'rhel8'
+      || inputs.runner_target == 'e7k' && 'e7k'
+      || inputs.runner_target == 'e9k' && 'e9k'
+      || inputs.runner_target == '192t' && '192t'
+      || inputs.runner_target == '96t' && '96t'
+      || inputs.runner_target == '32t' && '32t'
+      || 'github-hosted' }}
+  # END GENERATED RUNNER SETUP LABEL
 
 jobs:
   run-hth:
     if: ${{ inputs.mode != 'report' }}
     name: ${{ inputs.mode == 'production' && 'Preprocess complete collection' || inputs.mode == 'calibration' && 'Calibrate physical geometry' || 'Test one DOCX master' }}
+    # BEGIN GENERATED RUNNER TARGET ROUTING
     runs-on: >-
-      ${{    inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && fromJSON(format('["self-hosted","{0}"]', inputs.custom_runner_label))
-          || inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
-          || inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
-          || inputs.runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
-          || inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
-          || inputs.runner == 'self-hosted-e9k'     && fromJSON('["self-hosted","Linux","X64","e9k"]')
-          || 'ubuntu-latest' }}
+      ${{ inputs.runner_target == 'self-hosted-linux' && fromJSON('["self-hosted","Linux","X64"]')
+        || inputs.runner_target == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+        || inputs.runner_target == 'hth' && fromJSON('["self-hosted","Linux","X64","hth"]')
+        || inputs.runner_target == 'rhel8' && fromJSON('["self-hosted","Linux","X64","rhel8"]')
+        || inputs.runner_target == 'e7k' && fromJSON('["self-hosted","Linux","X64","e7k"]')
+        || inputs.runner_target == 'e9k' && fromJSON('["self-hosted","Linux","X64","e9k"]')
+        || inputs.runner_target == '192t' && fromJSON('["self-hosted","Linux","X64","192t"]')
+        || inputs.runner_target == '96t' && fromJSON('["self-hosted","Linux","X64","96t"]')
+        || inputs.runner_target == '32t' && fromJSON('["self-hosted","Linux","X64","32t"]')
+        || 'ubuntu-latest' }}
+    # END GENERATED RUNNER TARGET ROUTING
     timeout-minutes: ${{ inputs.mode == 'production' && 120 || 30 }}
 
     env:
@@ -1424,14 +1434,19 @@ jobs:
   generate-report:
     if: ${{ inputs.mode == 'report' }}
     name: Generate HTH report
+    # BEGIN GENERATED RUNNER TARGET ROUTING
     runs-on: >-
-      ${{    inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && fromJSON(format('["self-hosted","{0}"]', inputs.custom_runner_label))
-          || inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
-          || inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
-          || inputs.runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
-          || inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
-          || inputs.runner == 'self-hosted-e9k'     && fromJSON('["self-hosted","Linux","X64","e9k"]')
-          || 'ubuntu-latest' }}
+      ${{ inputs.runner_target == 'self-hosted-linux' && fromJSON('["self-hosted","Linux","X64"]')
+        || inputs.runner_target == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+        || inputs.runner_target == 'hth' && fromJSON('["self-hosted","Linux","X64","hth"]')
+        || inputs.runner_target == 'rhel8' && fromJSON('["self-hosted","Linux","X64","rhel8"]')
+        || inputs.runner_target == 'e7k' && fromJSON('["self-hosted","Linux","X64","e7k"]')
+        || inputs.runner_target == 'e9k' && fromJSON('["self-hosted","Linux","X64","e9k"]')
+        || inputs.runner_target == '192t' && fromJSON('["self-hosted","Linux","X64","192t"]')
+        || inputs.runner_target == '96t' && fromJSON('["self-hosted","Linux","X64","96t"]')
+        || inputs.runner_target == '32t' && fromJSON('["self-hosted","Linux","X64","32t"]')
+        || 'ubuntu-latest' }}
+    # END GENERATED RUNNER TARGET ROUTING
     timeout-minutes: 30
     env:
       RESULTS_REPOSITORY: ${{ inputs.results_repository }}

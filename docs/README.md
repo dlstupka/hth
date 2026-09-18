@@ -326,19 +326,27 @@ This directory contains the design, operating, and project-reference documentati
 
 ### Manual runner targeting
 
-Manual HTH workflows retain the existing runner-class selector and also expose a
-`Specific self-hosted runner` selector. `any` preserves class-based scheduling;
-`custom` uses the value entered in `Custom self-hosted runner label` as an exact
-self-hosted runner label. Add a unique label matching the runner name when exact
-runner targeting is desired, for example `rh8-al320`.
+Manual HTH workflows expose one `runner_target` selector. Its ordered target
+catalog, complete `runs-on` label sets, and runtime setup labels are defined only
+in `config/runner-targets.json`. The catalog includes portable GitHub-hosted and
+self-hosted pools, named pools (`hth`, `rhel8`, `e7k`, and `e9k`), and explicit
+capacity pools (`192t`, `96t`, and `32t`). Capacity targets require that exact
+label in addition to GitHub's `self-hosted`, `Linux`, and `X64` labels.
 
-For a custom exact runner, the execution optimizer derives its default thread
-budget from the selected runner itself (`2 × nproc`) rather than from a static
-runner-name table. Explicitly requested pipeline/thread search bounds remain
-unchanged in run metadata and display. Without `allow_thread_oversubscription`,
-only legal shapes within the detected runner budget are executed; with the
-explicit override enabled, oversubscribed shapes are allowed and reported as
-such.
+GitHub Actions requires `workflow_dispatch` choices to be static YAML, so
+`python tools/sync-runner-targets.py` deterministically renders the catalog into
+every runner-enabled workflow. `python tools/sync-runner-targets.py --check`
+fails when generated workflow choices or routing expressions drift from the
+catalog. The automated test adds `--repair`: on drift it emits a GitHub warning,
+synchronizes the generated regions, and immediately rechecks them. Do not
+hand-edit generated runner-target regions.
+
+The execution optimizer derives its default thread budget from the selected
+target's runtime label. Numeric capacity labels use the existing `2 × capacity`
+policy. Explicitly requested pipeline/thread search bounds remain unchanged in
+run metadata and display. Without `allow_thread_oversubscription`, only legal
+shapes within the detected runner budget are executed; with the explicit
+override enabled, oversubscribed shapes are allowed and reported as such.
 
 - Optimizer measurements use an optimizer-owned exact execution-shape contract: the optimizer selects the pipeline/thread shape and the regression driver executes it without applying a second thread clamp.
 

@@ -1,7 +1,7 @@
 name: HTH report
 
 run-name: >-
-  Generate ${{ inputs.report }} report for ${{ inputs.golden_release_tag }} on ${{ inputs.runner }}
+  Generate ${{ inputs.report }} report for ${{ inputs.golden_release_tag }} on ${{ inputs.runner_target }}
 
 on:
   workflow_dispatch:
@@ -52,31 +52,24 @@ on:
         options:
           - HTH-GOLDEN-0001
           - HTH-GOLDEN-0002
-      runner:
-        description: Execution runner
+      # BEGIN GENERATED RUNNER TARGET INPUT
+      runner_target:
+        description: "Execution runner target"
         required: true
         default: github-hosted
         type: choice
         options:
           - github-hosted
-          - self-hosted-hth
+          - self-hosted-linux
           - self-hosted-windows
-          - self-hosted-rhel8
-          - self-hosted-e7k
-          - self-hosted-e9k
-      specific_runner:
-        description: "Specific self-hosted runner; any keeps the selected runner class"
-        required: true
-        default: any
-        type: choice
-        options:
-          - any
-          - custom
-      custom_runner_label:
-        description: "Custom self-hosted runner label; used only when Specific self-hosted runner is custom"
-        required: false
-        default: ""
-        type: string
+          - hth
+          - rhel8
+          - e7k
+          - e9k
+          - 192t
+          - 96t
+          - 32t
+      # END GENERATED RUNNER TARGET INPUT
 permissions:
   contents: read
 
@@ -89,9 +82,7 @@ jobs:
     uses: ./.github/workflows/_core-hth.yml
     with:
       mode: report
-      runner: ${{ inputs.runner }}
-      specific_runner: ${{ inputs.specific_runner }}
-      custom_runner_label: ${{ inputs.custom_runner_label }}
+      runner_target: ${{ inputs.runner_target }}
       results_repository: ${{ inputs.results_repository }}
       report_type: ${{ inputs.report }}
       report_algorithm: ${{ inputs.algorithm }}

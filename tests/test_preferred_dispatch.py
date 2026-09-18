@@ -66,9 +66,7 @@ class PreferredDispatchTests(unittest.TestCase):
                 detector_config_root=detector_root,
                 golden_set=golden,
                 max_dimension=1800,
-                requested_runner="github-hosted",
-                specific_runner="any",
-                custom_runner_label="",
+                runner_target="github-hosted",
             )
 
             self.assertFalse(result["exact"])
@@ -119,8 +117,7 @@ class PreferredDispatchTests(unittest.TestCase):
                 shape_mode="preferred", regression_mode="full", strategy="critical", limit="25",
                 detector="adaptive_multi_scale_radial_edge", parallelism_index=index,
                 detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
-                requested_runner="self-hosted-rhel8", specific_runner="custom",
-                custom_runner_label="192t",
+                runner_target="192t",
             )
 
             self.assertTrue(result["exact"])
@@ -164,8 +161,7 @@ class PreferredDispatchTests(unittest.TestCase):
             result = resolve_preferred_dispatch(
                 shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
                 detector="page_background", parallelism_index=index, detector_config_root=detector_root,
-                golden_set=golden, max_dimension=1800, requested_runner="github-hosted",
-                specific_runner="any", custom_runner_label="",
+                golden_set=golden, max_dimension=1800, runner_target="github-hosted",
             )
             self.assertFalse(result["exact"])
             self.assertEqual(result["runs_on"], ["ubuntu-latest"])
@@ -341,9 +337,7 @@ class PreferredDispatchTests(unittest.TestCase):
                 detector_config_root=detector_root,
                 golden_set=golden,
                 max_dimension=1800,
-                requested_runner="github-hosted",
-                specific_runner="any",
-                custom_runner_label="",
+                runner_target="github-hosted",
             )
 
             self.assertFalse(result["exact"])
@@ -405,9 +399,7 @@ class PreferredDispatchTests(unittest.TestCase):
                 detector_config_root=detector_root,
                 golden_set=golden,
                 max_dimension=1800,
-                requested_runner="self-hosted-e7k",
-                specific_runner="any",
-                custom_runner_label="",
+                runner_target="e7k",
             )
             self.assertFalse(result["exact"])
             self.assertEqual(result["runs_on"], ["self-hosted", "Linux", "X64", "e7k"])

@@ -132,10 +132,10 @@ class OptimizerIntelligenceTests(unittest.TestCase):
                 shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
                 detector="adaptive_radial_edge", parallelism_index=index,
                 detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
-                requested_runner="github-hosted", specific_runner="custom", custom_runner_label="192t",
+                runner_target="192t",
             )
             self.assertTrue(result["exact"])
-            self.assertEqual(result["runs_on"], ["self-hosted", "192t"])
+            self.assertEqual(result["runs_on"], ["self-hosted", "Linux", "X64", "192t"])
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (132, 2))
             self.assertEqual(result["runner_budget"], 384)
             self.assertEqual(result["source"], "predicted-low-linear-vcpu-dispatch")
@@ -161,10 +161,10 @@ class OptimizerIntelligenceTests(unittest.TestCase):
                 shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
                 detector="dhsegment_page_mask", parallelism_index=index,
                 detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
-                requested_runner="github-hosted", specific_runner="custom", custom_runner_label="32t",
+                runner_target="32t",
             )
             self.assertTrue(result["exact"])
-            self.assertEqual(result["runs_on"], ["self-hosted", "32t"])
+            self.assertEqual(result["runs_on"], ["self-hosted", "Linux", "X64", "32t"])
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (1, 64))
             self.assertEqual(result["runner_budget"], 64)
             self.assertEqual(result["source"], "predicted-low-linear-vcpu-dispatch")
@@ -192,7 +192,7 @@ class OptimizerIntelligenceTests(unittest.TestCase):
                 shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
                 detector="adaptive_multi_scale_radial_edge", parallelism_index=index,
                 detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
-                requested_runner="github-hosted", specific_runner="custom", custom_runner_label="192t",
+                runner_target="192t",
             )
             self.assertTrue(result["exact"])
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (48, 8))
@@ -221,7 +221,7 @@ class OptimizerIntelligenceTests(unittest.TestCase):
                 shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
                 detector="adaptive_radial_edge", parallelism_index=index,
                 detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
-                requested_runner="github-hosted", specific_runner="custom", custom_runner_label="192t",
+                runner_target="192t",
             )
             self.assertTrue(result["exact"])
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (132, 2))
@@ -304,7 +304,7 @@ class OptimizerIntelligenceTests(unittest.TestCase):
                 shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
                 detector="adaptive_radial_edge", parallelism_index=index,
                 detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
-                requested_runner="github-hosted", specific_runner="custom", custom_runner_label="192t",
+                runner_target="192t",
             )
             self.assertTrue(result["exact"])
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (132, 2))
@@ -332,7 +332,7 @@ class OptimizerIntelligenceTests(unittest.TestCase):
                 shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
                 detector="adaptive_multi_scale_radial_edge", parallelism_index=index,
                 detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
-                requested_runner="github-hosted", specific_runner="custom", custom_runner_label="192t",
+                runner_target="192t",
             )
             self.assertTrue(result["exact"])
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (48, 8))

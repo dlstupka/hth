@@ -66,8 +66,8 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertIn("/dispatches", dispatch)
         self.assertIn("name: Optimize detector execution shapes", text)
         self.assertNotIn("uses: ./.github/workflows/_core-hth.yml", text)
-        self.assertIn("inputs.runner == 'self-hosted-e7k'", text)
-        self.assertIn("inputs.runner == 'self-hosted-e9k'", text)
+        self.assertIn("inputs.runner_target == 'e7k'", text)
+        self.assertIn("inputs.runner_target == 'e9k'", text)
 
     def test_execution_optimizer_results_checkout_is_shallow_sparse_and_quiet(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -260,7 +260,7 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
         self.assertNotIn("optimizer_algorithm", text)
 
 
-    def test_manual_workflows_offer_specific_runner_selection(self) -> None:
+    def test_manual_workflows_offer_one_canonical_runner_target(self) -> None:
         workflow_dir = ROOT / ".github" / "workflows"
         for name in (
             "execution-optimizer.yml",
@@ -274,23 +274,22 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
             "normalize.yml",
         ):
             text = (workflow_dir / name).read_text(encoding="utf-8")
-            self.assertIn("specific_runner:", text, name)
-            self.assertIn("- any", text, name)
-            self.assertIn("- custom", text, name)
-            self.assertIn("custom_runner_label:", text, name)
-            self.assertNotIn("- rh8-al320", text, name)
-            self.assertNotIn("- rh8-al97", text, name)
-            self.assertNotIn("- rh8-s32", text, name)
+            self.assertIn("runner_target:", text, name)
+            self.assertIn("- github-hosted", text, name)
+            self.assertIn("- e9k", text, name)
+            self.assertIn("- 192t", text, name)
+            self.assertIn("- 96t", text, name)
+            self.assertIn("- 32t", text, name)
+            self.assertNotIn("specific_runner:", text, name)
+            self.assertNotIn("custom_runner_label:", text, name)
 
-    def test_custom_runner_uses_exact_label_and_detected_budget(self) -> None:
+    def test_capacity_runner_uses_catalog_label_and_detected_budget(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("inputs.specific_runner == 'custom'", text)
-        self.assertIn("inputs.custom_runner_label", text)
-        self.assertIn('fromJSON(format(\'["self-hosted","{0}"]\', inputs.custom_runner_label))', text)
-        self.assertIn('budget="$(( $(nproc) * 2 ))"', text)
-        self.assertNotIn("rh8-al320", text)
-        self.assertNotIn("rh8-al97", text)
-        self.assertNotIn("rh8-s32", text)
+        self.assertIn("inputs.runner_target == '192t'", text)
+        self.assertIn("fromJSON('[\"self-hosted\",\"Linux\",\"X64\",\"192t\"]')", text)
+        self.assertIn('runner_max_threads(sys.argv[1])', text)
+        self.assertNotIn("inputs.specific_runner", text)
+        self.assertNotIn("inputs.custom_runner_label", text)
 
 
 

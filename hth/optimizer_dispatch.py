@@ -76,9 +76,7 @@ def main() -> int:
     parser.add_argument("--ref", required=True)
     parser.add_argument("--workflow", default="execution-optimizer.yml")
     parser.add_argument("--summary", type=Path)
-    parser.add_argument("--runner", required=True)
-    parser.add_argument("--specific-runner", required=True)
-    parser.add_argument("--custom-runner-label", default="")
+    parser.add_argument("--runner-target", required=True)
     parser.add_argument("--pipeline-enumeration", required=True)
     parser.add_argument("--pipeline-min", required=True)
     parser.add_argument("--pipeline-max", required=True)
@@ -106,9 +104,7 @@ def main() -> int:
         print(f"  {detector}")
 
     common_inputs: dict[str, Any] = {
-        "runner": args.runner,
-        "specific_runner": args.specific_runner,
-        "custom_runner_label": args.custom_runner_label,
+        "runner_target": args.runner_target,
         "pipeline_enumeration": args.pipeline_enumeration,
         "pipeline_min": args.pipeline_min,
         "pipeline_max": args.pipeline_max,

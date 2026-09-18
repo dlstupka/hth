@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "default_target": "github-hosted",
+  "targets": [
+    {
+      "id": "github-hosted",
+      "description": "GitHub-hosted Ubuntu runner",
+      "runs_on": ["ubuntu-latest"],
+      "setup_label": "github-hosted"
+    },
+    {
+      "id": "self-hosted-linux",
+      "description": "Any Linux x64 self-hosted runner",
+      "runs_on": ["self-hosted", "Linux", "X64"],
+      "setup_label": "linux"
+    },
+    {
+      "id": "self-hosted-windows",
+      "description": "Any Windows x64 self-hosted runner",
+      "runs_on": ["self-hosted", "Windows", "X64"],
+      "setup_label": "windows"
+    },
+    {
+      "id": "hth",
+      "description": "HTH Linux x64 runner pool",
+      "runs_on": ["self-hosted", "Linux", "X64", "hth"],
+      "setup_label": "hth"
+    },
+    {
+      "id": "rhel8",
+      "description": "RHEL 8 Linux x64 runner pool",
+      "runs_on": ["self-hosted", "Linux", "X64", "rhel8"],
+      "setup_label": "rhel8"
+    },
+    {
+      "id": "e7k",
+      "description": "E7K Linux x64 runner pool",
+      "runs_on": ["self-hosted", "Linux", "X64", "e7k"],
+      "setup_label": "e7k"
+    },
+    {
+      "id": "e9k",
+      "description": "E9K Linux x64 runner pool",
+      "runs_on": ["self-hosted", "Linux", "X64", "e9k"],
+      "setup_label": "e9k"
+    },
+    {
+      "id": "192t",
+      "description": "Linux x64 self-hosted runner with the 192t capacity label",
+      "runs_on": ["self-hosted", "Linux", "X64", "192t"],
+      "setup_label": "192t"
+    },
+    {
+      "id": "96t",
+      "description": "Linux x64 self-hosted runner with the 96t capacity label",
+      "runs_on": ["self-hosted", "Linux", "X64", "96t"],
+      "setup_label": "96t"
+    },
+    {
+      "id": "32t",
+      "description": "Linux x64 self-hosted runner with the 32t capacity label",
+      "runs_on": ["self-hosted", "Linux", "X64", "32t"],
+      "setup_label": "32t"
+    }
+  ]
+}

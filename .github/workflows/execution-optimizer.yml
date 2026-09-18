@@ -1,7 +1,7 @@
 name: HTH detector execution optimizer
 
 run-name: >-
-  Optimize ${{ inputs.algorithm }} execution on ${{ inputs.runner }}
+  Optimize ${{ inputs.algorithm }} execution on ${{ inputs.runner_target }}
 
 on:
   workflow_dispatch:
@@ -61,27 +61,24 @@ on:
           - star_convex
           - text_flow
           - whitespace_frame
-      runner:
-        description: Execution runner
+      # BEGIN GENERATED RUNNER TARGET INPUT
+      runner_target:
+        description: "Execution runner target"
         required: true
-        default: self-hosted-e7k
+        default: e7k
         type: choice
         options:
-          - self-hosted-e7k
-          - self-hosted-e9k
-      specific_runner:
-        description: "Specific self-hosted runner; any keeps the selected runner class"
-        required: true
-        default: any
-        type: choice
-        options:
-          - any
-          - custom
-      custom_runner_label:
-        description: "Custom self-hosted runner label; used only when Specific self-hosted runner is custom"
-        required: false
-        default: ""
-        type: string
+          - github-hosted
+          - self-hosted-linux
+          - self-hosted-windows
+          - hth
+          - rhel8
+          - e7k
+          - e9k
+          - 192t
+          - 96t
+          - 32t
+      # END GENERATED RUNNER TARGET INPUT
       clean_runner:
         description: "Advanced — Wipe runner workspace and rebuild from scratch"
         required: true
@@ -214,7 +211,7 @@ env:
   GIT_CONFIG_VALUE_0: main
 
 concurrency:
-  group: execution-optimizer-${{ github.ref }}-${{ inputs.runner }}-${{ inputs.algorithm }}
+  group: execution-optimizer-${{ github.ref }}-${{ inputs.runner_target }}-${{ inputs.algorithm }}
   cancel-in-progress: false
 
 jobs:
@@ -261,9 +258,7 @@ jobs:
             --repository "$GITHUB_REPOSITORY" \
             --ref "${{ github.ref_name }}" \
             --summary "$GITHUB_STEP_SUMMARY" \
-            --runner "${{ inputs.runner }}" \
-            --specific-runner "${{ inputs.specific_runner }}" \
-            --custom-runner-label "${{ inputs.custom_runner_label }}" \
+            --runner-target "${{ inputs.runner_target }}" \
             --pipeline-enumeration "${{ inputs.pipeline_enumeration }}" \
             --pipeline-min "${{ inputs.pipeline_min }}" \
             --pipeline-max "${{ inputs.pipeline_max }}" \
@@ -286,14 +281,19 @@ jobs:
   optimize:
     if: ${{ inputs.algorithm != 'all' && inputs.algorithm != 'all-without-preference' }}
     name: Optimize detector execution shapes
+    # BEGIN GENERATED RUNNER TARGET ROUTING
     runs-on: >-
-      ${{    inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && fromJSON(format('["self-hosted","{0}"]', inputs.custom_runner_label))
-          || inputs.runner == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
-          || inputs.runner == 'self-hosted-hth'     && fromJSON('["self-hosted","Linux","X64","hth"]')
-          || inputs.runner == 'self-hosted-rhel8'   && fromJSON('["self-hosted","Linux","X64","rhel8"]')
-          || inputs.runner == 'self-hosted-e7k'     && fromJSON('["self-hosted","Linux","X64","e7k"]')
-          || inputs.runner == 'self-hosted-e9k'     && fromJSON('["self-hosted","Linux","X64","e9k"]')
-          || 'ubuntu-latest' }}
+      ${{ inputs.runner_target == 'self-hosted-linux' && fromJSON('["self-hosted","Linux","X64"]')
+        || inputs.runner_target == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+        || inputs.runner_target == 'hth' && fromJSON('["self-hosted","Linux","X64","hth"]')
+        || inputs.runner_target == 'rhel8' && fromJSON('["self-hosted","Linux","X64","rhel8"]')
+        || inputs.runner_target == 'e7k' && fromJSON('["self-hosted","Linux","X64","e7k"]')
+        || inputs.runner_target == 'e9k' && fromJSON('["self-hosted","Linux","X64","e9k"]')
+        || inputs.runner_target == '192t' && fromJSON('["self-hosted","Linux","X64","192t"]')
+        || inputs.runner_target == '96t' && fromJSON('["self-hosted","Linux","X64","96t"]')
+        || inputs.runner_target == '32t' && fromJSON('["self-hosted","Linux","X64","32t"]')
+        || 'ubuntu-latest' }}
+    # END GENERATED RUNNER TARGET ROUTING
     timeout-minutes: 10080
 
     env:
@@ -322,22 +322,32 @@ jobs:
       DEBUG_LEVEL: ${{ inputs.debug_level }}
       PYTHONNOUSERSITE: "1"
       PYTHONUNBUFFERED: "1"
+      # BEGIN GENERATED RUNNER LABEL SET
       HTH_RUNNER_LABELS: >-
-        ${{  inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && format('self-hosted,{0}', inputs.custom_runner_label)
-          || inputs.runner == 'self-hosted-hth' && 'self-hosted,linux,x64,hth'
-          || inputs.runner == 'self-hosted-rhel8' && 'self-hosted,linux,x64,rhel8'
-          || inputs.runner == 'self-hosted-e7k' && 'self-hosted,linux,x64,e7k'
-          || inputs.runner == 'self-hosted-e9k' && 'self-hosted,linux,x64,e9k'
-          || inputs.runner == 'self-hosted-windows' && 'self-hosted,windows,x64'
-          || 'ubuntu-latest' }}
-      HTH_RUNNER_LABEL: >-
-        ${{  inputs.specific_runner == 'custom' && inputs.custom_runner_label != '' && inputs.custom_runner_label
-          || inputs.runner == 'self-hosted-hth' && 'hth'
-          || inputs.runner == 'self-hosted-rhel8' && 'rhel8'
-          || inputs.runner == 'self-hosted-e7k' && 'e7k'
-          || inputs.runner == 'self-hosted-e9k' && 'e9k'
-          || inputs.runner == 'self-hosted-windows' && 'windows'
+        ${{ inputs.runner_target == 'self-hosted-linux' && 'self-hosted,Linux,X64'
+          || inputs.runner_target == 'self-hosted-windows' && 'self-hosted,Windows,X64'
+          || inputs.runner_target == 'hth' && 'self-hosted,Linux,X64,hth'
+          || inputs.runner_target == 'rhel8' && 'self-hosted,Linux,X64,rhel8'
+          || inputs.runner_target == 'e7k' && 'self-hosted,Linux,X64,e7k'
+          || inputs.runner_target == 'e9k' && 'self-hosted,Linux,X64,e9k'
+          || inputs.runner_target == '192t' && 'self-hosted,Linux,X64,192t'
+          || inputs.runner_target == '96t' && 'self-hosted,Linux,X64,96t'
+          || inputs.runner_target == '32t' && 'self-hosted,Linux,X64,32t'
           || 'github-hosted' }}
+      # END GENERATED RUNNER LABEL SET
+      # BEGIN GENERATED RUNNER SETUP LABEL
+      HTH_RUNNER_LABEL: >-
+        ${{ inputs.runner_target == 'self-hosted-linux' && 'linux'
+          || inputs.runner_target == 'self-hosted-windows' && 'windows'
+          || inputs.runner_target == 'hth' && 'hth'
+          || inputs.runner_target == 'rhel8' && 'rhel8'
+          || inputs.runner_target == 'e7k' && 'e7k'
+          || inputs.runner_target == 'e9k' && 'e9k'
+          || inputs.runner_target == '192t' && '192t'
+          || inputs.runner_target == '96t' && '96t'
+          || inputs.runner_target == '32t' && '32t'
+          || 'github-hosted' }}
+      # END GENERATED RUNNER SETUP LABEL
       HTH_SPECIFIC_RUNNER_BUDGET: ""
 
     steps:
@@ -505,13 +515,7 @@ jobs:
           ALLOW_THREAD_OVERSUBSCRIPTION: ${{ inputs.allow_thread_oversubscription }}
         run: |
           set -euo pipefail
-          if [[ "${{ inputs.specific_runner }}" == "custom" ]]; then
-            if [[ -z "${{ inputs.custom_runner_label }}" ]]; then
-              echo "::error::custom_runner_label is required when specific_runner=custom"
-              exit 1
-            fi
-            budget="$(( $(nproc) * 2 ))"
-          elif [[ -n "${HTH_SPECIFIC_RUNNER_BUDGET:-}" ]]; then
+          if [[ -n "${HTH_SPECIFIC_RUNNER_BUDGET:-}" ]]; then
             budget="$HTH_SPECIFIC_RUNNER_BUDGET"
           else
             budget="$(PYTHONPATH=hth-pipeline python - "$HTH_RUNNER_LABEL" <<'PYPLAN'

@@ -29,31 +29,24 @@ on:
         required: true
         type: string
         default: "HTH-SOURCE-0001"
-      runner:
-        description: "Execution runner"
+      # BEGIN GENERATED RUNNER TARGET INPUT
+      runner_target:
+        description: "Execution runner target"
         required: true
         default: github-hosted
         type: choice
         options:
           - github-hosted
-          - self-hosted-hth
+          - self-hosted-linux
           - self-hosted-windows
-          - self-hosted-rhel8
-          - self-hosted-e7k
-          - self-hosted-e9k
-      specific_runner:
-        description: "Specific self-hosted runner; any keeps the selected runner class"
-        required: true
-        default: any
-        type: choice
-        options:
-          - any
-          - custom
-      custom_runner_label:
-        description: "Custom self-hosted runner label; used only when Specific self-hosted runner is custom"
-        required: false
-        default: ""
-        type: string
+          - hth
+          - rhel8
+          - e7k
+          - e9k
+          - 192t
+          - 96t
+          - 32t
+      # END GENERATED RUNNER TARGET INPUT
       test_file:
         description: "DOCX filename to process"
         required: true
@@ -82,9 +75,7 @@ jobs:
     uses: ./.github/workflows/_core-hth.yml
     with:
       mode: test
-      runner: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'github-hosted' }}
-      specific_runner: ${{ github.event_name == 'workflow_dispatch' && inputs.specific_runner || 'any' }}
-      custom_runner_label: ${{ github.event_name == 'workflow_dispatch' && inputs.custom_runner_label || '' }}
+      runner_target: ${{ github.event_name == 'workflow_dispatch' && inputs.runner_target || 'github-hosted' }}
       source_repository: ${{ github.event_name == 'workflow_dispatch' && inputs.source_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898' }}
       source_release_tag: ${{ github.event_name == 'workflow_dispatch' && inputs.source_release_tag || 'HTH-SOURCE-0001' }}
       results_repository: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
