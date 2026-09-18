@@ -1,0 +1,5 @@
+{
+  "schema_version": "1.0", "domain": "sharpening", "assessment_type": "sharpening-detail-assessment",
+  "candidate_gates": {"maximum_candidate_detail_energy": 0.055, "maximum_safe_noise_sigma": 0.025},
+  "partition": {"development_modulus": 5, "development_residue": 0}, "review": {"maximum_pages": 40}
+}

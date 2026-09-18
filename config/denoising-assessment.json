@@ -1,0 +1,5 @@
+{
+  "schema_version": "1.0", "domain": "denoising", "assessment_type": "denoising-artifact-assessment",
+  "candidate_gates": {"minimum_noise_sigma": 0.012, "minimum_impulse_fraction": 0.002},
+  "partition": {"development_modulus": 5, "development_residue": 0}, "review": {"maximum_pages": 40}
+}

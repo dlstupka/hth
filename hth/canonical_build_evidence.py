@@ -37,6 +37,14 @@ CHROMATIC_ASSESSMENT_SCOPE = "hth-chromatic-assessment"
 CHROMATIC_METHOD_ASSESSMENT_SCOPE = "hth-chromatic-method-assessment"
 CHROMATIC_VALIDATION_SCOPE = "hth-chromatic-validation"
 CHROMATIC_INTEGRATION_SCOPE = "hth-chromatic-integration"
+DENOISING_ASSESSMENT_SCOPE = "hth-denoising-assessment"
+DENOISING_METHOD_ASSESSMENT_SCOPE = "hth-denoising-method-assessment"
+DENOISING_VALIDATION_SCOPE = "hth-denoising-validation"
+DENOISING_INTEGRATION_SCOPE = "hth-denoising-integration"
+SHARPENING_ASSESSMENT_SCOPE = "hth-sharpening-assessment"
+SHARPENING_METHOD_ASSESSMENT_SCOPE = "hth-sharpening-method-assessment"
+SHARPENING_VALIDATION_SCOPE = "hth-sharpening-validation"
+SHARPENING_INTEGRATION_SCOPE = "hth-sharpening-integration"
 COMPACT_EVIDENCE_SCOPES = frozenset({
     TONAL_ASSESSMENT_SCOPE,
     TONAL_METHOD_ASSESSMENT_SCOPE,
@@ -44,6 +52,12 @@ COMPACT_EVIDENCE_SCOPES = frozenset({
     CHROMATIC_ASSESSMENT_SCOPE,
     CHROMATIC_METHOD_ASSESSMENT_SCOPE,
     CHROMATIC_VALIDATION_SCOPE,
+    DENOISING_ASSESSMENT_SCOPE,
+    DENOISING_METHOD_ASSESSMENT_SCOPE,
+    DENOISING_VALIDATION_SCOPE,
+    SHARPENING_ASSESSMENT_SCOPE,
+    SHARPENING_METHOD_ASSESSMENT_SCOPE,
+    SHARPENING_VALIDATION_SCOPE,
 })
 POLICIES = ("auto", "audit", "force-verify", "rebuild")
 
@@ -206,6 +220,27 @@ CHROMATIC_VALIDATION_ARTIFACTS = (
     ),
 )
 
+
+def _restoration_artifacts(domain: str) -> tuple[ArtifactSpec, ...]:
+    base = f"normalization/{domain}-integration"
+    return (
+        ArtifactSpec(f"{domain}-normalization-manifest", f"{domain}-normalization-manifest.json", f"{base}/{domain}-normalization-manifest.json"),
+        ArtifactSpec(f"{domain}-assessment", f"{domain}-assessment.json", f"{base}/{domain}-assessment.json"),
+        ArtifactSpec(f"{domain}-method-assessment", f"{domain}-method-assessment.json", f"{base}/{domain}-method-assessment.json"),
+        ArtifactSpec(f"{domain}-validation", f"{domain}-validation.json", f"{base}/{domain}-validation.json"),
+        ArtifactSpec("release-record", "release.json", f"{base}/release.json"),
+    )
+
+
+DENOISING_INTEGRATION_ARTIFACTS = _restoration_artifacts("denoising")
+SHARPENING_INTEGRATION_ARTIFACTS = _restoration_artifacts("sharpening")
+DENOISING_ASSESSMENT_ARTIFACTS = (ArtifactSpec("denoising-assessment", "assessment.json", "normalization/denoising/assessment.json"),)
+DENOISING_METHOD_ASSESSMENT_ARTIFACTS = (ArtifactSpec("denoising-method-assessment", "assessment.json", "normalization/denoising-methods/assessment.json"),)
+DENOISING_VALIDATION_ARTIFACTS = (ArtifactSpec("denoising-validation", "validation.json", "normalization/denoising-validation/validation.json"),)
+SHARPENING_ASSESSMENT_ARTIFACTS = (ArtifactSpec("sharpening-assessment", "assessment.json", "normalization/sharpening/assessment.json"),)
+SHARPENING_METHOD_ASSESSMENT_ARTIFACTS = (ArtifactSpec("sharpening-method-assessment", "assessment.json", "normalization/sharpening-methods/assessment.json"),)
+SHARPENING_VALIDATION_ARTIFACTS = (ArtifactSpec("sharpening-validation", "validation.json", "normalization/sharpening-validation/validation.json"),)
+
 SCOPE_ARTIFACT_PROFILES = {
     PREPROCESS_SCOPE: PREPROCESS_ARTIFACTS,
     NORMALIZATION_SCOPE: NORMALIZATION_ARTIFACTS,
@@ -218,6 +253,14 @@ SCOPE_ARTIFACT_PROFILES = {
     CHROMATIC_METHOD_ASSESSMENT_SCOPE: CHROMATIC_METHOD_ASSESSMENT_ARTIFACTS,
     CHROMATIC_VALIDATION_SCOPE: CHROMATIC_VALIDATION_ARTIFACTS,
     CHROMATIC_INTEGRATION_SCOPE: CHROMATIC_INTEGRATION_ARTIFACTS,
+    DENOISING_ASSESSMENT_SCOPE: DENOISING_ASSESSMENT_ARTIFACTS,
+    DENOISING_METHOD_ASSESSMENT_SCOPE: DENOISING_METHOD_ASSESSMENT_ARTIFACTS,
+    DENOISING_VALIDATION_SCOPE: DENOISING_VALIDATION_ARTIFACTS,
+    DENOISING_INTEGRATION_SCOPE: DENOISING_INTEGRATION_ARTIFACTS,
+    SHARPENING_ASSESSMENT_SCOPE: SHARPENING_ASSESSMENT_ARTIFACTS,
+    SHARPENING_METHOD_ASSESSMENT_SCOPE: SHARPENING_METHOD_ASSESSMENT_ARTIFACTS,
+    SHARPENING_VALIDATION_SCOPE: SHARPENING_VALIDATION_ARTIFACTS,
+    SHARPENING_INTEGRATION_SCOPE: SHARPENING_INTEGRATION_ARTIFACTS,
 }
 
 SCOPE_EVIDENCE_PATHS = {
@@ -232,6 +275,14 @@ SCOPE_EVIDENCE_PATHS = {
     CHROMATIC_METHOD_ASSESSMENT_SCOPE: "normalization/chromatic-methods/canonical-build-evidence.json",
     CHROMATIC_VALIDATION_SCOPE: "normalization/chromatic-validation/canonical-build-evidence.json",
     CHROMATIC_INTEGRATION_SCOPE: "normalization/chromatic-integration/canonical-build-evidence.json",
+    DENOISING_ASSESSMENT_SCOPE: "normalization/denoising/canonical-build-evidence.json",
+    DENOISING_METHOD_ASSESSMENT_SCOPE: "normalization/denoising-methods/canonical-build-evidence.json",
+    DENOISING_VALIDATION_SCOPE: "normalization/denoising-validation/canonical-build-evidence.json",
+    DENOISING_INTEGRATION_SCOPE: "normalization/denoising-integration/canonical-build-evidence.json",
+    SHARPENING_ASSESSMENT_SCOPE: "normalization/sharpening/canonical-build-evidence.json",
+    SHARPENING_METHOD_ASSESSMENT_SCOPE: "normalization/sharpening-methods/canonical-build-evidence.json",
+    SHARPENING_VALIDATION_SCOPE: "normalization/sharpening-validation/canonical-build-evidence.json",
+    SHARPENING_INTEGRATION_SCOPE: "normalization/sharpening-integration/canonical-build-evidence.json",
 }
 
 
@@ -1071,6 +1122,72 @@ def _compact_evidence_page_results(
     return pages
 
 
+def _restoration_integration_page_results(
+    domain: str,
+    output_root: Path,
+    activity: str,
+    domain_result: str,
+    effective_build_identity: str,
+) -> list[dict[str, Any]]:
+    manifest = _load_json_object(output_root / f"{domain}-normalization-manifest.json", f"{domain} normalization manifest")
+    records = manifest.get("pages")
+    if not isinstance(records, list) or not records:
+        raise EvidenceError(f"{domain.title()} normalization manifest does not contain page records")
+    pages = []
+    for record in records:
+        ordinal = int(record["global_ordinal"])
+        canonical_page = {
+            "global_ordinal": ordinal,
+            "route": record.get("route"),
+            "pipeline_action": record.get("pipeline_action"),
+            "decision_before": record.get("decision_before"),
+            "input_pixel_sha256": record.get("input_pixel_sha256"),
+            "output_pixel_sha256": record.get("output_pixel_sha256"),
+            "output_image_sha256": record.get("output_sha256"),
+            "output_dimensions": [record.get("output_width"), record.get("output_height")],
+        }
+        pages.append({
+            **canonical_page,
+            "operation_identity": canonical_hash({"effective_build_identity": effective_build_identity, "global_ordinal": ordinal, "input_pixel_sha256": record.get("input_pixel_sha256")}),
+            "canonical_page_result_sha256": canonical_hash(canonical_page),
+            "activity": activity,
+            "domain_result": domain_result,
+        })
+    return pages
+
+
+def _denoising_integration_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _restoration_integration_page_results("denoising", output_root, activity, domain_result, effective_build_identity)
+
+
+def _sharpening_integration_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _restoration_integration_page_results("sharpening", output_root, activity, domain_result, effective_build_identity)
+
+
+def _denoising_assessment_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _compact_evidence_page_results(output_root, "assessment.json", "denoising assessment", activity, domain_result, effective_build_identity)
+
+
+def _denoising_method_assessment_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _compact_evidence_page_results(output_root, "assessment.json", "denoising method assessment", activity, domain_result, effective_build_identity)
+
+
+def _denoising_validation_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _compact_evidence_page_results(output_root, "validation.json", "denoising validation", activity, domain_result, effective_build_identity)
+
+
+def _sharpening_assessment_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _compact_evidence_page_results(output_root, "assessment.json", "sharpening assessment", activity, domain_result, effective_build_identity)
+
+
+def _sharpening_method_assessment_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _compact_evidence_page_results(output_root, "assessment.json", "sharpening method assessment", activity, domain_result, effective_build_identity)
+
+
+def _sharpening_validation_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _compact_evidence_page_results(output_root, "validation.json", "sharpening validation", activity, domain_result, effective_build_identity)
+
+
 def _tonal_assessment_page_results(
     output_root: Path, activity: str, domain_result: str, effective_build_identity: str
 ) -> list[dict[str, Any]]:
@@ -1147,6 +1264,14 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
         CHROMATIC_METHOD_ASSESSMENT_SCOPE: _chromatic_method_assessment_page_results,
         CHROMATIC_VALIDATION_SCOPE: _chromatic_validation_page_results,
         CHROMATIC_INTEGRATION_SCOPE: _chromatic_integration_page_results,
+        DENOISING_ASSESSMENT_SCOPE: _denoising_assessment_page_results,
+        DENOISING_METHOD_ASSESSMENT_SCOPE: _denoising_method_assessment_page_results,
+        DENOISING_VALIDATION_SCOPE: _denoising_validation_page_results,
+        DENOISING_INTEGRATION_SCOPE: _denoising_integration_page_results,
+        SHARPENING_ASSESSMENT_SCOPE: _sharpening_assessment_page_results,
+        SHARPENING_METHOD_ASSESSMENT_SCOPE: _sharpening_method_assessment_page_results,
+        SHARPENING_VALIDATION_SCOPE: _sharpening_validation_page_results,
+        SHARPENING_INTEGRATION_SCOPE: _sharpening_integration_page_results,
     }
     registered = set(SCOPE_ARTIFACT_PROFILES)
     if set(SCOPE_EVIDENCE_PATHS) != registered or set(page_builders) != registered:

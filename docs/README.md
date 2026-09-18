@@ -278,6 +278,7 @@ This directory contains the design, operating, and project-reference documentati
 - [Photometric assessment](photometric-assessment.md) — stratified illumination, tonal-range, clipping, and background-color evidence without changing archival pixels.
 - [Photometric method assessment, validation, and integration](photometric-method-assessment.md) — deterministic method comparison, complete held-out audit, and immutable illumination-normalized release publication.
 - [Contrast and tonal-range normalization](tonal-normalization.md) — full-population measurement, bounded method selection, held-out validation, immutable integration, local/release caching, and CBE reuse.
+- [Denoising and detail enhancement](restoration-normalization.md) — ordered four-stage denoising/artifact suppression and sharpening/detail enhancement with lossless preservation, immutable releases, and CBE reuse.
 - [Physical-page analysis](analyze-pages.md) — page analysis and review-queue generation.
 - [Crop and framing assessment](crop-framing-assessment.md) — GS0002 comparison that selected conservative axis-aligned framing for initial normalization.
 

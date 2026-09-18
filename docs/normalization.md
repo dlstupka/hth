@@ -176,6 +176,11 @@ release. Thereafter, `auto` validates and reuses an exact result without source
 download, page reconstruction, correction, or repackaging; `audit` additionally
 verifies the persisted release asset digest without rebuilding it.
 
+The subsequent restoration families are documented in
+[Denoising, artifact suppression, and detail enhancement](restoration-normalization.md).
+They run two complete four-stage sequences: denoising first, then sharpening,
+with a separately reusable immutable result at each integration boundary.
+
 Binarization remains a separate future normalization operation with its own
 evidence contract.
 ## Full normalization orchestration
@@ -183,9 +188,10 @@ evidence contract.
 `HTH normalize collection` is the single production entry point and the full
 normalization regression. It reassesses crop/framing and orientation/deskew,
 builds or reuses canonical geometric normalization, assesses perspective, runs
-the complete photometric method-selection and integration sequence, and then
-runs contrast/tonal assessment, validation, and integration. CBE-enabled apply
-stages reuse exact canonical results and audit their immutable releases.
+the complete photometric method-selection and integration sequence, then runs
+the contrast/tonal and chromatic four-stage families, denoising/artifact
+suppression, and sharpening/detail enhancement. CBE-enabled apply stages reuse
+exact canonical results and audit their immutable releases.
 
 The `start_stage` menu supports development and recovery without creating an
 alternative production path. Selecting a stage skips earlier jobs and runs that

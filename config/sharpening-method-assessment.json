@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0", "domain": "sharpening", "assessment_type": "sharpening-method-comparison",
+  "methods": [
+    {"id": "unsharp-25", "mode": "unsharp-mask", "strength": 0.25, "radius": 1.0},
+    {"id": "unsharp-50", "mode": "unsharp-mask", "strength": 0.50, "radius": 1.0},
+    {"id": "unsharp-75", "mode": "unsharp-mask", "strength": 0.75, "radius": 1.0}
+  ],
+  "safety_gates": {"minimum_detail_gain_fraction": 0.03, "maximum_detail_gain_fraction": 0.40, "minimum_detail_correlation": 0.98, "maximum_noise_amplification_fraction": 0.20, "maximum_new_clipping_fraction": 0.002, "maximum_absolute_median_luminance_shift": 0.01},
+  "recommendation": {"policy_id": "bounded-sharpening-v1", "selection_rule": "minimum-strength-safe-for-every-development-candidate"}
+}

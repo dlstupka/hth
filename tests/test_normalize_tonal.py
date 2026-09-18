@@ -246,7 +246,7 @@ class TonalNormalizationTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         cast = "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}"
         callers = {
-            "normalize.yml": 15,
+            "normalize.yml": 23,
             "assess-tonal.yml": 1,
             "assess-tonal-methods.yml": 1,
             "validate-tonal-method.yml": 1,

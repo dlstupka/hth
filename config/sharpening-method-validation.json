@@ -1,0 +1,5 @@
+{
+  "schema_version": "1.0", "domain": "sharpening", "validation_type": "sharpening-method-held-out-validation",
+  "gates": {"require_complete_candidate_coverage": true, "require_every_candidate_safe": true, "require_preserve_controls_unchanged": true},
+  "recommendation": {"policy_id": "selective-sharpening-v1"}
+}

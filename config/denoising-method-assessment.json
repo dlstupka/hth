@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0", "domain": "denoising", "assessment_type": "denoising-method-comparison",
+  "methods": [
+    {"id": "bilateral-15", "mode": "bilateral", "sigma": 15.0},
+    {"id": "bilateral-25", "mode": "bilateral", "sigma": 25.0},
+    {"id": "median-3", "mode": "median", "kernel": 3}
+  ],
+  "safety_gates": {"minimum_noise_reduction_fraction": 0.10, "minimum_detail_correlation": 0.98, "minimum_edge_retention_fraction": 0.95, "maximum_new_clipping_fraction": 0.001, "maximum_absolute_median_luminance_shift": 0.01},
+  "recommendation": {"policy_id": "bounded-denoising-v1", "selection_rule": "minimum-strength-safe-for-every-development-candidate"}
+}

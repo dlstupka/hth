@@ -116,6 +116,7 @@ Useful starting points:
 - **[Preprocessor](docs/preprocessor.md)** — source extraction and preprocessing behavior.
 - **[Canonical Build Evidence](docs/canonical-build-evidence.md)** — deterministic build identity, audit, reuse, and forced-verification contract.
 - **[Chromatic normalization](docs/chromatic-normalization.md)** — conservative color-cast assessment, bounded methods, held-out validation, and CBE integration.
+- **[Restoration normalization](docs/restoration-normalization.md)** — four-stage denoising/artifact suppression followed by conservative sharpening/detail enhancement, with immutable releases and CBE reuse.
 - **[Physical geometry evaluation](docs/physical-geometry-evaluation.md)** — geometry-analysis and validation model.
 - **[Regression](docs/regression.md)** — detector calibration, metrics, search spaces, and reporting conventions.
 - **[Canonical learned-evidence cache](docs/learned-evidence-cache.md)** — reusable neural evidence identity, local/release resolution, validation, and recovery.

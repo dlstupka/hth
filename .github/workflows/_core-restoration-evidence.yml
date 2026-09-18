@@ -1,0 +1,173 @@
+name: _HTH restoration evidence core (internal)
+on:
+  workflow_call:
+    inputs:
+      domain: {required: true, type: string}
+      stage: {required: true, type: string}
+      runner_target: {required: true, type: string}
+      artifact_retention_days: {required: true, type: number}
+    secrets: {HTH_RESULTS_TOKEN: {required: true}}
+permissions: {contents: read}
+env:
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: init.defaultBranch
+  GIT_CONFIG_VALUE_0: main
+  RESULTS_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
+jobs:
+  restoration-evidence:
+    name: Build deterministic ${{ inputs.domain }} ${{ inputs.stage }} evidence
+    # BEGIN GENERATED RUNNER TARGET ROUTING
+    runs-on: >-
+      ${{ inputs.runner_target == 'self-hosted-linux' && fromJSON('["self-hosted","Linux","X64"]')
+        || inputs.runner_target == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+        || inputs.runner_target == 'hth' && fromJSON('["self-hosted","Linux","X64","hth"]')
+        || inputs.runner_target == 'rhel8' && fromJSON('["self-hosted","Linux","X64","rhel8"]')
+        || inputs.runner_target == 'e7k' && fromJSON('["self-hosted","Linux","X64","e7k"]')
+        || inputs.runner_target == 'e9k' && fromJSON('["self-hosted","Linux","X64","e9k"]')
+        || inputs.runner_target == '192t' && fromJSON('["self-hosted","Linux","X64","192t"]')
+        || inputs.runner_target == '96t' && fromJSON('["self-hosted","Linux","X64","96t"]')
+        || inputs.runner_target == '32t' && fromJSON('["self-hosted","Linux","X64","32t"]')
+        || 'ubuntu-latest' }}
+    # END GENERATED RUNNER TARGET ROUTING
+    timeout-minutes: 120
+    env:
+      # BEGIN GENERATED RUNNER SETUP LABEL
+      HTH_SELECTED_RUNNER_LABEL: >-
+        ${{ inputs.runner_target == 'self-hosted-linux' && 'linux'
+          || inputs.runner_target == 'self-hosted-windows' && 'windows'
+          || inputs.runner_target == 'hth' && 'hth'
+          || inputs.runner_target == 'rhel8' && 'rhel8'
+          || inputs.runner_target == 'e7k' && 'e7k'
+          || inputs.runner_target == 'e9k' && 'e9k'
+          || inputs.runner_target == '192t' && '192t'
+          || inputs.runner_target == '96t' && '96t'
+          || inputs.runner_target == '32t' && '32t'
+          || 'github-hosted' }}
+      # END GENERATED RUNNER SETUP LABEL
+    steps:
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
+        with: {path: hth-pipeline, fetch-depth: 1, persist-credentials: false}
+      - name: Checkout restoration evidence
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.RESULTS_REPOSITORY }}
+          path: results-repo
+          ref: main
+          token: ${{ secrets.HTH_RESULTS_TOKEN }}
+          fetch-depth: 1
+          sparse-checkout: |
+            /normalization/chromatic-integration/
+            /normalization/denoising/
+            /normalization/denoising-methods/
+            /normalization/denoising-validation/
+            /normalization/denoising-integration/
+            /normalization/sharpening/
+            /normalization/sharpening-methods/
+            /normalization/sharpening-validation/
+          sparse-checkout-cone-mode: false
+          persist-credentials: true
+      - name: Set up canonical HTH Python runtime
+        uses: ./hth-pipeline/.github/actions/setup-hth-python
+        with: {pipeline-path: hth-pipeline, runner-label: "${{ env.HTH_SELECTED_RUNNER_LABEL }}"}
+      - name: Resolve immutable upstream release
+        id: upstream
+        shell: bash
+        env: {DOMAIN: "${{ inputs.domain }}"}
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          domain=os.environ["DOMAIN"]
+          parent="chromatic" if domain=="denoising" else "denoising"
+          key=f"{parent}_result_identity"
+          record=json.loads(Path(f"results-repo/normalization/{parent}-integration/release.json").read_text())
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as out:
+              for source,target in (("tag","tag"),("asset","asset"),("asset_sha256","asset_sha256"),(key,"identity")):
+                  value=str(record.get(source) or "")
+                  if not value: raise SystemExit(f"Upstream release record has no {source}")
+                  out.write(f"{target}={value}\n")
+              out.write(f"parent={parent}\nmanifest={parent}-normalization-manifest.json\nfolder={parent}-normalized\n")
+              out.write(f"results_commit={subprocess.check_output(['git','-C','results-repo','rev-parse','HEAD'],text=True).strip()}\n")
+          PY
+      - name: Assemble restoration effective-input contract
+        id: contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          domain="${{ inputs.domain }}"; stage="${{ inputs.stage }}"
+          root="$RUNNER_TEMP/$domain-$stage-effective-inputs"; rm -rf "$root"; mkdir -p "$root"
+          cp "results-repo/normalization/${{ steps.upstream.outputs.parent }}-integration/release.json" "$root/"
+          cp "results-repo/normalization/${{ steps.upstream.outputs.parent }}-integration/${{ steps.upstream.outputs.manifest }}" "$root/"
+          case "$stage" in
+            assess) suffix="$domain"; output=assessment.json; scope_stage=assessment; config_stage=assessment ;;
+            compare) suffix="$domain-methods"; output=assessment.json; scope_stage=method-assessment; config_stage=method-assessment; cp "results-repo/normalization/$domain/assessment.json" "$root/" ;;
+            validate) suffix="$domain-validation"; output=validation.json; scope_stage=validation; config_stage=method-validation; cp "results-repo/normalization/$domain/assessment.json" "$root/"; cp "results-repo/normalization/$domain-methods/assessment.json" "$root/method-assessment.json" ;;
+            *) echo "Unknown restoration stage: $stage" >&2; exit 2 ;;
+          esac
+          config="hth-pipeline/config/$domain-$config_stage.json"
+          printf 'root=%s\nscope=hth-%s-%s\nconfig=%s\ndestination=normalization/%s\noutput=%s\nevidence=results-repo/normalization/%s/canonical-build-evidence.json\n' "$root" "$domain" "$scope_stage" "$config" "$suffix" "$output" "$suffix" >> "$GITHUB_OUTPUT"
+      - name: Evaluate restoration Canonical Build Evidence
+        id: cbe
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          python -m hth.canonical_build_evidence prepare --scope "${{ steps.contract.outputs.scope }}" --policy auto --contract-version 1 --mode diagnostic-evidence --operation "${{ inputs.domain }}-${{ inputs.stage }}-evidence" --repository-root hth-pipeline --source-root "${{ steps.contract.outputs.root }}" --source-repository "$RESULTS_REPOSITORY" --source-release "${{ steps.upstream.outputs.tag }}" --source-manifest-sha256 "${{ steps.upstream.outputs.asset_sha256 }}" --source-commit "${{ steps.upstream.outputs.identity }}" --config "${{ steps.contract.outputs.config }}" --implementation hth-pipeline/hth/normalize_restoration.py --runtime-contract hth-pipeline/requirements.txt --runtime-contract hth-pipeline/.github/actions/setup-hth-python/action.yml --runtime-package numpy --runtime-package opencv-python-headless --results-root results-repo --evidence "${{ steps.contract.outputs.evidence }}" --plan "$RUNNER_TEMP/${{ inputs.domain }}-${{ inputs.stage }}-cbe-plan.json" --pipeline-repository "$GITHUB_REPOSITORY" --pipeline-commit "$GITHUB_SHA" --results-repository "$RESULTS_REPOSITORY" --results-ref "${{ steps.upstream.outputs.results_commit }}" --workflow-run-id "$GITHUB_RUN_ID" --runner-name "$RUNNER_NAME" --runner-environment "${{ runner.environment }}" --runner-os "$RUNNER_OS" --runner-arch "$RUNNER_ARCH" --github-output "$GITHUB_OUTPUT" --github-summary "$GITHUB_STEP_SUMMARY"
+      - name: Restore cached immutable upstream collection
+        id: asset
+        if: steps.cbe.outputs.decision == 'execute'
+        uses: ./hth-pipeline/.github/actions/restore-immutable-release
+        with:
+          repository: ${{ env.RESULTS_REPOSITORY }}
+          tag: ${{ steps.upstream.outputs.tag }}
+          asset: ${{ steps.upstream.outputs.asset }}
+          sha256: ${{ steps.upstream.outputs.asset_sha256 }}
+          token: ${{ secrets.HTH_RESULTS_TOKEN }}
+          destination: upstream-asset
+          extract-destination: upstream-input
+          collection-marker: ${{ steps.upstream.outputs.manifest }}
+          required-subdirectory: ${{ steps.upstream.outputs.folder }}
+      - name: Produce deterministic restoration evidence
+        if: steps.cbe.outputs.decision == 'execute'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail; rm -rf restoration-output; mkdir restoration-output
+          common=(--domain "${{ inputs.domain }}" --collection "${{ steps.asset.outputs.collection-root }}" --upstream-manifest "${{ steps.asset.outputs.marker-path }}")
+          case "${{ inputs.stage }}" in
+            assess) python -m hth.normalize_restoration "${common[@]}" assess --config "${{ steps.contract.outputs.config }}" --output restoration-output/assessment.json ;;
+            compare) python -m hth.normalize_restoration "${common[@]}" compare --assessment "results-repo/normalization/${{ inputs.domain }}/assessment.json" --config "${{ steps.contract.outputs.config }}" --output restoration-output/assessment.json ;;
+            validate) python -m hth.normalize_restoration "${common[@]}" validate --assessment "results-repo/normalization/${{ inputs.domain }}/assessment.json" --comparison "results-repo/normalization/${{ inputs.domain }}-methods/assessment.json" --config "${{ steps.contract.outputs.config }}" --output restoration-output/validation.json ;;
+          esac
+      - name: Summarize restoration evidence
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          if [[ "${{ steps.cbe.outputs.decision }}" == execute ]]; then input="restoration-output/${{ steps.contract.outputs.output }}"; else input="results-repo/${{ steps.contract.outputs.destination }}/${{ steps.contract.outputs.output }}"; fi
+          python -m hth.restoration_summary --stage "${{ inputs.stage }}" --input "$input" --github-summary "$GITHUB_STEP_SUMMARY"
+      - name: Finalize restoration Canonical Build Evidence
+        if: steps.cbe.outputs.decision == 'execute'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          python -m hth.canonical_build_evidence finalize --plan "$RUNNER_TEMP/${{ inputs.domain }}-${{ inputs.stage }}-cbe-plan.json" --output-root restoration-output --evidence-store "${{ steps.contract.outputs.evidence }}" --evidence-output restoration-output/canonical-build-evidence.json --github-summary "$GITHUB_STEP_SUMMARY"
+      - name: Publish compact restoration evidence
+        if: steps.cbe.outputs.decision == 'execute'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail; source hth-pipeline/tools/hardened-persistence.sh
+          git -C results-repo config user.name "github-actions[bot]"; git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          destination="${{ steps.contract.outputs.destination }}"; output="${{ steps.contract.outputs.output }}"; payload="$RUNNER_TEMP/restoration-publication"; incoming="$RUNNER_TEMP/restoration-cbe.json"; rm -rf "$payload"; mkdir "$payload"; cp "restoration-output/$output" "$payload/$output"; cp restoration-output/canonical-build-evidence.json "$incoming"
+          apply_evidence() { python -m hth.canonical_build_evidence merge --scope "${{ steps.contract.outputs.scope }}" --base "results-repo/$destination/canonical-build-evidence.json" --incoming "$incoming" --output "$payload/canonical-build-evidence.json"; rm -rf "results-repo/$destination"; mkdir -p "results-repo/$destination"; cp "$payload"/*.json "results-repo/$destination/"; hth_results_stage results-repo "$destination"; }
+          hth_hardened_persist results-repo main "Publish ${{ inputs.domain }} ${{ inputs.stage }} evidence" apply_evidence "Restoration evidence publication"
+      - name: Upload compact restoration evidence
+        if: steps.cbe.outputs.decision == 'execute'
+        uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
+        with:
+          name: hth-${{ inputs.domain }}-${{ inputs.stage }}-${{ github.run_number }}
+          path: restoration-output
+          if-no-files-found: error
+          retention-days: "${{ inputs.artifact_retention_days }}"
+          compression-level: 6
