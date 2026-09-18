@@ -43,3 +43,9 @@ Never mutate an established source Release. Any changed source master, new batch
 ## Why Releases
 
 Source masters are collection assets rather than code revisions. Separating them keeps Git repositories lightweight, avoids binary hydration during normal checkout, allows direct immutable provenance, and scales naturally to additional HTH collections while preserving the collection source repository as the owner of its source truth.
+Source DOCX assets are cached by verified SHA-256 on the runner. Self-hosted
+runners use `/tmp/.ar/.hth-source-release-cache`; deployments may override it
+with `HTH_SOURCE_LOCAL_CACHE_ROOT`. A cache entry is accepted only after its
+declared size and digest match the authoritative release manifest. Missing or
+invalid entries are fetched from the source release and atomically repopulated.
+This cache changes execution cost only—not source identity or CBE.

@@ -1,0 +1,69 @@
+name: Restore verified immutable release asset
+description: Resolve a content-addressed asset from runner-local cache, GitHub cache, or its authoritative release.
+
+inputs:
+  repository: {required: true, description: "GitHub owner/repository"}
+  tag: {required: true, description: "Immutable release tag"}
+  asset: {required: true, description: "Release asset filename"}
+  sha256: {required: true, description: "Expected asset SHA-256"}
+  token: {required: true, description: "GitHub token used only on cache miss"}
+  destination: {required: true, description: "Directory receiving the verified asset"}
+
+outputs:
+  asset-path:
+    description: Verified destination asset path
+    value: ${{ steps.restore.outputs.asset_path }}
+  cache-source:
+    description: runner-local-cache or authoritative-release
+    value: ${{ steps.restore.outputs.cache_source }}
+
+runs:
+  using: composite
+  steps:
+    - name: Restore portable immutable-release cache
+      if: ${{ runner.environment == 'github-hosted' }}
+      uses: actions/cache@v5
+      with:
+        path: ${{ runner.temp }}/hth-release-cache
+        key: hth-release-${{ runner.os }}-${{ runner.arch }}-${{ inputs.sha256 }}
+
+    - name: Restore and verify immutable release
+      id: restore
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        HTH_RELEASE_REPOSITORY: ${{ inputs.repository }}
+        HTH_RELEASE_TAG: ${{ inputs.tag }}
+        HTH_RELEASE_ASSET: ${{ inputs.asset }}
+        HTH_RELEASE_SHA256: ${{ inputs.sha256 }}
+        HTH_RELEASE_DESTINATION: ${{ inputs.destination }}
+      run: |
+        set -euo pipefail
+        if [[ -n "${HTH_RELEASE_LOCAL_CACHE_ROOT:-}" ]]; then
+          cache_root="$HTH_RELEASE_LOCAL_CACHE_ROOT"
+        elif [[ "${HTH_EXECUTION_ENVIRONMENT:-${RUNNER_ENVIRONMENT:-}}" == "self-hosted" ]]; then
+          cache_root="/tmp/.ar/.hth-release-cache"
+        else
+          cache_root="$RUNNER_TEMP/hth-release-cache"
+        fi
+        cache_dir="$cache_root/$HTH_RELEASE_SHA256"
+        cached="$cache_dir/$HTH_RELEASE_ASSET"
+        mkdir -p "$cache_dir" "$HTH_RELEASE_DESTINATION"
+        source=runner-local-cache
+        if [[ ! -f "$cached" ]] || ! echo "$HTH_RELEASE_SHA256  $cached" | sha256sum --check --status; then
+          source=authoritative-release
+          download="$RUNNER_TEMP/hth-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${RANDOM}"
+          mkdir -p "$download"
+          gh release download "$HTH_RELEASE_TAG" --repo "$HTH_RELEASE_REPOSITORY" --pattern "$HTH_RELEASE_ASSET" --dir "$download"
+          echo "$HTH_RELEASE_SHA256  $download/$HTH_RELEASE_ASSET" | sha256sum --check
+          temporary="$cache_dir/.${HTH_RELEASE_ASSET}.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}.tmp"
+          cp "$download/$HTH_RELEASE_ASSET" "$temporary"
+          mv -f "$temporary" "$cached"
+          echo "IMMUTABLE RELEASE CACHE FILLED sha256=${HTH_RELEASE_SHA256:0:12} path=$cached"
+        else
+          echo "IMMUTABLE RELEASE LOCAL CACHE HIT sha256=${HTH_RELEASE_SHA256:0:12} path=$cached"
+        fi
+        echo "$HTH_RELEASE_SHA256  $cached" | sha256sum --check
+        cp "$cached" "$HTH_RELEASE_DESTINATION/$HTH_RELEASE_ASSET"
+        echo "asset_path=$HTH_RELEASE_DESTINATION/$HTH_RELEASE_ASSET" >> "$GITHUB_OUTPUT"
+        echo "cache_source=$source" >> "$GITHUB_OUTPUT"

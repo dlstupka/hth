@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import sys
 import time
 import urllib.error
@@ -14,6 +15,51 @@ from typing import Any
 from hth.network_retry import is_transient_network_error
 
 MANIFEST_NAME = "source-release-manifest.json"
+
+
+def _local_cache_asset(name: str, sha256: str) -> Path | None:
+    configured = str(os.environ.get("HTH_SOURCE_LOCAL_CACHE_ROOT") or "").strip()
+    environment = str(
+        os.environ.get("HTH_EXECUTION_ENVIRONMENT")
+        or os.environ.get("RUNNER_ENVIRONMENT")
+        or ""
+    ).strip()
+    runner_temp = str(os.environ.get("RUNNER_TEMP") or "").strip()
+    if configured:
+        root = Path(configured)
+    elif environment == "self-hosted":
+        root = Path("/tmp/.ar/.hth-source-release-cache")
+    elif runner_temp:
+        root = Path(runner_temp) / "hth-source-release-cache"
+    else:
+        return None
+    return root / sha256.lower() / name
+
+
+def _restore_local_asset(destination: Path, *, name: str, expected_size: int, expected_sha256: str) -> bool:
+    cached = _local_cache_asset(name, expected_sha256)
+    if cached is None or not cached.is_file():
+        return False
+    valid_size = expected_size < 0 or cached.stat().st_size == expected_size
+    if not valid_size or _sha256(cached).lower() != expected_sha256.lower():
+        cached.unlink(missing_ok=True)
+        print(f"SOURCE RELEASE LOCAL CACHE REJECTED asset={name}", flush=True)
+        return False
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(cached, destination)
+    print(f"SOURCE RELEASE LOCAL CACHE HIT asset={name} sha256={expected_sha256[:12]}", flush=True)
+    return True
+
+
+def _fill_local_asset(source: Path, *, name: str, expected_sha256: str) -> None:
+    cached = _local_cache_asset(name, expected_sha256)
+    if cached is None:
+        return
+    cached.parent.mkdir(parents=True, exist_ok=True)
+    temporary = cached.with_name(f".{cached.name}.{os.getpid()}.tmp")
+    shutil.copyfile(source, temporary)
+    temporary.replace(cached)
+    print(f"SOURCE RELEASE LOCAL CACHE FILLED asset={name} sha256={expected_sha256[:12]}", flush=True)
 
 
 def _sha256(path: Path) -> str:
@@ -97,6 +143,14 @@ def _download_verified_asset(
     attempts: int = 4,
 ) -> None:
     """Download an asset atomically, retrying clean-EOF integrity failures."""
+    name = str(asset.get("name") or destination.name)
+    if _restore_local_asset(
+        destination,
+        name=name,
+        expected_size=expected_size,
+        expected_sha256=expected_sha256,
+    ):
+        return
     partial = destination.with_name(f"{destination.name}.part")
     last_problem = "download did not start"
     for attempt in range(1, attempts + 1):
@@ -110,6 +164,7 @@ def _download_verified_asset(
                 actual_sha = _sha256(partial)
                 if actual_sha.lower() == expected_sha256.lower():
                     partial.replace(destination)
+                    _fill_local_asset(destination, name=name, expected_sha256=expected_sha256)
                     return
                 last_problem = f"SHA-256 mismatch: expected {expected_sha256}, got {actual_sha}"
         except Exception:

@@ -145,6 +145,35 @@ class SourceReleaseContractTests(unittest.TestCase):
             self.assertFalse(destination.exists())
             self.assertFalse(destination.with_name("master.docx.part").exists())
 
+    def test_verified_asset_reuses_digest_keyed_runner_local_cache(self):
+        content = b"cached immutable source"
+        digest = hashlib.sha256(content).hexdigest()
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            first = root / "first" / "master.docx"
+            second = root / "second" / "master.docx"
+            calls = 0
+
+            def download(_asset, path, *, token=""):
+                nonlocal calls
+                calls += 1
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
+
+            with mock.patch.dict(os.environ, {"HTH_SOURCE_LOCAL_CACHE_ROOT": str(root / "cache")}), mock.patch(
+                "hth.source_release._download_asset", side_effect=download
+            ):
+                for destination in (first, second):
+                    _download_verified_asset(
+                        {"name": "master.docx"},
+                        destination,
+                        expected_size=len(content),
+                        expected_sha256=digest,
+                    )
+
+            self.assertEqual(calls, 1)
+            self.assertEqual(second.read_bytes(), content)
+
     def test_source_release_documentation_exists(self):
         text = (ROOT / "docs/source-releases.md").read_text(encoding="utf-8")
         self.assertIn("HTH-SOURCE-0001", text)

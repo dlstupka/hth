@@ -178,3 +178,17 @@ verifies the persisted release asset digest without rebuilding it.
 
 Binarization remains a separate future normalization operation with its own
 evidence contract.
+## Full normalization orchestration
+
+`HTH normalize collection` is the single production entry point and the full
+normalization regression. It reassesses crop/framing and orientation/deskew,
+builds or reuses canonical geometric normalization, assesses perspective, runs
+the complete photometric method-selection and integration sequence, and then
+runs contrast/tonal assessment, validation, and integration. CBE-enabled apply
+stages reuse exact canonical results and audit their immutable releases.
+
+The `start_stage` menu supports development and recovery without creating an
+alternative production path. Selecting a stage skips earlier jobs and runs that
+stage plus every downstream stage. Skipped prerequisites must already have
+valid persisted evidence; missing or incompatible evidence fails closed. The
+individual stage workflows remain available for focused diagnosis.

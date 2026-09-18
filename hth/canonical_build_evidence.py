@@ -29,6 +29,7 @@ STORE_TYPE = "canonical-build-evidence-store"
 PREPROCESS_SCOPE = "hth-preprocess"
 NORMALIZATION_SCOPE = "hth-normalization"
 PHOTOMETRIC_INTEGRATION_SCOPE = "hth-photometric-integration"
+TONAL_INTEGRATION_SCOPE = "hth-tonal-integration"
 POLICIES = ("auto", "audit", "force-verify", "rebuild")
 
 # These fields are observations or duplicated provenance, not domain results.
@@ -102,6 +103,34 @@ PHOTOMETRIC_INTEGRATION_ARTIFACTS = (
     ),
 )
 
+TONAL_INTEGRATION_ARTIFACTS = (
+    ArtifactSpec(
+        "tonal-normalization-manifest",
+        "tonal-normalization-manifest.json",
+        "normalization/tonal-integration/tonal-normalization-manifest.json",
+    ),
+    ArtifactSpec(
+        "tonal-assessment",
+        "tonal-assessment.json",
+        "normalization/tonal-integration/tonal-assessment.json",
+    ),
+    ArtifactSpec(
+        "tonal-method-assessment",
+        "tonal-method-assessment.json",
+        "normalization/tonal-integration/tonal-method-assessment.json",
+    ),
+    ArtifactSpec(
+        "tonal-validation",
+        "tonal-validation.json",
+        "normalization/tonal-integration/tonal-validation.json",
+    ),
+    ArtifactSpec(
+        "release-record",
+        "release.json",
+        "normalization/tonal-integration/release.json",
+    ),
+)
+
 
 def artifact_profile(scope: str) -> tuple[ArtifactSpec, ...]:
     if scope == PREPROCESS_SCOPE:
@@ -110,6 +139,8 @@ def artifact_profile(scope: str) -> tuple[ArtifactSpec, ...]:
         return NORMALIZATION_ARTIFACTS
     if scope == PHOTOMETRIC_INTEGRATION_SCOPE:
         return PHOTOMETRIC_INTEGRATION_ARTIFACTS
+    if scope == TONAL_INTEGRATION_SCOPE:
+        return TONAL_INTEGRATION_ARTIFACTS
     raise EvidenceError(f"Canonical Build Evidence scope has no artifact profile: {scope!r}")
 
 
@@ -771,6 +802,48 @@ def _photometric_integration_page_results(
     return pages
 
 
+def _tonal_integration_page_results(
+    output_root: Path,
+    activity: str,
+    domain_result: str,
+    effective_build_identity: str,
+) -> list[dict[str, Any]]:
+    manifest = _load_json_object(
+        output_root / "tonal-normalization-manifest.json",
+        "tonal normalization manifest",
+    )
+    records = manifest.get("pages")
+    if not isinstance(records, list) or not records:
+        raise EvidenceError("Tonal normalization manifest does not contain page records")
+    pages = []
+    for record in records:
+        if not isinstance(record, dict):
+            raise EvidenceError("Tonal normalization manifest contains an invalid page record")
+        ordinal = int(record["global_ordinal"])
+        canonical_page = {
+            "global_ordinal": ordinal,
+            "route": record.get("route"),
+            "pipeline_action": record.get("pipeline_action"),
+            "decision_before": record.get("decision_before"),
+            "input_pixel_sha256": record.get("input_pixel_sha256"),
+            "output_pixel_sha256": record.get("output_pixel_sha256"),
+            "output_image_sha256": record.get("output_sha256"),
+            "output_dimensions": [record.get("output_width"), record.get("output_height")],
+        }
+        pages.append({
+            **canonical_page,
+            "operation_identity": canonical_hash({
+                "effective_build_identity": effective_build_identity,
+                "global_ordinal": ordinal,
+                "input_pixel_sha256": record.get("input_pixel_sha256"),
+            }),
+            "canonical_page_result_sha256": canonical_hash(canonical_page),
+            "activity": activity,
+            "domain_result": domain_result,
+        })
+    return pages
+
+
 def finalize(args: argparse.Namespace) -> dict[str, Any]:
     plan = _load_json_object(args.plan, "Canonical Build Evidence plan")
     if plan.get("decision") != "execute":
@@ -781,6 +854,7 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
         PREPROCESS_SCOPE: _page_results,
         NORMALIZATION_SCOPE: _normalization_page_results,
         PHOTOMETRIC_INTEGRATION_SCOPE: _photometric_integration_page_results,
+        TONAL_INTEGRATION_SCOPE: _tonal_integration_page_results,
     }[scope]
     pages = page_builder(args.output_root, "EXECUTED", "APPLY", str(plan["effective_build_identity"]))
     result_identity = _result_identity(artifacts, pages)

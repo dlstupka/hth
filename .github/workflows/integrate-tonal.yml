@@ -1,0 +1,322 @@
+name: HTH normalize tonal integration
+run-name: Build the validated contrast and tonal normalized collection for downstream HTR
+
+on:
+  workflow_dispatch:
+    inputs:
+      # BEGIN GENERATED RUNNER TARGET INPUT
+      runner_target:
+        description: "Execution runner target"
+        required: true
+        default: github-hosted
+        type: choice
+        options:
+          - github-hosted
+          - self-hosted-linux
+          - self-hosted-windows
+          - hth
+          - rhel8
+          - e7k
+          - e9k
+          - 192t
+          - 96t
+          - 32t
+      # END GENERATED RUNNER TARGET INPUT
+      artifact_retention_days: {description: "Days to retain compact review evidence", required: true, default: 14, type: number}
+      canonical_build_policy:
+        description: "Canonical Build Evidence policy"
+        required: true
+        default: auto
+        type: choice
+        options: [auto, audit, force-verify, rebuild]
+  workflow_call:
+    inputs:
+      runner_target: {required: true, type: string}
+      artifact_retention_days: {required: true, type: number}
+      canonical_build_policy: {required: true, type: string}
+    secrets:
+      HTH_RESULTS_TOKEN: {required: true}
+
+permissions: {contents: read}
+concurrency: {group: "integrate-tonal-${{ github.ref }}", cancel-in-progress: false}
+env:
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: init.defaultBranch
+  GIT_CONFIG_VALUE_0: main
+  RESULTS_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
+
+jobs:
+  integrate-tonal:
+    name: Produce the validated contrast and tonal normalized collection
+    # BEGIN GENERATED RUNNER TARGET ROUTING
+    runs-on: >-
+      ${{ inputs.runner_target == 'self-hosted-linux' && fromJSON('["self-hosted","Linux","X64"]')
+        || inputs.runner_target == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+        || inputs.runner_target == 'hth' && fromJSON('["self-hosted","Linux","X64","hth"]')
+        || inputs.runner_target == 'rhel8' && fromJSON('["self-hosted","Linux","X64","rhel8"]')
+        || inputs.runner_target == 'e7k' && fromJSON('["self-hosted","Linux","X64","e7k"]')
+        || inputs.runner_target == 'e9k' && fromJSON('["self-hosted","Linux","X64","e9k"]')
+        || inputs.runner_target == '192t' && fromJSON('["self-hosted","Linux","X64","192t"]')
+        || inputs.runner_target == '96t' && fromJSON('["self-hosted","Linux","X64","96t"]')
+        || inputs.runner_target == '32t' && fromJSON('["self-hosted","Linux","X64","32t"]')
+        || 'ubuntu-latest' }}
+    # END GENERATED RUNNER TARGET ROUTING
+    timeout-minutes: 120
+    env:
+      # BEGIN GENERATED RUNNER SETUP LABEL
+      HTH_SELECTED_RUNNER_LABEL: >-
+        ${{ inputs.runner_target == 'self-hosted-linux' && 'linux'
+          || inputs.runner_target == 'self-hosted-windows' && 'windows'
+          || inputs.runner_target == 'hth' && 'hth'
+          || inputs.runner_target == 'rhel8' && 'rhel8'
+          || inputs.runner_target == 'e7k' && 'e7k'
+          || inputs.runner_target == 'e9k' && 'e9k'
+          || inputs.runner_target == '192t' && '192t'
+          || inputs.runner_target == '96t' && '96t'
+          || inputs.runner_target == '32t' && '32t'
+          || 'github-hosted' }}
+      # END GENERATED RUNNER SETUP LABEL
+    steps:
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
+        with: {path: hth-pipeline, fetch-depth: 1, persist-credentials: false}
+
+      - name: Checkout canonical tonal and photometric evidence
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.RESULTS_REPOSITORY }}
+          path: results-repo
+          ref: main
+          token: ${{ secrets.HTH_RESULTS_TOKEN || github.token }}
+          fetch-depth: 1
+          sparse-checkout: |
+            /normalization/photometric-integration/
+            /normalization/tonal/
+            /normalization/tonal-methods/
+            /normalization/tonal-validation/
+            /normalization/tonal-integration/
+          sparse-checkout-cone-mode: false
+          persist-credentials: true
+
+      - name: Set up canonical HTH Python runtime
+        uses: ./hth-pipeline/.github/actions/setup-hth-python
+        with: {pipeline-path: hth-pipeline, runner-label: "${{ env.HTH_SELECTED_RUNNER_LABEL }}"}
+
+      - name: Assemble tonal effective-input contract
+        id: inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/tonal-effective-inputs"
+          mkdir -p "$RUNNER_TEMP/tonal-effective-inputs"
+          cp results-repo/normalization/photometric-integration/{release.json,photometric-normalization-manifest.json} "$RUNNER_TEMP/tonal-effective-inputs/"
+          cp results-repo/normalization/tonal/assessment.json "$RUNNER_TEMP/tonal-effective-inputs/tonal-assessment.json"
+          cp results-repo/normalization/tonal-methods/assessment.json "$RUNNER_TEMP/tonal-effective-inputs/tonal-method-assessment.json"
+          cp results-repo/normalization/tonal-validation/validation.json "$RUNNER_TEMP/tonal-effective-inputs/tonal-validation.json"
+          python <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          release = json.loads(Path("results-repo/normalization/photometric-integration/release.json").read_text())
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as out:
+              for source, target in (("tag", "source_tag"), ("asset", "source_asset"), ("asset_sha256", "source_sha256")):
+                  value = str(release.get(source) or "")
+                  if not value:
+                      raise SystemExit(f"Photometric release has no {source}")
+                  out.write(f"{target}={value}\n")
+              out.write(f"results_commit={subprocess.check_output(['git','-C','results-repo','rev-parse','HEAD'], text=True).strip()}\n")
+          PY
+
+      - name: Evaluate tonal Canonical Build Evidence
+        id: cbe_plan
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          python -m hth.canonical_build_evidence prepare \
+            --scope hth-tonal-integration \
+            --policy "${{ inputs.canonical_build_policy }}" \
+            --contract-version 1 --mode complete-production \
+            --operation consume-immutable-photometric-collection \
+            --operation classify-every-page-by-tonal-metrics \
+            --operation apply-only-validated-bounded-tonal-method \
+            --operation preserve-exceptions-and-continue \
+            --operation package-immutable-lossless-collection \
+            --repository-root hth-pipeline \
+            --source-root "$RUNNER_TEMP/tonal-effective-inputs" \
+            --source-repository "$RESULTS_REPOSITORY" \
+            --source-release "${{ steps.inputs.outputs.source_tag }}" \
+            --source-manifest-sha256 "${{ steps.inputs.outputs.source_sha256 }}" \
+            --source-commit "${{ steps.inputs.outputs.results_commit }}" \
+            --config hth-pipeline/config/tonal-assessment.json \
+            --config hth-pipeline/config/tonal-method-assessment.json \
+            --config hth-pipeline/config/tonal-method-validation.json \
+            --implementation hth-pipeline/hth/normalize_tonal.py \
+            --runtime-contract hth-pipeline/requirements.txt \
+            --runtime-package numpy --runtime-package opencv-python-headless \
+            --results-root results-repo \
+            --evidence results-repo/normalization/tonal-integration/canonical-build-evidence.json \
+            --plan "$RUNNER_TEMP/tonal-cbe-plan.json" \
+            --pipeline-repository "$GITHUB_REPOSITORY" --pipeline-commit "$GITHUB_SHA" \
+            --results-repository "$RESULTS_REPOSITORY" --workflow-run-id "$GITHUB_RUN_ID" \
+            --runner-name "$RUNNER_NAME" --runner-environment "${{ runner.environment }}" --runner-os "$RUNNER_OS" --runner-arch "$RUNNER_ARCH" \
+            --github-output "$GITHUB_OUTPUT" --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Audit reusable immutable tonal release
+        if: steps.cbe_plan.outputs.decision != 'execute'
+        shell: bash
+        env: {GH_TOKEN: "${{ secrets.HTH_RESULTS_TOKEN || github.token }}"}
+        run: |
+          set -euo pipefail
+          readarray -t fields < <(python <<'PY'
+          import json
+          from pathlib import Path
+          record = json.loads(Path("results-repo/normalization/tonal-integration/release.json").read_text())
+          for key in ("tag", "asset", "asset_sha256", "tonal_result_identity"):
+              value = str(record.get(key) or "")
+              if not value: raise SystemExit(f"Tonal release record has no {key}")
+              print(value)
+          PY
+          )
+          digest="$(gh api "repos/$RESULTS_REPOSITORY/releases/tags/${fields[0]}" --jq ".assets[] | select(.name == \"${fields[1]}\") | .digest")"
+          test "$digest" = "sha256:${fields[2]}"
+          url="${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/releases/tag/${fields[0]}"
+          printf '\n## Reusable tonal result\n\n- Tonal result: [`%s`](%s)\n- Release activity: `AUDITED`\n- Release: %s\n' "${fields[3]}" "$url" "$url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Restore cached immutable photometric collection
+        id: photometric_asset
+        if: steps.cbe_plan.outputs.decision == 'execute'
+        uses: ./hth-pipeline/.github/actions/restore-immutable-release
+        with:
+          repository: ${{ env.RESULTS_REPOSITORY }}
+          tag: ${{ steps.inputs.outputs.source_tag }}
+          asset: ${{ steps.inputs.outputs.source_asset }}
+          sha256: ${{ steps.inputs.outputs.source_sha256 }}
+          token: ${{ secrets.HTH_RESULTS_TOKEN || github.token }}
+          destination: photometric-asset
+
+      - name: Extract verified photometric collection
+        if: steps.cbe_plan.outputs.decision == 'execute'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf photometric-input
+          mkdir -p photometric-input
+          unzip -q "${{ steps.photometric_asset.outputs.asset-path }}" -d photometric-input
+
+      - name: Integrate validated contrast and tonal correction
+        id: integration
+        if: steps.cbe_plan.outputs.decision == 'execute'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          rm -rf tonal-integrated-collection
+          python -m hth.normalize_tonal integrate \
+            --collection photometric-input \
+            --upstream-manifest photometric-input/photometric-normalization-manifest.json \
+            --assessment results-repo/normalization/tonal/assessment.json \
+            --comparison results-repo/normalization/tonal-methods/assessment.json \
+            --validation results-repo/normalization/tonal-validation/validation.json \
+            --output tonal-integrated-collection
+          cp results-repo/normalization/tonal/assessment.json tonal-integrated-collection/tonal-assessment.json
+          cp results-repo/normalization/tonal-methods/assessment.json tonal-integrated-collection/tonal-method-assessment.json
+          cp results-repo/normalization/tonal-validation/validation.json tonal-integrated-collection/tonal-validation.json
+          python <<'PY'
+          import json, os
+          from pathlib import Path
+          manifest = json.loads(Path("tonal-integrated-collection/tonal-normalization-manifest.json").read_text())
+          identity = str(manifest.get("tonal_result_identity") or "")
+          if len(identity) != 64: raise SystemExit("Tonal integration produced no valid identity")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as out:
+              out.write(f"result_identity={identity}\nrelease_tag=HTH-TONAL-{identity}\n")
+          PY
+
+      - name: Package immutable tonal collection
+        id: package
+        if: steps.cbe_plan.outputs.decision == 'execute'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          asset="$RUNNER_TEMP/hth-tonal-${{ steps.integration.outputs.result_identity }}.zip"
+          python -m hth.normalize_tonal package --collection tonal-integrated-collection --asset "$asset" --tag "${{ steps.integration.outputs.release_tag }}" --output-record tonal-integrated-collection/release.json
+          python <<'PY'
+          import json, os
+          from pathlib import Path
+          record = json.loads(Path("tonal-integrated-collection/release.json").read_text())
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as out:
+              out.write(f"asset={Path(os.environ['RUNNER_TEMP']) / record['asset']}\nasset_sha256={record['asset_sha256']}\n")
+          PY
+
+      - name: Finalize tonal Canonical Build Evidence
+        id: cbe_result
+        if: steps.cbe_plan.outputs.decision == 'execute'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          python -m hth.canonical_build_evidence finalize --plan "$RUNNER_TEMP/tonal-cbe-plan.json" --output-root tonal-integrated-collection --evidence-store results-repo/normalization/tonal-integration/canonical-build-evidence.json --evidence-output tonal-integrated-collection/canonical-build-evidence.json --github-output "$GITHUB_OUTPUT" --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish or reuse immutable tonal release
+        id: release
+        if: steps.cbe_plan.outputs.decision == 'execute'
+        shell: bash
+        env:
+          GH_TOKEN: "${{ secrets.HTH_RESULTS_TOKEN }}"
+          RELEASE_TAG: "${{ steps.integration.outputs.release_tag }}"
+          RELEASE_ASSET: "${{ steps.package.outputs.asset }}"
+          ASSET_SHA256: "${{ steps.package.outputs.asset_sha256 }}"
+          RESULT_IDENTITY: "${{ steps.integration.outputs.result_identity }}"
+        run: |
+          set -euo pipefail
+          asset_name="hth-tonal-${RESULT_IDENTITY}.zip"
+          if gh release view "$RELEASE_TAG" --repo "$RESULTS_REPOSITORY" >/dev/null 2>&1; then
+            digest="$(gh api "repos/$RESULTS_REPOSITORY/releases/tags/$RELEASE_TAG" --jq ".assets[] | select(.name == \"$asset_name\") | .digest")"
+            test "$digest" = "sha256:$ASSET_SHA256" || { echo "Existing tonal release does not match deterministic rebuild" >&2; exit 1; }
+            activity=REUSED
+          else
+            gh release create "$RELEASE_TAG" "$RELEASE_ASSET" --repo "$RESULTS_REPOSITORY" --target main --title "HTH tonal normalized collection $RESULT_IDENTITY" --notes "Deterministic contrast and tonal-range normalization. Every page continues downstream."
+            activity=CREATED
+          fi
+          echo "release_activity=$activity" >> "$GITHUB_OUTPUT"
+          echo "release_url=${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/releases/tag/${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish compact canonical tonal evidence
+        id: publish
+        if: steps.cbe_plan.outputs.decision == 'execute'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          source hth-pipeline/tools/hardened-persistence.sh
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          payload="$RUNNER_TEMP/tonal-payload"
+          rm -rf "$payload"; mkdir -p "$payload"
+          cp tonal-integrated-collection/{tonal-normalization-manifest.json,tonal-normalization-manifest.csv,summary.md,tonal-assessment.json,tonal-method-assessment.json,tonal-validation.json,release.json} "$payload/"
+          incoming="$RUNNER_TEMP/tonal-cbe-incoming.json"
+          cp tonal-integrated-collection/canonical-build-evidence.json "$incoming"
+          apply_tonal_integration() {
+            python -m hth.canonical_build_evidence merge --scope hth-tonal-integration --base results-repo/normalization/tonal-integration/canonical-build-evidence.json --incoming "$incoming" --output "$payload/canonical-build-evidence.json"
+            rm -rf results-repo/normalization/tonal-integration
+            mkdir -p results-repo/normalization/tonal-integration
+            cp "$payload"/* results-repo/normalization/tonal-integration/
+            hth_results_stage results-repo normalization/tonal-integration
+          }
+          hth_hardened_persist results-repo main "Publish tonal integration ${{ steps.integration.outputs.result_identity }}" apply_tonal_integration "Tonal integration publication"
+          echo "results_commit=$HTH_PERSIST_COMMIT" >> "$GITHUB_OUTPUT"
+          printf '\n## Durable tonal result\n\n- Tonal result: [`%s`](%s)\n- Release activity: `%s`\n- Results commit: [`%s`](%s/%s/commit/%s)\n' "${{ steps.integration.outputs.result_identity }}" "${{ steps.release.outputs.release_url }}" "${{ steps.release.outputs.release_activity }}" "$HTH_PERSIST_COMMIT" "$GITHUB_SERVER_URL" "$RESULTS_REPOSITORY" "$HTH_PERSIST_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload compact tonal review
+        if: steps.cbe_plan.outputs.decision == 'execute'
+        uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
+        with:
+          name: hth-tonal-integration-review-${{ github.run_number }}
+          path: |
+            tonal-integrated-collection/tonal-normalization-manifest.json
+            tonal-integrated-collection/tonal-normalization-manifest.csv
+            tonal-integrated-collection/summary.md
+            tonal-integrated-collection/release.json
+          if-no-files-found: error
+          retention-days: "${{ inputs.artifact_retention_days }}"
+          compression-level: 6

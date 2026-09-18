@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "validation_type": "contrast-tonal-method-held-out-validation",
+  "gates": {
+    "require_complete_candidate_coverage": true,
+    "require_every_candidate_safe": true,
+    "require_preserve_controls_unchanged": true,
+    "minimum_mean_tonal_span_gain": 0.04
+  },
+  "recommendation": {"policy_id": "selective-global-tonal-normalization-v1"}
+}

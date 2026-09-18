@@ -1,0 +1,150 @@
+from __future__ import annotations
+
+import json
+import argparse
+import tempfile
+import unittest
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+from hth.canonical_build_evidence import TONAL_INTEGRATION_SCOPE, artifact_profile, canonical_hash, finalize
+from hth.normalize_document_images import _pixel_sha256
+from hth.normalize_tonal import assess, compare, integrate, package_release, validate
+
+
+class TonalNormalizationTests(unittest.TestCase):
+    @staticmethod
+    def _config(name: str) -> dict:
+        root = Path(__file__).resolve().parents[1]
+        return json.loads((root / "config" / name).read_text(encoding="utf-8"))
+
+    def _collection(self, root: Path, count: int = 10) -> tuple[Path, dict]:
+        collection = root / "photometric"
+        images = collection / "photometric-normalized"
+        images.mkdir(parents=True)
+        pages = []
+        for ordinal in range(1, count + 1):
+            gradient = np.linspace(85, 165, 320, dtype=np.uint8)
+            image = cv2.cvtColor(np.tile(gradient, (420, 1)), cv2.COLOR_GRAY2BGR)
+            for y in range(40, 400, 32):
+                cv2.line(image, (20, y), (300, y), (65, 65, 65), 2)
+            target = images / f"fs_{ordinal:04d}.png"
+            self.assertTrue(cv2.imwrite(str(target), image))
+            pages.append({"global_ordinal": ordinal, "output_pixel_sha256": _pixel_sha256(image)})
+        manifest = {"photometric_result_identity": "a" * 64, "pages": pages}
+        (collection / "photometric-normalization-manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+        return collection, manifest
+
+    def test_complete_tonal_evidence_and_integration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            collection, upstream = self._collection(root)
+            assessment = assess(collection, upstream, self._config("tonal-assessment.json"))
+            self.assertEqual(assessment["aggregate"]["page_count"], 10)
+            self.assertEqual(assessment["aggregate"]["correction-candidate"], 10)
+            comparison = compare(
+                collection, upstream, assessment, self._config("tonal-method-assessment.json")
+            )
+            self.assertEqual(comparison["candidate_count"], 2)
+            self.assertIsNotNone(comparison["recommended_method_id"])
+            validation = validate(
+                collection,
+                upstream,
+                assessment,
+                comparison,
+                self._config("tonal-method-validation.json"),
+            )
+            self.assertEqual(validation["aggregate"]["held_out_candidates"], 8)
+            self.assertEqual(validation["decision"], "apply")
+            output = root / "tonal"
+            result = integrate(collection, upstream, assessment, comparison, validation, output)
+            self.assertEqual(result["aggregate"]["page_count"], 10)
+            self.assertEqual(result["aggregate"]["corrected_pages"], 10)
+            self.assertTrue(all(page["pipeline_action"] == "corrected-and-continue" for page in result["pages"]))
+
+            first = root / "first.zip"
+            second = root / "second.zip"
+            tag = f"HTH-TONAL-{result['tonal_result_identity']}"
+            first_record = package_release(output, first, tag)
+            (output / "release.json").write_text(json.dumps(first_record), encoding="utf-8")
+            second_record = package_release(output, second, tag)
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+
+            for name, payload in (
+                ("tonal-assessment.json", assessment),
+                ("tonal-method-assessment.json", comparison),
+                ("tonal-validation.json", validation),
+                ("release.json", first_record),
+            ):
+                (output / name).write_text(json.dumps(payload), encoding="utf-8")
+            effective_inputs = {
+                "source": {"release_manifest_sha256": "b" * 64, "files": [{"sha256": "c" * 64}]},
+                "contract": {}, "configuration": [], "implementation": [], "runtime_contract": [], "runtime": {},
+            }
+            plan = {
+                "decision": "execute",
+                "scope": TONAL_INTEGRATION_SCOPE,
+                "policy": "auto",
+                "effective_inputs": effective_inputs,
+                "effective_build_identity": canonical_hash(effective_inputs),
+                "comparison_required": False,
+                "incumbent_result_identity": None,
+                "execution": {},
+            }
+            plan_path = root / "plan.json"
+            plan_path.write_text(json.dumps(plan), encoding="utf-8")
+            evidence = finalize(argparse.Namespace(
+                plan=plan_path,
+                output_root=output,
+                evidence_store=root / "results/canonical-build-evidence.json",
+                evidence_output=output / "canonical-build-evidence.json",
+                github_output="",
+                github_summary="",
+            ))
+            self.assertEqual(evidence["scope"], TONAL_INTEGRATION_SCOPE)
+            self.assertEqual(len(evidence["canonical_result"]["pages"]), 10)
+
+    def test_cbe_scope_has_complete_tonal_contract(self) -> None:
+        specs = artifact_profile(TONAL_INTEGRATION_SCOPE)
+        self.assertEqual(
+            [spec.logical_name for spec in specs],
+            ["tonal-normalization-manifest", "tonal-assessment", "tonal-method-assessment", "tonal-validation", "release-record"],
+        )
+
+    def test_workflows_use_cached_release_and_cbe(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        core = (root / ".github/workflows/_core-tonal-evidence.yml").read_text(encoding="utf-8")
+        integration = (root / ".github/workflows/integrate-tonal.yml").read_text(encoding="utf-8")
+        orchestrator = (root / ".github/workflows/normalize.yml").read_text(encoding="utf-8")
+        action = (root / ".github/actions/restore-immutable-release/action.yml").read_text(encoding="utf-8")
+        for name in ("assess-tonal.yml", "assess-tonal-methods.yml", "validate-tonal-method.yml"):
+            dispatcher = (root / ".github/workflows" / name).read_text(encoding="utf-8")
+            self.assertIn("uses: ./.github/workflows/_core-tonal-evidence.yml", dispatcher)
+        self.assertIn("uses: ./hth-pipeline/.github/actions/restore-immutable-release", core)
+        self.assertIn("uses: ./hth-pipeline/.github/actions/restore-immutable-release", integration)
+        self.assertIn("/tmp/.ar/.hth-release-cache", action)
+        self.assertIn("uses: actions/cache@v5", action)
+        self.assertIn("sha256sum --check", action)
+        self.assertIn("--scope hth-tonal-integration", integration)
+        self.assertIn("decision != 'execute'", integration)
+        self.assertIn("Existing tonal release does not match deterministic rebuild", integration)
+        self.assertIn("needs: integrate-photometric", orchestrator)
+        self.assertIn("uses: ./.github/workflows/assess-perspective.yml", orchestrator)
+        self.assertIn("needs: assess-tonal", orchestrator)
+        self.assertIn("needs: assess-tonal-methods", orchestrator)
+        self.assertIn("needs: validate-tonal-method", orchestrator)
+        self.assertIn("uses: ./.github/workflows/integrate-tonal.yml", orchestrator)
+        self.assertIn("start_stage:", orchestrator)
+        self.assertIn("- crop-framing", orchestrator)
+        self.assertIn("- orientation-deskew", orchestrator)
+        self.assertIn("- tonal-integration", orchestrator)
+        self.assertIn("uses: ./.github/workflows/assess-crop-framing.yml", orchestrator)
+        self.assertIn("uses: ./.github/workflows/assess-orientation-deskew.yml", orchestrator)
+
+
+if __name__ == "__main__":
+    unittest.main()

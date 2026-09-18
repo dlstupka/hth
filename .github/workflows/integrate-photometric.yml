@@ -38,6 +38,14 @@ on:
           - audit
           - force-verify
           - rebuild
+  workflow_call:
+    inputs:
+      runner_target: {required: true, type: string}
+      review_artifact_retention_days: {required: true, type: number}
+      canonical_build_policy: {required: true, type: string}
+    secrets:
+      HTH_RESULTS_TOKEN: {required: true}
+      HTH_SOURCE_TOKEN: {required: false}
 
 permissions:
   contents: read

@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "assessment_type": "contrast-tonal-range-assessment",
+  "percentiles": {"black": 1.0, "shadow": 5.0, "median": 50.0, "highlight": 95.0, "white": 99.0},
+  "candidate_gates": {
+    "minimum_adequate_tonal_span": 0.55,
+    "maximum_existing_endpoint_clipping_fraction": 0.03,
+    "minimum_candidate_tonal_span": 0.12
+  },
+  "partition": {"development_modulus": 5, "development_residue": 0},
+  "review": {"maximum_pages": 40}
+}

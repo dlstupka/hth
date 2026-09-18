@@ -23,6 +23,25 @@ on:
           - 96t
           - 32t
       # END GENERATED RUNNER TARGET INPUT
+      start_stage:
+        description: "Start the normalization regression at this stage"
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - crop-framing
+          - orientation-deskew
+          - canonical-normalization
+          - perspective
+          - photometric-assessment
+          - photometric-method-assessment
+          - photometric-validation
+          - photometric-integration
+          - tonal-assessment
+          - tonal-method-assessment
+          - tonal-validation
+          - tonal-integration
       upload_full_artifact:
         description: "Build and upload all normalized images; disable for a fast evidence-only reuse check"
         required: true
@@ -37,7 +56,7 @@ on:
           - prepared-recommendation
           - axis-aligned-only
       canonical_normalization_policy:
-        description: Canonical normalization evidence policy
+        description: "Canonical Build Evidence policy for normalization integration stages"
         required: true
         default: auto
         type: choice
@@ -66,8 +85,35 @@ env:
   RESULTS_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
 
 jobs:
+  assess-crop-framing:
+    name: Assess crop and framing
+    if: ${{ contains(fromJSON('["full","crop-framing"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/assess-crop-framing.yml
+    with:
+      runner_target: ${{ inputs.runner_target }}
+      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+    secrets: inherit
+
+  assess-orientation-deskew:
+    name: Reassess orientation and deskew recommendation
+    needs: assess-crop-framing
+    if: >-
+      ${{ always() && !cancelled()
+        && (needs.assess-crop-framing.result == 'success' || needs.assess-crop-framing.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/assess-orientation-deskew.yml
+    with:
+      runner_target: ${{ inputs.runner_target }}
+      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+    secrets: inherit
+
   normalize:
     name: Normalize complete collection from canonical preprocess evidence
+    needs: assess-orientation-deskew
+    if: >-
+      ${{ always() && !cancelled()
+        && (needs.assess-orientation-deskew.result == 'success' || needs.assess-orientation-deskew.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization"]'), inputs.start_stage) }}
     # BEGIN GENERATED RUNNER TARGET ROUTING
     runs-on: >-
       ${{ inputs.runner_target == 'self-hosted-linux' && fromJSON('["self-hosted","Linux","X64"]')
@@ -388,3 +434,116 @@ jobs:
           if-no-files-found: error
           retention-days: ${{ inputs.artifact_retention_days }}
           compression-level: 0
+
+  assess-perspective:
+    name: Assess residual perspective distortion
+    needs: normalize
+    if: >-
+      ${{ always() && !cancelled() && (needs.normalize.result == 'success' || needs.normalize.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/assess-perspective.yml
+    with:
+      runner_target: ${{ inputs.runner_target }}
+      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+    secrets: inherit
+
+  assess-photometric:
+    name: Assess illumination and photometric normalization
+    needs: assess-perspective
+    if: >-
+      ${{ always() && !cancelled() && (needs.assess-perspective.result == 'success' || needs.assess-perspective.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/assess-photometric.yml
+    with:
+      runner_target: ${{ inputs.runner_target }}
+      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+    secrets: inherit
+
+  assess-photometric-methods:
+    name: Compare bounded photometric methods
+    needs: assess-photometric
+    if: >-
+      ${{ always() && !cancelled() && (needs.assess-photometric.result == 'success' || needs.assess-photometric.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/assess-photometric-methods.yml
+    with:
+      runner_target: ${{ inputs.runner_target }}
+      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+    secrets: inherit
+
+  validate-photometric-method:
+    name: Validate photometric method on held-out pages
+    needs: assess-photometric-methods
+    if: >-
+      ${{ always() && !cancelled() && (needs.assess-photometric-methods.result == 'success' || needs.assess-photometric-methods.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/validate-photometric-method.yml
+    with:
+      runner_target: ${{ inputs.runner_target }}
+      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+    secrets: inherit
+
+  integrate-photometric:
+    name: Integrate photometric normalization with CBE
+    needs: validate-photometric-method
+    if: >-
+      ${{ always() && !cancelled() && (needs.validate-photometric-method.result == 'success' || needs.validate-photometric-method.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/integrate-photometric.yml
+    with:
+      runner_target: ${{ inputs.runner_target }}
+      review_artifact_retention_days: ${{ inputs.artifact_retention_days }}
+      canonical_build_policy: ${{ inputs.canonical_normalization_policy }}
+    secrets: inherit
+
+  assess-tonal:
+    name: Assess contrast and tonal range
+    needs: integrate-photometric
+    if: >-
+      ${{ always() && !cancelled() && (needs.integrate-photometric.result == 'success' || needs.integrate-photometric.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/_core-tonal-evidence.yml
+    with:
+      stage: assess
+      runner_target: ${{ inputs.runner_target }}
+      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+    secrets: inherit
+
+  assess-tonal-methods:
+    name: Compare bounded tonal methods
+    needs: assess-tonal
+    if: >-
+      ${{ always() && !cancelled() && (needs.assess-tonal.result == 'success' || needs.assess-tonal.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/_core-tonal-evidence.yml
+    with:
+      stage: compare
+      runner_target: ${{ inputs.runner_target }}
+      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+    secrets: inherit
+
+  validate-tonal-method:
+    name: Validate tonal method on held-out pages
+    needs: assess-tonal-methods
+    if: >-
+      ${{ always() && !cancelled() && (needs.assess-tonal-methods.result == 'success' || needs.assess-tonal-methods.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/_core-tonal-evidence.yml
+    with:
+      stage: validate
+      runner_target: ${{ inputs.runner_target }}
+      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+    secrets: inherit
+
+  integrate-tonal:
+    name: Integrate tonal normalization with CBE
+    needs: validate-tonal-method
+    if: >-
+      ${{ always() && !cancelled() && (needs.validate-tonal-method.result == 'success' || needs.validate-tonal-method.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/integrate-tonal.yml
+    with:
+      runner_target: ${{ inputs.runner_target }}
+      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+      canonical_build_policy: ${{ inputs.canonical_normalization_policy }}
+    secrets: inherit
