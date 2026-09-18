@@ -228,6 +228,8 @@ class PhotometricIntegrationTests(unittest.TestCase):
         self.assertIn("gh release create", workflow)
         self.assertIn("photometric-normalization-manifest.json", workflow)
         self.assertIn("hth_hardened_persist", workflow)
+        self.assertIn("/normalization/normalization-manifest.json", workflow)
+        self.assertIn("/commit/$HTH_PERSIST_COMMIT", workflow)
 
 
 if __name__ == "__main__":

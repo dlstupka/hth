@@ -219,6 +219,7 @@ jobs:
               raise SystemExit("Photometric integration produced no valid result identity")
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
               handle.write(f"result_identity={identity}\n")
+              handle.write(f"base_normalization_identity={manifest['base_normalization_result_identity']}\n")
               handle.write(f"release_tag=HTH-PHOTOMETRIC-{identity}\n")
           PY
 
@@ -306,10 +307,11 @@ jobs:
             echo ""
             echo "## Durable photometric result"
             echo ""
-            echo "- Result identity: \`${{ steps.integration.outputs.result_identity }}\`"
+            echo "- Base normalization result: [\`${{ steps.integration.outputs.base_normalization_identity }}\`](${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/blob/$HTH_PERSIST_COMMIT/normalization/normalization-manifest.json)"
+            echo "- Photometric result: [\`${{ steps.integration.outputs.result_identity }}\`](${{ steps.release.outputs.release_url }})"
             echo "- Release activity: \`${{ steps.release.outputs.release_activity }}\`"
             echo "- Release: ${{ steps.release.outputs.release_url }}"
-            echo "- Results commit: \`$HTH_PERSIST_COMMIT\`"
+            echo "- Results commit: [\`$HTH_PERSIST_COMMIT\`](${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/commit/$HTH_PERSIST_COMMIT)"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload compact photometric review

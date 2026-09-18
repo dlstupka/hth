@@ -1,6 +1,6 @@
 # Hidden Texas History — Project Status
 
-*Last updated: 2026-08-23*
+*Last updated: 2026-09-18*
 
 ## Mission
 
@@ -56,11 +56,39 @@ The next source-quality objective is to reacquire the current FamilySearch colle
 
 ## Next technical work
 
-1. Complete authorized direct-source acquisition for the reference collection.
-2. Compare direct-source production inference with the bootstrap source edition.
-3. Use full-collection evidence—especially low-confidence and detector-disagreement pages—to decide whether and how to instantiate `HTH-GOLDEN-0002`.
-4. Continue downstream transcription, translation, indexing, citation, and historical-research stages.
-5. Keep collection-specific data and immutable source truth outside the reusable HTH engine so additional collections can use the same framework.
+1. Canonicalize identity and provenance presentation across every human-facing
+   Actions summary and report. One shared renderer must produce identical link
+   behavior without workflow-specific exceptions: Git commit identities link
+   to their commits, release-backed result identities link to their immutable
+   releases, and evidence identities link to the pinned manifest that defines
+   them. Machine-readable JSON/CSV manifests retain raw deterministic identity
+   values, with explicit companion URL fields only where the schema requires
+   navigable provenance.
+2. Complete authorized direct-source acquisition for the reference collection.
+3. Compare direct-source production inference with the bootstrap source edition.
+4. Use full-collection evidence—especially low-confidence and detector-disagreement pages—to decide whether and how to instantiate `HTH-GOLDEN-0002`.
+5. Continue downstream transcription, translation, indexing, citation, and historical-research stages.
+6. Keep collection-specific data and immutable source truth outside the reusable HTH engine so additional collections can use the same framework.
+
+## Deferred engineering triggers
+
+These are intentional watch conditions, not currently justified projects:
+
+- Revisit Results-repository publication architecture only if concurrent-write
+  collisions become routine, exhaust the existing bounded retry transaction,
+  or materially delay publication. The current collision-safe persistence
+  contract remains appropriate at present scale.
+- Revisit detector execution scheduling when detector count, parameter-space
+  size, measured runner contention, or utilization demonstrates that the
+  current scheduler no longer uses available capacity effectively.
+- Add further persistence, checkout, or source/Golden-Set hardening in response
+  to a concrete new failure class, a changed workflow contract, or a new
+  source-release/Golden-Set model rather than speculative edge cases.
+
+The earlier shared local-Git test-fixture refactor and Windows cleanup work are
+complete. Commit `6fb44f5` centralized the fixtures, made read-only Git-object
+cleanup explicit, removed leaked temporary repositories, and added bounded
+retries for the observed Windows `device or resource busy` deletion race.
 
 ## Historical objective
 
