@@ -11,7 +11,13 @@ import numpy as np
 
 from hth.canonical_build_evidence import TONAL_INTEGRATION_SCOPE, artifact_profile, canonical_hash, finalize
 from hth.normalize_document_images import _pixel_sha256
-from hth.normalize_tonal import assess, compare, integrate, package_release, validate
+from hth.normalize_tonal import (
+    assess,
+    compare,
+    integrate,
+    package_release,
+    validate,
+)
 
 
 class TonalNormalizationTests(unittest.TestCase):
@@ -144,6 +150,10 @@ class TonalNormalizationTests(unittest.TestCase):
         self.assertIn("- tonal-integration", orchestrator)
         self.assertIn("uses: ./.github/workflows/assess-crop-framing.yml", orchestrator)
         self.assertIn("uses: ./.github/workflows/assess-orientation-deskew.yml", orchestrator)
+        self.assertIn("collection-marker: photometric-normalization-manifest.json", core)
+        self.assertIn("steps.photometric_asset.outputs.collection-root", core)
+        self.assertIn("collection-marker: photometric-normalization-manifest.json", integration)
+        self.assertIn("steps.photometric_asset.outputs.collection-root", integration)
 
     def test_reusable_workflow_retention_inputs_are_explicitly_numeric(self) -> None:
         root = Path(__file__).resolve().parents[1]

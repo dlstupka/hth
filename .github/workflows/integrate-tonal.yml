@@ -193,27 +193,24 @@ jobs:
           sha256: ${{ steps.inputs.outputs.source_sha256 }}
           token: ${{ secrets.HTH_RESULTS_TOKEN || github.token }}
           destination: photometric-asset
-
-      - name: Extract verified photometric collection
-        if: steps.cbe_plan.outputs.decision == 'execute'
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf photometric-input
-          mkdir -p photometric-input
-          unzip -q "${{ steps.photometric_asset.outputs.asset-path }}" -d photometric-input
+          extract-destination: photometric-input
+          collection-marker: photometric-normalization-manifest.json
+          required-subdirectory: photometric-normalized
 
       - name: Integrate validated contrast and tonal correction
         id: integration
         if: steps.cbe_plan.outputs.decision == 'execute'
         shell: bash
-        env: {PYTHONPATH: hth-pipeline}
+        env:
+          PYTHONPATH: hth-pipeline
+          PHOTOMETRIC_COLLECTION: ${{ steps.photometric_asset.outputs.collection-root }}
+          PHOTOMETRIC_MANIFEST: ${{ steps.photometric_asset.outputs.marker-path }}
         run: |
           set -euo pipefail
           rm -rf tonal-integrated-collection
           python -m hth.normalize_tonal integrate \
-            --collection photometric-input \
-            --upstream-manifest photometric-input/photometric-normalization-manifest.json \
+            --collection "$PHOTOMETRIC_COLLECTION" \
+            --upstream-manifest "$PHOTOMETRIC_MANIFEST" \
             --assessment results-repo/normalization/tonal/assessment.json \
             --comparison results-repo/normalization/tonal-methods/assessment.json \
             --validation results-repo/normalization/tonal-validation/validation.json \

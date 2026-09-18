@@ -8,6 +8,9 @@ inputs:
   sha256: {required: true, description: "Expected asset SHA-256"}
   token: {required: true, description: "GitHub token used only on cache miss"}
   destination: {required: true, description: "Directory receiving the verified asset"}
+  extract-destination: {required: false, default: "", description: "Optional directory receiving safely extracted collection content"}
+  collection-marker: {required: false, default: "", description: "Unique marker filename used to resolve the extracted collection root"}
+  required-subdirectory: {required: false, default: "", description: "Directory required beside the collection marker"}
 
 outputs:
   asset-path:
@@ -16,6 +19,12 @@ outputs:
   cache-source:
     description: runner-local-cache or authoritative-release
     value: ${{ steps.restore.outputs.cache_source }}
+  collection-root:
+    description: Resolved root of the safely extracted collection
+    value: ${{ steps.extract.outputs.collection_root }}
+  marker-path:
+    description: Resolved path of the unique collection marker
+    value: ${{ steps.extract.outputs.marker_path }}
 
 runs:
   using: composite
@@ -67,3 +76,25 @@ runs:
         cp "$cached" "$HTH_RELEASE_DESTINATION/$HTH_RELEASE_ASSET"
         echo "asset_path=$HTH_RELEASE_DESTINATION/$HTH_RELEASE_ASSET" >> "$GITHUB_OUTPUT"
         echo "cache_source=$source" >> "$GITHUB_OUTPUT"
+
+    - name: Safely extract and resolve immutable collection
+      id: extract
+      if: ${{ inputs.extract-destination != '' }}
+      shell: bash
+      env:
+        HTH_RELEASE_ASSET_PATH: ${{ steps.restore.outputs.asset_path }}
+        HTH_RELEASE_EXTRACT_DESTINATION: ${{ inputs.extract-destination }}
+        HTH_RELEASE_COLLECTION_MARKER: ${{ inputs.collection-marker }}
+        HTH_RELEASE_REQUIRED_SUBDIRECTORY: ${{ inputs.required-subdirectory }}
+      run: |
+        set -euo pipefail
+        args=()
+        if [[ -n "$HTH_RELEASE_REQUIRED_SUBDIRECTORY" ]]; then
+          args+=(--required-directory "$HTH_RELEASE_REQUIRED_SUBDIRECTORY")
+        fi
+        PYTHONPATH="$GITHUB_ACTION_PATH/../../.." python -m hth.immutable_release extract-collection \
+          --asset "$HTH_RELEASE_ASSET_PATH" \
+          --destination "$HTH_RELEASE_EXTRACT_DESTINATION" \
+          --marker "$HTH_RELEASE_COLLECTION_MARKER" \
+          --github-output "$GITHUB_OUTPUT" \
+          "${args[@]}"

@@ -103,31 +103,28 @@ jobs:
           sha256: ${{ steps.photometric_release.outputs.asset_sha256 }}
           token: ${{ secrets.HTH_RESULTS_TOKEN }}
           destination: photometric-asset
-
-      - name: Extract verified photometric collection
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf photometric-input
-          mkdir -p photometric-input
-          unzip -q "${{ steps.photometric_asset.outputs.asset-path }}" -d photometric-input
+          extract-destination: photometric-input
+          collection-marker: photometric-normalization-manifest.json
+          required-subdirectory: photometric-normalized
 
       - name: Produce deterministic tonal evidence
         shell: bash
-        env: {PYTHONPATH: hth-pipeline}
+        env:
+          PYTHONPATH: hth-pipeline
+          PHOTOMETRIC_COLLECTION: ${{ steps.photometric_asset.outputs.collection-root }}
+          PHOTOMETRIC_MANIFEST: ${{ steps.photometric_asset.outputs.marker-path }}
         run: |
           set -euo pipefail
           mkdir -p tonal-output
-          upstream=photometric-input/photometric-normalization-manifest.json
           case "${{ inputs.stage }}" in
             assess)
-              python -m hth.normalize_tonal assess --collection photometric-input --upstream-manifest "$upstream" --config hth-pipeline/config/tonal-assessment.json --output tonal-output/assessment.json
+              python -m hth.normalize_tonal assess --collection "$PHOTOMETRIC_COLLECTION" --upstream-manifest "$PHOTOMETRIC_MANIFEST" --config hth-pipeline/config/tonal-assessment.json --output tonal-output/assessment.json
               ;;
             compare)
-              python -m hth.normalize_tonal compare --collection photometric-input --upstream-manifest "$upstream" --assessment results-repo/normalization/tonal/assessment.json --config hth-pipeline/config/tonal-method-assessment.json --output tonal-output/assessment.json
+              python -m hth.normalize_tonal compare --collection "$PHOTOMETRIC_COLLECTION" --upstream-manifest "$PHOTOMETRIC_MANIFEST" --assessment results-repo/normalization/tonal/assessment.json --config hth-pipeline/config/tonal-method-assessment.json --output tonal-output/assessment.json
               ;;
             validate)
-              python -m hth.normalize_tonal validate --collection photometric-input --upstream-manifest "$upstream" --assessment results-repo/normalization/tonal/assessment.json --comparison results-repo/normalization/tonal-methods/assessment.json --config hth-pipeline/config/tonal-method-validation.json --output tonal-output/validation.json
+              python -m hth.normalize_tonal validate --collection "$PHOTOMETRIC_COLLECTION" --upstream-manifest "$PHOTOMETRIC_MANIFEST" --assessment results-repo/normalization/tonal/assessment.json --comparison results-repo/normalization/tonal-methods/assessment.json --config hth-pipeline/config/tonal-method-validation.json --output tonal-output/validation.json
               ;;
             *) echo "Unknown tonal evidence stage: ${{ inputs.stage }}" >&2; exit 2 ;;
           esac
