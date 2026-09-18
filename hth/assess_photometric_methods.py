@@ -319,13 +319,31 @@ def _summary(payload: dict[str, Any]) -> str:
         f"- Candidate pages: `{payload['sample_page_count']}`",
         f"- Globally safe methods: `{len(payload['globally_safe_methods'])}`",
         f"- Recommended method: `{payload.get('recommended_method_id') or 'none'}`", "",
-        "| Method | Safe pages | Mean reduction | Mean detail correlation |",
-        "|---|---:|---:|---:|",
+        "| Method | Safe pages | Mean reduction | Mean detail correlation | Gate failures |",
+        "|---|---:|---:|---:|---|",
     ]
     for method in payload["method_summary"]:
+        method_id = method["method_id"]
+        variants = [
+            next(variant for variant in page["variants"] if variant["method_id"] == method_id)
+            for page in payload["pages"]
+        ]
+        failures = {
+            gate: sum(variant["checks"][gate] is False for variant in variants)
+            for gate in (
+                "background_span_reduction",
+                "detail_preservation",
+                "endpoint_clipping",
+                "median_luminance_shift",
+            )
+        }
+        failure_text = ", ".join(
+            f"{name.replace('_', ' ')}: {count}" for name, count in failures.items() if count
+        ) or "none"
         lines.append(
-            f"| {method['method_id']} | {method['safe_page_count']}/{payload['sample_page_count']} | "
-            f"{method['mean_background_span_reduction_fraction']:.3f} | {method['mean_high_frequency_correlation']:.4f} |"
+            f"| {method_id} | {method['safe_page_count']}/{payload['sample_page_count']} | "
+            f"{method['mean_background_span_reduction_fraction']:.3f} | "
+            f"{method['mean_high_frequency_correlation']:.4f} | {failure_text} |"
         )
     lines.extend(["", "Download and extract the review artifact, then open `index.html` locally to compare every candidate and deterministic variant.", ""])
     return "\n".join(lines)

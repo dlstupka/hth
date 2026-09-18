@@ -202,6 +202,36 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def elapsed_seconds(started_at_utc: str, completed_at_utc: str) -> int:
+    """Return whole elapsed seconds for two canonical UTC observations."""
+    started = datetime.fromisoformat(started_at_utc.replace("Z", "+00:00"))
+    completed = datetime.fromisoformat(completed_at_utc.replace("Z", "+00:00"))
+    return max(0, int((completed - started).total_seconds()))
+
+
+def format_elapsed(seconds: int) -> str:
+    hours, remainder = divmod(int(seconds), 3600)
+    minutes, seconds = divmod(remainder, 60)
+    parts = []
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes or hours:
+        parts.append(f"{minutes}m")
+    parts.append(f"{seconds}s")
+    return " ".join(parts)
+
+
+def execution_elapsed_seconds(execution: dict[str, Any]) -> int | None:
+    persisted = execution.get("elapsed_seconds")
+    if isinstance(persisted, (int, float)) and persisted >= 0:
+        return int(persisted)
+    started = execution.get("evaluated_at_utc")
+    completed = execution.get("completed_at_utc")
+    if isinstance(started, str) and isinstance(completed, str):
+        return elapsed_seconds(started, completed)
+    return None
+
+
 def canonical_json_bytes(value: Any) -> bytes:
     return json.dumps(
         value,
@@ -695,7 +725,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
     # established stores retain their immutable checked-out ref.
     evidence_ref = getattr(args, "results_ref", "main") if args.evidence.is_file() else "main"
     evidence_url = github_blob_url(results_repository, evidence_ref, evidence_relative)
-    _append_summary(args.github_summary, [
+    summary_lines = [
         "### Canonical Build Evidence",
         "",
         f"- Policy: `{args.policy}`",
@@ -705,7 +735,15 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         f"- Decision: `{decision}`",
         f"- Pages marked unnecessary: `{len(page_evaluations)}`",
         f"- Evidence: {code_link(evidence_relative, evidence_url)}",
-    ])
+    ]
+    if decision in {"audit", "reuse"} and incumbent is not None:
+        persisted_elapsed = execution_elapsed_seconds(dict(incumbent.get("execution") or {}))
+        if persisted_elapsed is not None:
+            summary_lines.append(
+                f"- Build stage time: `{format_elapsed(persisted_elapsed)}` "
+                f"(`{persisted_elapsed}` seconds)"
+            )
+    _append_summary(args.github_summary, summary_lines)
     print(
         "[canonical-build-evidence] "
         f"policy={args.policy} "
@@ -988,6 +1026,9 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
             "Determinism verification failed for unchanged effective inputs: "
             f"expected canonical result {incumbent}, produced {result_identity}"
         )
+    completed_at_utc = utc_now()
+    evaluated_at_utc = str((plan.get("execution") or {}).get("evaluated_at_utc") or completed_at_utc)
+    build_elapsed_seconds = elapsed_seconds(evaluated_at_utc, completed_at_utc)
     evidence = {
         "schema_version": SCHEMA_VERSION,
         "evidence_type": EVIDENCE_TYPE,
@@ -1005,7 +1046,8 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
             "policy": plan["policy"],
             "activity": "EXECUTED",
             "domain_result": "APPLY",
-            "completed_at_utc": utc_now(),
+            "completed_at_utc": completed_at_utc,
+            "elapsed_seconds": build_elapsed_seconds,
             "verified_against_incumbent": bool(plan.get("comparison_required")),
         },
     }
@@ -1025,6 +1067,8 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
         "",
         f"- Canonical Result Identity: `{result_identity}`",
         f"- Pages executed: `{len(pages)}`",
+        f"- Build stage time: `{format_elapsed(build_elapsed_seconds)}` "
+        f"(`{build_elapsed_seconds}` seconds)",
         f"- Forced/incumbent equivalence verified: `{bool(plan.get('comparison_required'))}`",
     ])
     return evidence

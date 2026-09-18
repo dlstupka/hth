@@ -10,6 +10,7 @@ import numpy as np
 
 from hth.assess_photometric import estimate_photometric_condition
 from hth.assess_photometric_methods import (
+    _summary,
     METHOD_IDENTITY_FIELDS,
     _derive_recommendation,
     apply_method,
@@ -169,6 +170,14 @@ class PhotometricMethodAssessmentTests(unittest.TestCase):
             path.write_text(json.dumps(assessment), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "identity"):
                 recommend(path, root / "tampered-policy.json")
+
+        rendered = _summary(assessment | {
+            "recommended_method_id": recommended["method_id"],
+            "method_summary": method_summary,
+            "pages": pages,
+        })
+        self.assertIn("| Gate failures |", rendered)
+        self.assertIn("background span reduction: 1", rendered)
 
     def test_workflow_persists_method_policy_without_applying_pixels(self) -> None:
         root = Path(__file__).resolve().parents[1]

@@ -304,8 +304,38 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
         evidence = self.establish()
         self.assertEqual(evidence["scope"], "hth-preprocess")
         self.assertEqual(evidence["execution"]["activity"], "EXECUTED")
+        self.assertGreaterEqual(evidence["execution"]["elapsed_seconds"], 0)
         self.assertEqual(evidence["canonical_result"]["pages"][0]["domain_result"], "APPLY")
         self.assertEqual(len(evidence["effective_inputs"]["source"]["files"]), 1)
+
+    def test_summary_reports_executed_and_reused_build_stage_time(self) -> None:
+        args = self.args()
+        summary = self.root / "summary.md"
+        args.github_summary = str(summary)
+        prepare(args)
+        self.materialize_outputs()
+        evidence_output = self.output / "metadata/canonical-build-evidence.json"
+        evidence = finalize(argparse.Namespace(
+            plan=args.plan,
+            output_root=self.output,
+            evidence_store=args.evidence,
+            evidence_output=evidence_output,
+            github_output="",
+            github_summary=str(summary),
+        ))
+        rendered = summary.read_text(encoding="utf-8")
+        self.assertIn("- Build stage time:", rendered)
+        self.assertIn(f"(`{evidence['execution']['elapsed_seconds']}` seconds)", rendered)
+
+        expected_elapsed = evidence["execution"].pop("elapsed_seconds")
+        self.publish_evidence_and_results(evidence)
+        reused_summary = self.root / "reused-summary.md"
+        reused_args = self.args()
+        reused_args.github_summary = str(reused_summary)
+        prepare(reused_args)
+        reused_rendered = reused_summary.read_text(encoding="utf-8")
+        self.assertIn("- Build stage time:", reused_rendered)
+        self.assertIn(f"(`{expected_elapsed}` seconds)", reused_rendered)
 
     def test_unchanged_auto_run_reuses_and_marks_every_page_skipped(self) -> None:
         evidence = self.establish()
