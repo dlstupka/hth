@@ -131,17 +131,37 @@ TONAL_INTEGRATION_ARTIFACTS = (
     ),
 )
 
+SCOPE_ARTIFACT_PROFILES = {
+    PREPROCESS_SCOPE: PREPROCESS_ARTIFACTS,
+    NORMALIZATION_SCOPE: NORMALIZATION_ARTIFACTS,
+    PHOTOMETRIC_INTEGRATION_SCOPE: PHOTOMETRIC_INTEGRATION_ARTIFACTS,
+    TONAL_INTEGRATION_SCOPE: TONAL_INTEGRATION_ARTIFACTS,
+}
+
+SCOPE_EVIDENCE_PATHS = {
+    PREPROCESS_SCOPE: "metadata/canonical-build-evidence.json",
+    NORMALIZATION_SCOPE: "normalization/canonical-build-evidence.json",
+    PHOTOMETRIC_INTEGRATION_SCOPE: "normalization/photometric-integration/canonical-build-evidence.json",
+    TONAL_INTEGRATION_SCOPE: "normalization/tonal-integration/canonical-build-evidence.json",
+}
+
 
 def artifact_profile(scope: str) -> tuple[ArtifactSpec, ...]:
-    if scope == PREPROCESS_SCOPE:
-        return PREPROCESS_ARTIFACTS
-    if scope == NORMALIZATION_SCOPE:
-        return NORMALIZATION_ARTIFACTS
-    if scope == PHOTOMETRIC_INTEGRATION_SCOPE:
-        return PHOTOMETRIC_INTEGRATION_ARTIFACTS
-    if scope == TONAL_INTEGRATION_SCOPE:
-        return TONAL_INTEGRATION_ARTIFACTS
-    raise EvidenceError(f"Canonical Build Evidence scope has no artifact profile: {scope!r}")
+    try:
+        return SCOPE_ARTIFACT_PROFILES[scope]
+    except KeyError as exc:
+        raise EvidenceError(
+            f"Canonical Build Evidence scope has no artifact profile: {scope!r}"
+        ) from exc
+
+
+def evidence_relative_path(scope: str) -> str:
+    try:
+        return SCOPE_EVIDENCE_PATHS[scope]
+    except KeyError as exc:
+        raise EvidenceError(
+            f"Canonical Build Evidence scope has no evidence path: {scope!r}"
+        ) from exc
 
 
 class EvidenceError(RuntimeError):
@@ -630,11 +650,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         "page_count": len(page_evaluations),
     })
     evidence_url = ""
-    evidence_relative = {
-        PREPROCESS_SCOPE: "metadata/canonical-build-evidence.json",
-        NORMALIZATION_SCOPE: "normalization/canonical-build-evidence.json",
-        PHOTOMETRIC_INTEGRATION_SCOPE: "normalization/photometric-integration/canonical-build-evidence.json",
-    }[args.scope]
+    evidence_relative = evidence_relative_path(args.scope)
     if args.evidence.is_file():
         evidence_url = github_blob_url(
             getattr(args, "results_repository", ""),
@@ -850,12 +866,16 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
         raise EvidenceError("Only an executed plan can establish canonical results")
     scope = str(plan["scope"])
     artifacts = _artifact_records(args.output_root, artifact_profile(scope), published=False)
-    page_builder = {
+    page_builders = {
         PREPROCESS_SCOPE: _page_results,
         NORMALIZATION_SCOPE: _normalization_page_results,
         PHOTOMETRIC_INTEGRATION_SCOPE: _photometric_integration_page_results,
         TONAL_INTEGRATION_SCOPE: _tonal_integration_page_results,
-    }[scope]
+    }
+    registered = set(SCOPE_ARTIFACT_PROFILES)
+    if set(SCOPE_EVIDENCE_PATHS) != registered or set(page_builders) != registered:
+        raise EvidenceError("Canonical Build Evidence scope registries are inconsistent")
+    page_builder = page_builders[scope]
     pages = page_builder(args.output_root, "EXECUTED", "APPLY", str(plan["effective_build_identity"]))
     result_identity = _result_identity(artifacts, pages)
     incumbent = plan.get("incumbent_result_identity")

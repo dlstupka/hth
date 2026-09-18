@@ -9,7 +9,15 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from hth.canonical_build_evidence import TONAL_INTEGRATION_SCOPE, artifact_profile, canonical_hash, finalize
+from hth.canonical_build_evidence import (
+    SCOPE_ARTIFACT_PROFILES,
+    SCOPE_EVIDENCE_PATHS,
+    TONAL_INTEGRATION_SCOPE,
+    artifact_profile,
+    canonical_hash,
+    evidence_relative_path,
+    finalize,
+)
 from hth.normalize_document_images import _pixel_sha256
 from hth.normalize_tonal import (
     assess,
@@ -119,6 +127,11 @@ class TonalNormalizationTests(unittest.TestCase):
         self.assertEqual(
             [spec.logical_name for spec in specs],
             ["tonal-normalization-manifest", "tonal-assessment", "tonal-method-assessment", "tonal-validation", "release-record"],
+        )
+        self.assertEqual(set(SCOPE_ARTIFACT_PROFILES), set(SCOPE_EVIDENCE_PATHS))
+        self.assertEqual(
+            evidence_relative_path(TONAL_INTEGRATION_SCOPE),
+            "normalization/tonal-integration/canonical-build-evidence.json",
         )
 
     def test_workflows_use_cached_release_and_cbe(self) -> None:

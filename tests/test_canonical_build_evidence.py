@@ -11,6 +11,7 @@ from pathlib import Path
 
 from hth.canonical_build_evidence import (
     EvidenceError,
+    TONAL_INTEGRATION_SCOPE,
     canonical_hash,
     canonicalize_result,
     finalize,
@@ -100,6 +101,14 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
             "[`metadata/canonical-build-evidence.json`](https://github.com/owner/results/blob/abc123/metadata/canonical-build-evidence.json)",
             summary.read_text(encoding="utf-8"),
         )
+
+    def test_tonal_scope_prepares_with_registered_evidence_path(self) -> None:
+        args = self.args()
+        args.scope = TONAL_INTEGRATION_SCOPE
+        args.evidence = self.results / "normalization/tonal-integration/canonical-build-evidence.json"
+        plan = prepare(args)
+        self.assertEqual(plan["scope"], TONAL_INTEGRATION_SCOPE)
+        self.assertEqual(plan["decision"], "execute")
 
     def materialize_outputs(self) -> None:
         image = {
