@@ -39,10 +39,14 @@ repository release, verifies it before cache admission, and verifies it again
 before use. The Results release remains authoritative; caches are performance
 layers and cannot change identity or trust.
 
-CBE fingerprints the upstream release asset, all compact assessment evidence,
-the three configuration files, implementation, and runtime contract. An exact
-rerun audits and reuses the immutable tonal result; `force-verify` reconstructs
-it and proves equivalence; `rebuild` is reserved for changed effective inputs.
+Every tonal stage has its own CBE scope. Assessment, bounded-method comparison,
+and held-out validation each fingerprint the immutable photometric release,
+their upstream compact evidence, configuration, implementation, and runtime
+contract. An exact rerun validates the published artifact and reuses it without
+restoring or scanning the image collection. Integration separately fingerprints
+the complete evidence chain and reuses the immutable tonal result. A changed
+upstream result, configuration, implementation, or runtime contract rebuilds
+only the affected stage and its downstream dependents.
 
 The stage applies no sharpening, denoising, binarization, geometric transform,
 or HTR-specific enhancement.

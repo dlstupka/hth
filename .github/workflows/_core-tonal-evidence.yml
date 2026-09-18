@@ -84,17 +84,101 @@ jobs:
           python <<'PY'
           import json
           import os
+          import subprocess
           from pathlib import Path
           record = json.loads(Path("results-repo/normalization/photometric-integration/release.json").read_text())
           with Path(os.environ["GITHUB_OUTPUT"]).open("a") as out:
-              for key in ("tag", "asset", "asset_sha256"):
+              for key in ("tag", "asset", "asset_sha256", "photometric_result_identity"):
                   value = str(record.get(key) or "")
                   if not value: raise SystemExit(f"Photometric release record has no {key}")
                   out.write(f"{key}={value}\n")
+              out.write(f"results_commit={subprocess.check_output(['git','-C','results-repo','rev-parse','HEAD'], text=True).strip()}\n")
           PY
+
+      - name: Assemble tonal evidence effective-input contract
+        id: stage_contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_root="$RUNNER_TEMP/tonal-${{ inputs.stage }}-effective-inputs"
+          rm -rf "$source_root"
+          mkdir -p "$source_root"
+          cp results-repo/normalization/photometric-integration/{release.json,photometric-normalization-manifest.json} "$source_root/"
+          case "${{ inputs.stage }}" in
+            assess)
+              scope=hth-tonal-assessment
+              config=hth-pipeline/config/tonal-assessment.json
+              destination=normalization/tonal
+              output_name=assessment.json
+              ;;
+            compare)
+              scope=hth-tonal-method-assessment
+              config=hth-pipeline/config/tonal-method-assessment.json
+              destination=normalization/tonal-methods
+              output_name=assessment.json
+              cp results-repo/normalization/tonal/assessment.json "$source_root/tonal-assessment.json"
+              ;;
+            validate)
+              scope=hth-tonal-validation
+              config=hth-pipeline/config/tonal-method-validation.json
+              destination=normalization/tonal-validation
+              output_name=validation.json
+              cp results-repo/normalization/tonal/assessment.json "$source_root/tonal-assessment.json"
+              cp results-repo/normalization/tonal-methods/assessment.json "$source_root/tonal-method-assessment.json"
+              ;;
+            *) echo "Unknown tonal evidence stage: ${{ inputs.stage }}" >&2; exit 2 ;;
+          esac
+          {
+            echo "source_root=$source_root"
+            echo "scope=$scope"
+            echo "config=$config"
+            echo "destination=$destination"
+            echo "output_name=$output_name"
+            echo "evidence=results-repo/$destination/canonical-build-evidence.json"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate tonal evidence Canonical Build Evidence
+        id: cbe_plan
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          python -m hth.canonical_build_evidence prepare \
+            --scope "${{ steps.stage_contract.outputs.scope }}" \
+            --policy auto \
+            --contract-version 1 \
+            --mode diagnostic-evidence \
+            --operation "tonal-${{ inputs.stage }}-evidence" \
+            --repository-root hth-pipeline \
+            --source-root "${{ steps.stage_contract.outputs.source_root }}" \
+            --source-repository "$RESULTS_REPOSITORY" \
+            --source-release "${{ steps.photometric_release.outputs.tag }}" \
+            --source-manifest-sha256 "${{ steps.photometric_release.outputs.asset_sha256 }}" \
+            --source-commit "${{ steps.photometric_release.outputs.photometric_result_identity }}" \
+            --config "${{ steps.stage_contract.outputs.config }}" \
+            --implementation hth-pipeline/hth/normalize_tonal.py \
+            --runtime-contract hth-pipeline/requirements.txt \
+            --runtime-contract hth-pipeline/.github/actions/setup-hth-python/action.yml \
+            --runtime-package numpy \
+            --runtime-package opencv-python-headless \
+            --results-root results-repo \
+            --evidence "${{ steps.stage_contract.outputs.evidence }}" \
+            --plan "$RUNNER_TEMP/tonal-${{ inputs.stage }}-cbe-plan.json" \
+            --pipeline-repository "$GITHUB_REPOSITORY" \
+            --pipeline-commit "$GITHUB_SHA" \
+            --results-repository "$RESULTS_REPOSITORY" \
+            --results-ref "${{ steps.photometric_release.outputs.results_commit }}" \
+            --workflow-run-id "$GITHUB_RUN_ID" \
+            --runner-name "$RUNNER_NAME" \
+            --runner-environment "${{ runner.environment }}" \
+            --runner-os "$RUNNER_OS" \
+            --runner-arch "$RUNNER_ARCH" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
 
       - name: Restore cached immutable photometric collection
         id: photometric_asset
+        if: steps.cbe_plan.outputs.decision == 'execute'
         uses: ./hth-pipeline/.github/actions/restore-immutable-release
         with:
           repository: ${{ env.RESULTS_REPOSITORY }}
@@ -108,6 +192,7 @@ jobs:
           required-subdirectory: photometric-normalized
 
       - name: Produce deterministic tonal evidence
+        if: steps.cbe_plan.outputs.decision == 'execute'
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
@@ -115,6 +200,7 @@ jobs:
           PHOTOMETRIC_MANIFEST: ${{ steps.photometric_asset.outputs.marker-path }}
         run: |
           set -euo pipefail
+          rm -rf tonal-output
           mkdir -p tonal-output
           case "${{ inputs.stage }}" in
             assess)
@@ -129,7 +215,23 @@ jobs:
             *) echo "Unknown tonal evidence stage: ${{ inputs.stage }}" >&2; exit 2 ;;
           esac
 
+      - name: Finalize tonal evidence Canonical Build Evidence
+        id: cbe_result
+        if: steps.cbe_plan.outputs.decision == 'execute'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          python -m hth.canonical_build_evidence finalize \
+            --plan "$RUNNER_TEMP/tonal-${{ inputs.stage }}-cbe-plan.json" \
+            --output-root tonal-output \
+            --evidence-store "${{ steps.stage_contract.outputs.evidence }}" \
+            --evidence-output tonal-output/canonical-build-evidence.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
       - name: Publish compact tonal evidence
+        if: steps.cbe_plan.outputs.decision == 'execute'
         shell: bash
         env: {PYTHONPATH: hth-pipeline}
         run: |
@@ -137,20 +239,29 @@ jobs:
           source hth-pipeline/tools/hardened-persistence.sh
           git -C results-repo config user.name "github-actions[bot]"
           git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          destination="${{ steps.stage_contract.outputs.destination }}"
+          output_name="${{ steps.stage_contract.outputs.output_name }}"
+          payload="$RUNNER_TEMP/tonal-${{ inputs.stage }}-publication"
+          incoming="$RUNNER_TEMP/tonal-${{ inputs.stage }}-cbe-incoming.json"
+          rm -rf "$payload"
+          mkdir -p "$payload"
+          cp "tonal-output/$output_name" "$payload/$output_name"
+          cp tonal-output/canonical-build-evidence.json "$incoming"
           apply_tonal_evidence() {
-            case "${{ inputs.stage }}" in
-              assess) destination=normalization/tonal ;;
-              compare) destination=normalization/tonal-methods ;;
-              validate) destination=normalization/tonal-validation ;;
-            esac
+            python -m hth.canonical_build_evidence merge \
+              --scope "${{ steps.stage_contract.outputs.scope }}" \
+              --base "results-repo/$destination/canonical-build-evidence.json" \
+              --incoming "$incoming" \
+              --output "$payload/canonical-build-evidence.json"
             rm -rf "results-repo/$destination"
             mkdir -p "results-repo/$destination"
-            cp tonal-output/*.json "results-repo/$destination/"
+            cp "$payload"/*.json "results-repo/$destination/"
             hth_results_stage results-repo "$destination"
           }
           hth_hardened_persist results-repo main "Publish tonal ${{ inputs.stage }} evidence" apply_tonal_evidence "Tonal ${{ inputs.stage }} publication"
 
       - name: Upload compact tonal evidence
+        if: steps.cbe_plan.outputs.decision == 'execute'
         uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
         with:
           name: hth-tonal-${{ inputs.stage }}-${{ github.run_number }}

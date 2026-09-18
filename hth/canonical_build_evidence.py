@@ -29,7 +29,15 @@ STORE_TYPE = "canonical-build-evidence-store"
 PREPROCESS_SCOPE = "hth-preprocess"
 NORMALIZATION_SCOPE = "hth-normalization"
 PHOTOMETRIC_INTEGRATION_SCOPE = "hth-photometric-integration"
+TONAL_ASSESSMENT_SCOPE = "hth-tonal-assessment"
+TONAL_METHOD_ASSESSMENT_SCOPE = "hth-tonal-method-assessment"
+TONAL_VALIDATION_SCOPE = "hth-tonal-validation"
 TONAL_INTEGRATION_SCOPE = "hth-tonal-integration"
+COMPACT_EVIDENCE_SCOPES = frozenset({
+    TONAL_ASSESSMENT_SCOPE,
+    TONAL_METHOD_ASSESSMENT_SCOPE,
+    TONAL_VALIDATION_SCOPE,
+})
 POLICIES = ("auto", "audit", "force-verify", "rebuild")
 
 # These fields are observations or duplicated provenance, not domain results.
@@ -131,10 +139,29 @@ TONAL_INTEGRATION_ARTIFACTS = (
     ),
 )
 
+TONAL_ASSESSMENT_ARTIFACTS = (
+    ArtifactSpec("tonal-assessment", "assessment.json", "normalization/tonal/assessment.json"),
+)
+
+TONAL_METHOD_ASSESSMENT_ARTIFACTS = (
+    ArtifactSpec(
+        "tonal-method-assessment",
+        "assessment.json",
+        "normalization/tonal-methods/assessment.json",
+    ),
+)
+
+TONAL_VALIDATION_ARTIFACTS = (
+    ArtifactSpec("tonal-validation", "validation.json", "normalization/tonal-validation/validation.json"),
+)
+
 SCOPE_ARTIFACT_PROFILES = {
     PREPROCESS_SCOPE: PREPROCESS_ARTIFACTS,
     NORMALIZATION_SCOPE: NORMALIZATION_ARTIFACTS,
     PHOTOMETRIC_INTEGRATION_SCOPE: PHOTOMETRIC_INTEGRATION_ARTIFACTS,
+    TONAL_ASSESSMENT_SCOPE: TONAL_ASSESSMENT_ARTIFACTS,
+    TONAL_METHOD_ASSESSMENT_SCOPE: TONAL_METHOD_ASSESSMENT_ARTIFACTS,
+    TONAL_VALIDATION_SCOPE: TONAL_VALIDATION_ARTIFACTS,
     TONAL_INTEGRATION_SCOPE: TONAL_INTEGRATION_ARTIFACTS,
 }
 
@@ -142,6 +169,9 @@ SCOPE_EVIDENCE_PATHS = {
     PREPROCESS_SCOPE: "metadata/canonical-build-evidence.json",
     NORMALIZATION_SCOPE: "normalization/canonical-build-evidence.json",
     PHOTOMETRIC_INTEGRATION_SCOPE: "normalization/photometric-integration/canonical-build-evidence.json",
+    TONAL_ASSESSMENT_SCOPE: "normalization/tonal/canonical-build-evidence.json",
+    TONAL_METHOD_ASSESSMENT_SCOPE: "normalization/tonal-methods/canonical-build-evidence.json",
+    TONAL_VALIDATION_SCOPE: "normalization/tonal-validation/canonical-build-evidence.json",
     TONAL_INTEGRATION_SCOPE: "normalization/tonal-integration/canonical-build-evidence.json",
 }
 
@@ -461,6 +491,8 @@ def validate_evidence(payload: dict[str, Any], *, scope: str) -> None:
     pages = result.get("pages")
     if not isinstance(artifacts, list) or not artifacts or not isinstance(pages, list):
         raise EvidenceError("Persisted canonical result is incomplete")
+    if not pages and scope not in COMPACT_EVIDENCE_SCOPES:
+        raise EvidenceError("Persisted canonical result contains no page evidence")
     if result.get("identity") != _result_identity(artifacts, pages):
         raise EvidenceError("Persisted canonical result identity does not match its evidence")
     expected_artifacts = [
@@ -486,6 +518,13 @@ def validate_evidence(payload: dict[str, Any], *, scope: str) -> None:
         except (KeyError, TypeError, ValueError) as exc:
             raise EvidenceError("Persisted canonical result contains an invalid page ordinal") from exc
         required_page_hashes = (
+            (
+                "operation_identity",
+                "evidence_record_sha256",
+                "canonical_page_result_sha256",
+            )
+            if scope in COMPACT_EVIDENCE_SCOPES
+            else
             (
                 "operation_identity",
                 "canonical_image_sha256",
@@ -860,6 +899,69 @@ def _tonal_integration_page_results(
     return pages
 
 
+def _compact_evidence_page_results(
+    output_root: Path,
+    filename: str,
+    description: str,
+    activity: str,
+    domain_result: str,
+    effective_build_identity: str,
+) -> list[dict[str, Any]]:
+    payload = _load_json_object(output_root / filename, description)
+    records = payload.get("pages")
+    if not isinstance(records, list):
+        raise EvidenceError(f"{description.capitalize()} does not contain a pages array")
+    pages = []
+    for record in records:
+        if not isinstance(record, dict):
+            raise EvidenceError(f"{description.capitalize()} contains an invalid page record")
+        ordinal = int(record["global_ordinal"])
+        canonical_page = {
+            "global_ordinal": ordinal,
+            "evidence_record_sha256": canonical_hash(canonicalize_result(record)),
+        }
+        pages.append({
+            **canonical_page,
+            "operation_identity": canonical_hash({
+                "effective_build_identity": effective_build_identity,
+                **canonical_page,
+            }),
+            "canonical_page_result_sha256": canonical_hash(canonical_page),
+            "activity": activity,
+            "domain_result": domain_result,
+        })
+    return pages
+
+
+def _tonal_assessment_page_results(
+    output_root: Path, activity: str, domain_result: str, effective_build_identity: str
+) -> list[dict[str, Any]]:
+    return _compact_evidence_page_results(
+        output_root, "assessment.json", "tonal assessment", activity, domain_result, effective_build_identity
+    )
+
+
+def _tonal_method_assessment_page_results(
+    output_root: Path, activity: str, domain_result: str, effective_build_identity: str
+) -> list[dict[str, Any]]:
+    return _compact_evidence_page_results(
+        output_root,
+        "assessment.json",
+        "tonal method assessment",
+        activity,
+        domain_result,
+        effective_build_identity,
+    )
+
+
+def _tonal_validation_page_results(
+    output_root: Path, activity: str, domain_result: str, effective_build_identity: str
+) -> list[dict[str, Any]]:
+    return _compact_evidence_page_results(
+        output_root, "validation.json", "tonal validation", activity, domain_result, effective_build_identity
+    )
+
+
 def finalize(args: argparse.Namespace) -> dict[str, Any]:
     plan = _load_json_object(args.plan, "Canonical Build Evidence plan")
     if plan.get("decision") != "execute":
@@ -870,6 +972,9 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
         PREPROCESS_SCOPE: _page_results,
         NORMALIZATION_SCOPE: _normalization_page_results,
         PHOTOMETRIC_INTEGRATION_SCOPE: _photometric_integration_page_results,
+        TONAL_ASSESSMENT_SCOPE: _tonal_assessment_page_results,
+        TONAL_METHOD_ASSESSMENT_SCOPE: _tonal_method_assessment_page_results,
+        TONAL_VALIDATION_SCOPE: _tonal_validation_page_results,
         TONAL_INTEGRATION_SCOPE: _tonal_integration_page_results,
     }
     registered = set(SCOPE_ARTIFACT_PROFILES)

@@ -11,7 +11,9 @@ from pathlib import Path
 
 from hth.canonical_build_evidence import (
     EvidenceError,
+    TONAL_ASSESSMENT_SCOPE,
     TONAL_INTEGRATION_SCOPE,
+    TONAL_METHOD_ASSESSMENT_SCOPE,
     canonical_hash,
     canonicalize_result,
     finalize,
@@ -109,6 +111,58 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
         plan = prepare(args)
         self.assertEqual(plan["scope"], TONAL_INTEGRATION_SCOPE)
         self.assertEqual(plan["decision"], "execute")
+
+    def test_tonal_assessment_scope_establishes_and_reuses_compact_evidence(self) -> None:
+        args = self.args()
+        args.scope = TONAL_ASSESSMENT_SCOPE
+        args.operation = ["measure-tonal-evidence"]
+        args.evidence = self.results / "normalization/tonal/canonical-build-evidence.json"
+        plan = prepare(args)
+        self.assertEqual(plan["decision"], "execute")
+        write_json(self.output / "assessment.json", {
+            "assessment_identity": "1" * 64,
+            "pages": [{
+                "global_ordinal": 1,
+                "input_pixel_sha256": "2" * 64,
+                "measurement": {"decision": "preserve", "tonal_span": 0.75},
+            }],
+        })
+        evidence_output = self.output / "canonical-build-evidence.json"
+        evidence = finalize(argparse.Namespace(
+            plan=args.plan,
+            output_root=self.output,
+            evidence_store=args.evidence,
+            evidence_output=evidence_output,
+            github_output="",
+            github_summary="",
+        ))
+        published = self.results / "normalization/tonal/assessment.json"
+        published.parent.mkdir(parents=True, exist_ok=True)
+        published.write_bytes((self.output / "assessment.json").read_bytes())
+        args.evidence.write_bytes(evidence_output.read_bytes())
+        self.assertEqual(evidence["canonical_result"]["pages"][0]["global_ordinal"], 1)
+        self.assertEqual(prepare(args)["decision"], "reuse")
+
+    def test_empty_bounded_method_candidate_set_is_valid_compact_evidence(self) -> None:
+        args = self.args()
+        args.scope = TONAL_METHOD_ASSESSMENT_SCOPE
+        args.operation = ["compare-tonal-methods"]
+        args.evidence = self.results / "normalization/tonal-methods/canonical-build-evidence.json"
+        prepare(args)
+        write_json(self.output / "assessment.json", {
+            "method_assessment_identity": "3" * 64,
+            "candidate_count": 0,
+            "pages": [],
+        })
+        evidence = finalize(argparse.Namespace(
+            plan=args.plan,
+            output_root=self.output,
+            evidence_store=args.evidence,
+            evidence_output=self.output / "canonical-build-evidence.json",
+            github_output="",
+            github_summary="",
+        ))
+        self.assertEqual(evidence["canonical_result"]["pages"], [])
 
     def materialize_outputs(self) -> None:
         image = {
