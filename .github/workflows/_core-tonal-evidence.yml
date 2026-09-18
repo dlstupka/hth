@@ -215,6 +215,20 @@ jobs:
             *) echo "Unknown tonal evidence stage: ${{ inputs.stage }}" >&2; exit 2 ;;
           esac
 
+      - name: Summarize tonal evidence
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          if [[ "${{ steps.cbe_plan.outputs.decision }}" == execute ]]; then
+            input="tonal-output/${{ steps.stage_contract.outputs.output_name }}"
+          else
+            input="results-repo/${{ steps.stage_contract.outputs.destination }}/${{ steps.stage_contract.outputs.output_name }}"
+          fi
+          python -m hth.tonal_summary \
+            --stage "${{ inputs.stage }}" \
+            --input "$input" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
       - name: Finalize tonal evidence Canonical Build Evidence
         id: cbe_result
         if: steps.cbe_plan.outputs.decision == 'execute'

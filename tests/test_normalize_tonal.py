@@ -26,6 +26,7 @@ from hth.normalize_tonal import (
     package_release,
     validate,
 )
+from hth.tonal_summary import summary_lines
 
 
 class TonalNormalizationTests(unittest.TestCase):
@@ -134,6 +135,57 @@ class TonalNormalizationTests(unittest.TestCase):
             "normalization/tonal-integration/canonical-build-evidence.json",
         )
 
+    def test_summaries_expose_compact_scientific_decisions(self) -> None:
+        assessment = {
+            "aggregate": {
+                "page_count": 929,
+                "correction-candidate": 673,
+                "preserve": 221,
+                "review": 35,
+            }
+        }
+        comparison = {
+            "candidate_count": 1,
+            "globally_safe_methods": [],
+            "recommended_method_id": None,
+            "config": {"methods": [{"id": "percentile-stretch-50"}]},
+            "pages": [{
+                "variants": [{
+                    "method_id": "percentile-stretch-50",
+                    "safe": False,
+                    "tonal_span_gain": 0.25,
+                    "high_frequency_correlation": 0.95,
+                    "gates": {
+                        "tonal_span_gain": True,
+                        "detail_correlation": False,
+                        "endpoint_clipping": True,
+                        "median_shift": True,
+                    },
+                }],
+            }],
+        }
+        validation = {
+            "aggregate": {
+                "held_out_candidates": 535,
+                "safe_candidates": 0,
+                "mean_tonal_span_gain": 0.0,
+            },
+            "method": None,
+            "decision": "preserve",
+        }
+        integration = {
+            "aggregate": {"page_count": 929, "corrected_pages": 0, "preserved_pages": 929},
+            "method": None,
+            "tonal_result_identity": "a" * 64,
+        }
+
+        self.assertIn("Correction candidates: `673`", "\n".join(summary_lines("assess", assessment)))
+        method_summary = "\n".join(summary_lines("compare", comparison))
+        self.assertIn("Mean detail correlation", method_summary)
+        self.assertIn("detail correlation: 1", method_summary)
+        self.assertIn("Decision: `preserve`", "\n".join(summary_lines("validate", validation)))
+        self.assertIn("Corrected pages: `0`", "\n".join(summary_lines("integrate", integration)))
+
     def test_workflows_use_cached_release_and_cbe(self) -> None:
         root = Path(__file__).resolve().parents[1]
         core = (root / ".github/workflows/_core-tonal-evidence.yml").read_text(encoding="utf-8")
@@ -175,6 +227,11 @@ class TonalNormalizationTests(unittest.TestCase):
         self.assertIn("steps.photometric_asset.outputs.collection-root", core)
         self.assertIn("collection-marker: photometric-normalization-manifest.json", integration)
         self.assertIn("steps.photometric_asset.outputs.collection-root", integration)
+        self.assertEqual(core.count('--github-summary "$GITHUB_STEP_SUMMARY"'), 3)
+        self.assertEqual(integration.count('--github-summary "$GITHUB_STEP_SUMMARY"'), 3)
+        self.assertIn("Summarize tonal evidence", core)
+        self.assertIn("python -m hth.tonal_summary", core)
+        self.assertIn("--stage integrate", integration)
 
     def test_reusable_workflow_retention_inputs_are_explicitly_numeric(self) -> None:
         root = Path(__file__).resolve().parents[1]

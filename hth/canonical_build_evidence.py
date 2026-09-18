@@ -688,14 +688,13 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         "comparison_required": comparison_required,
         "page_count": len(page_evaluations),
     })
-    evidence_url = ""
     evidence_relative = evidence_relative_path(args.scope)
-    if args.evidence.is_file():
-        evidence_url = github_blob_url(
-            getattr(args, "results_repository", ""),
-            getattr(args, "results_ref", "main"),
-            evidence_relative,
-        )
+    results_repository = getattr(args, "results_repository", "")
+    # A first canonical build prepares its summary before the evidence store is
+    # published. Link that pending store through the durable results branch;
+    # established stores retain their immutable checked-out ref.
+    evidence_ref = getattr(args, "results_ref", "main") if args.evidence.is_file() else "main"
+    evidence_url = github_blob_url(results_repository, evidence_ref, evidence_relative)
     _append_summary(args.github_summary, [
         "### Canonical Build Evidence",
         "",

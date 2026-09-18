@@ -164,7 +164,8 @@ jobs:
       - name: Audit reusable immutable tonal release
         if: steps.cbe_plan.outputs.decision != 'execute'
         shell: bash
-        env: {GH_TOKEN: "${{ secrets.HTH_RESULTS_TOKEN || github.token }}"}
+        env:
+          GH_TOKEN: "${{ secrets.HTH_RESULTS_TOKEN || github.token }}"
         run: |
           set -euo pipefail
           readarray -t fields < <(python <<'PY'
@@ -227,6 +228,20 @@ jobs:
           with Path(os.environ["GITHUB_OUTPUT"]).open("a") as out:
               out.write(f"result_identity={identity}\nrelease_tag=HTH-TONAL-{identity}\n")
           PY
+
+      - name: Summarize tonal integration decision
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          if [[ "${{ steps.cbe_plan.outputs.decision }}" == execute ]]; then
+            input=tonal-integrated-collection/tonal-normalization-manifest.json
+          else
+            input=results-repo/normalization/tonal-integration/tonal-normalization-manifest.json
+          fi
+          python -m hth.tonal_summary \
+            --stage integrate \
+            --input "$input" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
 
       - name: Package immutable tonal collection
         id: package

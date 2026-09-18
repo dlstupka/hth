@@ -104,6 +104,20 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
             summary.read_text(encoding="utf-8"),
         )
 
+    def test_summary_links_first_build_evidence_through_durable_branch(self) -> None:
+        args = self.args()
+        summary = self.root / "summary.md"
+        args.results_repository = "owner/results"
+        args.results_ref = "abc123"
+        args.github_summary = str(summary)
+
+        prepare(args)
+
+        self.assertIn(
+            "[`metadata/canonical-build-evidence.json`](https://github.com/owner/results/blob/main/metadata/canonical-build-evidence.json)",
+            summary.read_text(encoding="utf-8"),
+        )
+
     def test_tonal_scope_prepares_with_registered_evidence_path(self) -> None:
         args = self.args()
         args.scope = TONAL_INTEGRATION_SCOPE
