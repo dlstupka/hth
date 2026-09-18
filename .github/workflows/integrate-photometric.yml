@@ -33,6 +33,16 @@ on:
         required: true
         default: 14
         type: number
+      canonical_build_policy:
+        description: Canonical Build Evidence policy
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - audit
+          - force-verify
+          - rebuild
 
 permissions:
   contents: read
@@ -152,8 +162,117 @@ jobs:
               handle.write(f"source_manifest_sha256={source['release_manifest_sha256']}\n")
           PY
 
+      - name: Assemble photometric effective-input contract
+        id: cbe_inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/photometric-effective-inputs"
+          mkdir -p "$RUNNER_TEMP/photometric-effective-inputs"
+          cp results-repo/normalization/normalization-manifest.json "$RUNNER_TEMP/photometric-effective-inputs/"
+          cp results-repo/normalization/photometric/assessment.json "$RUNNER_TEMP/photometric-effective-inputs/photometric-assessment.json"
+          cp results-repo/normalization/photometric-methods/assessment.json "$RUNNER_TEMP/photometric-effective-inputs/method-assessment.json"
+          cp results-repo/normalization/photometric-method-policy.json "$RUNNER_TEMP/photometric-effective-inputs/"
+          cp results-repo/normalization/photometric-validation/validation.json "$RUNNER_TEMP/photometric-effective-inputs/photometric-validation.json"
+          cp results-repo/normalization/photometric-integration-policy.json "$RUNNER_TEMP/photometric-effective-inputs/"
+          python <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          policy = json.loads(Path("results-repo/normalization/photometric-integration-policy.json").read_text(encoding="utf-8"))
+          identity = str(policy.get("policy_identity") or "")
+          if len(identity) != 64:
+              raise SystemExit("Photometric integration policy has no valid identity")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+              handle.write(f"policy_identity={identity}\n")
+          PY
+
+      - name: Evaluate photometric Canonical Build Evidence
+        id: cbe_plan
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          python -m hth.canonical_build_evidence prepare \
+            --scope hth-photometric-integration \
+            --policy "${{ inputs.canonical_build_policy }}" \
+            --contract-version 1 \
+            --mode complete-production \
+            --operation reconstruct-proven-canonical-normalized-pages \
+            --operation apply-validated-background-field-correction \
+            --operation preserve-ineligible-pages-and-continue \
+            --operation package-immutable-lossless-collection \
+            --repository-root hth-pipeline \
+            --source-root "$RUNNER_TEMP/photometric-effective-inputs" \
+            --source-repository "$RESULTS_REPOSITORY" \
+            --source-release "${{ steps.cbe_inputs.outputs.policy_identity }}" \
+            --source-manifest-sha256 "${{ steps.cbe_inputs.outputs.policy_identity }}" \
+            --source-commit "${{ steps.cbe_inputs.outputs.policy_identity }}" \
+            --config hth-pipeline/config/photometric-assessment.json \
+            --config hth-pipeline/config/photometric-method-assessment.json \
+            --config hth-pipeline/config/photometric-method-validation.json \
+            --implementation hth-pipeline/hth/integrate_photometric.py \
+            --implementation hth-pipeline/hth/assess_photometric.py \
+            --implementation hth-pipeline/hth/assess_photometric_methods.py \
+            --implementation hth-pipeline/hth/validate_photometric_method.py \
+            --runtime-contract hth-pipeline/requirements.txt \
+            --runtime-package numpy \
+            --runtime-package opencv-python-headless \
+            --results-root results-repo \
+            --evidence results-repo/normalization/photometric-integration/canonical-build-evidence.json \
+            --plan "$RUNNER_TEMP/photometric-cbe-plan.json" \
+            --pipeline-repository "$GITHUB_REPOSITORY" \
+            --pipeline-commit "$GITHUB_SHA" \
+            --results-repository "$RESULTS_REPOSITORY" \
+            --workflow-run-id "$GITHUB_RUN_ID" \
+            --runner-name "$RUNNER_NAME" \
+            --runner-environment "${{ runner.environment }}" \
+            --runner-os "$RUNNER_OS" \
+            --runner-arch "$RUNNER_ARCH" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Audit reusable immutable photometric release
+        if: steps.cbe_plan.outputs.decision != 'execute'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          readarray -t release_fields < <(python <<'PY'
+          import json
+          from pathlib import Path
+          record = json.loads(Path("results-repo/normalization/photometric-integration/release.json").read_text(encoding="utf-8"))
+          for key in ("tag", "asset", "asset_sha256", "photometric_result_identity"):
+              value = str(record.get(key) or "")
+              if not value:
+                  raise SystemExit(f"Persisted release record has no {key}")
+              print(value)
+          PY
+          )
+          tag="${release_fields[0]}"
+          asset="${release_fields[1]}"
+          expected="${release_fields[2]}"
+          result_identity="${release_fields[3]}"
+          remote_digest="$(gh api "repos/$RESULTS_REPOSITORY/releases/tags/$tag" --jq ".assets[] | select(.name == \"$asset\") | .digest")"
+          test "$remote_digest" = "sha256:$expected" || {
+            echo "Persisted release asset digest does not match Canonical Build Evidence" >&2
+            exit 1
+          }
+          release_url="${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/releases/tag/${tag}"
+          {
+            echo ""
+            echo "## Reusable photometric result"
+            echo ""
+            echo "- Photometric result: [\`$result_identity\`]($release_url)"
+            echo "- Release activity: \`AUDITED\`"
+            echo "- Release: $release_url"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Download immutable source release
         id: source_release
+        if: steps.cbe_plan.outputs.decision == 'execute'
         shell: bash
         env:
           HTH_SOURCE_TOKEN: ${{ secrets.HTH_SOURCE_TOKEN || github.token }}
@@ -168,12 +287,14 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
       - name: Verify immutable source release
+        if: steps.cbe_plan.outputs.decision == 'execute'
         shell: bash
         run: |
           set -euo pipefail
           [[ "${{ steps.source_release.outputs.manifest_sha256 }}" == "${{ steps.provenance.outputs.source_manifest_sha256 }}" ]]
 
       - name: Reconstruct and prove all canonical normalized pages
+        if: steps.cbe_plan.outputs.decision == 'execute'
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
@@ -189,6 +310,7 @@ jobs:
 
       - name: Integrate validated photometric correction
         id: integration
+        if: steps.cbe_plan.outputs.decision == 'execute'
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
@@ -209,6 +331,7 @@ jobs:
             --github-summary "$GITHUB_STEP_SUMMARY"
           cp "$RUNNER_TEMP/photometric-integration-plan.json" photometric-integrated-collection/integration-plan.json
           cp "$RUNNER_TEMP/photometric-integration-materialized/materialization-evidence.json" photometric-integrated-collection/materialization-evidence.json
+          cp results-repo/normalization/photometric-integration-policy.json photometric-integrated-collection/applied-integration-policy.json
           python <<'PY'
           import json
           import os
@@ -225,6 +348,7 @@ jobs:
 
       - name: Package immutable photometric collection
         id: package
+        if: steps.cbe_plan.outputs.decision == 'execute'
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
@@ -249,8 +373,26 @@ jobs:
               handle.write(f"asset={asset}\n")
               handle.write(f"asset_sha256={record['asset_sha256']}\n")
           PY
+
+      - name: Finalize photometric Canonical Build Evidence
+        id: cbe_result
+        if: steps.cbe_plan.outputs.decision == 'execute'
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          python -m hth.canonical_build_evidence finalize \
+            --plan "$RUNNER_TEMP/photometric-cbe-plan.json" \
+            --output-root photometric-integrated-collection \
+            --evidence-store results-repo/normalization/photometric-integration/canonical-build-evidence.json \
+            --evidence-output photometric-integrated-collection/canonical-build-evidence.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
       - name: Publish or reuse immutable results release
         id: release
+        if: steps.cbe_plan.outputs.decision == 'execute'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN }}
@@ -280,7 +422,10 @@ jobs:
 
       - name: Publish compact canonical photometric evidence
         id: publish
+        if: steps.cbe_plan.outputs.decision == 'execute'
         shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
         run: |
           set -euo pipefail
           source hth-pipeline/tools/hardened-persistence.sh
@@ -290,9 +435,16 @@ jobs:
           rm -rf "$payload"
           mkdir -p "$payload"
           cp photometric-integrated-collection/{photometric-normalization-manifest.json,photometric-normalization-manifest.csv,summary.md,integration-plan.json,materialization-evidence.json,release.json} "$payload/"
-          cp results-repo/normalization/photometric-integration-policy.json "$payload/applied-integration-policy.json"
+          cp photometric-integrated-collection/applied-integration-policy.json "$payload/"
+          cbe_incoming="$RUNNER_TEMP/photometric-cbe-incoming.json"
+          cp photometric-integrated-collection/canonical-build-evidence.json "$cbe_incoming"
 
           apply_photometric_integration() {
+            python -m hth.canonical_build_evidence merge \
+              --scope hth-photometric-integration \
+              --base results-repo/normalization/photometric-integration/canonical-build-evidence.json \
+              --incoming "$cbe_incoming" \
+              --output "$payload/canonical-build-evidence.json"
             rm -rf results-repo/normalization/photometric-integration
             mkdir -p results-repo/normalization/photometric-integration
             cp "$payload"/* results-repo/normalization/photometric-integration/
@@ -315,6 +467,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload compact photometric review
+        if: steps.cbe_plan.outputs.decision == 'execute'
         uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
         with:
           name: hth-photometric-integration-review-${{ github.run_number }}

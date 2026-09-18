@@ -41,7 +41,7 @@ Interrupt execution only when a material requirement is genuinely ambiguous, req
 
 ## Standing Commands
 
-- `create the overlay` means implement, test, document, package `overlay.zip`, and include `COMMIT-MESSAGE.md`.
+- `create the overlay` means implement, test, document, and package `overlay.zip`.
 - `review the overlay` means inspect and report; do not modify unless requested.
 - `critique this idea` means evaluate critically and identify weak assumptions or unnecessary complexity.
 
@@ -57,12 +57,13 @@ An overlay must:
 
 - contain only files added or modified for the current task;
 - include all changed source files, tests, and documentation;
-- include `COMMIT-MESSAGE.md` with a short, meaningful subject line, an appropriately detailed body, and a trailing blank line;
 - omit unchanged files, generated artifacts, caches, and the repository root directory;
 - preserve the existing repository layout; and
 - extract directly over the repository root.
 
-The filename is always `COMMIT-MESSAGE.md`; do not create topic-specific or alternate commit-note filenames. The file is part of the overlay, not a separate optional deliverable.
+Do not create `COMMIT-MESSAGE.md` or any alternate commit-note file in the
+workspace or in an overlay. Commit messages belong in Git, not in a generated
+workspace artifact.
 
 Do not move or rename existing files unless the task explicitly includes that change. File moves, renames, and repository reorganizations must be deliberate changes described in the associated commit note.
 
@@ -75,7 +76,6 @@ Do not reintroduce legacy conventions from other projects.
 Examples include:
 
 - `unittest` (not `pytest`)
-- `COMMIT-MESSAGE.md` (not alternate commit filenames)
 - descriptive documentation filenames (not `README-*`)
 - actual repository layout (do not invent paths)
 - modify existing convention documents instead of creating parallel ones
@@ -178,13 +178,39 @@ Additional conventions:
 
 ## Documentation and Commit Notes
 
-- Documentation filenames are lowercase except established special files such as `README.md` and `COMMIT-MESSAGE.md`.
+- Documentation filenames are lowercase except established special files such as `README.md`.
 - Update existing documentation before creating a new document.
 - `docs/README.md` is the authoritative documentation entry point and development standard.
 - New documents must describe a distinct, implemented concern; do not create speculative design packages or Word documents.
 - Documentation must describe the current implementation, not an implementation that has not been made.
 
-Commit notes should be terse. Explain why a change was made when the reason is not obvious; do not narrate obvious edits.
+Git commit messages should be terse. Explain why a change was made when the
+reason is not obvious; do not narrate obvious edits.
+
+## Canonical Build Evidence
+
+Every deterministic production stage must implement Canonical Build Evidence
+(CBE) before it is considered production-ready. CBE is the default mechanism
+for eliminating unnecessary rebuilds while retaining an explicit audit-build
+capability.
+
+Each stage exposes the same policies:
+
+- `auto` reuses an exact, validated incumbent and executes only when effective
+  inputs have changed or no evidence exists;
+- `audit` validates exact persisted evidence and performs no production work;
+- `force-verify` deliberately rebuilds unchanged effective inputs and requires
+  byte/domain-equivalent canonical results; and
+- `rebuild` executes only for a changed effective identity and refuses to
+  replace evidence for unchanged inputs.
+
+Effective identity includes every source, configuration, implementation, and
+runtime input that can change the domain result, while runner identity,
+timestamps, and other execution observations remain non-identity telemetry.
+Changing report presentation or review-artifact cadence must not invalidate a
+pixel-identical production result. New deterministic stages must not introduce
+an unconditional rebuild path or a stage-specific approximation of this
+contract.
 
 ## Updating This Rulebook
 

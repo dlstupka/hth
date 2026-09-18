@@ -401,6 +401,62 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
         self.assertEqual(page["normalized_image_sha256"], "2" * 64)
         self.assertEqual(prepare(args)["decision"], "reuse")
 
+    def test_photometric_integration_scope_establishes_and_reuses_page_complete_evidence(self) -> None:
+        args = self.args()
+        args.scope = "hth-photometric-integration"
+        args.operation = ["reconstruct", "correct", "package"]
+        args.evidence = self.results / "normalization/photometric-integration/canonical-build-evidence.json"
+        plan = prepare(args)
+        self.assertEqual(plan["decision"], "execute")
+        write_json(self.output / "photometric-normalization-manifest.json", {
+            "pages": [{
+                "global_ordinal": 1,
+                "route": "apply",
+                "pipeline_action": "corrected-and-continue",
+                "evidence_source": "held-out",
+                "input_pixel_sha256": "1" * 64,
+                "output_pixel_sha256": "2" * 64,
+                "output_sha256": "3" * 64,
+                "output_width": 100,
+                "output_height": 200,
+                "method_safe": True,
+            }],
+        })
+        for name in (
+            "integration-plan.json",
+            "materialization-evidence.json",
+            "applied-integration-policy.json",
+            "release.json",
+        ):
+            write_json(self.output / name, {"name": name, "identity": "4" * 64})
+        evidence_output = self.output / "canonical-build-evidence.json"
+        evidence = finalize(argparse.Namespace(
+            plan=args.plan,
+            output_root=self.output,
+            evidence_store=args.evidence,
+            evidence_output=evidence_output,
+            github_output="",
+            github_summary="",
+        ))
+        generated = {
+            "photometric-normalization-manifest": "photometric-normalization-manifest.json",
+            "integration-plan": "integration-plan.json",
+            "materialization-evidence": "materialization-evidence.json",
+            "applied-integration-policy": "applied-integration-policy.json",
+            "release-record": "release.json",
+        }
+        for record in evidence["canonical_result"]["artifacts"]:
+            target = self.results / record["published_path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((self.output / generated[record["logical_name"]]).read_bytes())
+        args.evidence.write_bytes(evidence_output.read_bytes())
+
+        page = evidence["canonical_result"]["pages"][0]
+        self.assertEqual(page["input_pixel_sha256"], "1" * 64)
+        self.assertEqual(page["output_pixel_sha256"], "2" * 64)
+        self.assertEqual(page["output_image_sha256"], "3" * 64)
+        self.assertEqual(prepare(args)["decision"], "reuse")
+
 
 class CanonicalBuildEvidenceWorkflowTests(unittest.TestCase):
     @classmethod

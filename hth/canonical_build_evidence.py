@@ -28,6 +28,7 @@ EVIDENCE_TYPE = "canonical-build-evidence"
 STORE_TYPE = "canonical-build-evidence-store"
 PREPROCESS_SCOPE = "hth-preprocess"
 NORMALIZATION_SCOPE = "hth-normalization"
+PHOTOMETRIC_INTEGRATION_SCOPE = "hth-photometric-integration"
 POLICIES = ("auto", "audit", "force-verify", "rebuild")
 
 # These fields are observations or duplicated provenance, not domain results.
@@ -73,12 +74,42 @@ NORMALIZATION_ARTIFACTS = (
     ),
 )
 
+PHOTOMETRIC_INTEGRATION_ARTIFACTS = (
+    ArtifactSpec(
+        "photometric-normalization-manifest",
+        "photometric-normalization-manifest.json",
+        "normalization/photometric-integration/photometric-normalization-manifest.json",
+    ),
+    ArtifactSpec(
+        "integration-plan",
+        "integration-plan.json",
+        "normalization/photometric-integration/integration-plan.json",
+    ),
+    ArtifactSpec(
+        "materialization-evidence",
+        "materialization-evidence.json",
+        "normalization/photometric-integration/materialization-evidence.json",
+    ),
+    ArtifactSpec(
+        "applied-integration-policy",
+        "applied-integration-policy.json",
+        "normalization/photometric-integration/applied-integration-policy.json",
+    ),
+    ArtifactSpec(
+        "release-record",
+        "release.json",
+        "normalization/photometric-integration/release.json",
+    ),
+)
+
 
 def artifact_profile(scope: str) -> tuple[ArtifactSpec, ...]:
     if scope == PREPROCESS_SCOPE:
         return PREPROCESS_ARTIFACTS
     if scope == NORMALIZATION_SCOPE:
         return NORMALIZATION_ARTIFACTS
+    if scope == PHOTOMETRIC_INTEGRATION_SCOPE:
+        return PHOTOMETRIC_INTEGRATION_ARTIFACTS
     raise EvidenceError(f"Canonical Build Evidence scope has no artifact profile: {scope!r}")
 
 
@@ -413,11 +444,21 @@ def validate_evidence(payload: dict[str, Any], *, scope: str) -> None:
             )
             if scope == PREPROCESS_SCOPE
             else (
-                "operation_identity",
-                "source_image_sha256",
-                "normalized_image_sha256",
-                "normalized_pixel_sha256",
-                "canonical_page_result_sha256",
+                (
+                    "operation_identity",
+                    "source_image_sha256",
+                    "normalized_image_sha256",
+                    "normalized_pixel_sha256",
+                    "canonical_page_result_sha256",
+                )
+                if scope == NORMALIZATION_SCOPE
+                else (
+                    "operation_identity",
+                    "input_pixel_sha256",
+                    "output_pixel_sha256",
+                    "output_image_sha256",
+                    "canonical_page_result_sha256",
+                )
             )
         )
         if not all(_is_sha256(page.get(field)) for field in required_page_hashes):
@@ -558,11 +599,11 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         "page_count": len(page_evaluations),
     })
     evidence_url = ""
-    evidence_relative = (
-        "metadata/canonical-build-evidence.json"
-        if args.scope == PREPROCESS_SCOPE
-        else "normalization/canonical-build-evidence.json"
-    )
+    evidence_relative = {
+        PREPROCESS_SCOPE: "metadata/canonical-build-evidence.json",
+        NORMALIZATION_SCOPE: "normalization/canonical-build-evidence.json",
+        PHOTOMETRIC_INTEGRATION_SCOPE: "normalization/photometric-integration/canonical-build-evidence.json",
+    }[args.scope]
     if args.evidence.is_file():
         evidence_url = github_blob_url(
             getattr(args, "results_repository", ""),
@@ -687,13 +728,60 @@ def _normalization_page_results(
     return pages
 
 
+def _photometric_integration_page_results(
+    output_root: Path,
+    activity: str,
+    domain_result: str,
+    effective_build_identity: str,
+) -> list[dict[str, Any]]:
+    manifest = _load_json_object(
+        output_root / "photometric-normalization-manifest.json",
+        "photometric normalization manifest",
+    )
+    records = manifest.get("pages")
+    if not isinstance(records, list) or not records:
+        raise EvidenceError("Photometric normalization manifest does not contain page records")
+    pages = []
+    for record in records:
+        if not isinstance(record, dict):
+            raise EvidenceError("Photometric normalization manifest contains an invalid page record")
+        ordinal = int(record["global_ordinal"])
+        canonical_page = {
+            "global_ordinal": ordinal,
+            "route": record.get("route"),
+            "pipeline_action": record.get("pipeline_action"),
+            "evidence_source": record.get("evidence_source"),
+            "input_pixel_sha256": record.get("input_pixel_sha256"),
+            "output_pixel_sha256": record.get("output_pixel_sha256"),
+            "output_image_sha256": record.get("output_sha256"),
+            "output_dimensions": [record.get("output_width"), record.get("output_height")],
+            "method_safe": record.get("method_safe"),
+        }
+        pages.append({
+            **canonical_page,
+            "operation_identity": canonical_hash({
+                "effective_build_identity": effective_build_identity,
+                "global_ordinal": ordinal,
+                "input_pixel_sha256": record.get("input_pixel_sha256"),
+            }),
+            "canonical_page_result_sha256": canonical_hash(canonical_page),
+            "activity": activity,
+            "domain_result": domain_result,
+        })
+    return pages
+
+
 def finalize(args: argparse.Namespace) -> dict[str, Any]:
     plan = _load_json_object(args.plan, "Canonical Build Evidence plan")
     if plan.get("decision") != "execute":
         raise EvidenceError("Only an executed plan can establish canonical results")
     scope = str(plan["scope"])
     artifacts = _artifact_records(args.output_root, artifact_profile(scope), published=False)
-    page_builder = _page_results if scope == PREPROCESS_SCOPE else _normalization_page_results
+    page_builder = {
+        PREPROCESS_SCOPE: _page_results,
+        NORMALIZATION_SCOPE: _normalization_page_results,
+        PHOTOMETRIC_INTEGRATION_SCOPE: _photometric_integration_page_results,
+    }[scope]
     pages = page_builder(args.output_root, "EXECUTED", "APPLY", str(plan["effective_build_identity"]))
     result_identity = _result_identity(artifacts, pages)
     incumbent = plan.get("incumbent_result_identity")

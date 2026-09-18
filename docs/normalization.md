@@ -169,5 +169,12 @@ validated illumination/background-field correction. Corrected and preserved
 pages are both annotated and continue as downstream HTR inputs; optional
 normalization quality never removes a page from the transcription pipeline.
 
+Photometric integration uses the `hth-photometric-integration` Canonical Build
+Evidence scope and the standard `auto`, `audit`, `force-verify`, and `rebuild`
+policies. Its first run establishes page-complete evidence for the immutable
+release. Thereafter, `auto` validates and reuses an exact result without source
+download, page reconstruction, correction, or repackaging; `audit` additionally
+verifies the persisted release asset digest without rebuilding it.
+
 Binarization remains a separate future normalization operation with its own
 evidence contract.
