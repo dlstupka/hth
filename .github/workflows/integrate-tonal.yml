@@ -114,16 +114,20 @@ jobs:
           cp results-repo/normalization/tonal-methods/assessment.json "$RUNNER_TEMP/tonal-effective-inputs/tonal-method-assessment.json"
           cp results-repo/normalization/tonal-validation/validation.json "$RUNNER_TEMP/tonal-effective-inputs/tonal-validation.json"
           python <<'PY'
-          import json, os, subprocess
+          import json, os
           from pathlib import Path
           release = json.loads(Path("results-repo/normalization/photometric-integration/release.json").read_text())
           with Path(os.environ["GITHUB_OUTPUT"]).open("a") as out:
-              for source, target in (("tag", "source_tag"), ("asset", "source_asset"), ("asset_sha256", "source_sha256")):
+              for source, target in (
+                  ("tag", "source_tag"),
+                  ("asset", "source_asset"),
+                  ("asset_sha256", "source_sha256"),
+                  ("photometric_result_identity", "source_identity"),
+              ):
                   value = str(release.get(source) or "")
                   if not value:
                       raise SystemExit(f"Photometric release has no {source}")
                   out.write(f"{target}={value}\n")
-              out.write(f"results_commit={subprocess.check_output(['git','-C','results-repo','rev-parse','HEAD'], text=True).strip()}\n")
           PY
 
       - name: Evaluate tonal Canonical Build Evidence
@@ -146,7 +150,7 @@ jobs:
             --source-repository "$RESULTS_REPOSITORY" \
             --source-release "${{ steps.inputs.outputs.source_tag }}" \
             --source-manifest-sha256 "${{ steps.inputs.outputs.source_sha256 }}" \
-            --source-commit "${{ steps.inputs.outputs.results_commit }}" \
+            --source-commit "${{ steps.inputs.outputs.source_identity }}" \
             --config hth-pipeline/config/tonal-assessment.json \
             --config hth-pipeline/config/tonal-method-assessment.json \
             --config hth-pipeline/config/tonal-method-validation.json \

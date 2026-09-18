@@ -232,6 +232,9 @@ class TonalNormalizationTests(unittest.TestCase):
         self.assertIn("Summarize tonal evidence", core)
         self.assertIn("python -m hth.tonal_summary", core)
         self.assertIn("--stage integrate", integration)
+        self.assertIn('(\"photometric_result_identity\", \"source_identity\")', integration)
+        self.assertIn('--source-commit "${{ steps.inputs.outputs.source_identity }}"', integration)
+        self.assertNotIn('--source-commit "${{ steps.inputs.outputs.results_commit }}"', integration)
 
     def test_reusable_workflow_retention_inputs_are_explicitly_numeric(self) -> None:
         root = Path(__file__).resolve().parents[1]
