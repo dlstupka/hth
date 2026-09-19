@@ -191,6 +191,8 @@ class NormalizationCanonicalEvidenceCoverageTests(unittest.TestCase):
         self.assertIn("needs.integrate-binarization.result == 'success'", block)
         self.assertIn("python -m hth.resource_lifecycle", block)
         self.assertIn("metadata/resource-lifecycle.json", block)
+        self.assertIn("/metadata/resource-lifecycle.json", block)
+        self.assertIn("/reports/full-normalization-summary.md", block)
         self.assertIn("isLatest", block)
         self.assertIn("$MIRROR_REPOSITORY", block)
         self.assertIn("$EVIDENCE_CACHE_REPOSITORY", block)
@@ -200,6 +202,8 @@ class NormalizationCanonicalEvidenceCoverageTests(unittest.TestCase):
         self.assertIn("Publish canonical full normalization summary", block)
         self.assertIn("hth/write_action_summary.py", block)
         self.assertNotIn('--github-summary "$GITHUB_STEP_SUMMARY"', block)
+        setup_block = block.split("- name: Set up canonical HTH Python runtime", 1)[1].split("- name: Inventory durable result releases", 1)[0]
+        self.assertNotIn("python-version:", setup_block)
         self.assertIn("Cleanup action: `none`", (ROOT / "hth/resource_lifecycle.py").read_text(encoding="utf-8"))
 
     def test_orchestrator_propagates_one_cbe_policy_to_every_reusable_stage(self) -> None:

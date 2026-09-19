@@ -122,7 +122,16 @@ hth_results_remove_legacy_indexes() {
 hth_results_stage() {
   local repo="${1:?results repository path is required}"
   shift
-  git -C "$repo" add -A -- "$@"
+  if (( $# == 0 )); then
+    echo "::error::Canonical results staging requires at least one owned repository-relative path."
+    return 2
+  fi
+
+  # Publication ownership is the canonical write contract. Sparse checkout is
+  # only a read/performance optimization and must never veto an explicitly
+  # owned output path. --sparse keeps those two concerns independent without
+  # broadening the checkout or staging unrelated repository content.
+  git -C "$repo" add --sparse -A -- "$@"
 }
 
 hth_results_assert_no_legacy_indexes() {

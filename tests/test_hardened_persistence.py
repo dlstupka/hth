@@ -145,6 +145,51 @@ class HardenedPersistenceTests(unittest.TestCase):
         self.assertIn("non-fast-forward|fetch first|failed to push some refs", text)
         self.assertIn("refusing to misclassify and retry it", text)
 
+    def test_canonical_staging_is_not_blocked_by_sparse_checkout(self):
+        with self._persistence_repositories() as repos:
+            writer_sh = repos.bash_path(repos.writer)
+            self._run_git("-C", str(repos.writer), "sparse-checkout", "init", "--no-cone")
+            self._run_git("-C", str(repos.writer), "sparse-checkout", "set", "--no-cone", "/base.txt")
+
+            script = (
+                "set -euo pipefail\n"
+                "source tools/hardened-persistence.sh\n"
+                f"mkdir -p \"{writer_sh}/metadata\"\n"
+                f"printf '{{\"state\":\"canonical\"}}\\n' > \"{writer_sh}/metadata/resource-lifecycle.json\"\n"
+                f"hth_results_stage \"{writer_sh}\" metadata/resource-lifecycle.json\n"
+            )
+
+            proc = self._run_bash(script)
+            stdout = proc.stdout.decode("utf-8", errors="replace")
+            stderr = proc.stderr.decode("utf-8", errors="replace")
+            self.assertEqual(proc.returncode, 0, stderr or stdout)
+            staged = self._run_git(
+                "-C", str(repos.writer), "diff", "--cached", "--name-only",
+            ).stdout.splitlines()
+            self.assertEqual(staged, ["metadata/resource-lifecycle.json"])
+            sparse_patterns = self._run_git(
+                "-C", str(repos.writer), "sparse-checkout", "list",
+            ).stdout.splitlines()
+            self.assertEqual(sparse_patterns, ["/base.txt"])
+
+    def test_canonical_staging_requires_explicit_owned_paths(self):
+        with self._persistence_repositories() as repos:
+            writer_sh = repos.bash_path(repos.writer)
+            script = (
+                "set -uo pipefail\n"
+                "source tools/hardened-persistence.sh\n"
+                "status=0\n"
+                f"hth_results_stage \"{writer_sh}\" || status=$?\n"
+                "printf 'status=%s\\n' \"$status\"\n"
+            )
+
+            proc = self._run_bash(script)
+            stdout = proc.stdout.decode("utf-8", errors="replace")
+            stderr = proc.stderr.decode("utf-8", errors="replace")
+            self.assertEqual(proc.returncode, 0, stderr or stdout)
+            self.assertIn("requires at least one owned repository-relative path", stdout)
+            self.assertIn("status=2", stdout)
+
     def test_real_non_fast_forward_retry_preserves_concurrent_remote_write(self):
         with self._persistence_repositories(include_racer=True) as repos:
             self.assertIsNotNone(repos.racer)
