@@ -8,6 +8,7 @@ from typing import Any
 
 from hth.canonical_build_evidence import SCOPE_EVIDENCE_PATHS, load_evidence_store
 from hth.markdown_links import code_link, github_blob_url, github_commit_url
+from hth.report_navigation import add_report_navigation
 
 
 TRANSFORMATION_MANIFESTS = (
@@ -145,7 +146,8 @@ def generate_full_normalization_summary(
         "",
         "> Audit report generated exclusively from persisted Canonical Build Evidence, normalization manifests, and the resource-lifecycle ledger. No normalization pixels or domain results were recomputed.",
         "",
-        "## Audit status",
+        "<details open>",
+        "<summary><h2>Audit status</h2></summary>",
         "",
         f"- Status: **{state}**",
         f"- Authoritative normalization CBE stages: `{len(stages) - len(missing_stages)}/{len(stages)}`",
@@ -157,10 +159,12 @@ def generate_full_normalization_summary(
         lines.append(f"- Report Writer run: [workflow run]({run_url})")
     if missing_stages or missing_manifests or invalid_manifests or not lifecycle_valid:
         lines.extend(["", "> **Incomplete evidence:** this report identifies absent durable inputs rather than inferring or rebuilding them."])
+    lines.extend(["", "</details>"])
 
     lines.extend([
         "",
-        "## Normalization result chain",
+        "<details open>",
+        "<summary><h2>Normalization result chain</h2></summary>",
         "",
         "| Stage | Status | Method / policy | Pages | Corrected | Preserved | Result identity |",
         "|---|---:|---|---:|---:|---:|---|",
@@ -173,6 +177,7 @@ def generate_full_normalization_summary(
                 f"| {row['name']} | `{row['status']}` | `{row['method']}` | `{row['pages']}` | "
                 f"`{row['corrected']}` | `{row['preserved']}` | {_link(results_repository, results_commit, row['path'], row['identity'])} |"
             )
+    lines.extend(["", "</details>"])
 
     lines.extend([
         "",
@@ -193,7 +198,11 @@ def generate_full_normalization_summary(
             )
     lines.extend(["", "</details>", ""])
 
-    lines.extend(["## Cache and release lifecycle", ""])
+    lines.extend([
+        "<details open>",
+        "<summary><h2>Cache and release lifecycle</h2></summary>",
+        "",
+    ])
     cleanup: list[dict[str, Any]] = []
     if not lifecycle_valid:
         ledger_state = "invalid" if lifecycle is not None else "missing"
@@ -224,6 +233,7 @@ def generate_full_normalization_summary(
                     f"`{row.get('cleanup_reason', 'unknown')}` |"
                 )
             lines.extend(["", "</details>"])
+    lines.extend(["", "</details>"])
 
     recommendations: list[str] = []
     if missing_stages or missing_manifests or invalid_manifests or not lifecycle_valid:
@@ -240,8 +250,14 @@ def generate_full_normalization_summary(
             "Treat the fully preserved normalization chain as an intentional audited no-op and reuse its authoritative CBE identities on equivalent inputs; rebuild only when an effective input changes or force-verification is explicitly required."
         )
     if recommendations:
-        lines.extend(["", "## Engineering recommendations", ""])
+        lines.extend([
+            "",
+            "<details open>",
+            "<summary><h2>Engineering recommendations</h2></summary>",
+            "",
+        ])
         lines.extend(f"- {recommendation}" for recommendation in recommendations)
+        lines.extend(["", "</details>"])
     normalization_guide = github_blob_url(
         pipeline_repository,
         pipeline_commit,
@@ -249,14 +265,17 @@ def generate_full_normalization_summary(
     )
     lines.extend([
         "",
-        "## Engineering reference",
+        "<details>",
+        "<summary><h2>Engineering reference</h2></summary>",
         "",
         f"- [Normalization design, provenance, policy, and operating guidance]({normalization_guide})"
         if normalization_guide
         else "- Normalization design, provenance, policy, and operating guidance: `docs/normalization.md`",
+        "",
+        "</details>",
     ])
 
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    output.write_text("\n".join(add_report_navigation(lines)).rstrip() + "\n", encoding="utf-8")
     return output

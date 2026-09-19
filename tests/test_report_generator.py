@@ -36,7 +36,7 @@ class ReportGeneratorTests(unittest.TestCase):
             )
             report = output.read_text(encoding="utf-8")
             self.assertIn("Status: **INCOMPLETE**", report)
-            self.assertIn("## Engineering recommendations", report)
+            self.assertIn("<summary><h2>Engineering recommendations</h2></summary>", report)
             self.assertIn("do not infer completion from workflow success alone", report)
             self.assertIn(
                 f"https://github.com/owner/hth/blob/{'b' * 40}/docs/normalization.md",
@@ -75,8 +75,29 @@ class ReportGeneratorTests(unittest.TestCase):
                 generate_full_normalization_summary(root, root / "report.md")
             report = (root / "report.md").read_text(encoding="utf-8")
             self.assertIn("Status: **COMPLETE**", report)
-            self.assertNotIn("## Engineering recommendations", report)
-            self.assertIn("## Engineering reference", report)
+            self.assertNotIn("<summary><h2>Engineering recommendations</h2></summary>", report)
+            self.assertIn("<summary><h2>Engineering reference</h2></summary>", report)
+
+    def test_full_normalization_summary_has_shared_navigation_and_collapsible_sections(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            generate_full_normalization_summary(root, root / "report.md")
+            report = (root / "report.md").read_text(encoding="utf-8")
+
+            self.assertIn('<a id="table-of-contents"></a>', report)
+            self.assertIn("<summary><strong>Navigation</strong></summary>", report)
+            for section in (
+                "Audit status",
+                "Normalization result chain",
+                "Canonical Build Evidence ledger",
+                "Cache and release lifecycle",
+                "Engineering recommendations",
+                "Engineering reference",
+            ):
+                self.assertIn(f"](#{section.lower().replace(' ', '-')})", report)
+                self.assertIn(f"<summary><h2>{section}</h2></summary>", report)
+            self.assertGreaterEqual(report.count("<details open>"), 5)
+            self.assertGreaterEqual(report.count("[↑ Back to Navigation](#table-of-contents)"), 6)
 
     def test_calibration_manifest_resolves_best_record_per_detector(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
