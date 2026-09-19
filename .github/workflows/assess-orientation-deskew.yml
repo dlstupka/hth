@@ -83,6 +83,7 @@ jobs:
           || inputs.runner_target == '32t' && '32t'
           || 'github-hosted' }}
       # END GENERATED RUNNER SETUP LABEL
+      ASSESSMENT_OUTPUT: ${{ runner.temp }}/orientation-deskew-assessment-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout HTH pipeline
         uses: actions/checkout@v6
@@ -285,10 +286,10 @@ jobs:
             --normalization-manifest results-repo/normalization/normalization-manifest.json \
             --sample-plan "$RUNNER_TEMP/orientation-deskew-sample.json" \
             --config "$ASSESSMENT_CONFIG" \
-            --output orientation-deskew-assessment \
+            --output "$ASSESSMENT_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
-          cp "$RUNNER_TEMP/orientation-deskew-sample.json" orientation-deskew-assessment/sample-plan.json
-          cp "$RUNNER_TEMP/orientation-deskew-materialized/materialization-evidence.json" orientation-deskew-assessment/materialization-evidence.json
+          cp "$RUNNER_TEMP/orientation-deskew-sample.json" "$ASSESSMENT_OUTPUT/sample-plan.json"
+          cp "$RUNNER_TEMP/orientation-deskew-materialized/materialization-evidence.json" "$ASSESSMENT_OUTPUT/materialization-evidence.json"
 
       - name: Prepare plain-language normalization recommendation
         if: steps.cbe.outputs.decision == 'execute'
@@ -298,8 +299,8 @@ jobs:
         run: |
           set -euo pipefail
           python -m hth.assess_orientation_deskew recommend \
-            --assessment orientation-deskew-assessment/assessment.json \
-            --output orientation-deskew-assessment/normalization-policy.json \
+            --assessment "$ASSESSMENT_OUTPUT/assessment.json" \
+            --output "$ASSESSMENT_OUTPUT/normalization-policy.json" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
       - name: Finalize orientation/deskew Canonical Build Evidence
@@ -310,9 +311,9 @@ jobs:
           set -euo pipefail
           python -m hth.canonical_build_evidence finalize \
             --plan "$RUNNER_TEMP/orientation-deskew-cbe-plan.json" \
-            --output-root orientation-deskew-assessment \
+            --output-root "$ASSESSMENT_OUTPUT" \
             --evidence-store results-repo/normalization/orientation-deskew/canonical-build-evidence.json \
-            --evidence-output orientation-deskew-assessment/canonical-build-evidence.json \
+            --evidence-output "$ASSESSMENT_OUTPUT/canonical-build-evidence.json" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
       - name: Preserve recommendation and compact assessment evidence
@@ -328,12 +329,12 @@ jobs:
           payload="$RUNNER_TEMP/hth-normalization-recommendation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           rm -rf "$payload"
           mkdir -p "$payload"
-          cp orientation-deskew-assessment/assessment.json "$payload/"
-          cp orientation-deskew-assessment/sample-plan.json "$payload/"
-          cp orientation-deskew-assessment/materialization-evidence.json "$payload/"
-          cp orientation-deskew-assessment/recommendation.md "$payload/"
-          cp orientation-deskew-assessment/normalization-policy.json "$payload/"
-          cp orientation-deskew-assessment/canonical-build-evidence.json "$RUNNER_TEMP/orientation-deskew-cbe-incoming.json"
+          cp "$ASSESSMENT_OUTPUT/assessment.json" "$payload/"
+          cp "$ASSESSMENT_OUTPUT/sample-plan.json" "$payload/"
+          cp "$ASSESSMENT_OUTPUT/materialization-evidence.json" "$payload/"
+          cp "$ASSESSMENT_OUTPUT/recommendation.md" "$payload/"
+          cp "$ASSESSMENT_OUTPUT/normalization-policy.json" "$payload/"
+          cp "$ASSESSMENT_OUTPUT/canonical-build-evidence.json" "$RUNNER_TEMP/orientation-deskew-cbe-incoming.json"
 
           apply_normalization_recommendation() {
             python -m hth.canonical_build_evidence merge \
@@ -367,7 +368,7 @@ jobs:
         uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
         with:
           name: hth-orientation-deskew-${{ github.run_number }}
-          path: orientation-deskew-assessment
+          path: ${{ env.ASSESSMENT_OUTPUT }}
           if-no-files-found: error
           retention-days: ${{ inputs.artifact_retention_days }}
           compression-level: 6

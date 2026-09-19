@@ -71,6 +71,16 @@ class NormalizationCanonicalEvidenceCoverageTests(unittest.TestCase):
                 download = text.split(f"- name: {expensive_step}", 1)[1].split("- name:", 1)[0]
                 self.assertIn("if: steps.cbe.outputs.decision == 'execute'", download)
 
+    def test_orientation_output_is_run_scoped_for_persistent_runners(self) -> None:
+        text = (ROOT / ".github/workflows/assess-orientation-deskew.yml").read_text(encoding="utf-8")
+        self.assertIn(
+            "ASSESSMENT_OUTPUT: ${{ runner.temp }}/orientation-deskew-assessment-${{ github.run_id }}-${{ github.run_attempt }}",
+            text,
+        )
+        self.assertIn('--output "$ASSESSMENT_OUTPUT"', text)
+        self.assertIn("path: ${{ env.ASSESSMENT_OUTPUT }}", text)
+        self.assertNotIn("--output orientation-deskew-assessment", text)
+
     def test_new_scope_artifact_contracts_finalize(self) -> None:
         scopes = (
             "hth-crop-framing-assessment",
