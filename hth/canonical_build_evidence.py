@@ -1255,9 +1255,50 @@ def _compact_evidence_page_results(
 
 
 def _crop_framing_assessment_page_results(output_root, activity, domain_result, effective_build_identity):
-    return _compact_evidence_page_results(
-        output_root, "assessment.json", "crop and framing assessment", activity, domain_result, effective_build_identity
-    )
+    payload = _load_json_object(output_root / "assessment.json", "crop and framing assessment")
+    records = payload.get("pages")
+    algorithms = payload.get("algorithms")
+    if not isinstance(records, list) or not isinstance(algorithms, dict) or not algorithms:
+        raise EvidenceError("Crop and framing assessment does not contain page variants and algorithms")
+    expected_algorithms = sorted(str(value) for value in algorithms)
+    grouped: dict[int, dict[str, dict[str, Any]]] = {}
+    for record in records:
+        if not isinstance(record, dict):
+            raise EvidenceError("Crop and framing assessment contains an invalid page variant")
+        try:
+            ordinal = int(record["global_ordinal"])
+            algorithm = str(record["algorithm"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise EvidenceError("Crop and framing assessment contains an invalid page variant identity") from exc
+        variants = grouped.setdefault(ordinal, {})
+        if not algorithm or algorithm in variants:
+            raise EvidenceError(
+                f"Crop and framing assessment contains duplicate algorithm evidence for page {ordinal}"
+            )
+        variants[algorithm] = record
+
+    pages = []
+    for ordinal, variants in sorted(grouped.items()):
+        if sorted(variants) != expected_algorithms:
+            raise EvidenceError(
+                f"Crop and framing assessment has incomplete algorithm evidence for page {ordinal}"
+            )
+        evidence_records = [canonicalize_result(variants[algorithm]) for algorithm in expected_algorithms]
+        canonical_page = {
+            "global_ordinal": ordinal,
+            "evidence_record_sha256": canonical_hash(evidence_records),
+        }
+        pages.append({
+            **canonical_page,
+            "operation_identity": canonical_hash({
+                "effective_build_identity": effective_build_identity,
+                **canonical_page,
+            }),
+            "canonical_page_result_sha256": canonical_hash(canonical_page),
+            "activity": activity,
+            "domain_result": domain_result,
+        })
+    return pages
 
 
 def _orientation_deskew_assessment_page_results(output_root, activity, domain_result, effective_build_identity):

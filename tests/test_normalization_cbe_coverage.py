@@ -95,6 +95,9 @@ class NormalizationCanonicalEvidenceCoverageTests(unittest.TestCase):
                             payload = {"schema_version": "test"}
                             if spec.generated_path in {"assessment.json", "validation.json"}:
                                 payload["pages"] = [{"global_ordinal": 1, "decision": "preserve"}]
+                            if scope == "hth-crop-framing-assessment" and spec.generated_path == "assessment.json":
+                                payload["algorithms"] = {"axis-aligned": {}}
+                                payload["pages"][0]["algorithm"] = "axis-aligned"
                             path.write_text(json.dumps(payload), encoding="utf-8")
                     effective_inputs = {
                         "source": {

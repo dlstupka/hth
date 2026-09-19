@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 from hth.canonical_build_evidence import (
+    CROP_FRAMING_ASSESSMENT_SCOPE,
     EvidenceError,
     TONAL_ASSESSMENT_SCOPE,
     TONAL_INTEGRATION_SCOPE,
@@ -156,6 +157,65 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
         args.evidence.write_bytes(evidence_output.read_bytes())
         self.assertEqual(evidence["canonical_result"]["pages"][0]["global_ordinal"], 1)
         self.assertEqual(prepare(args)["decision"], "reuse")
+
+    def test_crop_framing_collapses_algorithm_variants_into_canonical_page_evidence(self) -> None:
+        args = self.args()
+        args.scope = CROP_FRAMING_ASSESSMENT_SCOPE
+        args.operation = ["compare-crop-framing"]
+        args.evidence = self.results / "normalization/crop-framing/canonical-build-evidence.json"
+        prepare(args)
+        write_json(self.output / "assessment.json", {
+            "algorithms": {"axis-aligned": {}, "perspective": {}},
+            "pages": [
+                {"global_ordinal": 2, "algorithm": "perspective", "output_sha256": "2" * 64},
+                {"global_ordinal": 1, "algorithm": "axis-aligned", "output_sha256": "3" * 64},
+                {"global_ordinal": 2, "algorithm": "axis-aligned", "output_sha256": "4" * 64},
+                {"global_ordinal": 1, "algorithm": "perspective", "output_sha256": "5" * 64},
+            ],
+        })
+        write_json(self.output / "detector-selection.json", {"detector": "test"})
+        write_json(self.output / "geometry-evidence.json", {"records": []})
+        evidence = finalize(argparse.Namespace(
+            plan=args.plan,
+            output_root=self.output,
+            evidence_store=args.evidence,
+            evidence_output=self.output / "canonical-build-evidence.json",
+            github_output="",
+            github_summary="",
+        ))
+        self.assertEqual(
+            [page["global_ordinal"] for page in evidence["canonical_result"]["pages"]],
+            [1, 2],
+        )
+        self.assertNotEqual(
+            evidence["canonical_result"]["pages"][0]["evidence_record_sha256"],
+            evidence["canonical_result"]["pages"][1]["evidence_record_sha256"],
+        )
+
+    def test_crop_framing_rejects_duplicate_algorithm_variant(self) -> None:
+        args = self.args()
+        args.scope = CROP_FRAMING_ASSESSMENT_SCOPE
+        args.operation = ["compare-crop-framing"]
+        args.evidence = self.results / "normalization/crop-framing/canonical-build-evidence.json"
+        prepare(args)
+        write_json(self.output / "assessment.json", {
+            "algorithms": {"axis-aligned": {}},
+            "pages": [
+                {"global_ordinal": 1, "algorithm": "axis-aligned", "output_sha256": "3" * 64},
+                {"global_ordinal": 1, "algorithm": "axis-aligned", "output_sha256": "4" * 64},
+            ],
+        })
+        write_json(self.output / "detector-selection.json", {"detector": "test"})
+        write_json(self.output / "geometry-evidence.json", {"records": []})
+        with self.assertRaisesRegex(EvidenceError, "duplicate algorithm evidence"):
+            finalize(argparse.Namespace(
+                plan=args.plan,
+                output_root=self.output,
+                evidence_store=args.evidence,
+                evidence_output=self.output / "canonical-build-evidence.json",
+                github_output="",
+                github_summary="",
+            ))
 
     def test_empty_bounded_method_candidate_set_is_valid_compact_evidence(self) -> None:
         args = self.args()
