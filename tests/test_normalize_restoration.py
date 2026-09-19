@@ -19,7 +19,15 @@ from hth.canonical_build_evidence import (
     SCOPE_EVIDENCE_PATHS,
 )
 from hth.normalize_document_images import _pixel_sha256
-from hth.normalize_restoration import apply_method, assess, compare, integrate, package_release, validate
+from hth.normalize_restoration import (
+    _balance_candidate_partitions,
+    apply_method,
+    assess,
+    compare,
+    integrate,
+    package_release,
+    validate,
+)
 from hth.restoration_summary import summary_lines
 
 
@@ -119,6 +127,22 @@ class RestorationNormalizationTests(unittest.TestCase):
                 result = apply_method(image, method)
                 self.assertEqual(result.shape, image.shape)
                 self.assertTrue(np.array_equal(result[:, :, 3], image[:, :, 3]))
+
+    def test_sparse_candidates_are_deterministically_split_across_both_partitions(self):
+        pages = [
+            {"global_ordinal": ordinal, "partition": "held-out", "measurement": {"decision": decision}}
+            for ordinal, decision in ((381, "correction-candidate"), (929, "correction-candidate"), (17, "review"))
+        ]
+        result = _balance_candidate_partitions(pages)
+        self.assertEqual(result["development_candidates"], 1)
+        self.assertEqual(result["held_out_candidates"], 1)
+        self.assertEqual(result["reassigned_candidates"], [{
+            "global_ordinal": 381,
+            "from": "held-out",
+            "to": "development",
+            "reason": "ensure-development-candidate",
+        }])
+        self.assertEqual(pages[2]["partition"], "held-out")
 
     def test_cbe_registry_and_human_summary_cover_all_eight_stages(self):
         scopes = {DENOISING_ASSESSMENT_SCOPE, DENOISING_METHOD_ASSESSMENT_SCOPE,

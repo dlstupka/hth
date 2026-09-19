@@ -14,6 +14,12 @@ Each family uses the same four-stage contract:
 4. **Integrate with CBE**, reproducing validated outputs, preserving all other
    pages, and publishing or auditing an immutable release.
 
+The normal ordinal partition remains stable for ordinary populations. If a
+sparse candidate set of at least two pages happens to land entirely on one
+side, assessment deterministically moves the lowest or highest candidate needed
+to guarantee both development and held-out evidence. Review and preservation
+routes are never moved, and partition balancing never relaxes a safety gate.
+
 ## Denoising and artifact suppression
 
 Assessment measures robust high-frequency noise, impulse deviation, edge

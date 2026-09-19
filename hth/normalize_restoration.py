@@ -196,11 +196,48 @@ def _pages(domain: str, collection: Path, manifest: dict[str, Any]):
     return rows
 
 
+def _balance_candidate_partitions(pages: list[dict[str, Any]]) -> dict[str, Any]:
+    """Guarantee usable development/held-out evidence when candidates permit it."""
+    candidates = [
+        page for page in pages
+        if page["measurement"]["decision"] == "correction-candidate"
+    ]
+    reassigned: list[dict[str, Any]] = []
+    if len(candidates) >= 2:
+        development = [page for page in candidates if page["partition"] == "development"]
+        held_out = [page for page in candidates if page["partition"] == "held-out"]
+        if not development:
+            selected = candidates[0]
+            selected["partition"] = "development"
+            reassigned.append({
+                "global_ordinal": selected["global_ordinal"],
+                "from": "held-out",
+                "to": "development",
+                "reason": "ensure-development-candidate",
+            })
+        elif not held_out:
+            selected = candidates[-1]
+            selected["partition"] = "held-out"
+            reassigned.append({
+                "global_ordinal": selected["global_ordinal"],
+                "from": "development",
+                "to": "held-out",
+                "reason": "ensure-held-out-candidate",
+            })
+    return {
+        "candidate_count": len(candidates),
+        "development_candidates": sum(page["partition"] == "development" for page in candidates),
+        "held_out_candidates": sum(page["partition"] == "held-out" for page in candidates),
+        "reassigned_candidates": reassigned,
+    }
+
+
 def assess(domain: str, collection: Path, upstream: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
     modulus, residue = int(config["partition"]["development_modulus"]), int(config["partition"]["development_residue"])
     pages = [{"global_ordinal": ordinal, "input_pixel_sha256": source["output_pixel_sha256"], "partition": "development" if ordinal % modulus == residue else "held-out", "measurement": measure(image, config)} for ordinal, source, image in _pages(domain, collection, upstream)]
+    partition = _balance_candidate_partitions(pages)
     counts = {name: sum(p["measurement"]["decision"] == name for p in pages) for name in ("correction-candidate", "preserve", "review")}
-    payload = {"schema_version": SCHEMA_VERSION, "domain": domain, "assessment_type": config["assessment_type"], "upstream_result_identity": upstream[DOMAINS[domain]["upstream_identity"]], "config": config, "aggregate": {"page_count": len(pages), **counts}, "pages": pages}
+    payload = {"schema_version": SCHEMA_VERSION, "domain": domain, "assessment_type": config["assessment_type"], "upstream_result_identity": upstream[DOMAINS[domain]["upstream_identity"]], "config": config, "aggregate": {"page_count": len(pages), **counts, **partition}, "pages": pages}
     payload["assessment_identity"] = canonical_hash(payload)
     return payload
 

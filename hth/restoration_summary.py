@@ -10,7 +10,7 @@ def summary_lines(stage: str, payload: dict[str, Any]) -> list[str]:
     title = "Denoising and artifact suppression" if domain == "denoising" else "Sharpening and detail enhancement"
     aggregate = payload.get("aggregate") or {}
     if stage == "assess":
-        return [f"## {title} assessment", "", f"- Pages evaluated: `{aggregate.get('page_count', 0)}`", f"- Correction candidates: `{aggregate.get('correction-candidate', 0)}`", f"- Preserve: `{aggregate.get('preserve', 0)}`", f"- Review: `{aggregate.get('review', 0)}`", "- Pipeline action: `all-pages-continue`", ""]
+        return [f"## {title} assessment", "", f"- Pages evaluated: `{aggregate.get('page_count', 0)}`", f"- Correction candidates: `{aggregate.get('correction-candidate', 0)}`", f"- Development candidates: `{aggregate.get('development_candidates', 0)}`", f"- Held-out candidates: `{aggregate.get('held_out_candidates', 0)}`", f"- Deterministic partition adjustments: `{len(aggregate.get('reassigned_candidates') or [])}`", f"- Preserve: `{aggregate.get('preserve', 0)}`", f"- Review: `{aggregate.get('review', 0)}`", "- Pipeline action: `all-pages-continue`", ""]
     if stage == "compare":
         lines = [f"## Bounded {domain} method comparison", "", f"- Development candidates: `{payload.get('candidate_count', 0)}`", f"- Globally safe methods: `{len(payload.get('globally_safe_methods') or [])}`", f"- Recommended method: `{payload.get('recommended_method_id') or 'none'}`", "", "| Method | Safe pages | Mean noise reduction | Mean detail gain | Mean detail correlation | Gate failures |", "|---|---:|---:|---:|---:|---|"]
         for method in (payload.get("config") or {}).get("methods") or []:
