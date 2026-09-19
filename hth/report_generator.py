@@ -11,6 +11,7 @@ from hth.calibration_report import (
     smoke_run_dirs,
 )
 from hth.optimizer_report import generate_optimizer_report, generate_optimizer_report_all
+from hth.normalization_summary_report import generate_full_normalization_summary
 
 __all__ = [
     "calibration_run_dirs",
@@ -18,6 +19,7 @@ __all__ = [
     "generate_calibration_manifest",
     "generate_optimizer_report",
     "generate_optimizer_report_all",
+    "generate_full_normalization_summary",
 ]
 
 
@@ -36,6 +38,14 @@ def parser() -> argparse.ArgumentParser:
     optimizer.add_argument("--results-root", type=Path, required=True)
     optimizer.add_argument("--detector", required=True)
     optimizer.add_argument("--output-dir", type=Path, required=True)
+    normalization = subcommands.add_parser("full-normalization-summary")
+    normalization.add_argument("--results-root", type=Path, required=True)
+    normalization.add_argument("--output", type=Path, required=True)
+    normalization.add_argument("--results-repository", default="")
+    normalization.add_argument("--results-commit", default="")
+    normalization.add_argument("--pipeline-repository", default="")
+    normalization.add_argument("--pipeline-commit", default="")
+    normalization.add_argument("--run-url", default="")
     return parser
 
 
@@ -49,6 +59,18 @@ def main(argv: list[str] | None = None) -> int:
             pipeline_repository=args.pipeline_repository,
             results_repository=args.results_repository,
             results_commit=args.results_commit,
+            run_url=args.run_url,
+        )
+        print(path)
+        return 0
+    if args.report == "full-normalization-summary":
+        path = generate_full_normalization_summary(
+            args.results_root,
+            args.output,
+            results_repository=args.results_repository,
+            results_commit=args.results_commit,
+            pipeline_repository=args.pipeline_repository,
+            pipeline_commit=args.pipeline_commit,
             run_url=args.run_url,
         )
         print(path)

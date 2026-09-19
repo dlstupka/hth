@@ -191,6 +191,11 @@ class NormalizationCanonicalEvidenceCoverageTests(unittest.TestCase):
         self.assertIn("$MIRROR_REPOSITORY", block)
         self.assertIn("$EVIDENCE_CACHE_REPOSITORY", block)
         self.assertIn("--repository-root hth-pipeline", block)
+        self.assertIn("python -m hth.report_generator full-normalization-summary", block)
+        self.assertIn("reports/full-normalization-summary.md", block)
+        self.assertIn("Publish canonical full normalization summary", block)
+        self.assertIn("hth/write_action_summary.py", block)
+        self.assertNotIn('--github-summary "$GITHUB_STEP_SUMMARY"', block)
         self.assertIn("Cleanup action: `none`", (ROOT / "hth/resource_lifecycle.py").read_text(encoding="utf-8"))
 
     def test_orchestrator_propagates_one_cbe_policy_to_every_reusable_stage(self) -> None:

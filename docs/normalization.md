@@ -233,3 +233,15 @@ unreferenced inventoried releases as cleanup eligible. Learned-evidence cache
 releases are labeled but remain protected until their own utilization ledger
 can prove cleanup eligibility. The report records eligibility; it does not
 perform cleanup.
+
+The same final audit job renders and persists
+`reports/full-normalization-summary.md` from the exact results snapshot. The
+normalization build appends that persisted file to its Actions summary; the
+manual `HTH report` workflow's `full-normalization-summary` choice uses the
+same `hth.report_generator` command and renderer. The canonical sections cover
+the seven transformation outcomes, every authoritative normalization CBE
+scope, source-release utilization, and the resource-lifecycle ledger. Missing
+or malformed durable inputs produce an explicit `INCOMPLETE` report rather
+than inferred success. Recommendations appear only when the evidence supports
+a specific action, and neither reporting path recomputes pixels or performs
+cleanup.

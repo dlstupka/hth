@@ -14,8 +14,9 @@ on:
         options:
           - detector-calibration-manifest
           - execution-optimizer
+          - full-normalization-summary
       algorithm:
-        description: Detector for execution-optimizer report; choose all for the accumulated optimizer summary; ignored by calibration manifest
+        description: Detector for execution-optimizer report; choose all for the accumulated optimizer summary; ignored by calibration and normalization reports
         required: true
         default: all
         type: choice

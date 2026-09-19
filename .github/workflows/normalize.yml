@@ -831,12 +831,13 @@ jobs:
             --release-inventory "$RUNNER_TEMP/release-inventory.json" \
             --default-release-repository "$RESULTS_REPOSITORY" \
             --repository-root hth-pipeline \
-            --output "$RUNNER_TEMP/resource-lifecycle.json" \
-            --github-summary "$GITHUB_STEP_SUMMARY"
+            --output "$RUNNER_TEMP/resource-lifecycle.json"
 
       - name: Persist resource utilization and cleanup eligibility
         shell: bash
-        env: {PYTHONPATH: hth-pipeline}
+        env:
+          PYTHONPATH: hth-pipeline
+          HTH_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           source hth-pipeline/tools/hardened-persistence.sh
@@ -844,15 +845,35 @@ jobs:
           git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           apply_resource_lifecycle() {
             mkdir -p results-repo/metadata
+            mkdir -p results-repo/reports
             python -m hth.resource_lifecycle \
               --results-root results-repo \
               --release-inventory "$RUNNER_TEMP/release-inventory.json" \
               --default-release-repository "$RESULTS_REPOSITORY" \
               --repository-root hth-pipeline \
               --output results-repo/metadata/resource-lifecycle.json
-            hth_results_stage results-repo metadata/resource-lifecycle.json
+            results_commit="$(git -C results-repo rev-parse HEAD)"
+            python -m hth.report_generator full-normalization-summary \
+              --results-root results-repo \
+              --output results-repo/reports/full-normalization-summary.md \
+              --results-repository "$RESULTS_REPOSITORY" \
+              --results-commit "$results_commit" \
+              --pipeline-repository "${{ github.repository }}" \
+              --pipeline-commit "${{ github.sha }}" \
+              --run-url "$HTH_RUN_URL"
+            hth_results_stage results-repo \
+              metadata/resource-lifecycle.json \
+              reports/full-normalization-summary.md
           }
           hth_hardened_persist results-repo main \
             "Record normalization resource lifecycle $GITHUB_RUN_ID" \
             apply_resource_lifecycle \
             "Normalization resource lifecycle publication"
+
+      - name: Publish canonical full normalization summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python hth-pipeline/hth/write_action_summary.py \
+            results-repo/reports/full-normalization-summary.md \
+            "$GITHUB_STEP_SUMMARY"

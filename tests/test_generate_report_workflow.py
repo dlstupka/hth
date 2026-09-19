@@ -16,6 +16,7 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertNotIn("push:", text)
         self.assertIn("detector-calibration-manifest", text)
         self.assertIn("execution-optimizer", text)
+        self.assertIn("full-normalization-summary", text)
         self.assertIn("default: all", text)
         self.assertIn("          - all", text)
         self.assertIn("default: github-hosted", text)
@@ -63,6 +64,7 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertLess(publish_pos, summary_pos)
         summary_step = text[summary_pos:]
         self.assertIn("detector-calibration-manifest.md", summary_step)
+        self.assertIn("full-normalization-summary.md", summary_step)
         self.assertIn("python -c", summary_step)
         self.assertIn("RESULTS_COMMIT=", summary_step)
         self.assertIn("/{results_commit}/execution-optimizer/", summary_step)
@@ -70,8 +72,8 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertIn("re.sub", summary_step)
         optimizer_summary_tail = summary_step.split('"$RESULTS_COMMIT"', 1)[1]
         self.assertTrue(
-            optimizer_summary_tail.lstrip().startswith("fi"),
-            "report-summary detector/optimizer conditional must be closed",
+            optimizer_summary_tail.lstrip().startswith('elif [[ "${{ inputs.report_type }}" == "full-normalization-summary" ]]'),
+            "report-summary optimizer branch must flow into the normalization-summary branch",
         )
 
     def test_core_report_publish_retries_concurrent_results_updates_with_regeneration(self) -> None:
@@ -86,6 +88,13 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         publish_step = text.split("- name: Publish regenerated report", 1)[1]
         self.assertIn('cp -a "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/."', publish_step)
         self.assertIn('hth_results_stage results-repo "execution-optimizer/${{ inputs.report_algorithm }}"', publish_step)
+
+    def test_core_generates_and_publishes_full_normalization_summary(self) -> None:
+        text = CORE.read_text(encoding="utf-8")
+        self.assertIn("python -m hth.report_generator full-normalization-summary", text)
+        self.assertIn("--pipeline-commit \"${{ github.sha }}\"", text)
+        self.assertIn("reports/full-normalization-summary.md", text)
+        self.assertIn("generated-report/full-normalization-summary.md \"$GITHUB_STEP_SUMMARY\"", text)
 
 
 if __name__ == "__main__":

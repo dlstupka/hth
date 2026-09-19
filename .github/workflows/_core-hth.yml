@@ -66,7 +66,7 @@ on:
         default: "github-hosted"
       # END GENERATED RUNNER TARGET INPUT
       report_type:
-        description: "Report to regenerate when mode is report"
+        description: "Report to regenerate: detector calibration, execution optimizer, or full normalization audit summary"
         required: false
         type: string
         default: "detector-calibration-manifest"
@@ -1518,6 +1518,15 @@ jobs:
               --results-root results-repo \
               --detector "${{ inputs.report_algorithm }}" \
               --output-dir "generated-report/execution-optimizer/${{ inputs.report_algorithm }}"
+          elif [[ "${{ inputs.report_type }}" == "full-normalization-summary" ]]; then
+            python -m hth.report_generator full-normalization-summary \
+              --results-root results-repo \
+              --output generated-report/full-normalization-summary.md \
+              --results-repository "$RESULTS_REPOSITORY" \
+              --results-commit "$RESULTS_COMMIT" \
+              --pipeline-repository "${{ github.repository }}" \
+              --pipeline-commit "${{ github.sha }}" \
+              --run-url "$HTH_RUN_URL"
           else
             echo "::error::Unsupported report type: ${{ inputs.report_type }}"
             exit 1
@@ -1560,7 +1569,7 @@ jobs:
               mkdir -p results-repo/reports
               cp generated-report/detector-calibration-manifest.md results-repo/reports/detector-calibration-manifest.md
               hth_results_stage results-repo reports/detector-calibration-manifest.md
-            else
+            elif [[ "${{ inputs.report_type }}" == "execution-optimizer" ]]; then
               python -m hth.report_generator execution-optimizer \
                 --results-root results-repo \
                 --detector "${{ inputs.report_algorithm }}" \
@@ -1570,6 +1579,21 @@ jobs:
               cp -a "generated-report/execution-optimizer/${{ inputs.report_algorithm }}/." \
                 "results-repo/execution-optimizer/${{ inputs.report_algorithm }}/"
               hth_results_stage results-repo "execution-optimizer/${{ inputs.report_algorithm }}"
+            elif [[ "${{ inputs.report_type }}" == "full-normalization-summary" ]]; then
+              python -m hth.report_generator full-normalization-summary \
+                --results-root results-repo \
+                --output generated-report/full-normalization-summary.md \
+                --results-repository "$RESULTS_REPOSITORY" \
+                --results-commit "$results_commit" \
+                --pipeline-repository "${{ github.repository }}" \
+                --pipeline-commit "${{ github.sha }}" \
+                --run-url "$HTH_RUN_URL"
+              mkdir -p results-repo/reports
+              cp generated-report/full-normalization-summary.md results-repo/reports/full-normalization-summary.md
+              hth_results_stage results-repo reports/full-normalization-summary.md
+            else
+              echo "::error::Unsupported report type: ${{ inputs.report_type }}"
+              return 1
             fi
           }
 
@@ -1587,7 +1611,7 @@ jobs:
           set -euo pipefail
           if [[ "${{ inputs.report_type }}" == "detector-calibration-manifest" ]]; then
             python hth-pipeline/hth/write_action_summary.py generated-report/detector-calibration-manifest.md "$GITHUB_STEP_SUMMARY"
-          else
+          elif [[ "${{ inputs.report_type }}" == "execution-optimizer" ]]; then
             # Pin optimizer profile images to the exact results commit that was
             # just published. raw.githubusercontent.com branch refs can lag the
             # push briefly; the first branch-URL fetch may therefore cache the
@@ -1599,6 +1623,11 @@ jobs:
               "$RESULTS_REPOSITORY" \
               "${{ inputs.report_algorithm }}" \
               "$RESULTS_COMMIT"
+          elif [[ "${{ inputs.report_type }}" == "full-normalization-summary" ]]; then
+            python hth-pipeline/hth/write_action_summary.py generated-report/full-normalization-summary.md "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::Unsupported report type: ${{ inputs.report_type }}"
+            exit 1
           fi
 
       - name: Assemble report research artifact
@@ -1639,8 +1668,9 @@ jobs:
 
           This artifact accompanies the GitHub Actions report summary. It contains the
           generated report, the frozen Golden Set identity/provenance, and persisted
-          calibration/execution intelligence needed to research detector calibration,
-          runtime, parallelism, optimizer, scheduling, and source provenance.
+          calibration/execution intelligence and normalization audit evidence needed to
+          research detector calibration, runtime, parallelism, optimizer, scheduling,
+          canonical build reuse, resource lifecycle, and source provenance.
 
           Individual detector regression/debug/verbose logging is intentionally excluded;
           that evidence remains part of detector-specific research artifacts.

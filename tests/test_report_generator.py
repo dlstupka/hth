@@ -5,8 +5,10 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from hth.report_generator import calibration_run_dirs, smoke_run_dirs, generate_calibration_manifest, generate_optimizer_report, generate_optimizer_report_all
+from hth.report_generator import calibration_run_dirs, smoke_run_dirs, generate_calibration_manifest, generate_full_normalization_summary, generate_optimizer_report, generate_optimizer_report_all
+from hth.normalization_summary_report import TRANSFORMATION_MANIFESTS
 
 
 class ReportGeneratorTests(unittest.TestCase):
@@ -18,6 +20,63 @@ class ReportGeneratorTests(unittest.TestCase):
             f"### Execution optimizer summary\n\nDetector: `{detector}`  \nOptimizer run: **{run_id}** — this table contains only shapes completed in this execution.\n",
             encoding="utf-8",
         )
+
+    def test_full_normalization_summary_reports_incomplete_durable_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / "report.md"
+            generate_full_normalization_summary(
+                root,
+                output,
+                results_repository="owner/results",
+                results_commit="a" * 40,
+                pipeline_repository="owner/hth",
+                pipeline_commit="b" * 40,
+                run_url="https://github.com/owner/hth/actions/runs/1",
+            )
+            report = output.read_text(encoding="utf-8")
+            self.assertIn("Status: **INCOMPLETE**", report)
+            self.assertIn("## Engineering recommendations", report)
+            self.assertIn("do not infer completion from workflow success alone", report)
+            self.assertIn(
+                f"https://github.com/owner/hth/blob/{'b' * 40}/docs/normalization.md",
+                report,
+            )
+            self.assertIn("No normalization pixels or domain results were recomputed", report)
+
+    def test_full_normalization_summary_omits_generic_recommendations_for_healthy_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for index, (name, relative, identity_key) in enumerate(TRANSFORMATION_MANIFESTS):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps({
+                    "status": "complete",
+                    "method": {"id": f"method-{index}"},
+                    "aggregate": {"page_count": 10, "corrected_pages": 1, "preserved_pages": 9},
+                    identity_key: f"result-{index}",
+                }), encoding="utf-8")
+            lifecycle = root / "metadata" / "resource-lifecycle.json"
+            lifecycle.parent.mkdir(parents=True)
+            lifecycle.write_text(json.dumps({
+                "report_type": "canonical-resource-lifecycle",
+                "resource_state_identity": "resource-state",
+                "summary": {"build_records": 29, "cache_elements": 29, "dirty_cache_elements": 0,
+                            "cleanup_eligible_cache_elements": 0, "release_elements": 7,
+                            "dirty_release_elements": 0, "cleanup_eligible_release_elements": 0},
+                "release_elements": [],
+            }), encoding="utf-8")
+            store = {"authoritative_identity": "build", "records": {"build": {
+                "execution": {"activity": "REUSED"},
+                "canonical_result": {"identity": "result", "pages": [{}] * 10},
+                "effective_inputs": {"source": {"repository": "owner/results", "release": "HTH-CURRENT"}},
+            }}}
+            with patch("hth.normalization_summary_report.load_evidence_store", return_value=store):
+                generate_full_normalization_summary(root, root / "report.md")
+            report = (root / "report.md").read_text(encoding="utf-8")
+            self.assertIn("Status: **COMPLETE**", report)
+            self.assertNotIn("## Engineering recommendations", report)
+            self.assertIn("## Engineering reference", report)
 
     def test_calibration_manifest_resolves_best_record_per_detector(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
