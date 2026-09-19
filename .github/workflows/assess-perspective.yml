@@ -32,6 +32,7 @@ on:
     inputs:
       runner_target: {required: true, type: string}
       artifact_retention_days: {required: true, type: number}
+      canonical_build_policy: {required: false, type: string, default: auto}
     secrets:
       HTH_RESULTS_TOKEN: {required: true}
       HTH_SOURCE_TOKEN: {required: false}
@@ -142,6 +143,7 @@ jobs:
           if not source.get("repository") or not source.get("release") or len(str(source.get("release_manifest_sha256") or "")) != 64:
               raise SystemExit("Canonical preprocess evidence has incomplete source provenance")
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+              handle.write(f"normalization_effective_identity={identity}\n")
               handle.write(f"normalization_result_identity={record['canonical_result']['identity']}\n")
               handle.write(f"source_repository={source['repository']}\n")
               handle.write(f"source_release={source['release']}\n")
@@ -160,8 +162,64 @@ jobs:
             --golden-set "$GOLDEN_SET_CONFIG" \
             --output "$RUNNER_TEMP/perspective-sample.json"
 
+      - name: Assemble perspective effective-input contract
+        id: contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_root="$RUNNER_TEMP/perspective-effective-inputs"
+          rm -rf "$source_root"
+          mkdir -p "$source_root"
+          cp results-repo/normalization/normalization-manifest.json "$source_root/"
+          cp results-repo/metadata/image_manifest.json "$source_root/"
+          cp "$RUNNER_TEMP/perspective-sample.json" "$source_root/sample-plan.json"
+          echo "source_root=$source_root" >> "$GITHUB_OUTPUT"
+          echo "results_ref=$(git -C results-repo rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate perspective Canonical Build Evidence
+        id: cbe
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          python -m hth.canonical_build_evidence prepare \
+            --scope hth-perspective-assessment \
+            --policy "${{ inputs.canonical_build_policy || 'auto' }}" \
+            --contract-version 1 \
+            --mode diagnostic-evidence \
+            --operation residual-perspective-assessment \
+            --repository-root hth-pipeline \
+            --source-root "${{ steps.contract.outputs.source_root }}" \
+            --source-repository "$RESULTS_REPOSITORY" \
+            --source-release "${{ steps.provenance.outputs.normalization_effective_identity }}" \
+            --source-manifest-sha256 "${{ steps.provenance.outputs.normalization_result_identity }}" \
+            --source-commit "${{ steps.provenance.outputs.normalization_result_identity }}" \
+            --config "$ASSESSMENT_CONFIG" \
+            --config "$GOLDEN_SET_CONFIG" \
+            --implementation hth-pipeline/hth/assess_perspective.py \
+            --implementation hth-pipeline/hth/assess_orientation_deskew.py \
+            --runtime-contract hth-pipeline/requirements.txt \
+            --runtime-contract hth-pipeline/.github/actions/setup-hth-python/action.yml \
+            --runtime-package numpy \
+            --runtime-package opencv-python-headless \
+            --results-root results-repo \
+            --evidence results-repo/normalization/perspective/canonical-build-evidence.json \
+            --plan "$RUNNER_TEMP/perspective-cbe-plan.json" \
+            --pipeline-repository "$GITHUB_REPOSITORY" \
+            --pipeline-commit "$GITHUB_SHA" \
+            --results-repository "$RESULTS_REPOSITORY" \
+            --results-ref "${{ steps.contract.outputs.results_ref }}" \
+            --workflow-run-id "$GITHUB_RUN_ID" \
+            --runner-name "$RUNNER_NAME" \
+            --runner-environment "${{ runner.environment }}" \
+            --runner-os "$RUNNER_OS" \
+            --runner-arch "$RUNNER_ARCH" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
       - name: Download immutable source release
         id: source_release
+        if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         env:
           HTH_SOURCE_TOKEN: ${{ secrets.HTH_SOURCE_TOKEN || github.token }}
@@ -176,12 +234,14 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
       - name: Verify immutable source release
+        if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         run: |
           set -euo pipefail
           [[ "${{ steps.source_release.outputs.manifest_sha256 }}" == "${{ steps.provenance.outputs.source_manifest_sha256 }}" ]]
 
       - name: Reconstruct and prove sampled canonical normalized pages
+        if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
@@ -196,6 +256,7 @@ jobs:
             --output "$RUNNER_TEMP/perspective-materialized"
 
       - name: Measure independent perspective evidence
+        if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
@@ -213,6 +274,7 @@ jobs:
           cp "$RUNNER_TEMP/perspective-materialized/materialization-evidence.json" perspective-assessment/materialization-evidence.json
 
       - name: Prepare perspective skip/apply recommendation
+        if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
@@ -223,9 +285,24 @@ jobs:
             --output perspective-assessment/perspective-policy.json \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
+      - name: Finalize perspective Canonical Build Evidence
+        if: steps.cbe.outputs.decision == 'execute'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          python -m hth.canonical_build_evidence finalize \
+            --plan "$RUNNER_TEMP/perspective-cbe-plan.json" \
+            --output-root perspective-assessment \
+            --evidence-store results-repo/normalization/perspective/canonical-build-evidence.json \
+            --evidence-output perspective-assessment/canonical-build-evidence.json \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
       - name: Preserve compact perspective evidence
         id: publish
+        if: steps.cbe.outputs.decision == 'execute'
         shell: bash
+        env: {PYTHONPATH: hth-pipeline}
         run: |
           set -euo pipefail
           source hth-pipeline/tools/hardened-persistence.sh
@@ -235,8 +312,14 @@ jobs:
           rm -rf "$payload"
           mkdir -p "$payload"
           cp perspective-assessment/{assessment.json,sample-plan.json,materialization-evidence.json,recommendation.md,perspective-policy.json} "$payload/"
+          cp perspective-assessment/canonical-build-evidence.json "$RUNNER_TEMP/perspective-cbe-incoming.json"
 
           apply_perspective_assessment() {
+            python -m hth.canonical_build_evidence merge \
+              --scope hth-perspective-assessment \
+              --base results-repo/normalization/perspective/canonical-build-evidence.json \
+              --incoming "$RUNNER_TEMP/perspective-cbe-incoming.json" \
+              --output "$payload/canonical-build-evidence.json"
             mkdir -p results-repo/normalization/perspective
             cp "$payload"/* results-repo/normalization/perspective/
             cp "$payload/perspective-policy.json" results-repo/normalization/perspective-policy.json
@@ -249,6 +332,7 @@ jobs:
           echo "results_commit=$HTH_PERSIST_COMMIT" >> "$GITHUB_OUTPUT"
 
       - name: Upload perspective assessment
+        if: steps.cbe.outputs.decision == 'execute'
         uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
         with:
           name: hth-perspective-assessment-${{ github.run_number }}

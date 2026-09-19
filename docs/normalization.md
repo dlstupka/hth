@@ -193,10 +193,43 @@ builds or reuses canonical geometric normalization, assesses perspective, runs
 the complete photometric method-selection and integration sequence, then runs
 the contrast/tonal and chromatic four-stage families, denoising/artifact
 suppression, sharpening/detail enhancement, and final binarization. CBE-enabled
-apply stages reuse exact canonical results and audit their immutable releases.
+diagnostic and apply stages reuse exact canonical results and audit their
+immutable releases. Crop/framing, orientation/deskew, perspective, and all
+three pre-integration photometric stages establish the same identity-keyed CBE
+records as the later normalization families. Their reuse decision is made from
+compact authoritative manifests, policies, detector selection, configuration,
+implementation, and runtime identities before any source-image download,
+materialization, detector inference, or page evaluation.
+
+This is a development contract, not a legacy-evidence adapter. The first
+`auto` run after a stage adopts CBE executes once to seed its current contract;
+older artifacts without that exact identity are not promoted into reusable
+evidence. Subsequent unchanged runs may reuse the seeded result, and `audit`
+requires that exact persisted evidence to exist.
 
 The `start_stage` menu supports development and recovery without creating an
 alternative production path. Selecting a stage skips earlier jobs and runs that
 stage plus every downstream stage. Skipped prerequisites must already have
 valid persisted evidence; missing or incompatible evidence fails closed. The
-individual stage workflows remain available for focused diagnosis.
+individual stage workflows remain available for focused diagnosis. A skipped
+dependency is accepted only when the selected `start_stage` intentionally
+enters at the dependent stage; a failure-caused skip stops the downstream
+graph instead of silently consuming an older result.
+
+The optional complete normalized-image artifact is disabled by default because
+requesting an ephemeral copy necessarily forces canonical normalization to
+execute even when its durable evidence is exact. Enable `upload_full_artifact`
+only when that review artifact is itself required. Canonical normalization
+publication overlays its own rebuilt artifacts while preserving the complete
+identity-keyed evidence history for every downstream stage.
+
+After a successful complete graph, the orchestrator inventories durable result,
+model-mirror, and release-backed learned-evidence-cache releases and publishes
+`metadata/resource-lifecycle.json`. The report connects
+every CBE build to its evidence-cache lookup and immutable release use, marks
+superseded cache/release elements dirty, protects anything still referenced by
+authoritative or historical audit evidence, and identifies only truly
+unreferenced inventoried releases as cleanup eligible. Learned-evidence cache
+releases are labeled but remain protected until their own utilization ledger
+can prove cleanup eligibility. The report records eligibility; it does not
+perform cleanup.

@@ -32,6 +32,7 @@ on:
     inputs:
       runner_target: {required: true, type: string}
       artifact_retention_days: {required: true, type: number}
+      canonical_build_policy: {required: false, type: string, default: auto}
     secrets:
       HTH_RESULTS_TOKEN: {required: true}
 
@@ -92,7 +93,7 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Checkout calibration intelligence
+      - name: Checkout compact calibration and prior crop/framing evidence
         uses: actions/checkout@v6
         with:
           repository: ${{ env.RESULTS_REPOSITORY }}
@@ -103,9 +104,10 @@ jobs:
             calibration-index.json
             indexes/parameter-provenance-index.json
             parameter-provenance-index.json
-            source-documents
+            /source-documents/*/golden-sets/*/*/calibrations/*/*/parameter-provenance.json
+            /normalization/crop-framing/
           sparse-checkout-cone-mode: false
-          persist-credentials: false
+          persist-credentials: true
           token: ${{ secrets.HTH_RESULTS_TOKEN || github.token }}
 
       - name: Set up canonical HTH Python runtime
@@ -127,6 +129,7 @@ jobs:
           fi
           results_ref="$(git -C results-repo rev-parse HEAD)"
           python -m hth.resolve_document_detector \
+            --index-only \
             --index "$calibration_index" \
             --golden-set-id "$GOLDEN_SET_ID" \
             --golden-set-freeze-root hth-pipeline/config/golden_sets \
@@ -140,7 +143,70 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
+      - name: Assemble crop/framing effective-input contract
+        id: contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_root="$RUNNER_TEMP/crop-framing-effective-inputs"
+          rm -rf "$source_root"
+          mkdir -p "$source_root"
+          cp "$RUNNER_TEMP/preferred-document-detector.json" "$source_root/detector-selection.json"
+          cp "$GOLDEN_SET_CONFIG" "$source_root/golden-set.json"
+          cp "$GOLDEN_SET_FREEZE" "$source_root/golden-set-freeze.json"
+          results_ref="$(git -C results-repo rev-parse HEAD)"
+          {
+            echo "source_root=$source_root"
+            echo "results_ref=$results_ref"
+            echo "evidence=results-repo/normalization/crop-framing/canonical-build-evidence.json"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate crop/framing Canonical Build Evidence
+        id: cbe
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          python -m hth.canonical_build_evidence prepare \
+            --scope hth-crop-framing-assessment \
+            --policy "${{ inputs.canonical_build_policy || 'auto' }}" \
+            --contract-version 1 \
+            --mode diagnostic-evidence \
+            --operation approved-detector-crop-framing-assessment \
+            --repository-root hth-pipeline \
+            --source-root "${{ steps.contract.outputs.source_root }}" \
+            --source-repository "$GOLDEN_SET_REPOSITORY" \
+            --source-release "$GOLDEN_SET_RELEASE" \
+            --source-manifest-sha256 "${{ steps.detector.outputs.golden_set_sha256 }}" \
+            --source-commit "${{ steps.detector.outputs.parameter_identity_sha256 }}" \
+            --config "$GOLDEN_SET_CONFIG" \
+            --config "$GOLDEN_SET_FREEZE" \
+            --implementation hth-pipeline/hth/assess_crop_framing.py \
+            --implementation hth-pipeline/hth/resolve_document_detector.py \
+            --implementation hth-pipeline/hth/run_document_detector.py \
+            --selection "$RUNNER_TEMP/preferred-document-detector.json" \
+            --detector-implementation-root hth-pipeline/hth/geometry \
+            --runtime-contract hth-pipeline/requirements.txt \
+            --runtime-contract hth-pipeline/.github/actions/setup-hth-python/action.yml \
+            --runtime-package numpy \
+            --runtime-package opencv-python-headless \
+            --results-root results-repo \
+            --evidence "${{ steps.contract.outputs.evidence }}" \
+            --plan "$RUNNER_TEMP/crop-framing-cbe-plan.json" \
+            --pipeline-repository "$GITHUB_REPOSITORY" \
+            --pipeline-commit "$GITHUB_SHA" \
+            --results-repository "$RESULTS_REPOSITORY" \
+            --results-ref "${{ steps.contract.outputs.results_ref }}" \
+            --workflow-run-id "$GITHUB_RUN_ID" \
+            --runner-name "$RUNNER_NAME" \
+            --runner-environment "${{ runner.environment }}" \
+            --runner-os "$RUNNER_OS" \
+            --runner-arch "$RUNNER_ARCH" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
       - name: Set up approved detector runtime
+        if: steps.cbe.outputs.decision == 'execute'
         uses: ./hth-pipeline/.github/actions/setup-hth-managed-runtime
         with:
           pipeline-path: hth-pipeline
@@ -149,6 +215,7 @@ jobs:
 
       - name: Materialize immutable GS0002 images
         id: golden_images
+        if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         env:
           HTH_SOURCE_TOKEN: ${{ secrets.HTH_SOURCE_TOKEN || github.token }}
@@ -163,6 +230,7 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
       - name: Prepare GS0002 detector inputs
+        if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
@@ -175,6 +243,7 @@ jobs:
             --analysis "$RUNNER_TEMP/gs0002-analysis.json"
 
       - name: Run approved detector over GS0002
+        if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
@@ -190,6 +259,7 @@ jobs:
             --overwrite
 
       - name: Generate crop and framing assessment
+        if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
@@ -204,7 +274,52 @@ jobs:
           cp "$RUNNER_TEMP/preferred-document-detector.json" crop-framing-assessment/detector-selection.json
           cp "$RUNNER_TEMP/gs0002-analysis-with-detector.json" crop-framing-assessment/geometry-evidence.json
 
+      - name: Finalize crop/framing Canonical Build Evidence
+        if: steps.cbe.outputs.decision == 'execute'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          python -m hth.canonical_build_evidence finalize \
+            --plan "$RUNNER_TEMP/crop-framing-cbe-plan.json" \
+            --output-root crop-framing-assessment \
+            --evidence-store "${{ steps.contract.outputs.evidence }}" \
+            --evidence-output crop-framing-assessment/canonical-build-evidence.json \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish compact crop/framing evidence
+        if: steps.cbe.outputs.decision == 'execute'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          source hth-pipeline/tools/hardened-persistence.sh
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          payload="$RUNNER_TEMP/crop-framing-publication"
+          incoming="$RUNNER_TEMP/crop-framing-cbe-incoming.json"
+          rm -rf "$payload"
+          mkdir -p "$payload"
+          cp crop-framing-assessment/{assessment.json,detector-selection.json,geometry-evidence.json} "$payload/"
+          cp crop-framing-assessment/canonical-build-evidence.json "$incoming"
+          apply_crop_framing_evidence() {
+            python -m hth.canonical_build_evidence merge \
+              --scope hth-crop-framing-assessment \
+              --base results-repo/normalization/crop-framing/canonical-build-evidence.json \
+              --incoming "$incoming" \
+              --output "$payload/canonical-build-evidence.json"
+            rm -rf results-repo/normalization/crop-framing
+            mkdir -p results-repo/normalization/crop-framing
+            cp "$payload"/* results-repo/normalization/crop-framing/
+            hth_results_stage results-repo normalization/crop-framing
+          }
+          hth_hardened_persist results-repo main \
+            "Publish crop/framing canonical evidence $GITHUB_RUN_ID" \
+            apply_crop_framing_evidence \
+            "Crop/framing evidence publication"
+
       - name: Upload crop and framing assessment
+        if: steps.cbe.outputs.decision == 'execute'
         uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
         with:
           name: hth-gs0002-crop-framing-${{ github.run_number }}

@@ -26,6 +26,7 @@ from hth.markdown_links import code_link, github_blob_url
 SCHEMA_VERSION = "1.0"
 EVIDENCE_TYPE = "canonical-build-evidence"
 STORE_TYPE = "canonical-build-evidence-store"
+RESOURCE_PROVENANCE_VERSION = "1"
 PREPROCESS_SCOPE = "hth-preprocess"
 NORMALIZATION_SCOPE = "hth-normalization"
 PHOTOMETRIC_INTEGRATION_SCOPE = "hth-photometric-integration"
@@ -49,7 +50,19 @@ BINARIZATION_ASSESSMENT_SCOPE = "hth-binarization-assessment"
 BINARIZATION_METHOD_ASSESSMENT_SCOPE = "hth-binarization-method-assessment"
 BINARIZATION_VALIDATION_SCOPE = "hth-binarization-validation"
 BINARIZATION_INTEGRATION_SCOPE = "hth-binarization-integration"
+CROP_FRAMING_ASSESSMENT_SCOPE = "hth-crop-framing-assessment"
+ORIENTATION_DESKEW_ASSESSMENT_SCOPE = "hth-orientation-deskew-assessment"
+PERSPECTIVE_ASSESSMENT_SCOPE = "hth-perspective-assessment"
+PHOTOMETRIC_ASSESSMENT_SCOPE = "hth-photometric-assessment"
+PHOTOMETRIC_METHOD_ASSESSMENT_SCOPE = "hth-photometric-method-assessment"
+PHOTOMETRIC_VALIDATION_SCOPE = "hth-photometric-validation"
 COMPACT_EVIDENCE_SCOPES = frozenset({
+    CROP_FRAMING_ASSESSMENT_SCOPE,
+    ORIENTATION_DESKEW_ASSESSMENT_SCOPE,
+    PERSPECTIVE_ASSESSMENT_SCOPE,
+    PHOTOMETRIC_ASSESSMENT_SCOPE,
+    PHOTOMETRIC_METHOD_ASSESSMENT_SCOPE,
+    PHOTOMETRIC_VALIDATION_SCOPE,
     TONAL_ASSESSMENT_SCOPE,
     TONAL_METHOD_ASSESSMENT_SCOPE,
     TONAL_VALIDATION_SCOPE,
@@ -251,6 +264,47 @@ SHARPENING_VALIDATION_ARTIFACTS = (ArtifactSpec("sharpening-validation", "valida
 BINARIZATION_ASSESSMENT_ARTIFACTS = (ArtifactSpec("binarization-assessment", "assessment.json", "normalization/binarization/assessment.json"),)
 BINARIZATION_METHOD_ASSESSMENT_ARTIFACTS = (ArtifactSpec("binarization-method-assessment", "assessment.json", "normalization/binarization-methods/assessment.json"),)
 BINARIZATION_VALIDATION_ARTIFACTS = (ArtifactSpec("binarization-validation", "validation.json", "normalization/binarization-validation/validation.json"),)
+CROP_FRAMING_ASSESSMENT_ARTIFACTS = (
+    ArtifactSpec("crop-framing-assessment", "assessment.json", "normalization/crop-framing/assessment.json"),
+    ArtifactSpec("crop-framing-detector-selection", "detector-selection.json", "normalization/crop-framing/detector-selection.json"),
+    ArtifactSpec("crop-framing-geometry-evidence", "geometry-evidence.json", "normalization/crop-framing/geometry-evidence.json"),
+)
+ORIENTATION_DESKEW_ASSESSMENT_ARTIFACTS = (
+    ArtifactSpec("orientation-deskew-assessment", "assessment.json", "normalization/orientation-deskew/assessment.json"),
+    ArtifactSpec("orientation-deskew-sample-plan", "sample-plan.json", "normalization/orientation-deskew/sample-plan.json"),
+    ArtifactSpec("orientation-deskew-materialization-evidence", "materialization-evidence.json", "normalization/orientation-deskew/materialization-evidence.json"),
+    ArtifactSpec("orientation-deskew-recommendation", "recommendation.md", "normalization/orientation-deskew/recommendation.md", "binary"),
+    ArtifactSpec("orientation-deskew-policy", "normalization-policy.json", "normalization/orientation-deskew/normalization-policy.json"),
+)
+PERSPECTIVE_ASSESSMENT_ARTIFACTS = (
+    ArtifactSpec("perspective-assessment", "assessment.json", "normalization/perspective/assessment.json"),
+    ArtifactSpec("perspective-sample-plan", "sample-plan.json", "normalization/perspective/sample-plan.json"),
+    ArtifactSpec("perspective-materialization-evidence", "materialization-evidence.json", "normalization/perspective/materialization-evidence.json"),
+    ArtifactSpec("perspective-recommendation", "recommendation.md", "normalization/perspective/recommendation.md", "binary"),
+    ArtifactSpec("perspective-policy", "perspective-policy.json", "normalization/perspective/perspective-policy.json"),
+)
+PHOTOMETRIC_ASSESSMENT_ARTIFACTS = (
+    ArtifactSpec("photometric-assessment", "assessment.json", "normalization/photometric/assessment.json"),
+    ArtifactSpec("photometric-sample-plan", "sample-plan.json", "normalization/photometric/sample-plan.json"),
+    ArtifactSpec("photometric-materialization-evidence", "materialization-evidence.json", "normalization/photometric/materialization-evidence.json"),
+    ArtifactSpec("photometric-recommendation", "recommendation.md", "normalization/photometric/recommendation.md", "binary"),
+    ArtifactSpec("photometric-policy", "photometric-policy.json", "normalization/photometric/photometric-policy.json"),
+)
+PHOTOMETRIC_METHOD_ASSESSMENT_ARTIFACTS = (
+    ArtifactSpec("photometric-method-assessment", "assessment.json", "normalization/photometric-methods/assessment.json"),
+    ArtifactSpec("photometric-method-assessment-csv", "assessment.csv", "normalization/photometric-methods/assessment.csv", "binary"),
+    ArtifactSpec("photometric-method-sample-plan", "sample-plan.json", "normalization/photometric-methods/sample-plan.json"),
+    ArtifactSpec("photometric-method-materialization-evidence", "materialization-evidence.json", "normalization/photometric-methods/materialization-evidence.json"),
+    ArtifactSpec("photometric-method-recommendation", "recommendation.md", "normalization/photometric-methods/recommendation.md", "binary"),
+    ArtifactSpec("photometric-method-policy", "photometric-method-policy.json", "normalization/photometric-methods/photometric-method-policy.json"),
+)
+PHOTOMETRIC_VALIDATION_ARTIFACTS = (
+    ArtifactSpec("photometric-validation", "validation.json", "normalization/photometric-validation/validation.json"),
+    ArtifactSpec("photometric-validation-csv", "validation.csv", "normalization/photometric-validation/validation.csv", "binary"),
+    ArtifactSpec("photometric-validation-sample-plan", "sample-plan.json", "normalization/photometric-validation/sample-plan.json"),
+    ArtifactSpec("photometric-validation-materialization-evidence", "materialization-evidence.json", "normalization/photometric-validation/materialization-evidence.json"),
+    ArtifactSpec("photometric-integration-policy", "photometric-integration-policy.json", "normalization/photometric-validation/photometric-integration-policy.json"),
+)
 
 SCOPE_ARTIFACT_PROFILES = {
     PREPROCESS_SCOPE: PREPROCESS_ARTIFACTS,
@@ -276,6 +330,12 @@ SCOPE_ARTIFACT_PROFILES = {
     BINARIZATION_METHOD_ASSESSMENT_SCOPE: BINARIZATION_METHOD_ASSESSMENT_ARTIFACTS,
     BINARIZATION_VALIDATION_SCOPE: BINARIZATION_VALIDATION_ARTIFACTS,
     BINARIZATION_INTEGRATION_SCOPE: BINARIZATION_INTEGRATION_ARTIFACTS,
+    CROP_FRAMING_ASSESSMENT_SCOPE: CROP_FRAMING_ASSESSMENT_ARTIFACTS,
+    ORIENTATION_DESKEW_ASSESSMENT_SCOPE: ORIENTATION_DESKEW_ASSESSMENT_ARTIFACTS,
+    PERSPECTIVE_ASSESSMENT_SCOPE: PERSPECTIVE_ASSESSMENT_ARTIFACTS,
+    PHOTOMETRIC_ASSESSMENT_SCOPE: PHOTOMETRIC_ASSESSMENT_ARTIFACTS,
+    PHOTOMETRIC_METHOD_ASSESSMENT_SCOPE: PHOTOMETRIC_METHOD_ASSESSMENT_ARTIFACTS,
+    PHOTOMETRIC_VALIDATION_SCOPE: PHOTOMETRIC_VALIDATION_ARTIFACTS,
 }
 
 SCOPE_EVIDENCE_PATHS = {
@@ -302,6 +362,12 @@ SCOPE_EVIDENCE_PATHS = {
     BINARIZATION_METHOD_ASSESSMENT_SCOPE: "normalization/binarization-methods/canonical-build-evidence.json",
     BINARIZATION_VALIDATION_SCOPE: "normalization/binarization-validation/canonical-build-evidence.json",
     BINARIZATION_INTEGRATION_SCOPE: "normalization/binarization-integration/canonical-build-evidence.json",
+    CROP_FRAMING_ASSESSMENT_SCOPE: "normalization/crop-framing/canonical-build-evidence.json",
+    ORIENTATION_DESKEW_ASSESSMENT_SCOPE: "normalization/orientation-deskew/canonical-build-evidence.json",
+    PERSPECTIVE_ASSESSMENT_SCOPE: "normalization/perspective/canonical-build-evidence.json",
+    PHOTOMETRIC_ASSESSMENT_SCOPE: "normalization/photometric/canonical-build-evidence.json",
+    PHOTOMETRIC_METHOD_ASSESSMENT_SCOPE: "normalization/photometric-methods/canonical-build-evidence.json",
+    PHOTOMETRIC_VALIDATION_SCOPE: "normalization/photometric-validation/canonical-build-evidence.json",
 }
 
 
@@ -570,6 +636,7 @@ def build_effective_inputs(args: argparse.Namespace) -> dict[str, Any]:
         "contract": {
             "name": args.scope,
             "version": args.contract_version,
+            "resource_provenance_version": RESOURCE_PROVENANCE_VERSION,
             "mode": args.mode,
             "image_limit": args.image_limit,
             "operations": list(args.operation),
@@ -634,6 +701,19 @@ def validate_evidence(payload: dict[str, Any], *, scope: str) -> None:
         raise EvidenceError("Persisted Canonical Build Evidence has no effective_inputs object")
     if payload.get("effective_build_identity") != canonical_hash(effective_inputs):
         raise EvidenceError("Persisted effective build identity does not match its input contract")
+    resource_utilization = payload.get("resource_utilization")
+    if resource_utilization is not None:
+        if (
+            not isinstance(resource_utilization, dict)
+            or resource_utilization.get("schema_version") != RESOURCE_PROVENANCE_VERSION
+        ):
+            raise EvidenceError("Persisted resource utilization has an unsupported schema")
+        cache = resource_utilization.get("canonical_evidence_cache")
+        releases = resource_utilization.get("immutable_releases")
+        if not isinstance(cache, dict) or cache.get("lookup_identity") != payload.get("effective_build_identity"):
+            raise EvidenceError("Persisted resource utilization has an invalid cache identity")
+        if not isinstance(releases, list) or not releases:
+            raise EvidenceError("Persisted resource utilization has no immutable release use")
     source = effective_inputs.get("source")
     if not isinstance(source, dict) or not _is_sha256(source.get("release_manifest_sha256")):
         raise EvidenceError("Persisted effective inputs have no valid source release-manifest SHA-256")
@@ -804,6 +884,36 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
     else:
         decision, activity, domain_result = "execute", "EXECUTED", "APPLY"
 
+    cache_lookup = "hit" if exact else "miss"
+    cache_action = {
+        "audit": "validated",
+        "reuse": "reused",
+        "execute": "verified-and-refreshed" if comparison_required else "populated",
+    }[decision]
+    resource_utilization = {
+        "schema_version": RESOURCE_PROVENANCE_VERSION,
+        "canonical_evidence_cache": {
+            "scope": args.scope,
+            "path": evidence_relative_path(args.scope),
+            "lookup_identity": identity,
+            "lookup": cache_lookup,
+            "action": cache_action,
+            "canonical_result_identity": (
+                incumbent["canonical_result"]["identity"]
+                if exact and incumbent is not None
+                else None
+            ),
+        },
+        "immutable_releases": [{
+            "role": "source",
+            "repository": args.source_repository,
+            "release": args.source_release,
+            "release_manifest_sha256": args.source_manifest_sha256.lower(),
+            "commit": args.source_commit,
+            "utilization": "consumed",
+        }],
+    }
+
     page_evaluations = []
     if decision in {"audit", "reuse"} and incumbent is not None:
         for page in incumbent["canonical_result"]["pages"]:
@@ -829,6 +939,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         ),
         "comparison_required": comparison_required,
         "artifact_required": args.artifact_required,
+        "resource_utilization": resource_utilization,
         "page_evaluations": page_evaluations,
         "execution": {
             "workflow_run_id": args.workflow_run_id,
@@ -863,6 +974,8 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         f"- Domain result: `{domain_result}`",
         f"- Decision: `{decision}`",
         f"- Pages marked unnecessary: `{len(page_evaluations)}`",
+        f"- Evidence cache: `{cache_lookup}` / `{cache_action}`",
+        f"- Source release utilized: `{args.source_repository}@{args.source_release}`",
         f"- Evidence: {code_link(evidence_relative, evidence_url)}",
     ]
     if decision in {"audit", "reuse"} and incumbent is not None:
@@ -1141,6 +1254,42 @@ def _compact_evidence_page_results(
     return pages
 
 
+def _crop_framing_assessment_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _compact_evidence_page_results(
+        output_root, "assessment.json", "crop and framing assessment", activity, domain_result, effective_build_identity
+    )
+
+
+def _orientation_deskew_assessment_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _compact_evidence_page_results(
+        output_root, "assessment.json", "orientation and deskew assessment", activity, domain_result, effective_build_identity
+    )
+
+
+def _perspective_assessment_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _compact_evidence_page_results(
+        output_root, "assessment.json", "perspective assessment", activity, domain_result, effective_build_identity
+    )
+
+
+def _photometric_assessment_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _compact_evidence_page_results(
+        output_root, "assessment.json", "photometric assessment", activity, domain_result, effective_build_identity
+    )
+
+
+def _photometric_method_assessment_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _compact_evidence_page_results(
+        output_root, "assessment.json", "photometric method assessment", activity, domain_result, effective_build_identity
+    )
+
+
+def _photometric_validation_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _compact_evidence_page_results(
+        output_root, "validation.json", "photometric validation", activity, domain_result, effective_build_identity
+    )
+
+
 def _restoration_integration_page_results(
     domain: str,
     output_root: Path,
@@ -1311,6 +1460,12 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
         BINARIZATION_METHOD_ASSESSMENT_SCOPE: _binarization_method_assessment_page_results,
         BINARIZATION_VALIDATION_SCOPE: _binarization_validation_page_results,
         BINARIZATION_INTEGRATION_SCOPE: _binarization_integration_page_results,
+        CROP_FRAMING_ASSESSMENT_SCOPE: _crop_framing_assessment_page_results,
+        ORIENTATION_DESKEW_ASSESSMENT_SCOPE: _orientation_deskew_assessment_page_results,
+        PERSPECTIVE_ASSESSMENT_SCOPE: _perspective_assessment_page_results,
+        PHOTOMETRIC_ASSESSMENT_SCOPE: _photometric_assessment_page_results,
+        PHOTOMETRIC_METHOD_ASSESSMENT_SCOPE: _photometric_method_assessment_page_results,
+        PHOTOMETRIC_VALIDATION_SCOPE: _photometric_validation_page_results,
     }
     registered = set(SCOPE_ARTIFACT_PROFILES)
     if set(SCOPE_EVIDENCE_PATHS) != registered or set(page_builders) != registered:
@@ -1334,6 +1489,7 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
         "status": "complete",
         "effective_build_identity": plan["effective_build_identity"],
         "effective_inputs": plan["effective_inputs"],
+        "resource_utilization": plan["resource_utilization"],
         "canonical_result": {
             "identity": result_identity,
             "artifacts": artifacts,

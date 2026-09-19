@@ -217,6 +217,12 @@ pixel-identical production result. New deterministic stages must not introduce
 an unconditional rebuild path or a stage-specific approximation of this
 contract.
 
+The full normalization orchestrator applies this contract to every diagnostic,
+validation, and integration stage. Expensive source restoration and image work
+must occur only after the stage proves execution is required. Explicit
+late-stage entry may consume validated persisted prerequisites; an upstream
+failure may not be reinterpreted as an intentional skip.
+
 Every human-facing durable or reusable release summary must use
 `hth.release_provenance_summary`. It displays the canonical result identity,
 the immutable release tag as a link to that release, release activity, and the
@@ -225,6 +231,35 @@ restore also identifies and links its authoritative release, asset, digest,
 and actual cache-resolution source. Release-backed cache reuse uses the same
 presentation so provenance never depends on whether a stage executed or reused
 an incumbent.
+
+Builds also publish deterministic cache/release liveness at
+`metadata/resource-lifecycle.json`. Lifecycle labels are orthogonal and must
+not be collapsed into a single word:
+
+- **Integrity:** `good`, `bad`, or `unknown`. `bad` means validation failed; it
+  never means merely old. Inventory-only releases remain `unknown` until an
+  identity or digest is proven.
+- **Lineage:** `current` is consumed or produced by authoritative CBE (or is a
+  mirror still declared by current code); `previous` is retained by historical
+  audit evidence; `superseded` is an unreferenced older member of a result
+  family that has a current member; and `unreferenced` has no known lineage.
+- **Publication:** `latest` or `not-latest` reproduces GitHub's publication
+  designation only. It is not a synonym for `current`, `good`, or safe to keep.
+- **Cleanup:** `clean`/`dirty` describes active lifecycle state, while
+  `cleanup_eligible` is a separate conservative decision. A dirty `previous`
+  release remains protected by audit provenance. `clean` requires proven-good,
+  current, non-draft state; `unknown` integrity is therefore dirty, not bad.
+  Only inventoried,
+  unreferenced or superseded elements without historical protection are
+  eligible. Builds report eligibility and never delete automatically.
+
+The same taxonomy applies to ordinary result releases, non-authoritative model
+mirror releases, and release-backed learned-evidence caches. A declared mirror
+is `current`; an undeclared inventoried mirror is `unreferenced` unless another
+recorded build reference protects it. Learned-evidence cache releases are
+inventoried and labeled, but normalization does not have cleanup authority over
+them: they remain ineligible until regression/optimization utilization evidence
+proves that no active or historical build needs them.
 
 ## Updating This Rulebook
 

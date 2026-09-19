@@ -528,6 +528,7 @@ def resolve_best_parameter_reference(
     detector: str,
     golden_set_sha256: str,
     model_variant: str | None = None,
+    include_persisted_backfill: bool = True,
 ) -> dict[str, Any] | None:
     """Resolve the strongest historic exact parameter set for regression reference.
 
@@ -535,7 +536,11 @@ def resolve_best_parameter_reference(
     detector and Golden Set must match, while absolute parameter provenance lets
     HTH reevaluate the historic best even after the declared search grid changes.
     """
-    index = load_index_with_persisted_backfill(index_path)
+    index = (
+        load_index_with_persisted_backfill(index_path)
+        if include_persisted_backfill
+        else load_index(index_results_root(index_path), index_path.name)
+    )
     requested_variant = str(model_variant or "").strip() or None
     def variant_compatible(item):
         if not requested_variant:

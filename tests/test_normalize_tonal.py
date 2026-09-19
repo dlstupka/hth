@@ -108,6 +108,22 @@ class TonalNormalizationTests(unittest.TestCase):
                 "effective_build_identity": canonical_hash(effective_inputs),
                 "comparison_required": False,
                 "incumbent_result_identity": None,
+                "resource_utilization": {
+                    "schema_version": "1",
+                    "canonical_evidence_cache": {
+                        "scope": TONAL_INTEGRATION_SCOPE,
+                        "path": "normalization/tonal-integration/canonical-build-evidence.json",
+                        "lookup_identity": canonical_hash(effective_inputs),
+                        "lookup": "miss",
+                        "action": "populated",
+                        "canonical_result_identity": None,
+                    },
+                    "immutable_releases": [{
+                        "role": "source", "repository": "owner/results", "release": "upstream",
+                        "release_manifest_sha256": "b" * 64, "commit": "d" * 64,
+                        "utilization": "consumed",
+                    }],
+                },
                 "execution": {},
             }
             plan_path = root / "plan.json"

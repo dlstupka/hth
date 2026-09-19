@@ -110,6 +110,12 @@ class PreferredDocumentDetectorTests(unittest.TestCase):
             self.assertEqual(resolved["parameters"], params)
             self.assertEqual(resolved["parameter_set_id"], legacy)
             self.assertEqual(resolved["approval_level"], "Approved")
+            compact_resolved = resolve_rank_one(
+                index_path,
+                golden_set_id="HTH-0001",
+                include_persisted_backfill=False,
+            )
+            self.assertEqual(compact_resolved["parameter_identity_sha256"], full)
             resolved["golden_set_repository"] = "dlstupka/source"
             resolved["golden_set_release_tag"] = "HTH-GOLDEN-0001"
             summary = render_summary(

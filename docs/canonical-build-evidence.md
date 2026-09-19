@@ -41,6 +41,34 @@ They are not blanket invalidators because the hashed implementation,
 configuration, runtime contracts, and operation declaration identify the
 effective process.
 
+Every CBE plan and completed record also carries a `resource_utilization`
+section. It records whether the identity-keyed CBE cache lookup hit or missed,
+whether the build reused, validated, populated, or verification-refreshed that
+entry, and the exact immutable source release consumed by the build. Resource
+provenance has its own contract version inside the Effective Build Identity, so
+adding this lifecycle contract causes one intentional seed build instead of
+silently reusing evidence that never recorded its resource use.
+
+`hth.resource_lifecycle` scans all registered CBE stores and an optional release
+inventory to produce `metadata/resource-lifecycle.json`. Authoritative cache
+entries and releases are clean. Superseded entries are marked dirty, but
+historical CBE and releases referenced by historical audit evidence are retained
+and are not cleanup eligible. Only inventoried releases with no authoritative
+or historical CBE reference are marked cleanup eligible. The report is
+advisory: it never deletes a cache entry or release.
+
+Resource labels are deliberately independent. Integrity is `good`, `bad`, or
+`unknown`; lineage is `current`, `previous`, `superseded`, or `unreferenced`;
+GitHub publication is `latest` or `not-latest`; and lifecycle state is `clean`
+or `dirty`. Thus a release may correctly be both `previous` and `latest`, or
+`current` and `not-latest`. `bad` is reserved for a failed integrity check and
+is never inferred from age. `clean` requires good, current, non-draft state, so
+an unknown-integrity release is dirty without being bad. Mirror releases use the same classifier, with tags
+declared by current detector code treated as current roots. Release-backed
+learned-evidence caches are also inventoried and labeled, but remain cleanup
+ineligible until their regression/optimization utilization ledger provides the
+authority to prove that no active or historical build references them.
+
 The implementation boundary deliberately excludes Canonical Build Evidence
 orchestration, reporting, regression, optimization, stage timing, and unrelated
 detectors. Changes in those surfaces cannot alter the preprocessing algorithm's

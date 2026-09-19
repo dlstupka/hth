@@ -336,6 +336,65 @@ class OrientationDeskewAssessmentTests(unittest.TestCase):
         self.assertIn("persist-credentials: false", pipeline_checkout)
         self.assertIn("persist-credentials: true", results_checkout)
 
+    def test_recommendation_accepts_current_crop_policy_with_applied_transform(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            assessment = {
+                "schema_version": "2.0",
+                "assessment_type": "orientation-deskew-comparison",
+                "status": "diagnostic-only",
+                "sample_identity": "a" * 64,
+                "sample_page_count": 1,
+                "population_page_count": 929,
+                "canonical_normalization_result_identity": "b" * 64,
+                "canonical_preprocess": {"canonical_result_identity": "c" * 64},
+                "detector_selection": {"detector": "doc_ufcn_page_mask", "parameter_identity_sha256": "d" * 64},
+                "base_normalization_policy": {
+                    "id": "axis-aligned-detector-envelope-v1+hough-lines-conservative-v1",
+                    "base_policy_id": "axis-aligned-detector-envelope-v1",
+                    "transform_policy_id": "hough-lines-conservative-v1",
+                },
+                "config": {"recommendation": {
+                    "policy_id": "hough-lines-conservative-v1",
+                    "minimum_sample_pages": 1,
+                    "minimum_mean_hough_confidence": 0.75,
+                    "minimum_hough_over_projection_confidence_gap": 0.4,
+                    "maximum_hough_boundary_limited_pages": 0,
+                    "gross_orientation_action": "preserve",
+                    "deskew": {
+                        "minimum_absolute_correction_degrees": 0.5,
+                        "maximum_absolute_correction_degrees": 1.5,
+                        "minimum_confidence": 0.7,
+                        "minimum_line_count": 20,
+                        "maximum_weighted_mad_degrees": 1.0,
+                        "canvas": "expanded-white",
+                        "interpolation": "linear",
+                    },
+                }},
+                "aggregate": {
+                    "hough-lines": {"mean_confidence": 0.84, "maximum_absolute_correction_degrees": 1.0, "boundary_limited_pages": 0},
+                    "projection-profile": {"mean_confidence": 0.17},
+                },
+                "pages": [{"global_ordinal": 26, "estimators": {"hough-lines": {
+                    "estimated_correction_degrees": -1.0,
+                    "confidence": 0.8,
+                    "line_count": 100,
+                    "weighted_mad_degrees": 0.5,
+                    "boundary_limited": False,
+                }}}],
+            }
+            assessment["assessment_identity"] = canonical_hash({
+                "assessment_type": assessment["assessment_type"],
+                "canonical_normalization_result_identity": assessment["canonical_normalization_result_identity"],
+                "sample_identity": assessment["sample_identity"],
+                "config": assessment["config"],
+                "pages": assessment["pages"],
+            })
+            assessment_path = root / "assessment.json"
+            assessment_path.write_text(json.dumps(assessment), encoding="utf-8")
+            policy = recommend_policy(assessment_path, root / "policy.json")
+            self.assertEqual(policy["compatibility"]["base_normalization_policy_id"], "axis-aligned-detector-envelope-v1")
+
 
 if __name__ == "__main__":
     unittest.main()

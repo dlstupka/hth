@@ -56,8 +56,14 @@ def _approved(entry: dict[str, Any]) -> bool:
     return str(evidence or "").strip().lower() == "high"
 
 
-def resolve_rank_one(index_path: Path, *, golden_set_id: str) -> dict[str, Any]:
-    index = load_index_with_persisted_backfill(index_path)
+def resolve_rank_one(
+    index_path: Path, *, golden_set_id: str, include_persisted_backfill: bool = True
+) -> dict[str, Any]:
+    index = (
+        load_index_with_persisted_backfill(index_path)
+        if include_persisted_backfill
+        else _read_json(index_path)
+    )
     target = _slug(golden_set_id)
     candidates = [
         entry for entry in index.get("entries", [])
@@ -76,6 +82,7 @@ def resolve_rank_one(index_path: Path, *, golden_set_id: str) -> dict[str, Any]:
         detector=detector,
         golden_set_sha256=golden_sha,
         model_variant=selected.get("model_variant"),
+        include_persisted_backfill=include_persisted_backfill,
     )
     if not reference:
         raise SystemExit(f"Rank #1 calibration for {detector} has no reconstructable exact parameter set")
@@ -222,6 +229,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--github-output", type=Path)
     p.add_argument("--github-summary", type=Path)
+    p.add_argument(
+        "--index-only",
+        action="store_true",
+        help="Resolve only from the authoritative compact index and its referenced parameter provenance.",
+    )
     args = p.parse_args(argv)
 
     golden_set_id = str(args.golden_set_id or "").strip()
@@ -239,7 +251,11 @@ def main(argv: list[str] | None = None) -> int:
             source_release_manifest_sha256=args.source_release_manifest_sha256,
         )
 
-    resolved = resolve_rank_one(args.index, golden_set_id=golden_set_id)
+    resolved = resolve_rank_one(
+        args.index,
+        golden_set_id=golden_set_id,
+        include_persisted_backfill=not args.index_only,
+    )
     if args.golden_set_freeze_root is not None:
         canonical_release = canonical_release_for_golden_set(
             args.golden_set_freeze_root,
@@ -265,6 +281,8 @@ def main(argv: list[str] | None = None) -> int:
             handle.write(f"detector={resolved['detector']}\n")
             handle.write(f"parameter_set_id={resolved.get('parameter_set_id')}\n")
             handle.write(f"golden_set_id={resolved.get('golden_set_id')}\n")
+            handle.write(f"golden_set_sha256={resolved.get('golden_set_sha256')}\n")
+            handle.write(f"parameter_identity_sha256={resolved.get('parameter_identity_sha256')}\n")
             handle.write(f"golden_set_repository={resolved.get('golden_set_repository') or ''}\n")
             handle.write(f"golden_set_release_tag={resolved.get('golden_set_release_tag') or ''}\n")
             handle.write(f"needs_doc_ufcn={'true' if resolved.get('needs_doc_ufcn') else 'false'}\n")

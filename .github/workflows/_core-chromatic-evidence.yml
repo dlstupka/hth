@@ -6,6 +6,7 @@ on:
       stage: {required: true, type: string}
       runner_target: {required: true, type: string}
       artifact_retention_days: {required: true, type: number}
+      canonical_build_policy: {required: false, type: string, default: auto}
     secrets:
       HTH_RESULTS_TOKEN: {required: true}
 
@@ -145,7 +146,7 @@ jobs:
           set -euo pipefail
           python -m hth.canonical_build_evidence prepare \
             --scope "${{ steps.stage_contract.outputs.scope }}" \
-            --policy auto \
+            --policy "${{ inputs.canonical_build_policy }}" \
             --contract-version 1 \
             --mode diagnostic-evidence \
             --operation "chromatic-${{ inputs.stage }}-evidence" \

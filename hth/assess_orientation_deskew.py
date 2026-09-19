@@ -711,7 +711,8 @@ def recommend_policy(
     if not str(detector.get("detector") or ""):
         raise ValueError("Assessment has no authoritative detector identity")
     _require_sha256(detector.get("parameter_identity_sha256"), "Detector parameter identity")
-    if base_policy.get("id") != "axis-aligned-detector-envelope-v1":
+    base_policy_id = base_policy.get("base_policy_id") or base_policy.get("id")
+    if base_policy_id != "axis-aligned-detector-envelope-v1":
         raise ValueError("Assessment was not generated from the current canonical crop policy")
     pages = assessment.get("pages")
     if not isinstance(pages, list) or not pages:
@@ -810,7 +811,7 @@ def recommend_policy(
             "canonical_preprocess_result_identity": preprocess.get("canonical_result_identity"),
             "detector": detector.get("detector"),
             "parameter_identity_sha256": detector.get("parameter_identity_sha256"),
-            "base_normalization_policy_id": base_policy.get("id"),
+            "base_normalization_policy_id": base_policy_id,
         },
         "evidence": {
             "assessment_identity": assessment_identity,

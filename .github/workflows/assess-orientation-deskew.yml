@@ -32,6 +32,7 @@ on:
     inputs:
       runner_target: {required: true, type: string}
       artifact_retention_days: {required: true, type: number}
+      canonical_build_policy: {required: false, type: string, default: auto}
     secrets:
       HTH_RESULTS_TOKEN: {required: true}
       HTH_SOURCE_TOKEN: {required: false}
@@ -103,6 +104,8 @@ jobs:
             /metadata/image_manifest.json
             /normalization/canonical-build-evidence.json
             /normalization/normalization-manifest.json
+            /normalization/orientation-deskew/
+            /normalization/orientation-deskew-policy.json
           sparse-checkout-cone-mode: false
           persist-credentials: true
 
@@ -177,8 +180,63 @@ jobs:
             --golden-set "$GOLDEN_SET_CONFIG" \
             --output "$RUNNER_TEMP/orientation-deskew-sample.json"
 
+      - name: Assemble orientation/deskew effective-input contract
+        id: contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_root="$RUNNER_TEMP/orientation-deskew-effective-inputs"
+          rm -rf "$source_root"
+          mkdir -p "$source_root"
+          cp results-repo/normalization/normalization-manifest.json "$source_root/"
+          cp results-repo/metadata/image_manifest.json "$source_root/"
+          cp "$RUNNER_TEMP/orientation-deskew-sample.json" "$source_root/sample-plan.json"
+          echo "source_root=$source_root" >> "$GITHUB_OUTPUT"
+          echo "results_ref=$(git -C results-repo rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate orientation/deskew Canonical Build Evidence
+        id: cbe
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          python -m hth.canonical_build_evidence prepare \
+            --scope hth-orientation-deskew-assessment \
+            --policy "${{ inputs.canonical_build_policy || 'auto' }}" \
+            --contract-version 1 \
+            --mode diagnostic-evidence \
+            --operation orientation-and-conservative-deskew-assessment \
+            --repository-root hth-pipeline \
+            --source-root "${{ steps.contract.outputs.source_root }}" \
+            --source-repository "$RESULTS_REPOSITORY" \
+            --source-release "${{ steps.provenance.outputs.normalization_effective_identity }}" \
+            --source-manifest-sha256 "${{ steps.provenance.outputs.normalization_result_identity }}" \
+            --source-commit "${{ steps.provenance.outputs.normalization_result_identity }}" \
+            --config "$ASSESSMENT_CONFIG" \
+            --config "$GOLDEN_SET_CONFIG" \
+            --implementation hth-pipeline/hth/assess_orientation_deskew.py \
+            --runtime-contract hth-pipeline/requirements.txt \
+            --runtime-contract hth-pipeline/.github/actions/setup-hth-python/action.yml \
+            --runtime-package numpy \
+            --runtime-package opencv-python-headless \
+            --results-root results-repo \
+            --evidence results-repo/normalization/orientation-deskew/canonical-build-evidence.json \
+            --plan "$RUNNER_TEMP/orientation-deskew-cbe-plan.json" \
+            --pipeline-repository "$GITHUB_REPOSITORY" \
+            --pipeline-commit "$GITHUB_SHA" \
+            --results-repository "$RESULTS_REPOSITORY" \
+            --results-ref "${{ steps.contract.outputs.results_ref }}" \
+            --workflow-run-id "$GITHUB_RUN_ID" \
+            --runner-name "$RUNNER_NAME" \
+            --runner-environment "${{ runner.environment }}" \
+            --runner-os "$RUNNER_OS" \
+            --runner-arch "$RUNNER_ARCH" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
       - name: Download immutable source release
         id: source_release
+        if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         env:
           HTH_SOURCE_TOKEN: ${{ secrets.HTH_SOURCE_TOKEN || github.token }}
@@ -192,6 +250,7 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
       - name: Verify immutable source release
+        if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         run: |
           set -euo pipefail
@@ -201,6 +260,7 @@ jobs:
           fi
 
       - name: Reconstruct and prove sampled canonical crops
+        if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
@@ -214,6 +274,7 @@ jobs:
             --output "$RUNNER_TEMP/orientation-deskew-materialized"
 
       - name: Generate orientation and deskew assessment
+        if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
@@ -230,6 +291,7 @@ jobs:
           cp "$RUNNER_TEMP/orientation-deskew-materialized/materialization-evidence.json" orientation-deskew-assessment/materialization-evidence.json
 
       - name: Prepare plain-language normalization recommendation
+        if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
@@ -240,9 +302,24 @@ jobs:
             --output orientation-deskew-assessment/normalization-policy.json \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
+      - name: Finalize orientation/deskew Canonical Build Evidence
+        if: steps.cbe.outputs.decision == 'execute'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          python -m hth.canonical_build_evidence finalize \
+            --plan "$RUNNER_TEMP/orientation-deskew-cbe-plan.json" \
+            --output-root orientation-deskew-assessment \
+            --evidence-store results-repo/normalization/orientation-deskew/canonical-build-evidence.json \
+            --evidence-output orientation-deskew-assessment/canonical-build-evidence.json \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
       - name: Preserve recommendation and compact assessment evidence
         id: publish_recommendation
+        if: steps.cbe.outputs.decision == 'execute'
         shell: bash
+        env: {PYTHONPATH: hth-pipeline}
         run: |
           set -euo pipefail
           source hth-pipeline/tools/hardened-persistence.sh
@@ -256,14 +333,21 @@ jobs:
           cp orientation-deskew-assessment/materialization-evidence.json "$payload/"
           cp orientation-deskew-assessment/recommendation.md "$payload/"
           cp orientation-deskew-assessment/normalization-policy.json "$payload/"
+          cp orientation-deskew-assessment/canonical-build-evidence.json "$RUNNER_TEMP/orientation-deskew-cbe-incoming.json"
 
           apply_normalization_recommendation() {
+            python -m hth.canonical_build_evidence merge \
+              --scope hth-orientation-deskew-assessment \
+              --base results-repo/normalization/orientation-deskew/canonical-build-evidence.json \
+              --incoming "$RUNNER_TEMP/orientation-deskew-cbe-incoming.json" \
+              --output "$payload/canonical-build-evidence.json"
             mkdir -p results-repo/normalization/orientation-deskew
             cp "$payload/assessment.json" results-repo/normalization/orientation-deskew/
             cp "$payload/sample-plan.json" results-repo/normalization/orientation-deskew/
             cp "$payload/materialization-evidence.json" results-repo/normalization/orientation-deskew/
             cp "$payload/recommendation.md" results-repo/normalization/orientation-deskew/
             cp "$payload/normalization-policy.json" results-repo/normalization/orientation-deskew/
+            cp "$payload/canonical-build-evidence.json" results-repo/normalization/orientation-deskew/
             cp "$payload/normalization-policy.json" results-repo/normalization/orientation-deskew-policy.json
             hth_results_stage results-repo \
               normalization/orientation-deskew \
@@ -279,6 +363,7 @@ jobs:
           echo "- Recommendation evidence: [results commit \`$HTH_PERSIST_COMMIT\`](${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/commit/${HTH_PERSIST_COMMIT})" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload orientation and deskew assessment
+        if: steps.cbe.outputs.decision == 'execute'
         uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
         with:
           name: hth-orientation-deskew-${{ github.run_number }}
