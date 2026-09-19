@@ -128,7 +128,7 @@ jobs:
     secrets: inherit
 
   normalize:
-    name: Normalize complete collection from canonical preprocess evidence
+    name: Crop and Deskew normalization
     needs: assess-orientation-deskew
     if: >-
       ${{ always() && !cancelled()
@@ -467,7 +467,7 @@ jobs:
     secrets: inherit
 
   assess-photometric:
-    name: Assess illumination and photometric normalization
+    name: Assess photometric correction
     needs: assess-perspective
     if: >-
       ${{ always() && !cancelled() && (needs.assess-perspective.result == 'success' || (inputs.start_stage == 'photometric-assessment' && needs.assess-perspective.result == 'skipped'))

@@ -163,6 +163,10 @@ class NormalizationCanonicalEvidenceCoverageTests(unittest.TestCase):
 
     def test_orchestrator_is_fail_closed_but_allows_explicit_stage_entry(self) -> None:
         text = (ROOT / ".github/workflows/normalize.yml").read_text(encoding="utf-8")
+        self.assertIn("name: Crop and Deskew normalization", text)
+        self.assertIn("name: Assess photometric correction", text)
+        self.assertNotIn("name: Normalize complete collection from canonical preprocess evidence", text)
+        self.assertNotIn("name: Assess illumination and photometric normalization", text)
         unsafe = re.findall(
             r"needs\.[a-z0-9-]+\.result == 'success' \|\| needs\.[a-z0-9-]+\.result == 'skipped'",
             text,
