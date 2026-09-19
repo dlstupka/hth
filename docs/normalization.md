@@ -181,8 +181,10 @@ The subsequent restoration families are documented in
 They run two complete four-stage sequences: denoising first, then sharpening,
 with a separately reusable immutable result at each integration boundary.
 
-Binarization remains a separate future normalization operation with its own
-evidence contract.
+Binarization is the final normalization family and is documented in
+[Binarization normalization](binarization-normalization.md). It runs a complete
+four-stage assessment, bounded-method comparison, held-out validation, and
+CBE-backed integration sequence after sharpening.
 ## Full normalization orchestration
 
 `HTH normalize collection` is the single production entry point and the full
@@ -190,8 +192,8 @@ normalization regression. It reassesses crop/framing and orientation/deskew,
 builds or reuses canonical geometric normalization, assesses perspective, runs
 the complete photometric method-selection and integration sequence, then runs
 the contrast/tonal and chromatic four-stage families, denoising/artifact
-suppression, and sharpening/detail enhancement. CBE-enabled apply stages reuse
-exact canonical results and audit their immutable releases.
+suppression, sharpening/detail enhancement, and final binarization. CBE-enabled
+apply stages reuse exact canonical results and audit their immutable releases.
 
 The `start_stage` menu supports development and recovery without creating an
 alternative production path. Selecting a stage skips earlier jobs and runs that

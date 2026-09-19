@@ -7,6 +7,10 @@ import cv2
 import numpy as np
 
 from hth.canonical_build_evidence import (
+    BINARIZATION_ASSESSMENT_SCOPE,
+    BINARIZATION_INTEGRATION_SCOPE,
+    BINARIZATION_METHOD_ASSESSMENT_SCOPE,
+    BINARIZATION_VALIDATION_SCOPE,
     DENOISING_ASSESSMENT_SCOPE,
     DENOISING_INTEGRATION_SCOPE,
     DENOISING_METHOD_ASSESSMENT_SCOPE,
@@ -56,8 +60,13 @@ class RestorationNormalizationTests(unittest.TestCase):
 
     @staticmethod
     def assessment_config(domain):
-        gates = ({"minimum_noise_sigma": 0.0, "minimum_impulse_fraction": 0.0} if domain == "denoising"
-                 else {"maximum_candidate_detail_energy": 999.0, "maximum_safe_noise_sigma": 999.0})
+        if domain == "denoising":
+            gates = {"minimum_noise_sigma": 0.0, "minimum_impulse_fraction": 0.0}
+        elif domain == "sharpening":
+            gates = {"maximum_candidate_detail_energy": 999.0, "maximum_safe_noise_sigma": 999.0}
+        else:
+            gates = {"minimum_foreground_fraction": 0.0, "maximum_foreground_fraction": 1.0,
+                     "minimum_foreground_background_contrast": 0.0, "minimum_luminance_span": 0.0}
         return {"domain": domain, "assessment_type": f"{domain}-assessment", "candidate_gates": gates,
                 "partition": {"development_modulus": 2, "development_residue": 0}}
 
@@ -68,11 +77,16 @@ class RestorationNormalizationTests(unittest.TestCase):
             gates = {"minimum_noise_reduction_fraction": -1.0, "minimum_detail_correlation": -1.0,
                      "minimum_edge_retention_fraction": 0.0, "maximum_new_clipping_fraction": 1.0,
                      "maximum_absolute_median_luminance_shift": 1.0}
-        else:
+        elif domain == "sharpening":
             methods = [{"id": "unsharp-test", "mode": "unsharp-mask", "strength": 0.25, "radius": 1.0}]
             gates = {"minimum_detail_gain_fraction": -1.0, "maximum_detail_gain_fraction": 100.0,
                      "minimum_detail_correlation": -1.0, "maximum_noise_amplification_fraction": 100.0,
                      "maximum_new_clipping_fraction": 1.0, "maximum_absolute_median_luminance_shift": 1.0}
+        else:
+            methods = [{"id": "otsu-test", "mode": "global-otsu"}]
+            gates = {"minimum_foreground_agreement": 0.0, "minimum_output_foreground_fraction": 0.0,
+                     "maximum_output_foreground_fraction": 1.0, "maximum_component_inflation_ratio": 1000.0,
+                     "minimum_edge_correlation": -1.0}
         return {"domain": domain, "assessment_type": f"{domain}-methods", "methods": methods,
                 "safety_gates": gates}
 
@@ -94,6 +108,12 @@ class RestorationNormalizationTests(unittest.TestCase):
         self.assertEqual(sharpen[4]["upstream_result_identity"], denoise[4]["denoising_result_identity"])
         self.assertEqual(sharpen[4]["aggregate"]["page_count"], 10)
         self.assertTrue((sharpen[3] / "sharpening-normalized/fs_0001.png").is_file())
+        binary = self.run_family("binarization", sharpen[3], sharpen[4])
+        self.assertEqual(binary[4]["upstream_result_identity"], sharpen[4]["sharpening_result_identity"])
+        self.assertEqual(binary[4]["aggregate"]["corrected_pages"], 10)
+        rendered = cv2.imread(str(binary[3] / "binarization-normalized/fs_0001.png"), cv2.IMREAD_UNCHANGED)
+        self.assertEqual(rendered.ndim, 2)
+        self.assertTrue(set(np.unique(rendered)) <= {0, 255})
 
     def test_preserve_decision_is_pixel_identical(self):
         assessment = assess("denoising", self.chromatic, self.chromatic_manifest, self.assessment_config("denoising"))
@@ -128,6 +148,23 @@ class RestorationNormalizationTests(unittest.TestCase):
                 self.assertEqual(result.shape, image.shape)
                 self.assertTrue(np.array_equal(result[:, :, 3], image[:, :, 3]))
 
+    def test_declared_binarization_methods_are_deterministic_binary_images(self):
+        config = json.loads(
+            (Path(__file__).resolve().parents[1] / "config/binarization-method-assessment.json")
+            .read_text(encoding="utf-8")
+        )
+        source = cv2.imread(
+            str(self.chromatic / "chromatic-normalized/fs_0001.png"),
+            cv2.IMREAD_UNCHANGED,
+        )
+        for method in config["methods"]:
+            with self.subTest(method=method["id"]):
+                first = apply_method(source, method)
+                second = apply_method(source, method)
+                self.assertEqual(first.ndim, 2)
+                self.assertTrue(set(np.unique(first)) <= {0, 255})
+                self.assertTrue(np.array_equal(first, second))
+
     def test_sparse_candidates_are_deterministically_split_across_both_partitions(self):
         pages = [
             {"global_ordinal": ordinal, "partition": "held-out", "measurement": {"decision": decision}}
@@ -144,11 +181,13 @@ class RestorationNormalizationTests(unittest.TestCase):
         }])
         self.assertEqual(pages[2]["partition"], "held-out")
 
-    def test_cbe_registry_and_human_summary_cover_all_eight_stages(self):
+    def test_cbe_registry_and_human_summary_cover_all_twelve_stages(self):
         scopes = {DENOISING_ASSESSMENT_SCOPE, DENOISING_METHOD_ASSESSMENT_SCOPE,
                   DENOISING_VALIDATION_SCOPE, DENOISING_INTEGRATION_SCOPE,
                   SHARPENING_ASSESSMENT_SCOPE, SHARPENING_METHOD_ASSESSMENT_SCOPE,
-                  SHARPENING_VALIDATION_SCOPE, SHARPENING_INTEGRATION_SCOPE}
+                  SHARPENING_VALIDATION_SCOPE, SHARPENING_INTEGRATION_SCOPE,
+                  BINARIZATION_ASSESSMENT_SCOPE, BINARIZATION_METHOD_ASSESSMENT_SCOPE,
+                  BINARIZATION_VALIDATION_SCOPE, BINARIZATION_INTEGRATION_SCOPE}
         self.assertTrue(scopes <= set(SCOPE_ARTIFACT_PROFILES))
         self.assertTrue(scopes <= set(SCOPE_EVIDENCE_PATHS))
         comparison = {"domain": "denoising", "candidate_count": 0, "globally_safe_methods": [],
@@ -157,14 +196,15 @@ class RestorationNormalizationTests(unittest.TestCase):
         self.assertIn("Bounded denoising method comparison", rendered)
         self.assertIn("Gate failures", rendered)
 
-    def test_workflows_expose_both_four_stage_chains_and_cache_restore(self):
+    def test_workflows_expose_all_four_stage_chains_and_cache_restore(self):
         root = Path(__file__).resolve().parents[1]
         orchestrator = (root / ".github/workflows/normalize.yml").read_text(encoding="utf-8")
         core = (root / ".github/workflows/_core-restoration-evidence.yml").read_text(encoding="utf-8")
         integration = (root / ".github/workflows/integrate-restoration.yml").read_text(encoding="utf-8")
         for stage in ("denoising-assessment", "denoising-method-assessment", "denoising-validation",
                       "denoising-integration", "sharpening-assessment", "sharpening-method-assessment",
-                      "sharpening-validation", "sharpening-integration"):
+                      "sharpening-validation", "sharpening-integration", "binarization-assessment",
+                      "binarization-method-assessment", "binarization-validation", "binarization-integration"):
             self.assertIn(stage, orchestrator)
         self.assertIn("restore-immutable-release", core)
         self.assertIn("restore-immutable-release", integration)

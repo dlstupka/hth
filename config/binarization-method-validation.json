@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "domain": "binarization",
+  "validation_type": "binarization-method-held-out-validation",
+  "gates": {
+    "require_complete_candidate_coverage": true,
+    "require_every_candidate_safe": true,
+    "require_preserve_controls_unchanged": true
+  },
+  "recommendation": {
+    "policy_id": "selective-binarization-v1"
+  }
+}

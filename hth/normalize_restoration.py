@@ -1,4 +1,4 @@
-"""Assess and selectively integrate denoising and sharpening normalization."""
+"""Assess and selectively integrate restoration and binarization normalization."""
 from __future__ import annotations
 
 import argparse
@@ -38,6 +38,16 @@ DOMAINS = {
         "identity": "sharpening_result_identity",
         "release_prefix": "HTH-SHARPENING",
     },
+    "binarization": {
+        "upstream_folder": "sharpening-normalized",
+        "upstream_manifest": "sharpening-normalization-manifest.json",
+        "upstream_identity": "sharpening_result_identity",
+        "output_folder": "binarization-normalized",
+        "manifest": "binarization-normalization-manifest.json",
+        "csv": "binarization-normalization-manifest.csv",
+        "identity": "binarization_result_identity",
+        "release_prefix": "HTH-BINARIZATION",
+    },
 }
 
 
@@ -75,10 +85,18 @@ def _correlation(first: np.ndarray, second: np.ndarray) -> float:
 
 def metrics(image: np.ndarray) -> dict[str, float]:
     gray = _gray(image)
+    gray_u8 = np.rint(gray * 255).astype(np.uint8)
     smooth = cv2.GaussianBlur(gray, (0, 0), 1.0)
     residual = gray - smooth
-    median = cv2.medianBlur(np.rint(gray * 255).astype(np.uint8), 3).astype(np.float32) / 255.0
+    median = cv2.medianBlur(gray_u8, 3).astype(np.float32) / 255.0
     laplacian = cv2.Laplacian(gray, cv2.CV_32F)
+    threshold, binary = cv2.threshold(gray_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    foreground = binary == 0
+    dark = gray[foreground]
+    light = gray[~foreground]
+    foreground_background_contrast = (
+        float(np.mean(light) - np.mean(dark)) if dark.size and light.size else 0.0
+    )
     return {
         "noise_sigma": float(np.median(np.abs(residual - np.median(residual))) / 0.6745),
         "impulse_fraction": float(np.mean(np.abs(gray - median) >= 0.10)),
@@ -86,6 +104,10 @@ def metrics(image: np.ndarray) -> dict[str, float]:
         "edge_fraction": float(np.mean(np.abs(laplacian) >= 0.08)),
         "median_luminance": float(np.median(gray)),
         "clipping_fraction": float(np.mean((image <= 0) | (image >= 255))),
+        "luminance_span": float(np.percentile(gray, 95) - np.percentile(gray, 5)),
+        "otsu_threshold": float(threshold / 255.0),
+        "foreground_fraction": float(np.mean(foreground)),
+        "foreground_background_contrast": foreground_background_contrast,
     }
 
 
@@ -108,6 +130,23 @@ def measure(image: np.ndarray, config: dict[str, Any]) -> dict[str, Any]:
             decision, reasons = "correction-candidate", ["low-detail-energy"]
         else:
             decision, reasons = "preserve", ["detail-energy-adequate"]
+    elif domain == "binarization":
+        plausible_ink = (
+            float(gates["minimum_foreground_fraction"])
+            <= values["foreground_fraction"]
+            <= float(gates["maximum_foreground_fraction"])
+        )
+        separable = (
+            values["foreground_background_contrast"]
+            >= float(gates["minimum_foreground_background_contrast"])
+            and values["luminance_span"] >= float(gates["minimum_luminance_span"])
+        )
+        if not plausible_ink:
+            decision, reasons = "review", ["implausible-foreground-coverage"]
+        elif separable:
+            decision, reasons = "correction-candidate", ["foreground-background-separable"]
+        else:
+            decision, reasons = "review", ["foreground-background-not-safely-separable"]
     else:
         raise ValueError(f"Unsupported restoration domain: {domain}")
     return {
@@ -137,6 +176,31 @@ def apply_method(image: np.ndarray, method: dict[str, Any]) -> np.ndarray:
             working.astype(np.float32) - blurred.astype(np.float32)
         )
         result = np.clip(np.rint(enhanced), 0, 255).astype(np.uint8)
+    elif mode == "global-otsu":
+        gray = np.rint(_gray(working) * 255).astype(np.uint8)
+        _, result = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        alpha = None
+    elif mode == "adaptive-gaussian":
+        gray = np.rint(_gray(working) * 255).astype(np.uint8)
+        block_size = int(method["block_size"])
+        if block_size < 3 or block_size % 2 == 0:
+            raise ValueError("adaptive-gaussian block_size must be odd and at least 3")
+        result = cv2.adaptiveThreshold(
+            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY,
+            block_size, float(method["c"]),
+        )
+        alpha = None
+    elif mode == "sauvola":
+        gray = _gray(working).astype(np.float32)
+        window = int(method["window"])
+        if window < 3 or window % 2 == 0:
+            raise ValueError("sauvola window must be odd and at least 3")
+        mean = cv2.boxFilter(gray, cv2.CV_32F, (window, window), normalize=True)
+        square_mean = cv2.boxFilter(gray * gray, cv2.CV_32F, (window, window), normalize=True)
+        deviation = np.sqrt(np.maximum(square_mean - mean * mean, 0.0))
+        threshold = mean * (1.0 + float(method["k"]) * (deviation / float(method.get("r", 0.5)) - 1.0))
+        result = np.where(gray > threshold, 255, 0).astype(np.uint8)
+        alpha = None
     else:
         raise ValueError(f"Unsupported restoration method: {mode}")
     if alpha is not None:
@@ -159,6 +223,21 @@ def evaluate(before: np.ndarray, after: np.ndarray, config: dict[str, Any]) -> d
         "new_clipping_fraction": max(0.0, result["clipping_fraction"] - original["clipping_fraction"]),
         "absolute_median_luminance_shift": abs(result["median_luminance"] - original["median_luminance"]),
     }
+    if domain == "binarization":
+        before_u8 = np.rint(before_gray * 255).astype(np.uint8)
+        _, reference = cv2.threshold(before_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        reference_ink = reference == 0
+        result_ink = after_gray < 0.5
+        union = int(np.count_nonzero(reference_ink | result_ink))
+        intersection = int(np.count_nonzero(reference_ink & result_ink))
+        reference_components = max(1, cv2.connectedComponents(reference_ink.astype(np.uint8), 8)[0] - 1)
+        result_components = max(1, cv2.connectedComponents(result_ink.astype(np.uint8), 8)[0] - 1)
+        values.update({
+            "foreground_agreement": intersection / union if union else 1.0,
+            "output_foreground_fraction": float(np.mean(result_ink)),
+            "component_inflation_ratio": result_components / reference_components,
+            "edge_correlation": _correlation(before_lap, after_lap),
+        })
     if domain == "denoising":
         checks = {
             "noise_reduction": values["noise_reduction_fraction"] >= float(gates["minimum_noise_reduction_fraction"]),
@@ -167,7 +246,7 @@ def evaluate(before: np.ndarray, after: np.ndarray, config: dict[str, Any]) -> d
             "clipping": values["new_clipping_fraction"] <= float(gates["maximum_new_clipping_fraction"]),
             "median_luminance_shift": values["absolute_median_luminance_shift"] <= float(gates["maximum_absolute_median_luminance_shift"]),
         }
-    else:
+    elif domain == "sharpening":
         checks = {
             "minimum_detail_gain": values["detail_gain_fraction"] >= float(gates["minimum_detail_gain_fraction"]),
             "maximum_detail_gain": values["detail_gain_fraction"] <= float(gates["maximum_detail_gain_fraction"]),
@@ -175,6 +254,14 @@ def evaluate(before: np.ndarray, after: np.ndarray, config: dict[str, Any]) -> d
             "noise_amplification": values["noise_reduction_fraction"] >= -float(gates["maximum_noise_amplification_fraction"]),
             "clipping": values["new_clipping_fraction"] <= float(gates["maximum_new_clipping_fraction"]),
             "median_luminance_shift": values["absolute_median_luminance_shift"] <= float(gates["maximum_absolute_median_luminance_shift"]),
+        }
+    else:
+        checks = {
+            "foreground_agreement": values["foreground_agreement"] >= float(gates["minimum_foreground_agreement"]),
+            "minimum_foreground_fraction": values["output_foreground_fraction"] >= float(gates["minimum_output_foreground_fraction"]),
+            "maximum_foreground_fraction": values["output_foreground_fraction"] <= float(gates["maximum_output_foreground_fraction"]),
+            "component_inflation": values["component_inflation_ratio"] <= float(gates["maximum_component_inflation_ratio"]),
+            "edge_correlation": values["edge_correlation"] >= float(gates["minimum_edge_correlation"]),
         }
     return {**values, "gates": checks, "safe": all(checks.values())}
 

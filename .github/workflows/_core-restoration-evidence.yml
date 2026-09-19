@@ -65,6 +65,10 @@ jobs:
             /normalization/sharpening/
             /normalization/sharpening-methods/
             /normalization/sharpening-validation/
+            /normalization/sharpening-integration/
+            /normalization/binarization/
+            /normalization/binarization-methods/
+            /normalization/binarization-validation/
           sparse-checkout-cone-mode: false
           persist-credentials: true
       - name: Set up canonical HTH Python runtime
@@ -80,7 +84,8 @@ jobs:
           import json, os, subprocess
           from pathlib import Path
           domain=os.environ["DOMAIN"]
-          parent="chromatic" if domain=="denoising" else "denoising"
+          parent={"denoising":"chromatic","sharpening":"denoising","binarization":"sharpening"}.get(domain)
+          if parent is None: raise SystemExit(f"Unsupported restoration domain: {domain}")
           key=f"{parent}_result_identity"
           record=json.loads(Path(f"results-repo/normalization/{parent}-integration/release.json").read_text())
           with Path(os.environ["GITHUB_OUTPUT"]).open("a") as out:

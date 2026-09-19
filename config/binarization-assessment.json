@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "domain": "binarization",
+  "assessment_type": "foreground-background-separability-assessment",
+  "candidate_gates": {
+    "minimum_foreground_fraction": 0.005,
+    "maximum_foreground_fraction": 0.55,
+    "minimum_foreground_background_contrast": 0.18,
+    "minimum_luminance_span": 0.20
+  },
+  "partition": {
+    "development_modulus": 5,
+    "development_residue": 0
+  },
+  "review": {
+    "maximum_pages": 40
+  }
+}

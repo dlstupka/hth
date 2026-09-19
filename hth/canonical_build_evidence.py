@@ -45,6 +45,10 @@ SHARPENING_ASSESSMENT_SCOPE = "hth-sharpening-assessment"
 SHARPENING_METHOD_ASSESSMENT_SCOPE = "hth-sharpening-method-assessment"
 SHARPENING_VALIDATION_SCOPE = "hth-sharpening-validation"
 SHARPENING_INTEGRATION_SCOPE = "hth-sharpening-integration"
+BINARIZATION_ASSESSMENT_SCOPE = "hth-binarization-assessment"
+BINARIZATION_METHOD_ASSESSMENT_SCOPE = "hth-binarization-method-assessment"
+BINARIZATION_VALIDATION_SCOPE = "hth-binarization-validation"
+BINARIZATION_INTEGRATION_SCOPE = "hth-binarization-integration"
 COMPACT_EVIDENCE_SCOPES = frozenset({
     TONAL_ASSESSMENT_SCOPE,
     TONAL_METHOD_ASSESSMENT_SCOPE,
@@ -58,6 +62,9 @@ COMPACT_EVIDENCE_SCOPES = frozenset({
     SHARPENING_ASSESSMENT_SCOPE,
     SHARPENING_METHOD_ASSESSMENT_SCOPE,
     SHARPENING_VALIDATION_SCOPE,
+    BINARIZATION_ASSESSMENT_SCOPE,
+    BINARIZATION_METHOD_ASSESSMENT_SCOPE,
+    BINARIZATION_VALIDATION_SCOPE,
 })
 POLICIES = ("auto", "audit", "force-verify", "rebuild")
 
@@ -234,12 +241,16 @@ def _restoration_artifacts(domain: str) -> tuple[ArtifactSpec, ...]:
 
 DENOISING_INTEGRATION_ARTIFACTS = _restoration_artifacts("denoising")
 SHARPENING_INTEGRATION_ARTIFACTS = _restoration_artifacts("sharpening")
+BINARIZATION_INTEGRATION_ARTIFACTS = _restoration_artifacts("binarization")
 DENOISING_ASSESSMENT_ARTIFACTS = (ArtifactSpec("denoising-assessment", "assessment.json", "normalization/denoising/assessment.json"),)
 DENOISING_METHOD_ASSESSMENT_ARTIFACTS = (ArtifactSpec("denoising-method-assessment", "assessment.json", "normalization/denoising-methods/assessment.json"),)
 DENOISING_VALIDATION_ARTIFACTS = (ArtifactSpec("denoising-validation", "validation.json", "normalization/denoising-validation/validation.json"),)
 SHARPENING_ASSESSMENT_ARTIFACTS = (ArtifactSpec("sharpening-assessment", "assessment.json", "normalization/sharpening/assessment.json"),)
 SHARPENING_METHOD_ASSESSMENT_ARTIFACTS = (ArtifactSpec("sharpening-method-assessment", "assessment.json", "normalization/sharpening-methods/assessment.json"),)
 SHARPENING_VALIDATION_ARTIFACTS = (ArtifactSpec("sharpening-validation", "validation.json", "normalization/sharpening-validation/validation.json"),)
+BINARIZATION_ASSESSMENT_ARTIFACTS = (ArtifactSpec("binarization-assessment", "assessment.json", "normalization/binarization/assessment.json"),)
+BINARIZATION_METHOD_ASSESSMENT_ARTIFACTS = (ArtifactSpec("binarization-method-assessment", "assessment.json", "normalization/binarization-methods/assessment.json"),)
+BINARIZATION_VALIDATION_ARTIFACTS = (ArtifactSpec("binarization-validation", "validation.json", "normalization/binarization-validation/validation.json"),)
 
 SCOPE_ARTIFACT_PROFILES = {
     PREPROCESS_SCOPE: PREPROCESS_ARTIFACTS,
@@ -261,6 +272,10 @@ SCOPE_ARTIFACT_PROFILES = {
     SHARPENING_METHOD_ASSESSMENT_SCOPE: SHARPENING_METHOD_ASSESSMENT_ARTIFACTS,
     SHARPENING_VALIDATION_SCOPE: SHARPENING_VALIDATION_ARTIFACTS,
     SHARPENING_INTEGRATION_SCOPE: SHARPENING_INTEGRATION_ARTIFACTS,
+    BINARIZATION_ASSESSMENT_SCOPE: BINARIZATION_ASSESSMENT_ARTIFACTS,
+    BINARIZATION_METHOD_ASSESSMENT_SCOPE: BINARIZATION_METHOD_ASSESSMENT_ARTIFACTS,
+    BINARIZATION_VALIDATION_SCOPE: BINARIZATION_VALIDATION_ARTIFACTS,
+    BINARIZATION_INTEGRATION_SCOPE: BINARIZATION_INTEGRATION_ARTIFACTS,
 }
 
 SCOPE_EVIDENCE_PATHS = {
@@ -283,6 +298,10 @@ SCOPE_EVIDENCE_PATHS = {
     SHARPENING_METHOD_ASSESSMENT_SCOPE: "normalization/sharpening-methods/canonical-build-evidence.json",
     SHARPENING_VALIDATION_SCOPE: "normalization/sharpening-validation/canonical-build-evidence.json",
     SHARPENING_INTEGRATION_SCOPE: "normalization/sharpening-integration/canonical-build-evidence.json",
+    BINARIZATION_ASSESSMENT_SCOPE: "normalization/binarization/canonical-build-evidence.json",
+    BINARIZATION_METHOD_ASSESSMENT_SCOPE: "normalization/binarization-methods/canonical-build-evidence.json",
+    BINARIZATION_VALIDATION_SCOPE: "normalization/binarization-validation/canonical-build-evidence.json",
+    BINARIZATION_INTEGRATION_SCOPE: "normalization/binarization-integration/canonical-build-evidence.json",
 }
 
 
@@ -1164,6 +1183,10 @@ def _sharpening_integration_page_results(output_root, activity, domain_result, e
     return _restoration_integration_page_results("sharpening", output_root, activity, domain_result, effective_build_identity)
 
 
+def _binarization_integration_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _restoration_integration_page_results("binarization", output_root, activity, domain_result, effective_build_identity)
+
+
 def _denoising_assessment_page_results(output_root, activity, domain_result, effective_build_identity):
     return _compact_evidence_page_results(output_root, "assessment.json", "denoising assessment", activity, domain_result, effective_build_identity)
 
@@ -1186,6 +1209,18 @@ def _sharpening_method_assessment_page_results(output_root, activity, domain_res
 
 def _sharpening_validation_page_results(output_root, activity, domain_result, effective_build_identity):
     return _compact_evidence_page_results(output_root, "validation.json", "sharpening validation", activity, domain_result, effective_build_identity)
+
+
+def _binarization_assessment_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _compact_evidence_page_results(output_root, "assessment.json", "binarization assessment", activity, domain_result, effective_build_identity)
+
+
+def _binarization_method_assessment_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _compact_evidence_page_results(output_root, "assessment.json", "binarization method assessment", activity, domain_result, effective_build_identity)
+
+
+def _binarization_validation_page_results(output_root, activity, domain_result, effective_build_identity):
+    return _compact_evidence_page_results(output_root, "validation.json", "binarization validation", activity, domain_result, effective_build_identity)
 
 
 def _tonal_assessment_page_results(
@@ -1272,6 +1307,10 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
         SHARPENING_METHOD_ASSESSMENT_SCOPE: _sharpening_method_assessment_page_results,
         SHARPENING_VALIDATION_SCOPE: _sharpening_validation_page_results,
         SHARPENING_INTEGRATION_SCOPE: _sharpening_integration_page_results,
+        BINARIZATION_ASSESSMENT_SCOPE: _binarization_assessment_page_results,
+        BINARIZATION_METHOD_ASSESSMENT_SCOPE: _binarization_method_assessment_page_results,
+        BINARIZATION_VALIDATION_SCOPE: _binarization_validation_page_results,
+        BINARIZATION_INTEGRATION_SCOPE: _binarization_integration_page_results,
     }
     registered = set(SCOPE_ARTIFACT_PROFILES)
     if set(SCOPE_EVIDENCE_PATHS) != registered or set(page_builders) != registered:

@@ -60,4 +60,7 @@ measured gains, correlations, and failed gates.
 Its `start_stage` menu can begin at any of the eight stages for development or
 recovery; persisted prerequisites remain mandatory. The individual assess,
 compare, and validate workflows are diagnostic entry points, while the generic
-integration workflow supports either domain.
+integration workflow supports each normalization domain.
+
+The immutable sharpening result is consumed by the final
+[binarization normalization](binarization-normalization.md) family.

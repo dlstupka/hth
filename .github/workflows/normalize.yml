@@ -54,6 +54,10 @@ on:
           - sharpening-method-assessment
           - sharpening-validation
           - sharpening-integration
+          - binarization-assessment
+          - binarization-method-assessment
+          - binarization-validation
+          - binarization-integration
       upload_full_artifact:
         description: "Build and upload all normalized images; disable for a fast evidence-only reuse check"
         required: true
@@ -690,4 +694,44 @@ jobs:
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration","denoising-assessment","denoising-method-assessment","denoising-validation","denoising-integration","sharpening-assessment","sharpening-method-assessment","sharpening-validation","sharpening-integration"]'), inputs.start_stage) }}
     uses: ./.github/workflows/integrate-restoration.yml
     with: {domain: sharpening, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
+    secrets: inherit
+
+  assess-binarization:
+    name: Assess foreground and background separability
+    needs: integrate-sharpening
+    if: >-
+      ${{ always() && !cancelled() && (needs.integrate-sharpening.result == 'success' || needs.integrate-sharpening.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration","denoising-assessment","denoising-method-assessment","denoising-validation","denoising-integration","sharpening-assessment","sharpening-method-assessment","sharpening-validation","sharpening-integration","binarization-assessment"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/_core-restoration-evidence.yml
+    with: {domain: binarization, stage: assess, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}"}
+    secrets: inherit
+
+  assess-binarization-methods:
+    name: Compare bounded binarization methods
+    needs: assess-binarization
+    if: >-
+      ${{ always() && !cancelled() && (needs.assess-binarization.result == 'success' || needs.assess-binarization.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration","denoising-assessment","denoising-method-assessment","denoising-validation","denoising-integration","sharpening-assessment","sharpening-method-assessment","sharpening-validation","sharpening-integration","binarization-assessment","binarization-method-assessment"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/_core-restoration-evidence.yml
+    with: {domain: binarization, stage: compare, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}"}
+    secrets: inherit
+
+  validate-binarization-method:
+    name: Validate binarization method on held-out pages
+    needs: assess-binarization-methods
+    if: >-
+      ${{ always() && !cancelled() && (needs.assess-binarization-methods.result == 'success' || needs.assess-binarization-methods.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration","denoising-assessment","denoising-method-assessment","denoising-validation","denoising-integration","sharpening-assessment","sharpening-method-assessment","sharpening-validation","sharpening-integration","binarization-assessment","binarization-method-assessment","binarization-validation"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/_core-restoration-evidence.yml
+    with: {domain: binarization, stage: validate, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}"}
+    secrets: inherit
+
+  integrate-binarization:
+    name: Integrate binarization with CBE
+    needs: validate-binarization-method
+    if: >-
+      ${{ always() && !cancelled() && (needs.validate-binarization-method.result == 'success' || needs.validate-binarization-method.result == 'skipped')
+        && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration","denoising-assessment","denoising-method-assessment","denoising-validation","denoising-integration","sharpening-assessment","sharpening-method-assessment","sharpening-validation","sharpening-integration","binarization-assessment","binarization-method-assessment","binarization-validation","binarization-integration"]'), inputs.start_stage) }}
+    uses: ./.github/workflows/integrate-restoration.yml
+    with: {domain: binarization, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
     secrets: inherit

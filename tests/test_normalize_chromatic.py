@@ -294,7 +294,7 @@ class ChromaticNormalizationTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         cast = "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}"
         callers = {
-            "normalize.yml": 23,
+            "normalize.yml": 27,
             "assess-chromatic.yml": 1,
             "assess-chromatic-methods.yml": 1,
             "validate-chromatic-method.yml": 1,

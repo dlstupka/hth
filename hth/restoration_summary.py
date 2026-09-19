@@ -1,4 +1,4 @@
-"""Compact summaries for denoising and sharpening evidence."""
+"""Compact summaries for restoration and binarization evidence."""
 from __future__ import annotations
 import argparse, json
 from pathlib import Path
@@ -7,12 +7,23 @@ from typing import Any
 
 def summary_lines(stage: str, payload: dict[str, Any]) -> list[str]:
     domain = str(payload.get("domain") or "restoration")
-    title = "Denoising and artifact suppression" if domain == "denoising" else "Sharpening and detail enhancement"
+    titles = {
+        "denoising": "Denoising and artifact suppression",
+        "sharpening": "Sharpening and detail enhancement",
+        "binarization": "Foreground/background binarization",
+    }
+    title = titles.get(domain, domain.title())
     aggregate = payload.get("aggregate") or {}
     if stage == "assess":
         return [f"## {title} assessment", "", f"- Pages evaluated: `{aggregate.get('page_count', 0)}`", f"- Correction candidates: `{aggregate.get('correction-candidate', 0)}`", f"- Development candidates: `{aggregate.get('development_candidates', 0)}`", f"- Held-out candidates: `{aggregate.get('held_out_candidates', 0)}`", f"- Deterministic partition adjustments: `{len(aggregate.get('reassigned_candidates') or [])}`", f"- Preserve: `{aggregate.get('preserve', 0)}`", f"- Review: `{aggregate.get('review', 0)}`", "- Pipeline action: `all-pages-continue`", ""]
     if stage == "compare":
-        lines = [f"## Bounded {domain} method comparison", "", f"- Development candidates: `{payload.get('candidate_count', 0)}`", f"- Globally safe methods: `{len(payload.get('globally_safe_methods') or [])}`", f"- Recommended method: `{payload.get('recommended_method_id') or 'none'}`", "", "| Method | Safe pages | Mean noise reduction | Mean detail gain | Mean detail correlation | Gate failures |", "|---|---:|---:|---:|---:|---|"]
+        if domain == "binarization":
+            header = ["| Method | Safe pages | Mean foreground agreement | Mean foreground fraction | Mean edge correlation | Gate failures |", "|---|---:|---:|---:|---:|---|"]
+            metric_keys = ("foreground_agreement", "output_foreground_fraction", "edge_correlation")
+        else:
+            header = ["| Method | Safe pages | Mean noise reduction | Mean detail gain | Mean detail correlation | Gate failures |", "|---|---:|---:|---:|---:|---|"]
+            metric_keys = ("noise_reduction_fraction", "detail_gain_fraction", "detail_correlation")
+        lines = [f"## Bounded {domain} method comparison", "", f"- Development candidates: `{payload.get('candidate_count', 0)}`", f"- Globally safe methods: `{len(payload.get('globally_safe_methods') or [])}`", f"- Recommended method: `{payload.get('recommended_method_id') or 'none'}`", "", *header]
         for method in (payload.get("config") or {}).get("methods") or []:
             variants = [next((v for v in p.get("variants", []) if v.get("method_id") == method["id"]), None) for p in payload.get("pages") or []]
             variants = [v for v in variants if v]
@@ -23,7 +34,7 @@ def summary_lines(stage: str, payload: dict[str, Any]) -> list[str]:
                 for gate, passed in (variant.get("gates") or {}).items():
                     if not passed: failures[gate.replace("_", " ")] = failures.get(gate.replace("_", " "), 0) + 1
             failure_text = ", ".join(f"{k}: {v}" for k, v in failures.items()) or "none"
-            lines.append(f"| `{method['id']}` | {safe}/{len(variants)} | {mean('noise_reduction_fraction'):.3f} | {mean('detail_gain_fraction'):.3f} | {mean('detail_correlation'):.3f} | {failure_text} |")
+            lines.append(f"| `{method['id']}` | {safe}/{len(variants)} | {mean(metric_keys[0]):.3f} | {mean(metric_keys[1]):.3f} | {mean(metric_keys[2]):.3f} | {failure_text} |")
         return lines + [""]
     if stage == "validate":
         return [f"## Held-out {domain} validation", "", f"- Method: `{(payload.get('method') or {}).get('id', 'none')}`", f"- Held-out candidates: `{aggregate.get('held_out_candidates', 0)}`", f"- Safe candidates: `{aggregate.get('safe_candidates', 0)}`", f"- Decision: `{payload.get('decision', 'unknown')}`", ""]

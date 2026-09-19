@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "domain": "binarization",
+  "assessment_type": "binarization-method-comparison",
+  "methods": [
+    {
+      "id": "global-otsu",
+      "mode": "global-otsu"
+    },
+    {
+      "id": "adaptive-gaussian-35",
+      "mode": "adaptive-gaussian",
+      "block_size": 35,
+      "c": 11.0
+    },
+    {
+      "id": "sauvola-35",
+      "mode": "sauvola",
+      "window": 35,
+      "k": 0.20,
+      "r": 0.50
+    }
+  ],
+  "safety_gates": {
+    "minimum_foreground_agreement": 0.82,
+    "minimum_output_foreground_fraction": 0.005,
+    "maximum_output_foreground_fraction": 0.55,
+    "maximum_component_inflation_ratio": 2.0,
+    "minimum_edge_correlation": 0.70
+  },
+  "recommendation": {
+    "policy_id": "bounded-binarization-v1",
+    "selection_rule": "first-declared-method-safe-for-every-development-candidate"
+  }
+}

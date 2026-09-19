@@ -3,7 +3,7 @@ run-name: Integrate ${{ inputs.domain }} normalization with CBE
 on:
   workflow_dispatch:
     inputs:
-      domain: {description: "Restoration domain", required: true, default: denoising, type: choice, options: [denoising, sharpening]}
+      domain: {description: "Normalization domain", required: true, default: denoising, type: choice, options: [denoising, sharpening, binarization]}
       # BEGIN GENERATED RUNNER TARGET INPUT
       runner_target:
         description: "Execution runner target"
@@ -91,6 +91,10 @@ jobs:
             /normalization/sharpening-methods/
             /normalization/sharpening-validation/
             /normalization/sharpening-integration/
+            /normalization/binarization/
+            /normalization/binarization-methods/
+            /normalization/binarization-validation/
+            /normalization/binarization-integration/
           sparse-checkout-cone-mode: false
           persist-credentials: true
       - name: Set up canonical HTH Python runtime
@@ -105,7 +109,8 @@ jobs:
           python <<'PY'
           import json, os, subprocess
           from pathlib import Path
-          d=os.environ["DOMAIN"]; parent="chromatic" if d=="denoising" else "denoising"
+          d=os.environ["DOMAIN"]; parent={"denoising":"chromatic","sharpening":"denoising","binarization":"sharpening"}.get(d)
+          if parent is None: raise SystemExit(f"Unsupported normalization domain: {d}")
           record=json.loads(Path(f"results-repo/normalization/{parent}-integration/release.json").read_text())
           values={"parent":parent,"parent_manifest":f"{parent}-normalization-manifest.json","parent_folder":f"{parent}-normalized","parent_identity":record[f"{parent}_result_identity"],"tag":record["tag"],"asset":record["asset"],"asset_sha256":record["asset_sha256"],"manifest":f"{d}-normalization-manifest.json","csv":f"{d}-normalization-manifest.csv","identity_key":f"{d}_result_identity","prefix":f"HTH-{d.upper()}","scope":f"hth-{d}-integration"}
           with Path(os.environ["GITHUB_OUTPUT"]).open("a") as out:
