@@ -74,11 +74,12 @@ class NormalizationCanonicalEvidenceCoverageTests(unittest.TestCase):
     def test_orientation_output_is_run_scoped_for_persistent_runners(self) -> None:
         text = (ROOT / ".github/workflows/assess-orientation-deskew.yml").read_text(encoding="utf-8")
         self.assertIn(
-            "ASSESSMENT_OUTPUT: ${{ runner.temp }}/orientation-deskew-assessment-${{ github.run_id }}-${{ github.run_attempt }}",
+            'assessment_output=$RUNNER_TEMP/orientation-deskew-assessment-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}',
             text,
         )
-        self.assertIn('--output "$ASSESSMENT_OUTPUT"', text)
-        self.assertIn("path: ${{ env.ASSESSMENT_OUTPUT }}", text)
+        self.assertIn('--output "${{ steps.paths.outputs.assessment_output }}"', text)
+        self.assertIn("path: ${{ steps.paths.outputs.assessment_output }}", text)
+        self.assertNotIn("${{ runner.temp }}", text)
         self.assertNotIn("--output orientation-deskew-assessment", text)
 
     def test_new_scope_artifact_contracts_finalize(self) -> None:

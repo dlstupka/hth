@@ -83,8 +83,12 @@ jobs:
           || inputs.runner_target == '32t' && '32t'
           || 'github-hosted' }}
       # END GENERATED RUNNER SETUP LABEL
-      ASSESSMENT_OUTPUT: ${{ runner.temp }}/orientation-deskew-assessment-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
+      - name: Resolve run-scoped output path
+        id: paths
+        shell: bash
+        run: echo "assessment_output=$RUNNER_TEMP/orientation-deskew-assessment-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout HTH pipeline
         uses: actions/checkout@v6
         with:
@@ -286,10 +290,10 @@ jobs:
             --normalization-manifest results-repo/normalization/normalization-manifest.json \
             --sample-plan "$RUNNER_TEMP/orientation-deskew-sample.json" \
             --config "$ASSESSMENT_CONFIG" \
-            --output "$ASSESSMENT_OUTPUT" \
+            --output "${{ steps.paths.outputs.assessment_output }}" \
             --github-summary "$GITHUB_STEP_SUMMARY"
-          cp "$RUNNER_TEMP/orientation-deskew-sample.json" "$ASSESSMENT_OUTPUT/sample-plan.json"
-          cp "$RUNNER_TEMP/orientation-deskew-materialized/materialization-evidence.json" "$ASSESSMENT_OUTPUT/materialization-evidence.json"
+          cp "$RUNNER_TEMP/orientation-deskew-sample.json" "${{ steps.paths.outputs.assessment_output }}/sample-plan.json"
+          cp "$RUNNER_TEMP/orientation-deskew-materialized/materialization-evidence.json" "${{ steps.paths.outputs.assessment_output }}/materialization-evidence.json"
 
       - name: Prepare plain-language normalization recommendation
         if: steps.cbe.outputs.decision == 'execute'
@@ -299,8 +303,8 @@ jobs:
         run: |
           set -euo pipefail
           python -m hth.assess_orientation_deskew recommend \
-            --assessment "$ASSESSMENT_OUTPUT/assessment.json" \
-            --output "$ASSESSMENT_OUTPUT/normalization-policy.json" \
+            --assessment "${{ steps.paths.outputs.assessment_output }}/assessment.json" \
+            --output "${{ steps.paths.outputs.assessment_output }}/normalization-policy.json" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
       - name: Finalize orientation/deskew Canonical Build Evidence
@@ -311,9 +315,9 @@ jobs:
           set -euo pipefail
           python -m hth.canonical_build_evidence finalize \
             --plan "$RUNNER_TEMP/orientation-deskew-cbe-plan.json" \
-            --output-root "$ASSESSMENT_OUTPUT" \
+            --output-root "${{ steps.paths.outputs.assessment_output }}" \
             --evidence-store results-repo/normalization/orientation-deskew/canonical-build-evidence.json \
-            --evidence-output "$ASSESSMENT_OUTPUT/canonical-build-evidence.json" \
+            --evidence-output "${{ steps.paths.outputs.assessment_output }}/canonical-build-evidence.json" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
       - name: Preserve recommendation and compact assessment evidence
@@ -329,12 +333,12 @@ jobs:
           payload="$RUNNER_TEMP/hth-normalization-recommendation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           rm -rf "$payload"
           mkdir -p "$payload"
-          cp "$ASSESSMENT_OUTPUT/assessment.json" "$payload/"
-          cp "$ASSESSMENT_OUTPUT/sample-plan.json" "$payload/"
-          cp "$ASSESSMENT_OUTPUT/materialization-evidence.json" "$payload/"
-          cp "$ASSESSMENT_OUTPUT/recommendation.md" "$payload/"
-          cp "$ASSESSMENT_OUTPUT/normalization-policy.json" "$payload/"
-          cp "$ASSESSMENT_OUTPUT/canonical-build-evidence.json" "$RUNNER_TEMP/orientation-deskew-cbe-incoming.json"
+          cp "${{ steps.paths.outputs.assessment_output }}/assessment.json" "$payload/"
+          cp "${{ steps.paths.outputs.assessment_output }}/sample-plan.json" "$payload/"
+          cp "${{ steps.paths.outputs.assessment_output }}/materialization-evidence.json" "$payload/"
+          cp "${{ steps.paths.outputs.assessment_output }}/recommendation.md" "$payload/"
+          cp "${{ steps.paths.outputs.assessment_output }}/normalization-policy.json" "$payload/"
+          cp "${{ steps.paths.outputs.assessment_output }}/canonical-build-evidence.json" "$RUNNER_TEMP/orientation-deskew-cbe-incoming.json"
 
           apply_normalization_recommendation() {
             python -m hth.canonical_build_evidence merge \
@@ -368,7 +372,7 @@ jobs:
         uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
         with:
           name: hth-orientation-deskew-${{ github.run_number }}
-          path: ${{ env.ASSESSMENT_OUTPUT }}
+          path: ${{ steps.paths.outputs.assessment_output }}
           if-no-files-found: error
           retention-days: ${{ inputs.artifact_retention_days }}
           compression-level: 6
