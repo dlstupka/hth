@@ -119,18 +119,29 @@ def measure(image: np.ndarray, config: dict[str, Any]) -> dict[str, Any]:
 
 
 def apply_method(image: np.ndarray, method: dict[str, Any]) -> np.ndarray:
+    alpha = None
+    working = image
+    if image.ndim == 3 and image.shape[2] == 4:
+        working = image[:, :, :3]
+        alpha = image[:, :, 3].copy()
     mode = method["mode"]
     if mode == "bilateral":
         sigma = float(method["sigma"])
-        return cv2.bilateralFilter(image, 5, sigma, sigma)
-    if mode == "median":
-        return cv2.medianBlur(image, int(method.get("kernel", 3)))
-    if mode == "unsharp-mask":
+        result = cv2.bilateralFilter(working, 5, sigma, sigma)
+    elif mode == "median":
+        result = cv2.medianBlur(working, int(method.get("kernel", 3)))
+    elif mode == "unsharp-mask":
         strength = float(method["strength"])
-        blurred = cv2.GaussianBlur(image, (0, 0), float(method.get("radius", 1.0)))
-        result = image.astype(np.float32) + strength * (image.astype(np.float32) - blurred.astype(np.float32))
-        return np.clip(np.rint(result), 0, 255).astype(np.uint8)
-    raise ValueError(f"Unsupported restoration method: {mode}")
+        blurred = cv2.GaussianBlur(working, (0, 0), float(method.get("radius", 1.0)))
+        enhanced = working.astype(np.float32) + strength * (
+            working.astype(np.float32) - blurred.astype(np.float32)
+        )
+        result = np.clip(np.rint(enhanced), 0, 255).astype(np.uint8)
+    else:
+        raise ValueError(f"Unsupported restoration method: {mode}")
+    if alpha is not None:
+        return np.dstack((result, alpha))
+    return result
 
 
 def evaluate(before: np.ndarray, after: np.ndarray, config: dict[str, Any]) -> dict[str, Any]:

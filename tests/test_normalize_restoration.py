@@ -19,7 +19,7 @@ from hth.canonical_build_evidence import (
     SCOPE_EVIDENCE_PATHS,
 )
 from hth.normalize_document_images import _pixel_sha256
-from hth.normalize_restoration import assess, compare, integrate, package_release, validate
+from hth.normalize_restoration import apply_method, assess, compare, integrate, package_release, validate
 from hth.restoration_summary import summary_lines
 
 
@@ -104,6 +104,21 @@ class RestorationNormalizationTests(unittest.TestCase):
         first = package_release("denoising", output, self.root / "first.zip", tag)
         second = package_release("denoising", output, self.root / "second.zip", tag)
         self.assertEqual(first["asset_sha256"], second["asset_sha256"])
+
+    def test_all_methods_preserve_rgba_alpha_byte_for_byte(self):
+        image = np.zeros((24, 32, 4), dtype=np.uint8)
+        image[:, :, :3] = np.arange(32, dtype=np.uint8)[None, :, None] * 7
+        image[:, :, 3] = np.arange(24, dtype=np.uint8)[:, None] * 9
+        methods = [
+            {"mode": "bilateral", "sigma": 15.0},
+            {"mode": "median", "kernel": 3},
+            {"mode": "unsharp-mask", "strength": 0.25, "radius": 1.0},
+        ]
+        for method in methods:
+            with self.subTest(method=method["mode"]):
+                result = apply_method(image, method)
+                self.assertEqual(result.shape, image.shape)
+                self.assertTrue(np.array_equal(result[:, :, 3], image[:, :, 3]))
 
     def test_cbe_registry_and_human_summary_cover_all_eight_stages(self):
         scopes = {DENOISING_ASSESSMENT_SCOPE, DENOISING_METHOD_ASSESSMENT_SCOPE,
