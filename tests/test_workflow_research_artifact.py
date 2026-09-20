@@ -23,6 +23,10 @@ class WorkflowResearchArtifactTests(unittest.TestCase):
         self.assertIn("Upload report research artifact", text)
         self.assertIn("results-repo/*-index.json", text)
         self.assertIn("optimizer-predictions.json", text)
+        self.assertIn(
+            "cp -a results-repo/indexes report-research-artifact/intelligence/indexes",
+            text,
+        )
         self.assertIn("for directory in reports execution-optimizer", text)
         assemble = text.split("- name: Assemble report research artifact", 1)[1].split(
             "- name: Upload report research artifact", 1

@@ -46,29 +46,59 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertIn('FREEZE_SOURCE="${{ steps.report_golden_set.outputs.freeze_path }}"', text)
 
 
-    def test_core_report_results_checkout_is_shallow_main_only(self) -> None:
+    def test_core_report_results_checkouts_are_explicit_and_main_only(self) -> None:
         text = CORE.read_text(encoding="utf-8")
         report_job = text.split("generate-report:", 1)[1]
         setup = report_job.split("- name: Set up canonical HTH Python runtime", 1)[0]
         compact = setup.split("- name: Checkout compact normalization audit evidence", 1)[1].split(
-            "- name: Checkout results repository", 1
+            "- name: Checkout detector calibration report evidence", 1
         )[0]
-        general = setup.split("- name: Checkout results repository", 1)[1]
-        for checkout in (compact, general):
+        detector = setup.split("- name: Checkout detector calibration report evidence", 1)[1].split(
+            "- name: Checkout execution optimizer report evidence", 1
+        )[0]
+        optimizer = setup.split("- name: Checkout execution optimizer report evidence", 1)[1]
+        for checkout in (compact, detector, optimizer):
             self.assertIn("ref: main", checkout)
-            self.assertIn("fetch-depth: 1", checkout)
             self.assertNotIn("fetch-depth: 0", checkout)
+            self.assertIn("sparse-checkout:", checkout)
+            self.assertIn("sparse-checkout-cone-mode: false", checkout)
+        self.assertIn("fetch-depth: 1", compact)
+        self.assertIn("fetch-depth: 1", detector)
+        self.assertIn("fetch-depth: 100", optimizer)
 
     def test_normalization_report_uses_compact_canonical_audit_checkout(self) -> None:
         text = CORE.read_text(encoding="utf-8")
         checkout = text.split("- name: Checkout compact normalization audit evidence", 1)[1].split(
-            "- name: Checkout results repository", 1
+            "- name: Checkout detector calibration report evidence", 1
         )[0]
         self.assertIn("inputs.report_type == 'full-normalization-summary'", checkout)
         self.assertIn("/metadata/resource-lifecycle.json", checkout)
         self.assertIn("/normalization/", checkout)
         self.assertIn("/reports/full-normalization-summary.md", checkout)
         self.assertIn("sparse-checkout-cone-mode: false", checkout)
+
+    def test_detector_report_checkout_declares_indexes_records_and_publish_surface(self) -> None:
+        text = CORE.read_text(encoding="utf-8")
+        checkout = text.split("- name: Checkout detector calibration report evidence", 1)[1].split(
+            "- name: Checkout execution optimizer report evidence", 1
+        )[0]
+        self.assertIn("inputs.report_type == 'detector-calibration-manifest'", checkout)
+        self.assertIn("/indexes/calibration-index.json", checkout)
+        self.assertIn("/indexes/runtime-index.json", checkout)
+        self.assertIn("/source-documents/", checkout)
+        self.assertIn("/reports/", checkout)
+
+    def test_optimizer_report_checkout_declares_indexes_history_and_publish_surface(self) -> None:
+        text = CORE.read_text(encoding="utf-8")
+        checkout = text.split("- name: Checkout execution optimizer report evidence", 1)[1].split(
+            "- name: Set up canonical HTH Python runtime", 1
+        )[0]
+        self.assertIn("inputs.report_type == 'execution-optimizer'", checkout)
+        self.assertIn("/indexes/parallelism-index.json", checkout)
+        self.assertIn("/indexes/optimizer-index.json", checkout)
+        self.assertIn("/indexes/optimizer-predictions.json", checkout)
+        self.assertIn("/execution-optimizer/", checkout)
+        self.assertNotIn("source-documents", checkout)
 
     def test_normalization_research_artifact_excludes_detector_calibration_tree(self) -> None:
         text = CORE.read_text(encoding="utf-8")

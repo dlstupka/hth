@@ -1477,8 +1477,27 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: true
 
-      - name: Checkout results repository
-        if: ${{ inputs.report_type != 'full-normalization-summary' }}
+      - name: Checkout detector calibration report evidence
+        if: ${{ inputs.report_type == 'detector-calibration-manifest' }}
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.results_repository }}
+          path: results-repo
+          ref: main
+          token: ${{ secrets.HTH_RESULTS_TOKEN }}
+          fetch-depth: 1
+          sparse-checkout: |
+            /indexes/calibration-index.json
+            /calibration-index.json
+            /indexes/runtime-index.json
+            /runtime-index.json
+            /source-documents/
+            /reports/
+          sparse-checkout-cone-mode: false
+          persist-credentials: true
+
+      - name: Checkout execution optimizer report evidence
+        if: ${{ inputs.report_type == 'execution-optimizer' }}
         uses: actions/checkout@v6
         with:
           repository: ${{ inputs.results_repository }}
@@ -1489,6 +1508,15 @@ jobs:
           # bounded results history so Report Writer can migrate those published
           # profiles into canonical evidence while modern runs use durable records.
           fetch-depth: 100
+          sparse-checkout: |
+            /indexes/parallelism-index.json
+            /parallelism-index.json
+            /indexes/optimizer-index.json
+            /optimizer-index.json
+            /indexes/optimizer-predictions.json
+            /optimizer-predictions.json
+            /execution-optimizer/
+          sparse-checkout-cone-mode: false
           persist-credentials: true
 
       - name: Set up canonical HTH Python runtime
@@ -1683,11 +1711,11 @@ jobs:
             # runtime, optimizer, provenance, scheduling, and source metadata.
             # Detector regression/debug/verbose trees are deliberately excluded.
             shopt -s nullglob
+            if [[ -d results-repo/indexes ]]; then
+              cp -a results-repo/indexes report-research-artifact/intelligence/indexes
+            fi
             for index in results-repo/*-index.json; do
               cp "$index" report-research-artifact/intelligence/
-            done
-            for file in results-repo/indexes/optimizer-predictions.json; do
-              [[ -f "$file" ]] && cp "$file" report-research-artifact/intelligence/
             done
             for directory in reports execution-optimizer; do
               if [[ -d "results-repo/$directory" ]]; then
