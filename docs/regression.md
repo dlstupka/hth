@@ -118,7 +118,7 @@ Report regeneration is concurrency-safe with calibration/optimizer publication. 
 
 Every report ends with one **Engineering Continuous Improvement** section. Its Calibration Intelligence Persistence subsection lists, in order, the linked results commit, workflow run, pipeline repository, results repository, `indexes/calibration-index.json`, and `indexes/runtime-index.json`. The displayed commit, repository names, workflow label, and filenames are the hyperlinks; separate “open repository,” “open file,” and “open commit” helper links are not emitted. No duplicate persistence or workflow footer is appended after the report. The section explains how the two indexes preserve independent quality and execution evidence. Runtime and thread guidance must remain grounded in compatible historical measurements and is specific to the Golden Set, detector configuration, parameter grid, strategy, thread count, and runner characteristics represented by those observations.
 
-The report-writer workflow also uploads a **report research artifact** alongside the Actions summary. It contains the regenerated report, the frozen Golden Set manifest and exact Golden Set JSON, all persisted root `*-index.json` intelligence, optimizer predictions when present, accumulated report and execution-optimizer outputs, and source-document metadata. Detector-specific regression/debug/verbose trees are intentionally excluded and remain exclusive to detector research artifacts. This keeps the report writer useful as the go-to calibration/execution research entry point without duplicating verbose detector evidence.
+The report-writer workflow also uploads a compact **report research artifact** alongside the Actions summary. It contains the regenerated report, the frozen Golden Set manifest and exact Golden Set JSON, the sparse canonical indexes needed by the selected report, and relevant accumulated report or execution-optimizer outputs. Source-document trees and detector-specific regression/debug/verbose trees are intentionally excluded; durable records remain linked at the exact results commit. This keeps Report Writer useful as the calibration/execution research entry point without duplicating gigabytes of source and detector evidence.
 
 ## Detector calibration intelligence
 
@@ -309,7 +309,7 @@ remain artifact-only because repository secrets are not available to untrusted c
 The top-level lookup file is:
 
 ```text
-calibration-index.json
+indexes/calibration-index.json
 ```
 
 Each permanent record is stored beneath:

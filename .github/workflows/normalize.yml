@@ -5,6 +5,11 @@ run-name: Normalize complete collection with canonical preprocess evidence
 on:
   workflow_dispatch:
     inputs:
+      results_repository:
+        description: "Canonical collection results repository"
+        required: true
+        default: "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results"
+        type: string
       # BEGIN GENERATED RUNNER TARGET INPUT
       runner_target:
         description: "Execution runner target"
@@ -98,7 +103,7 @@ env:
   GIT_CONFIG_COUNT: "1"
   GIT_CONFIG_KEY_0: init.defaultBranch
   GIT_CONFIG_VALUE_0: main
-  RESULTS_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
+  RESULTS_REPOSITORY: ${{ inputs.results_repository }}
   MIRROR_REPOSITORY: dlstupka/hth-mirror
   EVIDENCE_CACHE_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-cache
 
@@ -108,6 +113,7 @@ jobs:
     if: ${{ contains(fromJSON('["full","crop-framing"]'), inputs.start_stage) }}
     uses: ./.github/workflows/assess-crop-framing.yml
     with:
+      results_repository: ${{ inputs.results_repository }}
       runner_target: ${{ inputs.runner_target }}
       artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
       canonical_build_policy: ${{ inputs.canonical_normalization_policy }}
@@ -122,6 +128,7 @@ jobs:
         && contains(fromJSON('["full","crop-framing","orientation-deskew"]'), inputs.start_stage) }}
     uses: ./.github/workflows/assess-orientation-deskew.yml
     with:
+      results_repository: ${{ inputs.results_repository }}
       runner_target: ${{ inputs.runner_target }}
       artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
       canonical_build_policy: ${{ inputs.canonical_normalization_policy }}
@@ -461,6 +468,7 @@ jobs:
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective"]'), inputs.start_stage) }}
     uses: ./.github/workflows/assess-perspective.yml
     with:
+      results_repository: ${{ inputs.results_repository }}
       runner_target: ${{ inputs.runner_target }}
       artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
       canonical_build_policy: ${{ inputs.canonical_normalization_policy }}
@@ -474,6 +482,7 @@ jobs:
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment"]'), inputs.start_stage) }}
     uses: ./.github/workflows/assess-photometric.yml
     with:
+      results_repository: ${{ inputs.results_repository }}
       runner_target: ${{ inputs.runner_target }}
       artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
       canonical_build_policy: ${{ inputs.canonical_normalization_policy }}
@@ -487,6 +496,7 @@ jobs:
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment"]'), inputs.start_stage) }}
     uses: ./.github/workflows/assess-photometric-methods.yml
     with:
+      results_repository: ${{ inputs.results_repository }}
       runner_target: ${{ inputs.runner_target }}
       artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
       canonical_build_policy: ${{ inputs.canonical_normalization_policy }}
@@ -500,6 +510,7 @@ jobs:
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation"]'), inputs.start_stage) }}
     uses: ./.github/workflows/validate-photometric-method.yml
     with:
+      results_repository: ${{ inputs.results_repository }}
       runner_target: ${{ inputs.runner_target }}
       artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
       canonical_build_policy: ${{ inputs.canonical_normalization_policy }}
@@ -513,6 +524,7 @@ jobs:
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration"]'), inputs.start_stage) }}
     uses: ./.github/workflows/integrate-photometric.yml
     with:
+      results_repository: ${{ inputs.results_repository }}
       runner_target: ${{ inputs.runner_target }}
       review_artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
       canonical_build_policy: ${{ inputs.canonical_normalization_policy }}
@@ -524,8 +536,10 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.integrate-photometric.result == 'success' || (inputs.start_stage == 'tonal-assessment' && needs.integrate-photometric.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/_core-tonal-evidence.yml
+    uses: ./.github/workflows/_core-normalization-evidence.yml
     with:
+      results_repository: ${{ inputs.results_repository }}
+      domain: tonal
       stage: assess
       runner_target: ${{ inputs.runner_target }}
       artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
@@ -538,8 +552,10 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.assess-tonal.result == 'success' || (inputs.start_stage == 'tonal-method-assessment' && needs.assess-tonal.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/_core-tonal-evidence.yml
+    uses: ./.github/workflows/_core-normalization-evidence.yml
     with:
+      results_repository: ${{ inputs.results_repository }}
+      domain: tonal
       stage: compare
       runner_target: ${{ inputs.runner_target }}
       artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
@@ -552,8 +568,10 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.assess-tonal-methods.result == 'success' || (inputs.start_stage == 'tonal-validation' && needs.assess-tonal-methods.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/_core-tonal-evidence.yml
+    uses: ./.github/workflows/_core-normalization-evidence.yml
     with:
+      results_repository: ${{ inputs.results_repository }}
+      domain: tonal
       stage: validate
       runner_target: ${{ inputs.runner_target }}
       artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
@@ -566,8 +584,10 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.validate-tonal-method.result == 'success' || (inputs.start_stage == 'tonal-integration' && needs.validate-tonal-method.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/integrate-tonal.yml
+    uses: ./.github/workflows/integrate-normalization.yml
     with:
+      results_repository: ${{ inputs.results_repository }}
+      domain: tonal
       runner_target: ${{ inputs.runner_target }}
       artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
       canonical_build_policy: ${{ inputs.canonical_normalization_policy }}
@@ -579,8 +599,10 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.integrate-tonal.result == 'success' || (inputs.start_stage == 'chromatic-assessment' && needs.integrate-tonal.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/_core-chromatic-evidence.yml
+    uses: ./.github/workflows/_core-normalization-evidence.yml
     with:
+      results_repository: ${{ inputs.results_repository }}
+      domain: chromatic
       stage: assess
       runner_target: ${{ inputs.runner_target }}
       artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
@@ -593,8 +615,10 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.assess-chromatic.result == 'success' || (inputs.start_stage == 'chromatic-method-assessment' && needs.assess-chromatic.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/_core-chromatic-evidence.yml
+    uses: ./.github/workflows/_core-normalization-evidence.yml
     with:
+      results_repository: ${{ inputs.results_repository }}
+      domain: chromatic
       stage: compare
       runner_target: ${{ inputs.runner_target }}
       artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
@@ -607,8 +631,10 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.assess-chromatic-methods.result == 'success' || (inputs.start_stage == 'chromatic-validation' && needs.assess-chromatic-methods.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/_core-chromatic-evidence.yml
+    uses: ./.github/workflows/_core-normalization-evidence.yml
     with:
+      results_repository: ${{ inputs.results_repository }}
+      domain: chromatic
       stage: validate
       runner_target: ${{ inputs.runner_target }}
       artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
@@ -621,8 +647,10 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.validate-chromatic-method.result == 'success' || (inputs.start_stage == 'chromatic-integration' && needs.validate-chromatic-method.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/integrate-chromatic.yml
+    uses: ./.github/workflows/integrate-normalization.yml
     with:
+      results_repository: ${{ inputs.results_repository }}
+      domain: chromatic
       runner_target: ${{ inputs.runner_target }}
       artifact_retention_days: ${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}
       canonical_build_policy: ${{ inputs.canonical_normalization_policy }}
@@ -634,8 +662,8 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.integrate-chromatic.result == 'success' || (inputs.start_stage == 'denoising-assessment' && needs.integrate-chromatic.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration","denoising-assessment"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/_core-restoration-evidence.yml
-    with: {domain: denoising, stage: assess, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
+    uses: ./.github/workflows/_core-normalization-evidence.yml
+    with: {results_repository: "${{ inputs.results_repository }}", domain: denoising, stage: assess, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
     secrets: inherit
 
   assess-denoising-methods:
@@ -644,8 +672,8 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.assess-denoising.result == 'success' || (inputs.start_stage == 'denoising-method-assessment' && needs.assess-denoising.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration","denoising-assessment","denoising-method-assessment"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/_core-restoration-evidence.yml
-    with: {domain: denoising, stage: compare, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
+    uses: ./.github/workflows/_core-normalization-evidence.yml
+    with: {results_repository: "${{ inputs.results_repository }}", domain: denoising, stage: compare, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
     secrets: inherit
 
   validate-denoising-method:
@@ -654,8 +682,8 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.assess-denoising-methods.result == 'success' || (inputs.start_stage == 'denoising-validation' && needs.assess-denoising-methods.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration","denoising-assessment","denoising-method-assessment","denoising-validation"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/_core-restoration-evidence.yml
-    with: {domain: denoising, stage: validate, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
+    uses: ./.github/workflows/_core-normalization-evidence.yml
+    with: {results_repository: "${{ inputs.results_repository }}", domain: denoising, stage: validate, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
     secrets: inherit
 
   integrate-denoising:
@@ -664,8 +692,8 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.validate-denoising-method.result == 'success' || (inputs.start_stage == 'denoising-integration' && needs.validate-denoising-method.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration","denoising-assessment","denoising-method-assessment","denoising-validation","denoising-integration"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/integrate-restoration.yml
-    with: {domain: denoising, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
+    uses: ./.github/workflows/integrate-normalization.yml
+    with: {results_repository: "${{ inputs.results_repository }}", domain: denoising, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
     secrets: inherit
 
   assess-sharpening:
@@ -674,8 +702,8 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.integrate-denoising.result == 'success' || (inputs.start_stage == 'sharpening-assessment' && needs.integrate-denoising.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration","denoising-assessment","denoising-method-assessment","denoising-validation","denoising-integration","sharpening-assessment"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/_core-restoration-evidence.yml
-    with: {domain: sharpening, stage: assess, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
+    uses: ./.github/workflows/_core-normalization-evidence.yml
+    with: {results_repository: "${{ inputs.results_repository }}", domain: sharpening, stage: assess, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
     secrets: inherit
 
   assess-sharpening-methods:
@@ -684,8 +712,8 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.assess-sharpening.result == 'success' || (inputs.start_stage == 'sharpening-method-assessment' && needs.assess-sharpening.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration","denoising-assessment","denoising-method-assessment","denoising-validation","denoising-integration","sharpening-assessment","sharpening-method-assessment"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/_core-restoration-evidence.yml
-    with: {domain: sharpening, stage: compare, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
+    uses: ./.github/workflows/_core-normalization-evidence.yml
+    with: {results_repository: "${{ inputs.results_repository }}", domain: sharpening, stage: compare, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
     secrets: inherit
 
   validate-sharpening-method:
@@ -694,8 +722,8 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.assess-sharpening-methods.result == 'success' || (inputs.start_stage == 'sharpening-validation' && needs.assess-sharpening-methods.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration","denoising-assessment","denoising-method-assessment","denoising-validation","denoising-integration","sharpening-assessment","sharpening-method-assessment","sharpening-validation"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/_core-restoration-evidence.yml
-    with: {domain: sharpening, stage: validate, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
+    uses: ./.github/workflows/_core-normalization-evidence.yml
+    with: {results_repository: "${{ inputs.results_repository }}", domain: sharpening, stage: validate, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
     secrets: inherit
 
   integrate-sharpening:
@@ -704,8 +732,8 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.validate-sharpening-method.result == 'success' || (inputs.start_stage == 'sharpening-integration' && needs.validate-sharpening-method.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration","denoising-assessment","denoising-method-assessment","denoising-validation","denoising-integration","sharpening-assessment","sharpening-method-assessment","sharpening-validation","sharpening-integration"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/integrate-restoration.yml
-    with: {domain: sharpening, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
+    uses: ./.github/workflows/integrate-normalization.yml
+    with: {results_repository: "${{ inputs.results_repository }}", domain: sharpening, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
     secrets: inherit
 
   assess-binarization:
@@ -714,8 +742,8 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.integrate-sharpening.result == 'success' || (inputs.start_stage == 'binarization-assessment' && needs.integrate-sharpening.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration","denoising-assessment","denoising-method-assessment","denoising-validation","denoising-integration","sharpening-assessment","sharpening-method-assessment","sharpening-validation","sharpening-integration","binarization-assessment"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/_core-restoration-evidence.yml
-    with: {domain: binarization, stage: assess, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
+    uses: ./.github/workflows/_core-normalization-evidence.yml
+    with: {results_repository: "${{ inputs.results_repository }}", domain: binarization, stage: assess, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
     secrets: inherit
 
   assess-binarization-methods:
@@ -724,8 +752,8 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.assess-binarization.result == 'success' || (inputs.start_stage == 'binarization-method-assessment' && needs.assess-binarization.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration","denoising-assessment","denoising-method-assessment","denoising-validation","denoising-integration","sharpening-assessment","sharpening-method-assessment","sharpening-validation","sharpening-integration","binarization-assessment","binarization-method-assessment"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/_core-restoration-evidence.yml
-    with: {domain: binarization, stage: compare, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
+    uses: ./.github/workflows/_core-normalization-evidence.yml
+    with: {results_repository: "${{ inputs.results_repository }}", domain: binarization, stage: compare, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
     secrets: inherit
 
   validate-binarization-method:
@@ -734,8 +762,8 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.assess-binarization-methods.result == 'success' || (inputs.start_stage == 'binarization-validation' && needs.assess-binarization-methods.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration","denoising-assessment","denoising-method-assessment","denoising-validation","denoising-integration","sharpening-assessment","sharpening-method-assessment","sharpening-validation","sharpening-integration","binarization-assessment","binarization-method-assessment","binarization-validation"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/_core-restoration-evidence.yml
-    with: {domain: binarization, stage: validate, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
+    uses: ./.github/workflows/_core-normalization-evidence.yml
+    with: {results_repository: "${{ inputs.results_repository }}", domain: binarization, stage: validate, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
     secrets: inherit
 
   integrate-binarization:
@@ -744,8 +772,8 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && (needs.validate-binarization-method.result == 'success' || (inputs.start_stage == 'binarization-integration' && needs.validate-binarization-method.result == 'skipped'))
         && contains(fromJSON('["full","crop-framing","orientation-deskew","canonical-normalization","perspective","photometric-assessment","photometric-method-assessment","photometric-validation","photometric-integration","tonal-assessment","tonal-method-assessment","tonal-validation","tonal-integration","chromatic-assessment","chromatic-method-assessment","chromatic-validation","chromatic-integration","denoising-assessment","denoising-method-assessment","denoising-validation","denoising-integration","sharpening-assessment","sharpening-method-assessment","sharpening-validation","sharpening-integration","binarization-assessment","binarization-method-assessment","binarization-validation","binarization-integration"]'), inputs.start_stage) }}
-    uses: ./.github/workflows/integrate-restoration.yml
-    with: {domain: binarization, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
+    uses: ./.github/workflows/integrate-normalization.yml
+    with: {results_repository: "${{ inputs.results_repository }}", domain: binarization, runner_target: "${{ inputs.runner_target }}", artifact_retention_days: "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}", canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"}
     secrets: inherit
 
   audit-resource-lifecycle:

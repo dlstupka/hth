@@ -283,6 +283,7 @@ jobs:
         with:
           repository: ${{ inputs.results_repository }}
           path: results-repo
+          ref: main
           fetch-depth: 1
           sparse-checkout: |
             indexes/calibration-index.json
@@ -359,6 +360,7 @@ jobs:
         with:
           repository: ${{ github.event_name == 'workflow_dispatch' && inputs.results_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results' }}
           path: results-repo
+          ref: main
           fetch-depth: 1
           sparse-checkout: |
             indexes/parallelism-index.json
@@ -483,6 +485,7 @@ jobs:
         with:
           repository: ${{ env.RESULTS_REPOSITORY }}
           path: results-repo
+          ref: main
           fetch-depth: 1
           sparse-checkout: |
             indexes/calibration-index.json

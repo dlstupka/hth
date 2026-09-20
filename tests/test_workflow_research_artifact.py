@@ -18,7 +18,7 @@ class WorkflowResearchArtifactTests(unittest.TestCase):
                 self.assertIn("GIT_CONFIG_VALUE_0: main", text)
 
     def test_report_writer_uploads_research_bundle_without_detector_verbose_trees(self) -> None:
-        text = (WORKFLOWS / "_core-hth.yml").read_text(encoding="utf-8")
+        text = (WORKFLOWS / "_core-report.yml").read_text(encoding="utf-8")
         self.assertIn("Assemble report research artifact", text)
         self.assertIn("Upload report research artifact", text)
         self.assertIn("results-repo/*-index.json", text)

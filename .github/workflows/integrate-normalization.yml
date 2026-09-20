@@ -1,9 +1,10 @@
-name: HTH normalize restoration integration
+name: HTH normalize domain integration
 run-name: Integrate ${{ inputs.domain }} normalization with CBE
 on:
   workflow_dispatch:
     inputs:
-      domain: {description: "Normalization domain", required: true, default: denoising, type: choice, options: [denoising, sharpening, binarization]}
+      results_repository: {description: "Canonical collection results repository", required: true, default: "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results", type: string}
+      domain: {description: "Normalization domain", required: true, default: denoising, type: choice, options: [tonal, chromatic, denoising, sharpening, binarization]}
       # BEGIN GENERATED RUNNER TARGET INPUT
       runner_target:
         description: "Execution runner target"
@@ -26,6 +27,7 @@ on:
       canonical_build_policy: {description: "Canonical Build Evidence policy", required: true, default: auto, type: choice, options: [auto, audit, force-verify, rebuild]}
   workflow_call:
     inputs:
+      results_repository: {required: true, type: string}
       domain: {required: true, type: string}
       runner_target: {required: true, type: string}
       artifact_retention_days: {required: true, type: number}
@@ -37,7 +39,7 @@ env:
   GIT_CONFIG_COUNT: "1"
   GIT_CONFIG_KEY_0: init.defaultBranch
   GIT_CONFIG_VALUE_0: main
-  RESULTS_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
+  RESULTS_REPOSITORY: ${{ inputs.results_repository }}
 jobs:
   integrate:
     name: Produce validated ${{ inputs.domain }}-normalized collection
@@ -73,7 +75,7 @@ jobs:
       - name: Checkout HTH pipeline
         uses: actions/checkout@v6
         with: {path: hth-pipeline, fetch-depth: 1, persist-credentials: false}
-      - name: Checkout restoration evidence
+      - name: Checkout normalization evidence
         uses: actions/checkout@v6
         with:
           repository: ${{ env.RESULTS_REPOSITORY }}
@@ -82,6 +84,14 @@ jobs:
           token: ${{ secrets.HTH_RESULTS_TOKEN }}
           fetch-depth: 1
           sparse-checkout: |
+            /normalization/photometric-integration/
+            /normalization/tonal/
+            /normalization/tonal-methods/
+            /normalization/tonal-validation/
+            /normalization/tonal-integration/
+            /normalization/chromatic/
+            /normalization/chromatic-methods/
+            /normalization/chromatic-validation/
             /normalization/chromatic-integration/
             /normalization/denoising/
             /normalization/denoising-methods/
@@ -100,7 +110,7 @@ jobs:
       - name: Set up canonical HTH Python runtime
         uses: ./hth-pipeline/.github/actions/setup-hth-python
         with: {pipeline-path: hth-pipeline, runner-label: "${{ env.HTH_SELECTED_RUNNER_LABEL }}"}
-      - name: Resolve restoration contracts
+      - name: Resolve normalization contracts
         id: contract
         shell: bash
         env: {DOMAIN: "${{ inputs.domain }}"}
@@ -109,10 +119,11 @@ jobs:
           python <<'PY'
           import json, os, subprocess
           from pathlib import Path
-          d=os.environ["DOMAIN"]; parent={"denoising":"chromatic","sharpening":"denoising","binarization":"sharpening"}.get(d)
+          d=os.environ["DOMAIN"]; parent={"tonal":"photometric","chromatic":"tonal","denoising":"chromatic","sharpening":"denoising","binarization":"sharpening"}.get(d)
           if parent is None: raise SystemExit(f"Unsupported normalization domain: {d}")
           record=json.loads(Path(f"results-repo/normalization/{parent}-integration/release.json").read_text())
-          values={"parent":parent,"parent_manifest":f"{parent}-normalization-manifest.json","parent_folder":f"{parent}-normalized","parent_identity":record[f"{parent}_result_identity"],"tag":record["tag"],"asset":record["asset"],"asset_sha256":record["asset_sha256"],"manifest":f"{d}-normalization-manifest.json","csv":f"{d}-normalization-manifest.csv","identity_key":f"{d}_result_identity","prefix":f"HTH-{d.upper()}","scope":f"hth-{d}-integration"}
+          specialized=d in {"tonal","chromatic"}
+          values={"parent":parent,"parent_manifest":f"{parent}-normalization-manifest.json","parent_folder":f"{parent}-normalized","parent_identity":record[f"{parent}_result_identity"],"tag":record["tag"],"asset":record["asset"],"asset_sha256":record["asset_sha256"],"manifest":f"{d}-normalization-manifest.json","csv":f"{d}-normalization-manifest.csv","identity_key":f"{d}_result_identity","prefix":f"HTH-{d.upper()}","scope":f"hth-{d}-integration","implementation":f"hth-pipeline/hth/normalize_{d}.py" if specialized else "hth-pipeline/hth/normalize_restoration.py","summary_module":f"hth.{d}_summary" if specialized else "hth.restoration_summary","driver":d if specialized else "restoration"}
           with Path(os.environ["GITHUB_OUTPUT"]).open("a") as out:
               for k,v in values.items(): out.write(f"{k}={v}\n")
               out.write(f"results_commit={subprocess.check_output(['git','-C','results-repo','rev-parse','HEAD'],text=True).strip()}\n")
@@ -120,7 +131,7 @@ jobs:
       - name: Assemble integration effective-input contract
         shell: bash
         run: |
-          root="$RUNNER_TEMP/restoration-integration-inputs"; rm -rf "$root"; mkdir "$root"
+          root="$RUNNER_TEMP/normalization-integration-inputs"; rm -rf "$root"; mkdir "$root"
           cp "results-repo/normalization/${{ steps.contract.outputs.parent }}-integration/release.json" "$root/upstream-release.json"
           cp "results-repo/normalization/${{ steps.contract.outputs.parent }}-integration/${{ steps.contract.outputs.parent_manifest }}" "$root/upstream-manifest.json"
           cp "results-repo/normalization/${{ inputs.domain }}/assessment.json" "$root/assessment.json"
@@ -131,8 +142,8 @@ jobs:
         shell: bash
         env: {PYTHONPATH: hth-pipeline}
         run: |
-          python -m hth.canonical_build_evidence prepare --scope "${{ steps.contract.outputs.scope }}" --policy "${{ inputs.canonical_build_policy }}" --contract-version 1 --mode complete-production --operation "integrate-validated-${{ inputs.domain }}" --operation preserve-exceptions-and-continue --operation package-immutable-lossless-collection --repository-root hth-pipeline --source-root "$RUNNER_TEMP/restoration-integration-inputs" --source-repository "$RESULTS_REPOSITORY" --source-release "${{ steps.contract.outputs.tag }}" --source-manifest-sha256 "${{ steps.contract.outputs.asset_sha256 }}" --source-commit "${{ steps.contract.outputs.parent_identity }}" --config "hth-pipeline/config/${{ inputs.domain }}-assessment.json" --config "hth-pipeline/config/${{ inputs.domain }}-method-assessment.json" --config "hth-pipeline/config/${{ inputs.domain }}-method-validation.json" --implementation hth-pipeline/hth/normalize_restoration.py --runtime-contract hth-pipeline/requirements.txt --runtime-package numpy --runtime-package opencv-python-headless --results-root results-repo --evidence "results-repo/normalization/${{ inputs.domain }}-integration/canonical-build-evidence.json" --plan "$RUNNER_TEMP/restoration-integration-cbe.json" --pipeline-repository "$GITHUB_REPOSITORY" --pipeline-commit "$GITHUB_SHA" --results-repository "$RESULTS_REPOSITORY" --results-ref "${{ steps.contract.outputs.results_commit }}" --workflow-run-id "$GITHUB_RUN_ID" --runner-name "$RUNNER_NAME" --runner-environment "${{ runner.environment }}" --runner-os "$RUNNER_OS" --runner-arch "$RUNNER_ARCH" --github-output "$GITHUB_OUTPUT" --github-summary "$GITHUB_STEP_SUMMARY"
-      - name: Audit reusable immutable restoration release
+          python -m hth.canonical_build_evidence prepare --scope "${{ steps.contract.outputs.scope }}" --policy "${{ inputs.canonical_build_policy }}" --contract-version 1 --mode complete-production --operation "integrate-validated-${{ inputs.domain }}" --operation preserve-exceptions-and-continue --operation package-immutable-lossless-collection --repository-root hth-pipeline --source-root "$RUNNER_TEMP/normalization-integration-inputs" --source-repository "$RESULTS_REPOSITORY" --source-release "${{ steps.contract.outputs.tag }}" --source-manifest-sha256 "${{ steps.contract.outputs.asset_sha256 }}" --source-commit "${{ steps.contract.outputs.parent_identity }}" --config "hth-pipeline/config/${{ inputs.domain }}-assessment.json" --config "hth-pipeline/config/${{ inputs.domain }}-method-assessment.json" --config "hth-pipeline/config/${{ inputs.domain }}-method-validation.json" --implementation "${{ steps.contract.outputs.implementation }}" --runtime-contract hth-pipeline/requirements.txt --runtime-package numpy --runtime-package opencv-python-headless --results-root results-repo --evidence "results-repo/normalization/${{ inputs.domain }}-integration/canonical-build-evidence.json" --plan "$RUNNER_TEMP/normalization-integration-cbe.json" --pipeline-repository "$GITHUB_REPOSITORY" --pipeline-commit "$GITHUB_SHA" --results-repository "$RESULTS_REPOSITORY" --results-ref "${{ steps.contract.outputs.results_commit }}" --workflow-run-id "$GITHUB_RUN_ID" --runner-name "$RUNNER_NAME" --runner-environment "${{ runner.environment }}" --runner-os "$RUNNER_OS" --runner-arch "$RUNNER_ARCH" --github-output "$GITHUB_OUTPUT" --github-summary "$GITHUB_STEP_SUMMARY"
+      - name: Audit reusable immutable normalization release
         if: steps.cbe.outputs.decision != 'execute'
         shell: bash
         env: {GH_TOKEN: "${{ secrets.HTH_RESULTS_TOKEN || github.token }}", PYTHONPATH: hth-pipeline}
@@ -154,39 +165,41 @@ jobs:
         if: steps.cbe.outputs.decision == 'execute'
         uses: ./hth-pipeline/.github/actions/restore-immutable-release
         with: {repository: "${{ env.RESULTS_REPOSITORY }}", tag: "${{ steps.contract.outputs.tag }}", asset: "${{ steps.contract.outputs.asset }}", sha256: "${{ steps.contract.outputs.asset_sha256 }}", token: "${{ secrets.HTH_RESULTS_TOKEN }}", destination: upstream-asset, extract-destination: upstream-input, collection-marker: "${{ steps.contract.outputs.parent_manifest }}", required-subdirectory: "${{ steps.contract.outputs.parent_folder }}"}
-      - name: Integrate validated restoration
+      - name: Integrate validated normalization domain
         id: integration
         if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         env: {PYTHONPATH: hth-pipeline}
         run: |
-          rm -rf restoration-collection
-          python -m hth.normalize_restoration --domain "${{ inputs.domain }}" integrate --collection "${{ steps.asset.outputs.collection-root }}" --upstream-manifest "${{ steps.asset.outputs.marker-path }}" --assessment "results-repo/normalization/${{ inputs.domain }}/assessment.json" --comparison "results-repo/normalization/${{ inputs.domain }}-methods/assessment.json" --validation "results-repo/normalization/${{ inputs.domain }}-validation/validation.json" --output restoration-collection
-          cp "results-repo/normalization/${{ inputs.domain }}/assessment.json" "restoration-collection/${{ inputs.domain }}-assessment.json"; cp "results-repo/normalization/${{ inputs.domain }}-methods/assessment.json" "restoration-collection/${{ inputs.domain }}-method-assessment.json"; cp "results-repo/normalization/${{ inputs.domain }}-validation/validation.json" "restoration-collection/${{ inputs.domain }}-validation.json"
-          python -c "import json,os,pathlib; d='${{ inputs.domain }}'; m=json.load(open(f'restoration-collection/{d}-normalization-manifest.json')); i=m[f'{d}_result_identity']; open(os.environ['GITHUB_OUTPUT'],'a').write(f'result_identity={i}\nrelease_tag=HTH-{d.upper()}-{i}\n')"
-      - name: Summarize restoration integration
+          rm -rf normalization-collection
+          if [[ "${{ steps.contract.outputs.driver }}" == restoration ]]; then driver=(python -m hth.normalize_restoration --domain "${{ inputs.domain }}"); else driver=(python -m "hth.normalize_${{ inputs.domain }}"); fi
+          "${driver[@]}" integrate --collection "${{ steps.asset.outputs.collection-root }}" --upstream-manifest "${{ steps.asset.outputs.marker-path }}" --assessment "results-repo/normalization/${{ inputs.domain }}/assessment.json" --comparison "results-repo/normalization/${{ inputs.domain }}-methods/assessment.json" --validation "results-repo/normalization/${{ inputs.domain }}-validation/validation.json" --output normalization-collection
+          cp "results-repo/normalization/${{ inputs.domain }}/assessment.json" "normalization-collection/${{ inputs.domain }}-assessment.json"; cp "results-repo/normalization/${{ inputs.domain }}-methods/assessment.json" "normalization-collection/${{ inputs.domain }}-method-assessment.json"; cp "results-repo/normalization/${{ inputs.domain }}-validation/validation.json" "normalization-collection/${{ inputs.domain }}-validation.json"
+          python -c "import json,os,pathlib; d='${{ inputs.domain }}'; m=json.load(open(f'normalization-collection/{d}-normalization-manifest.json')); i=m[f'{d}_result_identity']; open(os.environ['GITHUB_OUTPUT'],'a').write(f'result_identity={i}\nrelease_tag=HTH-{d.upper()}-{i}\n')"
+      - name: Summarize normalization integration
         shell: bash
         env: {PYTHONPATH: hth-pipeline}
         run: |
-          if [[ "${{ steps.cbe.outputs.decision }}" == execute ]]; then input="restoration-collection/${{ steps.contract.outputs.manifest }}"; else input="results-repo/normalization/${{ inputs.domain }}-integration/${{ steps.contract.outputs.manifest }}"; fi
-          python -m hth.restoration_summary --stage integrate --input "$input" --github-summary "$GITHUB_STEP_SUMMARY"
-      - name: Package immutable restoration collection
+          if [[ "${{ steps.cbe.outputs.decision }}" == execute ]]; then input="normalization-collection/${{ steps.contract.outputs.manifest }}"; else input="results-repo/normalization/${{ inputs.domain }}-integration/${{ steps.contract.outputs.manifest }}"; fi
+          python -m "${{ steps.contract.outputs.summary_module }}" --stage integrate --input "$input" --github-summary "$GITHUB_STEP_SUMMARY"
+      - name: Package immutable normalized collection
         id: package
         if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         env: {PYTHONPATH: hth-pipeline}
         run: |
           asset="$RUNNER_TEMP/hth-${{ inputs.domain }}-${{ steps.integration.outputs.result_identity }}.zip"
-          python -m hth.normalize_restoration --domain "${{ inputs.domain }}" package --collection restoration-collection --asset "$asset" --tag "${{ steps.integration.outputs.release_tag }}" --output-record restoration-collection/release.json
+          if [[ "${{ steps.contract.outputs.driver }}" == restoration ]]; then driver=(python -m hth.normalize_restoration --domain "${{ inputs.domain }}"); else driver=(python -m "hth.normalize_${{ inputs.domain }}"); fi
+          "${driver[@]}" package --collection normalization-collection --asset "$asset" --tag "${{ steps.integration.outputs.release_tag }}" --output-record normalization-collection/release.json
           echo "asset=$asset" >> "$GITHUB_OUTPUT"
-          python -c "import json,os; value=json.load(open('restoration-collection/release.json'))['asset_sha256']; open(os.environ['GITHUB_OUTPUT'],'a').write(f'asset_sha256={value}\n')"
+          python -c "import json,os; value=json.load(open('normalization-collection/release.json'))['asset_sha256']; open(os.environ['GITHUB_OUTPUT'],'a').write(f'asset_sha256={value}\n')"
       - name: Finalize integration Canonical Build Evidence
         if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         env: {PYTHONPATH: hth-pipeline}
         run: |
-          python -m hth.canonical_build_evidence finalize --plan "$RUNNER_TEMP/restoration-integration-cbe.json" --output-root restoration-collection --evidence-store "results-repo/normalization/${{ inputs.domain }}-integration/canonical-build-evidence.json" --evidence-output restoration-collection/canonical-build-evidence.json --github-summary "$GITHUB_STEP_SUMMARY"
-      - name: Publish or reuse immutable restoration release
+          python -m hth.canonical_build_evidence finalize --plan "$RUNNER_TEMP/normalization-integration-cbe.json" --output-root normalization-collection --evidence-store "results-repo/normalization/${{ inputs.domain }}-integration/canonical-build-evidence.json" --evidence-output normalization-collection/canonical-build-evidence.json --github-summary "$GITHUB_STEP_SUMMARY"
+      - name: Publish or reuse immutable normalization release
         id: release
         if: steps.cbe.outputs.decision == 'execute'
         shell: bash
@@ -195,26 +208,26 @@ jobs:
           name="hth-${{ inputs.domain }}-${{ steps.integration.outputs.result_identity }}.zip"
           if gh release view "$TAG" --repo "$RESULTS_REPOSITORY" >/dev/null 2>&1; then digest="$(gh api "repos/$RESULTS_REPOSITORY/releases/tags/$TAG" --jq ".assets[] | select(.name == \"$name\") | .digest")"; test "$digest" = "sha256:$SHA"; activity=REUSED; else gh release create "$TAG" "$ASSET" --repo "$RESULTS_REPOSITORY" --target main --title "HTH ${{ inputs.domain }} normalized collection ${{ steps.integration.outputs.result_identity }}" --notes "Deterministic selective ${{ inputs.domain }} normalization. Every page continues downstream."; activity=CREATED; fi
           echo "release_activity=$activity" >> "$GITHUB_OUTPUT"
-      - name: Publish compact canonical restoration evidence
+      - name: Publish compact canonical normalization evidence
         if: steps.cbe.outputs.decision == 'execute'
         shell: bash
         env: {PYTHONPATH: hth-pipeline}
         run: |
           set -euo pipefail; source hth-pipeline/tools/hardened-persistence.sh
           git -C results-repo config user.name "github-actions[bot]"; git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          d="${{ inputs.domain }}"; destination="normalization/$d-integration"; payload="$RUNNER_TEMP/restoration-payload"; incoming="$RUNNER_TEMP/restoration-cbe.json"; rm -rf "$payload"; mkdir "$payload"
-          cp "restoration-collection/$d-normalization-manifest.json" "$payload/"
-          cp "restoration-collection/$d-normalization-manifest.csv" "$payload/"
-          cp restoration-collection/summary.md "$payload/"
-          cp "restoration-collection/$d-assessment.json" "$payload/"
-          cp "restoration-collection/$d-method-assessment.json" "$payload/"
-          cp "restoration-collection/$d-validation.json" "$payload/"
-          cp restoration-collection/release.json "$payload/"
-          cp restoration-collection/canonical-build-evidence.json "$incoming"
+          d="${{ inputs.domain }}"; destination="normalization/$d-integration"; payload="$RUNNER_TEMP/normalization-payload"; incoming="$RUNNER_TEMP/normalization-cbe.json"; rm -rf "$payload"; mkdir "$payload"
+          cp "normalization-collection/$d-normalization-manifest.json" "$payload/"
+          cp "normalization-collection/$d-normalization-manifest.csv" "$payload/"
+          cp normalization-collection/summary.md "$payload/"
+          cp "normalization-collection/$d-assessment.json" "$payload/"
+          cp "normalization-collection/$d-method-assessment.json" "$payload/"
+          cp "normalization-collection/$d-validation.json" "$payload/"
+          cp normalization-collection/release.json "$payload/"
+          cp normalization-collection/canonical-build-evidence.json "$incoming"
           apply_integration() { python -m hth.canonical_build_evidence merge --scope "${{ steps.contract.outputs.scope }}" --base "results-repo/$destination/canonical-build-evidence.json" --incoming "$incoming" --output "$payload/canonical-build-evidence.json"; rm -rf "results-repo/$destination"; mkdir -p "results-repo/$destination"; cp "$payload"/* "results-repo/$destination/"; hth_results_stage results-repo "$destination"; }
-          hth_hardened_persist results-repo main "Publish $d integration ${{ steps.integration.outputs.result_identity }}" apply_integration "Restoration integration publication"
+          hth_hardened_persist results-repo main "Publish $d integration ${{ steps.integration.outputs.result_identity }}" apply_integration "Normalization integration publication"
           python -m hth.release_provenance_summary --title "Durable $d result" --result-label "$d result" --result-identity "${{ steps.integration.outputs.result_identity }}" --repository "$RESULTS_REPOSITORY" --release-tag "${{ steps.integration.outputs.release_tag }}" --release-activity "${{ steps.release.outputs.release_activity }}" --results-commit "$HTH_PERSIST_COMMIT" --github-summary "$GITHUB_STEP_SUMMARY"
-      - name: Upload compact restoration review
+      - name: Upload compact normalization review
         if: steps.cbe.outputs.decision == 'execute'
         uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
-        with: {name: "hth-${{ inputs.domain }}-integration-review-${{ github.run_number }}", path: restoration-collection, if-no-files-found: error, retention-days: "${{ inputs.artifact_retention_days }}", compression-level: 6}
+        with: {name: "hth-${{ inputs.domain }}-integration-review-${{ github.run_number }}", path: normalization-collection, if-no-files-found: error, retention-days: "${{ inputs.artifact_retention_days }}", compression-level: 6}

@@ -204,22 +204,17 @@ class TonalNormalizationTests(unittest.TestCase):
 
     def test_workflows_use_cached_release_and_cbe(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        core = (root / ".github/workflows/_core-tonal-evidence.yml").read_text(encoding="utf-8")
-        integration = (root / ".github/workflows/integrate-tonal.yml").read_text(encoding="utf-8")
+        core = (root / ".github/workflows/_core-normalization-evidence.yml").read_text(encoding="utf-8")
+        integration = (root / ".github/workflows/integrate-normalization.yml").read_text(encoding="utf-8")
         orchestrator = (root / ".github/workflows/normalize.yml").read_text(encoding="utf-8")
         action = (root / ".github/actions/restore-immutable-release/action.yml").read_text(encoding="utf-8")
-        for name in ("assess-tonal.yml", "assess-tonal-methods.yml", "validate-tonal-method.yml"):
-            dispatcher = (root / ".github/workflows" / name).read_text(encoding="utf-8")
-            self.assertIn("uses: ./.github/workflows/_core-tonal-evidence.yml", dispatcher)
         self.assertIn("uses: ./hth-pipeline/.github/actions/restore-immutable-release", core)
-        self.assertIn("Evaluate tonal evidence Canonical Build Evidence", core)
-        self.assertIn("steps.cbe_plan.outputs.decision == 'execute'", core)
-        self.assertIn("--scope \"${{ steps.stage_contract.outputs.scope }}\"", core)
-        self.assertIn("hth-tonal-assessment", core)
-        self.assertIn("hth-tonal-method-assessment", core)
-        self.assertIn("hth-tonal-validation", core)
-        self.assertIn("photometric_result_identity", core)
-        self.assertIn("Finalize tonal evidence Canonical Build Evidence", core)
+        self.assertIn("Evaluate normalization Canonical Build Evidence", core)
+        self.assertIn("steps.cbe.outputs.decision == 'execute'", core)
+        self.assertIn("--scope \"${{ steps.contract.outputs.scope }}\"", core)
+        self.assertIn('"tonal":"photometric"', core)
+        self.assertIn('key=f"{parent}_result_identity"', core)
+        self.assertIn("Finalize normalization Canonical Build Evidence", core)
         self.assertIn("uses: ./hth-pipeline/.github/actions/restore-immutable-release", integration)
         self.assertIn("/tmp/.ar/.hth-release-cache", action)
         self.assertIn("uses: actions/cache@v5", action)
@@ -227,46 +222,38 @@ class TonalNormalizationTests(unittest.TestCase):
         self.assertIn("python -m hth.release_provenance_summary", action)
         self.assertIn('--input-asset "$HTH_RELEASE_ASSET"', action)
         self.assertIn('--cache-source "$HTH_RELEASE_CACHE_SOURCE"', action)
-        self.assertIn("--scope hth-tonal-integration", integration)
+        self.assertIn('"scope":f"hth-{d}-integration"', integration)
         self.assertIn("decision != 'execute'", integration)
-        self.assertIn("Existing tonal release does not match deterministic rebuild", integration)
         self.assertEqual(integration.count("python -m hth.release_provenance_summary"), 2)
-        self.assertIn('--release-tag "${fields[0]}"', integration)
+        self.assertIn('--release-tag "${f[0]}"', integration)
         self.assertIn('--release-tag "${{ steps.integration.outputs.release_tag }}"', integration)
         self.assertIn("needs: integrate-photometric", orchestrator)
         self.assertIn("uses: ./.github/workflows/assess-perspective.yml", orchestrator)
         self.assertIn("needs: assess-tonal", orchestrator)
         self.assertIn("needs: assess-tonal-methods", orchestrator)
         self.assertIn("needs: validate-tonal-method", orchestrator)
-        self.assertIn("uses: ./.github/workflows/integrate-tonal.yml", orchestrator)
+        self.assertIn("uses: ./.github/workflows/integrate-normalization.yml", orchestrator)
         self.assertIn("start_stage:", orchestrator)
         self.assertIn("- crop-framing", orchestrator)
         self.assertIn("- orientation-deskew", orchestrator)
         self.assertIn("- tonal-integration", orchestrator)
         self.assertIn("uses: ./.github/workflows/assess-crop-framing.yml", orchestrator)
         self.assertIn("uses: ./.github/workflows/assess-orientation-deskew.yml", orchestrator)
-        self.assertIn("collection-marker: photometric-normalization-manifest.json", core)
-        self.assertIn("steps.photometric_asset.outputs.collection-root", core)
-        self.assertIn("collection-marker: photometric-normalization-manifest.json", integration)
-        self.assertIn("steps.photometric_asset.outputs.collection-root", integration)
+        self.assertIn("collection-marker: ${{ steps.upstream.outputs.manifest }}", core)
+        self.assertIn("steps.asset.outputs.collection-root", core)
+        self.assertIn("collection-marker: \"${{ steps.contract.outputs.parent_manifest }}\"", integration)
+        self.assertIn("steps.asset.outputs.collection-root", integration)
         self.assertEqual(core.count('--github-summary "$GITHUB_STEP_SUMMARY"'), 3)
         self.assertEqual(integration.count('--github-summary "$GITHUB_STEP_SUMMARY"'), 5)
-        self.assertIn("Summarize tonal evidence", core)
-        self.assertIn("python -m hth.tonal_summary", core)
+        self.assertIn("Summarize normalization evidence", core)
+        self.assertIn('summary_module="hth.${domain}_summary"', core)
         self.assertIn("--stage integrate", integration)
-        self.assertIn('(\"photometric_result_identity\", \"source_identity\")', integration)
-        self.assertIn('--source-commit "${{ steps.inputs.outputs.source_identity }}"', integration)
-        self.assertNotIn('--source-commit "${{ steps.inputs.outputs.results_commit }}"', integration)
+        self.assertIn('--source-commit "${{ steps.contract.outputs.parent_identity }}"', integration)
 
     def test_reusable_workflow_retention_inputs_are_explicitly_numeric(self) -> None:
         root = Path(__file__).resolve().parents[1]
         cast = "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}"
-        callers = {
-            "normalize.yml": 27,
-            "assess-tonal.yml": 1,
-            "assess-tonal-methods.yml": 1,
-            "validate-tonal-method.yml": 1,
-        }
+        callers = {"normalize.yml": 27}
         for name, expected_count in callers.items():
             with self.subTest(workflow=name):
                 text = (root / ".github/workflows" / name).read_text(encoding="utf-8")

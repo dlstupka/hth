@@ -130,7 +130,7 @@ def _replace_region(text: str, begin: str, end: str, replacement: str, indent: i
 
 def render_workflow(path: Path, targets: list[dict]) -> str:
     text = path.read_text(encoding="utf-8")
-    reusable = path.name == "_core-hth.yml"
+    reusable = path.name.startswith("_core-")
 
     marker = re.search(rf"(?ms)^      {re.escape(BEGIN_INPUT)}\n.*?^      {re.escape(END_INPUT)}\n", text)
     if marker:

@@ -252,22 +252,17 @@ class ChromaticNormalizationTests(unittest.TestCase):
 
     def test_workflows_use_cached_release_and_cbe(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        core = (root / ".github/workflows/_core-chromatic-evidence.yml").read_text(encoding="utf-8")
-        integration = (root / ".github/workflows/integrate-chromatic.yml").read_text(encoding="utf-8")
+        core = (root / ".github/workflows/_core-normalization-evidence.yml").read_text(encoding="utf-8")
+        integration = (root / ".github/workflows/integrate-normalization.yml").read_text(encoding="utf-8")
         orchestrator = (root / ".github/workflows/normalize.yml").read_text(encoding="utf-8")
         action = (root / ".github/actions/restore-immutable-release/action.yml").read_text(encoding="utf-8")
-        for name in ("assess-chromatic.yml", "assess-chromatic-methods.yml", "validate-chromatic-method.yml"):
-            dispatcher = (root / ".github/workflows" / name).read_text(encoding="utf-8")
-            self.assertIn("uses: ./.github/workflows/_core-chromatic-evidence.yml", dispatcher)
         self.assertIn("uses: ./hth-pipeline/.github/actions/restore-immutable-release", core)
-        self.assertIn("Evaluate chromatic evidence Canonical Build Evidence", core)
-        self.assertIn("steps.cbe_plan.outputs.decision == 'execute'", core)
-        self.assertIn("--scope \"${{ steps.stage_contract.outputs.scope }}\"", core)
-        self.assertIn("hth-chromatic-assessment", core)
-        self.assertIn("hth-chromatic-method-assessment", core)
-        self.assertIn("hth-chromatic-validation", core)
-        self.assertIn("tonal_result_identity", core)
-        self.assertIn("Finalize chromatic evidence Canonical Build Evidence", core)
+        self.assertIn("Evaluate normalization Canonical Build Evidence", core)
+        self.assertIn("steps.cbe.outputs.decision == 'execute'", core)
+        self.assertIn("--scope \"${{ steps.contract.outputs.scope }}\"", core)
+        self.assertIn('"chromatic":"tonal"', core)
+        self.assertIn('key=f"{parent}_result_identity"', core)
+        self.assertIn("Finalize normalization Canonical Build Evidence", core)
         self.assertIn("uses: ./hth-pipeline/.github/actions/restore-immutable-release", integration)
         self.assertIn("/tmp/.ar/.hth-release-cache", action)
         self.assertIn("uses: actions/cache@v5", action)
@@ -275,46 +270,38 @@ class ChromaticNormalizationTests(unittest.TestCase):
         self.assertIn("python -m hth.release_provenance_summary", action)
         self.assertIn('--input-asset "$HTH_RELEASE_ASSET"', action)
         self.assertIn('--cache-source "$HTH_RELEASE_CACHE_SOURCE"', action)
-        self.assertIn("--scope hth-chromatic-integration", integration)
+        self.assertIn('"scope":f"hth-{d}-integration"', integration)
         self.assertIn("decision != 'execute'", integration)
-        self.assertIn("Existing chromatic release does not match deterministic rebuild", integration)
         self.assertEqual(integration.count("python -m hth.release_provenance_summary"), 2)
-        self.assertIn('--release-tag "${fields[0]}"', integration)
+        self.assertIn('--release-tag "${f[0]}"', integration)
         self.assertIn('--release-tag "${{ steps.integration.outputs.release_tag }}"', integration)
         self.assertIn("needs: integrate-tonal", orchestrator)
         self.assertIn("uses: ./.github/workflows/assess-perspective.yml", orchestrator)
         self.assertIn("needs: assess-chromatic", orchestrator)
         self.assertIn("needs: assess-chromatic-methods", orchestrator)
         self.assertIn("needs: validate-chromatic-method", orchestrator)
-        self.assertIn("uses: ./.github/workflows/integrate-chromatic.yml", orchestrator)
+        self.assertIn("uses: ./.github/workflows/integrate-normalization.yml", orchestrator)
         self.assertIn("start_stage:", orchestrator)
         self.assertIn("- crop-framing", orchestrator)
         self.assertIn("- orientation-deskew", orchestrator)
         self.assertIn("- chromatic-integration", orchestrator)
         self.assertIn("uses: ./.github/workflows/assess-crop-framing.yml", orchestrator)
         self.assertIn("uses: ./.github/workflows/assess-orientation-deskew.yml", orchestrator)
-        self.assertIn("collection-marker: tonal-normalization-manifest.json", core)
-        self.assertIn("steps.tonal_asset.outputs.collection-root", core)
-        self.assertIn("collection-marker: tonal-normalization-manifest.json", integration)
-        self.assertIn("steps.tonal_asset.outputs.collection-root", integration)
+        self.assertIn("collection-marker: ${{ steps.upstream.outputs.manifest }}", core)
+        self.assertIn("steps.asset.outputs.collection-root", core)
+        self.assertIn("collection-marker: \"${{ steps.contract.outputs.parent_manifest }}\"", integration)
+        self.assertIn("steps.asset.outputs.collection-root", integration)
         self.assertEqual(core.count('--github-summary "$GITHUB_STEP_SUMMARY"'), 3)
         self.assertEqual(integration.count('--github-summary "$GITHUB_STEP_SUMMARY"'), 5)
-        self.assertIn("Summarize chromatic evidence", core)
-        self.assertIn("python -m hth.chromatic_summary", core)
+        self.assertIn("Summarize normalization evidence", core)
+        self.assertIn('summary_module="hth.${domain}_summary"', core)
         self.assertIn("--stage integrate", integration)
-        self.assertIn('(\"tonal_result_identity\", \"source_identity\")', integration)
-        self.assertIn('--source-commit "${{ steps.inputs.outputs.source_identity }}"', integration)
-        self.assertNotIn('--source-commit "${{ steps.inputs.outputs.results_commit }}"', integration)
+        self.assertIn('--source-commit "${{ steps.contract.outputs.parent_identity }}"', integration)
 
     def test_reusable_workflow_retention_inputs_are_explicitly_numeric(self) -> None:
         root = Path(__file__).resolve().parents[1]
         cast = "${{ fromJSON(format('{0}', inputs.artifact_retention_days)) }}"
-        callers = {
-            "normalize.yml": 27,
-            "assess-chromatic.yml": 1,
-            "assess-chromatic-methods.yml": 1,
-            "validate-chromatic-method.yml": 1,
-        }
+        callers = {"normalize.yml": 27}
         for name, expected_count in callers.items():
             with self.subTest(workflow=name):
                 text = (root / ".github/workflows" / name).read_text(encoding="utf-8")

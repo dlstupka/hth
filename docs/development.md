@@ -44,7 +44,7 @@ Prefer explicit `git add` followed by `git commit -m`. Avoid relying on
 ## Workflow design rules
 
 - Keep entry workflows thin.
-- Put shared behavior in `.github/workflows/_core-hth.yml`.
+- Put preprocessing behavior in `.github/workflows/_core-hth.yml` and persisted-evidence report behavior in `.github/workflows/_core-report.yml`.
 - Use canonical `STAGE_*` names in workflow logs and documentation.
 - Add timestamps and elapsed timing through `hth/stage_timing.py`.
 - Put summary formatting and JSON parsing in Python, not shell/YAML.

@@ -154,7 +154,7 @@ jobs:
             self.assertNotIn("      runner:\n", text, path.name)
             self.assertNotIn("      specific_runner:\n", text, path.name)
             self.assertNotIn("      custom_runner_label:\n", text, path.name)
-            if path.name != "_core-hth.yml":
+            if not path.name.startswith("_core-"):
                 for option in expected_options:
                     self.assertIn(option, text, path.name)
         self.assertGreater(runner_workflows, 10)

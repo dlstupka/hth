@@ -80,14 +80,11 @@ concurrency:
 
 jobs:
   report:
-    uses: ./.github/workflows/_core-hth.yml
+    uses: ./.github/workflows/_core-report.yml
     with:
-      mode: report
       runner_target: ${{ inputs.runner_target }}
       results_repository: ${{ inputs.results_repository }}
       report_type: ${{ inputs.report }}
       report_algorithm: ${{ inputs.algorithm }}
       report_golden_set: ${{ inputs.golden_release_tag }}
-      publish_results: true
-      upload_full_artifact: false
     secrets: inherit

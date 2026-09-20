@@ -84,7 +84,7 @@ registry entry, and focused tests.
 
 ## Durable principles
 
-1. Workflow wrappers remain thin; reusable behavior belongs in `_core-hth.yml`.
+1. Workflow wrappers remain thin; reusable behavior belongs in the responsibility-specific `_core-*.yml` workflows.
 2. Python owns parsing and presentation; YAML supplies facts and orchestration.
 3. Generated JSON is the source of truth for counts and collection identity.
 4. Publications are validated before they are committed.

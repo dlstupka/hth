@@ -5,6 +5,7 @@ run-name: Build the validated photometric collection for downstream HTR
 on:
   workflow_dispatch:
     inputs:
+      results_repository: {description: "Canonical collection results repository", required: true, default: "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results", type: string}
       # BEGIN GENERATED RUNNER TARGET INPUT
       runner_target:
         description: "Execution runner target"
@@ -40,6 +41,7 @@ on:
           - rebuild
   workflow_call:
     inputs:
+      results_repository: {required: true, type: string}
       runner_target: {required: true, type: string}
       review_artifact_retention_days: {required: true, type: number}
       canonical_build_policy: {required: true, type: string}
@@ -58,7 +60,7 @@ env:
   GIT_CONFIG_COUNT: "1"
   GIT_CONFIG_KEY_0: init.defaultBranch
   GIT_CONFIG_VALUE_0: main
-  RESULTS_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
+  RESULTS_REPOSITORY: ${{ inputs.results_repository }}
 
 jobs:
   integrate-photometric:

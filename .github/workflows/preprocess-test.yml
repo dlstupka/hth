@@ -8,7 +8,10 @@ on:
       - "hth/**"
       - "config/**"
       - "requirements.txt"
-      - ".github/workflows/**"
+      - ".github/workflows/preprocess-test.yml"
+      - ".github/workflows/_core-hth.yml"
+      - ".github/actions/setup-hth-python/**"
+      - ".github/actions/restore-immutable-release/**"
   pull_request:
     branches:
       - main
@@ -16,7 +19,10 @@ on:
       - "hth/**"
       - "config/**"
       - "requirements.txt"
-      - ".github/workflows/**"
+      - ".github/workflows/preprocess-test.yml"
+      - ".github/workflows/_core-hth.yml"
+      - ".github/actions/setup-hth-python/**"
+      - ".github/actions/restore-immutable-release/**"
   workflow_dispatch:
     inputs:
       source_repository:

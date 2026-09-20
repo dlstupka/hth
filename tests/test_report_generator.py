@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from hth.report_generator import calibration_run_dirs, smoke_run_dirs, generate_calibration_manifest, generate_full_normalization_summary, generate_optimizer_report, generate_optimizer_report_all
+from hth.report_generator import calibration_run_dirs, smoke_record_paths, smoke_run_dirs, generate_calibration_manifest, generate_full_normalization_summary, generate_optimizer_report, generate_optimizer_report_all
 from hth.normalization_summary_report import TRANSFORMATION_MANIFESTS
 
 
@@ -146,6 +146,7 @@ class ReportGeneratorTests(unittest.TestCase):
             (root / "calibration-index.json").write_text(json.dumps(index), encoding="utf-8")
             self.assertEqual([path.name for path in calibration_run_dirs(root)], ["old-full"])
             self.assertEqual([path.name for path in smoke_run_dirs(root)], ["new-smoke"])
+            self.assertEqual(smoke_record_paths(root), ["records/new-smoke"])
 
 
     def test_calibration_manifest_reads_flattened_persisted_records(self) -> None:

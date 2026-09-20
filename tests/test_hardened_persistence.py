@@ -273,7 +273,8 @@ class HardenedPersistenceTests(unittest.TestCase):
 
     def test_all_results_repo_writers_source_shared_helper(self):
         expected = {
-            "_core-hth.yml": 3,
+            "_core-hth.yml": 2,
+            "_core-report.yml": 1,
             "regress-detector.yml": 1,
             "execution-optimizer.yml": 1,
             "rebuild-historical-regression.yml": 1,

@@ -5,6 +5,7 @@ run-name: Assess crop / framing against HTH-GOLDEN-0002
 on:
   workflow_dispatch:
     inputs:
+      results_repository: {description: "Canonical collection results repository", required: true, default: "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results", type: string}
       # BEGIN GENERATED RUNNER TARGET INPUT
       runner_target:
         description: "Execution runner target"
@@ -30,6 +31,7 @@ on:
         type: number
   workflow_call:
     inputs:
+      results_repository: {required: true, type: string}
       runner_target: {required: true, type: string}
       artifact_retention_days: {required: true, type: number}
       canonical_build_policy: {required: false, type: string, default: auto}
@@ -52,7 +54,7 @@ env:
   GOLDEN_SET_FREEZE: hth-pipeline/config/golden_sets/HTH-GOLDEN-0002.freeze.json
   GOLDEN_SET_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898
   GOLDEN_SET_RELEASE: HTH-GOLDEN-0002
-  RESULTS_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
+  RESULTS_REPOSITORY: ${{ inputs.results_repository }}
 
 jobs:
   assess-crop-framing:
@@ -98,6 +100,7 @@ jobs:
         with:
           repository: ${{ env.RESULTS_REPOSITORY }}
           path: results-repo
+          ref: main
           fetch-depth: 1
           sparse-checkout: |
             indexes/calibration-index.json

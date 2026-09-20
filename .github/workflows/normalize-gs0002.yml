@@ -5,6 +5,11 @@ run-name: Normalize HTH-GOLDEN-0002 with canonical preprocess evidence
 on:
   workflow_dispatch:
     inputs:
+      results_repository:
+        description: "Canonical collection results repository"
+        required: true
+        default: "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results"
+        type: string
       # BEGIN GENERATED RUNNER TARGET INPUT
       runner_target:
         description: "Execution runner target"
@@ -52,7 +57,7 @@ env:
   GOLDEN_SET_FREEZE: hth-pipeline/config/golden_sets/HTH-GOLDEN-0002.freeze.json
   GOLDEN_SET_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898
   GOLDEN_SET_RELEASE: HTH-GOLDEN-0002
-  RESULTS_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
+  RESULTS_REPOSITORY: ${{ inputs.results_repository }}
 
 jobs:
   normalize:
@@ -98,6 +103,7 @@ jobs:
         with:
           repository: ${{ env.RESULTS_REPOSITORY }}
           path: results-repo
+          ref: main
           fetch-depth: 1
           sparse-checkout: |
             metadata/canonical-build-evidence.json

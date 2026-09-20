@@ -3,7 +3,7 @@ import unittest
 
 
 ROOT = pathlib.Path(__file__).parents[1]
-WORKFLOW = ROOT / ".github" / "workflows" / "_core-hth.yml"
+WORKFLOW = ROOT / ".github" / "workflows" / "_core-report.yml"
 PYTHON_ACTION = ROOT / ".github" / "actions" / "setup-hth-python" / "action.yml"
 
 

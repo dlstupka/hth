@@ -210,14 +210,21 @@ class NormalizationCanonicalEvidenceCoverageTests(unittest.TestCase):
         text = (ROOT / ".github/workflows/normalize.yml").read_text(encoding="utf-8")
         self.assertEqual(text.count("canonical_build_policy: ${{ inputs.canonical_normalization_policy }}"), 15)
         self.assertEqual(text.count('canonical_build_policy: "${{ inputs.canonical_normalization_policy }}"'), 12)
-        for filename in (
-            "_core-tonal-evidence.yml",
-            "_core-chromatic-evidence.yml",
-            "_core-restoration-evidence.yml",
-        ):
+        for filename in ("_core-normalization-evidence.yml",):
             workflow = (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8")
             self.assertIn("canonical_build_policy: {required: false, type: string, default: auto}", workflow)
             self.assertNotIn("--policy auto", workflow)
+
+    def test_orchestrator_propagates_one_results_repository_to_every_stage(self) -> None:
+        text = (ROOT / ".github/workflows/normalize.yml").read_text(encoding="utf-8")
+        self.assertIn("results_repository:", text.split("permissions:", 1)[0])
+        self.assertEqual(text.count("results_repository: ${{ inputs.results_repository }}"), 15)
+        self.assertEqual(text.count('results_repository: "${{ inputs.results_repository }}"'), 12)
+        self.assertIn("RESULTS_REPOSITORY: ${{ inputs.results_repository }}", text)
+        for filename in ("_core-normalization-evidence.yml", "integrate-normalization.yml"):
+            workflow = (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8")
+            self.assertIn("results_repository: {required: true, type: string}", workflow)
+            self.assertIn("RESULTS_REPOSITORY: ${{ inputs.results_repository }}", workflow)
 
 
 if __name__ == "__main__":

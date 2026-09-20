@@ -5,6 +5,7 @@ run-name: Assess perspective correction against canonical HTH-0001 normalization
 on:
   workflow_dispatch:
     inputs:
+      results_repository: {description: "Canonical collection results repository", required: true, default: "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results", type: string}
       # BEGIN GENERATED RUNNER TARGET INPUT
       runner_target:
         description: "Execution runner target"
@@ -30,6 +31,7 @@ on:
         type: number
   workflow_call:
     inputs:
+      results_repository: {required: true, type: string}
       runner_target: {required: true, type: string}
       artifact_retention_days: {required: true, type: number}
       canonical_build_policy: {required: false, type: string, default: auto}
@@ -48,7 +50,7 @@ env:
   GIT_CONFIG_COUNT: "1"
   GIT_CONFIG_KEY_0: init.defaultBranch
   GIT_CONFIG_VALUE_0: main
-  RESULTS_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results
+  RESULTS_REPOSITORY: ${{ inputs.results_repository }}
   GOLDEN_SET_CONFIG: hth-pipeline/config/golden_sets/HTH-GOLDEN-0002.golden-set.json
   ASSESSMENT_CONFIG: hth-pipeline/config/perspective-assessment.json
 

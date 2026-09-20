@@ -199,8 +199,8 @@ class RestorationNormalizationTests(unittest.TestCase):
     def test_workflows_expose_all_four_stage_chains_and_cache_restore(self):
         root = Path(__file__).resolve().parents[1]
         orchestrator = (root / ".github/workflows/normalize.yml").read_text(encoding="utf-8")
-        core = (root / ".github/workflows/_core-restoration-evidence.yml").read_text(encoding="utf-8")
-        integration = (root / ".github/workflows/integrate-restoration.yml").read_text(encoding="utf-8")
+        core = (root / ".github/workflows/_core-normalization-evidence.yml").read_text(encoding="utf-8")
+        integration = (root / ".github/workflows/integrate-normalization.yml").read_text(encoding="utf-8")
         for stage in ("denoising-assessment", "denoising-method-assessment", "denoising-validation",
                       "denoising-integration", "sharpening-assessment", "sharpening-method-assessment",
                       "sharpening-validation", "sharpening-integration", "binarization-assessment",
@@ -209,9 +209,10 @@ class RestorationNormalizationTests(unittest.TestCase):
         self.assertIn("restore-immutable-release", core)
         self.assertIn("restore-immutable-release", integration)
         self.assertIn("release_provenance_summary", integration)
-        self.assertIn('normalize_restoration --domain "${{ inputs.domain }}" assess "${common[@]}"', core)
-        self.assertIn('normalize_restoration --domain "${{ inputs.domain }}" compare "${common[@]}"', core)
-        self.assertIn('normalize_restoration --domain "${{ inputs.domain }}" validate "${common[@]}"', core)
+        self.assertIn('driver=(python -m hth.normalize_restoration --domain "${{ inputs.domain }}")', core)
+        self.assertIn('assess) "${driver[@]}" assess "${common[@]}"', core)
+        self.assertIn('compare) "${driver[@]}" compare "${common[@]}"', core)
+        self.assertIn('validate) "${driver[@]}" validate "${common[@]}"', core)
 
 
 if __name__ == "__main__":

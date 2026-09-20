@@ -6,7 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "generate-report.yml"
-CORE = ROOT / ".github" / "workflows" / "_core-hth.yml"
+CORE = ROOT / ".github" / "workflows" / "_core-report.yml"
 
 
 class GenerateReportWorkflowTests(unittest.TestCase):
@@ -26,8 +26,8 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertIn("          - HTH-GOLDEN-0002", text)
         self.assertNotIn("default: config/golden_set.json", text)
         self.assertIn("report_golden_set: ${{ inputs.golden_release_tag }}", text)
-        self.assertIn("uses: ./.github/workflows/_core-hth.yml", text)
-        self.assertIn("mode: report", text)
+        self.assertIn("uses: ./.github/workflows/_core-report.yml", text)
+        self.assertNotIn("mode: report", text)
         for runner in ("self-hosted-linux", "self-hosted-windows", "hth", "rhel8", "e7k", "e9k", "192t", "96t", "32t"):
             self.assertIn(runner, text)
 
@@ -77,7 +77,7 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertIn("/reports/full-normalization-summary.md", checkout)
         self.assertIn("sparse-checkout-cone-mode: false", checkout)
 
-    def test_detector_report_checkout_declares_indexes_records_and_publish_surface(self) -> None:
+    def test_detector_report_checkout_declares_indexes_and_hydrates_selected_records(self) -> None:
         text = CORE.read_text(encoding="utf-8")
         checkout = text.split("- name: Checkout detector calibration report evidence", 1)[1].split(
             "- name: Checkout execution optimizer report evidence", 1
@@ -85,8 +85,11 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertIn("inputs.report_type == 'detector-calibration-manifest'", checkout)
         self.assertIn("/indexes/calibration-index.json", checkout)
         self.assertIn("/indexes/runtime-index.json", checkout)
-        self.assertIn("/source-documents/", checkout)
+        self.assertNotIn("/source-documents/", checkout)
         self.assertIn("/reports/", checkout)
+        self.assertIn("Hydrate selected detector calibration records", text)
+        self.assertIn("detector-calibration-records", text)
+        self.assertIn('git -C results-repo sparse-checkout add "${record_paths[@]}"', text)
 
     def test_optimizer_report_checkout_declares_indexes_history_and_publish_surface(self) -> None:
         text = CORE.read_text(encoding="utf-8")

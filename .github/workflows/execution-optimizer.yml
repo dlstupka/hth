@@ -232,6 +232,7 @@ jobs:
         with:
           repository: ${{ inputs.results_repository }}
           path: results-repo
+          ref: main
           fetch-depth: 1
           persist-credentials: false
           token: ${{ secrets.HTH_RESULTS_TOKEN }}
@@ -382,6 +383,7 @@ jobs:
         with:
           repository: ${{ env.RESULTS_REPOSITORY }}
           path: results-repo
+          ref: main
           # Bounded history supports one-time recovery of pre-run-history optimizer
           # summaries; current optimizer runs remain durable under runs/<id>/.
           fetch-depth: 100

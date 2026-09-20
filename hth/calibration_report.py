@@ -18,7 +18,11 @@ def _golden_sha(path: Path | None) -> str | None:
 
 
 def _matching_index_entries(
-    results_root: Path, golden_set: Path | None = None,
+    results_root: Path,
+    golden_set: Path | None = None,
+    *,
+    existing_only: bool = True,
+    recover_persisted: bool = False,
 ) -> list[dict[str, Any]]:
     repository = ResultsRepository(results_root)
     if not repository.has_index("calibration-index.json"):
@@ -27,16 +31,57 @@ def _matching_index_entries(
         )
     return repository.calibration_entries(
         golden_set_sha256=_golden_sha(golden_set),
-        existing_only=True,
-        recover_persisted=True,
+        existing_only=existing_only,
+        # Routine readers trust the canonical index. A full durable-tree scan is
+        # reserved for explicit authoritative-history and repair callers.
+        recover_persisted=recover_persisted,
     )
+
+
+def _selected_smoke_entries(
+    results_root: Path,
+    golden_set: Path | None = None,
+    *,
+    existing_only: bool = True,
+) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for entry in _matching_index_entries(
+        results_root, golden_set, existing_only=existing_only
+    ):
+        if legacy_run_semantics(entry)[0] == "smoke":
+            grouped.setdefault(str(entry["detector_id"]), []).append(entry)
+    return [
+        max(
+            grouped[detector],
+            key=lambda item: (
+                str(item.get("created_at_utc") or item.get("published_at_utc") or ""),
+                str(
+                    (item.get("build") or {}).get("github_run_number")
+                    if isinstance(item.get("build"), dict) else ""
+                ),
+            ),
+        )
+        for detector in sorted(grouped)
+    ]
+
+
+def smoke_record_paths(results_root: Path, golden_set: Path | None = None) -> list[str]:
+    """Return the minimal durable-record checkout required by a manifest report."""
+    return [
+        str(entry["record_path"])
+        for entry in _selected_smoke_entries(
+            results_root, golden_set, existing_only=False
+        )
+    ]
 
 
 def calibration_run_dirs(results_root: Path, golden_set: Path | None = None) -> list[Path]:
     """Resolve the best persisted calibration record per detector."""
     repository = ResultsRepository(results_root)
     grouped: dict[str, list[dict[str, Any]]] = {}
-    for entry in _matching_index_entries(results_root, golden_set):
+    for entry in _matching_index_entries(
+        results_root, golden_set, recover_persisted=True
+    ):
         grouped.setdefault(str(entry["detector_id"]), []).append(entry)
     selected = {
         detector: candidate
@@ -52,27 +97,11 @@ def calibration_run_dirs(results_root: Path, golden_set: Path | None = None) -> 
 def smoke_run_dirs(results_root: Path, golden_set: Path | None = None) -> list[Path]:
     """Resolve the latest persisted smoke observation per detector."""
     repository = ResultsRepository(results_root)
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for entry in _matching_index_entries(results_root, golden_set):
-        if legacy_run_semantics(entry)[0] == "smoke":
-            grouped.setdefault(str(entry["detector_id"]), []).append(entry)
-    selected = {
-        detector: max(
-            records,
-            key=lambda item: (
-                str(item.get("created_at_utc") or item.get("published_at_utc") or ""),
-                str(
-                    (item.get("build") or {}).get("github_run_number")
-                    if isinstance(item.get("build"), dict) else ""
-                ),
-            ),
-        )
-        for detector, records in grouped.items()
-    }
+    selected = _selected_smoke_entries(results_root, golden_set)
     if not selected:
         suffix = f" matching {golden_set}" if golden_set else ""
         raise ValueError(f"No persisted smoke records found{suffix}")
-    return [repository.record_dir(selected[key]) for key in sorted(selected)]
+    return [repository.record_dir(entry) for entry in selected]
 
 
 def _normalize_persisted_run(persisted: Path, normalized: Path) -> None:
