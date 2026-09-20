@@ -1461,7 +1461,24 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Checkout compact normalization audit evidence
+        if: ${{ inputs.report_type == 'full-normalization-summary' }}
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.results_repository }}
+          path: results-repo
+          ref: main
+          token: ${{ secrets.HTH_RESULTS_TOKEN }}
+          fetch-depth: 1
+          sparse-checkout: |
+            /metadata/resource-lifecycle.json
+            /normalization/
+            /reports/full-normalization-summary.md
+          sparse-checkout-cone-mode: false
+          persist-credentials: true
+
       - name: Checkout results repository
+        if: ${{ inputs.report_type != 'full-normalization-summary' }}
         uses: actions/checkout@v6
         with:
           repository: ${{ inputs.results_repository }}
@@ -1647,33 +1664,50 @@ jobs:
           FREEZE_SOURCE="${{ steps.report_golden_set.outputs.freeze_path }}"
           cp "$FREEZE_SOURCE" "report-research-artifact/golden-set/${GOLDEN_ID}.freeze.json"
 
-          # Persisted research intelligence: calibration identity/quality, runtime,
-          # parallelism, optimizer, provenance, scheduling, and source metadata.
-          # Detector regression/debug/verbose trees are deliberately excluded.
-          shopt -s nullglob
-          for index in results-repo/*-index.json; do
-            cp "$index" report-research-artifact/intelligence/
-          done
-          for file in results-repo/indexes/optimizer-predictions.json; do
-            [[ -f "$file" ]] && cp "$file" report-research-artifact/intelligence/
-          done
-          for directory in reports execution-optimizer source-documents; do
-            if [[ -d "results-repo/$directory" ]]; then
-              cp -a "results-repo/$directory" "report-research-artifact/intelligence/$directory"
+          if [[ "${{ inputs.report_type }}" == "full-normalization-summary" ]]; then
+            # A normalization audit is fully reconstructable from its persisted
+            # CBE/manifests and lifecycle ledger. Historical detector calibration
+            # trees are unrelated and can be several gigabytes.
+            mkdir -p report-research-artifact/intelligence/metadata
+            cp results-repo/metadata/resource-lifecycle.json \
+              report-research-artifact/intelligence/metadata/resource-lifecycle.json
+            cp -a results-repo/normalization \
+              report-research-artifact/intelligence/normalization
+            if [[ -f results-repo/reports/full-normalization-summary.md ]]; then
+              mkdir -p report-research-artifact/intelligence/reports
+              cp results-repo/reports/full-normalization-summary.md \
+                report-research-artifact/intelligence/reports/full-normalization-summary.md
             fi
-          done
+          else
+            # Persisted research intelligence: calibration identity/quality,
+            # runtime, optimizer, provenance, scheduling, and source metadata.
+            # Detector regression/debug/verbose trees are deliberately excluded.
+            shopt -s nullglob
+            for index in results-repo/*-index.json; do
+              cp "$index" report-research-artifact/intelligence/
+            done
+            for file in results-repo/indexes/optimizer-predictions.json; do
+              [[ -f "$file" ]] && cp "$file" report-research-artifact/intelligence/
+            done
+            for directory in reports execution-optimizer; do
+              if [[ -d "results-repo/$directory" ]]; then
+                cp -a "results-repo/$directory" "report-research-artifact/intelligence/$directory"
+              fi
+            done
+          fi
 
           cat > report-research-artifact/README.md <<'EOF'
           # HTH report research artifact
 
           This artifact accompanies the GitHub Actions report summary. It contains the
-          generated report, the frozen Golden Set identity/provenance, and persisted
-          calibration/execution intelligence and normalization audit evidence needed to
-          research detector calibration, runtime, parallelism, optimizer, scheduling,
-          canonical build reuse, resource lifecycle, and source provenance.
+          generated report, the frozen Golden Set identity/provenance, and the persisted
+          evidence needed to reproduce and research the selected report. Normalization
+          artifacts contain the canonical normalization evidence and lifecycle ledger;
+          detector reports contain calibration/execution intelligence.
 
           Individual detector regression/debug/verbose logging is intentionally excluded;
-          that evidence remains part of detector-specific research artifacts.
+          durable calibration records and raw evidence remain linked at their exact results
+          commit instead of being duplicated into every Report Writer artifact.
           EOF
 
       - name: Upload report research artifact

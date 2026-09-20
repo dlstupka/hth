@@ -23,11 +23,16 @@ class WorkflowResearchArtifactTests(unittest.TestCase):
         self.assertIn("Upload report research artifact", text)
         self.assertIn("results-repo/*-index.json", text)
         self.assertIn("optimizer-predictions.json", text)
-        self.assertIn("reports execution-optimizer source-documents", text)
+        self.assertIn("for directory in reports execution-optimizer", text)
+        assemble = text.split("- name: Assemble report research artifact", 1)[1].split(
+            "- name: Upload report research artifact", 1
+        )[0]
+        copy_loop = assemble.split("for directory in reports execution-optimizer", 1)[1].split("done", 1)[0]
+        self.assertNotIn("source-documents", copy_loop)
         self.assertIn('FREEZE_SOURCE="${{ steps.report_golden_set.outputs.freeze_path }}"', text)
         self.assertIn('cp "$FREEZE_SOURCE" "report-research-artifact/golden-set/${GOLDEN_ID}.freeze.json"', text)
         self.assertIn("selected-golden-set.json", text)
-        self.assertIn("Detector regression/debug/verbose trees are deliberately excluded", text)
+        self.assertIn("durable calibration records and raw evidence remain linked", text)
 
 
 if __name__ == "__main__":

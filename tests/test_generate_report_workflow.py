@@ -49,10 +49,38 @@ class GenerateReportWorkflowTests(unittest.TestCase):
     def test_core_report_results_checkout_is_shallow_main_only(self) -> None:
         text = CORE.read_text(encoding="utf-8")
         report_job = text.split("generate-report:", 1)[1]
-        checkout = report_job.split("- name: Checkout results repository", 1)[1].split("- name: Set up Python", 1)[0]
-        self.assertIn("ref: main", checkout)
-        self.assertIn("fetch-depth: 1", checkout)
-        self.assertNotIn("fetch-depth: 0", checkout)
+        setup = report_job.split("- name: Set up canonical HTH Python runtime", 1)[0]
+        compact = setup.split("- name: Checkout compact normalization audit evidence", 1)[1].split(
+            "- name: Checkout results repository", 1
+        )[0]
+        general = setup.split("- name: Checkout results repository", 1)[1]
+        for checkout in (compact, general):
+            self.assertIn("ref: main", checkout)
+            self.assertIn("fetch-depth: 1", checkout)
+            self.assertNotIn("fetch-depth: 0", checkout)
+
+    def test_normalization_report_uses_compact_canonical_audit_checkout(self) -> None:
+        text = CORE.read_text(encoding="utf-8")
+        checkout = text.split("- name: Checkout compact normalization audit evidence", 1)[1].split(
+            "- name: Checkout results repository", 1
+        )[0]
+        self.assertIn("inputs.report_type == 'full-normalization-summary'", checkout)
+        self.assertIn("/metadata/resource-lifecycle.json", checkout)
+        self.assertIn("/normalization/", checkout)
+        self.assertIn("/reports/full-normalization-summary.md", checkout)
+        self.assertIn("sparse-checkout-cone-mode: false", checkout)
+
+    def test_normalization_research_artifact_excludes_detector_calibration_tree(self) -> None:
+        text = CORE.read_text(encoding="utf-8")
+        assemble = text.split("- name: Assemble report research artifact", 1)[1].split(
+            "- name: Upload report research artifact", 1
+        )[0]
+        normalization = assemble.split(
+            'if [[ "${{ inputs.report_type }}" == "full-normalization-summary" ]]', 1
+        )[1].split("else", 1)[0]
+        self.assertIn("results-repo/metadata/resource-lifecycle.json", normalization)
+        self.assertIn("cp -a results-repo/normalization", normalization)
+        self.assertNotIn("source-documents", normalization)
 
     def test_core_report_summary_is_appended_after_successful_publish(self) -> None:
         text = CORE.read_text(encoding="utf-8")
