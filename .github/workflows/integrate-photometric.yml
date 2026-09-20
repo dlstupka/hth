@@ -220,6 +220,7 @@ jobs:
             --operation package-immutable-lossless-collection \
             --repository-root hth-pipeline \
             --source-root "$RUNNER_TEMP/photometric-effective-inputs" \
+            --source-input ".=$RUNNER_TEMP/photometric-effective-inputs" \
             --source-repository "$RESULTS_REPOSITORY" \
             --source-release "${{ steps.cbe_inputs.outputs.policy_identity }}" \
             --source-manifest-sha256 "${{ steps.cbe_inputs.outputs.policy_identity }}" \

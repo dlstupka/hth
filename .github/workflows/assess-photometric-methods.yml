@@ -227,6 +227,7 @@ jobs:
             --scope hth-photometric-method-assessment --policy "${{ inputs.canonical_build_policy || 'auto' }}" --contract-version 1 \
             --mode diagnostic-evidence --operation bounded-photometric-method-comparison \
             --repository-root hth-pipeline --source-root "${{ steps.contract.outputs.source_root }}" \
+            --source-input ".=${{ steps.contract.outputs.source_root }}" \
             --source-repository "$RESULTS_REPOSITORY" \
             --source-release "${{ steps.provenance.outputs.photometric_assessment_identity }}" \
             --source-manifest-sha256 "${{ steps.provenance.outputs.photometric_assessment_identity }}" \

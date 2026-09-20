@@ -419,6 +419,7 @@ jobs:
             --operation physical-document-detection \
             --repository-root hth-pipeline \
             --source-root source-repo/images \
+            --source-input ".=source-repo/images" \
             --source-repository "$SOURCE_REPOSITORY" \
             --source-release "$SOURCE_RELEASE_TAG" \
             --source-manifest-sha256 "${{ steps.build.outputs.source_release_manifest_sha256 }}" \

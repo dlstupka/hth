@@ -226,6 +226,31 @@ class NormalizationCanonicalEvidenceCoverageTests(unittest.TestCase):
             self.assertIn("results_repository: {required: true, type: string}", workflow)
             self.assertIn("RESULTS_REPOSITORY: ${{ inputs.results_repository }}", workflow)
 
+    def test_every_cbe_workflow_declares_stable_logical_source_inputs(self) -> None:
+        workflows = ROOT / ".github/workflows"
+        covered = 0
+        for path in workflows.glob("*.yml"):
+            text = path.read_text(encoding="utf-8")
+            if "canonical_build_evidence prepare" not in text:
+                continue
+            covered += 1
+            with self.subTest(workflow=path.name):
+                self.assertIn("--source-input", text)
+        self.assertEqual(covered, 11)
+
+    def test_consolidated_workflows_preserve_domain_semantic_input_names(self) -> None:
+        evidence = (ROOT / ".github/workflows/_core-normalization-evidence.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('assessment_name="$domain-assessment.json"', evidence)
+        self.assertIn('$assessment_name=$root/assessment.json', evidence)
+        self.assertIn('$method_assessment_name=$root/method-assessment.json', evidence)
+        integration = (ROOT / ".github/workflows/integrate-normalization.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('$domain-assessment.json=$root/assessment.json', integration)
+        self.assertIn('${{ steps.contract.outputs.parent_manifest }}=$root/upstream-manifest.json', integration)
+
 
 if __name__ == "__main__":
     unittest.main()

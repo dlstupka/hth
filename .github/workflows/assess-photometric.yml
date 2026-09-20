@@ -213,6 +213,7 @@ jobs:
             --scope hth-photometric-assessment --policy "${{ inputs.canonical_build_policy || 'auto' }}" --contract-version 1 \
             --mode diagnostic-evidence --operation photometric-assessment \
             --repository-root hth-pipeline --source-root "${{ steps.contract.outputs.source_root }}" \
+            --source-input ".=${{ steps.contract.outputs.source_root }}" \
             --source-repository "$RESULTS_REPOSITORY" \
             --source-release "${{ steps.provenance.outputs.normalization_effective_identity }}" \
             --source-manifest-sha256 "${{ steps.provenance.outputs.normalization_result_identity }}" \

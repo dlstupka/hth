@@ -299,6 +299,7 @@ jobs:
             --operation pixel-roundtrip-verification \
             --repository-root hth-pipeline \
             --source-root "$RUNNER_TEMP/normalization-effective-source" \
+            --source-input ".=$RUNNER_TEMP/normalization-effective-source" \
             --source-repository "$RESULTS_REPOSITORY" \
             --source-release "${{ steps.preprocess.outputs.effective_build_identity }}" \
             --source-manifest-sha256 "${{ steps.preprocess.outputs.canonical_result_identity }}" \

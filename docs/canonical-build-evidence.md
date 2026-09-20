@@ -41,6 +41,21 @@ They are not blanket invalidators because the hashed implementation,
 configuration, runtime contracts, and operation declaration identify the
 effective process.
 
+Source identities use explicit **logical source paths**. Workflows map physical
+checkout or temporary paths to stable semantic names with
+`--source-input LOGICAL_PATH=PHYSICAL_PATH`; the physical staging layout is not
+hashed. Moving a file between checkout directories or consolidating reusable
+workflow YAML therefore cannot invalidate CBE, while changing its logical role,
+content, or digest still does. Directory mappings use `.` as the logical root
+when retaining an established tree contract.
+
+Fixed per-scope operation contracts live in `hth.canonical_build_evidence`, next
+to the scope and artifact registries. Workflows may omit those operations or
+repeat the exact registered contract for readability; any divergent declaration
+fails closed as operation-contract drift. The normalization transform scope has
+an explicit finite set of allowed recipe variants. Workflow refactors must not
+rename logical inputs or operation contracts merely to match generic step names.
+
 Every CBE plan and completed record also carries a `resource_utilization`
 section. It records whether the identity-keyed CBE cache lookup hit or missed,
 whether the build reused, validated, populated, or verification-refreshed that

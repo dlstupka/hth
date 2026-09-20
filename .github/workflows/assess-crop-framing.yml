@@ -178,6 +178,7 @@ jobs:
             --operation approved-detector-crop-framing-assessment \
             --repository-root hth-pipeline \
             --source-root "${{ steps.contract.outputs.source_root }}" \
+            --source-input ".=${{ steps.contract.outputs.source_root }}" \
             --source-repository "$GOLDEN_SET_REPOSITORY" \
             --source-release "$GOLDEN_SET_RELEASE" \
             --source-manifest-sha256 "${{ steps.detector.outputs.golden_set_sha256 }}" \

@@ -212,6 +212,10 @@ Each stage exposes the same policies:
 Effective identity includes every source, configuration, implementation, and
 runtime input that can change the domain result, while runner identity,
 timestamps, and other execution observations remain non-identity telemetry.
+Physical checkout and temporary filenames are mapped to stable logical source
+paths, and fixed scope operations come from the central CBE registry. Workflow
+layout changes therefore cannot silently drift an identity; mismatched operation
+declarations fail closed.
 Changing report presentation or review-artifact cadence must not invalidate a
 pixel-identical production result. New deterministic stages must not introduce
 an unconditional rebuild path or a stage-specific approximation of this

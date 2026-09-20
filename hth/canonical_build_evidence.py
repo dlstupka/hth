@@ -18,6 +18,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any, Iterable
 
 from hth.markdown_links import code_link, github_blob_url
@@ -80,6 +81,97 @@ COMPACT_EVIDENCE_SCOPES = frozenset({
     BINARIZATION_VALIDATION_SCOPE,
 })
 POLICIES = ("auto", "audit", "force-verify", "rebuild")
+
+# Operation contracts are semantic build inputs, not workflow implementation
+# details.  Keeping them beside the scope registry prevents YAML consolidation,
+# step renaming, or caller refactors from silently changing build identity.
+SCOPE_OPERATION_CONTRACTS: dict[str, tuple[str, ...]] = {
+    PREPROCESS_SCOPE: (
+        "source-image-extract",
+        "word-crop",
+        "analysis-derivative",
+        "thumbnail",
+        "page-quality-analysis",
+        "physical-document-detection",
+    ),
+    CROP_FRAMING_ASSESSMENT_SCOPE: ("approved-detector-crop-framing-assessment",),
+    ORIENTATION_DESKEW_ASSESSMENT_SCOPE: ("orientation-and-conservative-deskew-assessment",),
+    PERSPECTIVE_ASSESSMENT_SCOPE: ("residual-perspective-assessment",),
+    PHOTOMETRIC_ASSESSMENT_SCOPE: ("photometric-assessment",),
+    PHOTOMETRIC_METHOD_ASSESSMENT_SCOPE: ("bounded-photometric-method-comparison",),
+    PHOTOMETRIC_VALIDATION_SCOPE: ("complete-held-out-photometric-validation",),
+    PHOTOMETRIC_INTEGRATION_SCOPE: (
+        "reconstruct-proven-canonical-normalized-pages",
+        "apply-validated-background-field-correction",
+        "preserve-ineligible-pages-and-continue",
+        "package-immutable-lossless-collection",
+    ),
+    TONAL_ASSESSMENT_SCOPE: ("tonal-assess-evidence",),
+    TONAL_METHOD_ASSESSMENT_SCOPE: ("tonal-compare-evidence",),
+    TONAL_VALIDATION_SCOPE: ("tonal-validate-evidence",),
+    TONAL_INTEGRATION_SCOPE: (
+        "consume-immutable-photometric-collection",
+        "classify-every-page-by-tonal-metrics",
+        "apply-only-validated-bounded-tonal-method",
+        "preserve-exceptions-and-continue",
+        "package-immutable-lossless-collection",
+    ),
+    CHROMATIC_ASSESSMENT_SCOPE: ("chromatic-assess-evidence",),
+    CHROMATIC_METHOD_ASSESSMENT_SCOPE: ("chromatic-compare-evidence",),
+    CHROMATIC_VALIDATION_SCOPE: ("chromatic-validate-evidence",),
+    CHROMATIC_INTEGRATION_SCOPE: (
+        "consume-immutable-tonal-collection",
+        "classify-every-page-by-chromatic-metrics",
+        "apply-only-validated-bounded-chromatic-method",
+        "preserve-exceptions-and-continue",
+        "package-immutable-lossless-collection",
+    ),
+}
+for _domain, _scopes in {
+    "denoising": (
+        DENOISING_ASSESSMENT_SCOPE,
+        DENOISING_METHOD_ASSESSMENT_SCOPE,
+        DENOISING_VALIDATION_SCOPE,
+        DENOISING_INTEGRATION_SCOPE,
+    ),
+    "sharpening": (
+        SHARPENING_ASSESSMENT_SCOPE,
+        SHARPENING_METHOD_ASSESSMENT_SCOPE,
+        SHARPENING_VALIDATION_SCOPE,
+        SHARPENING_INTEGRATION_SCOPE,
+    ),
+    "binarization": (
+        BINARIZATION_ASSESSMENT_SCOPE,
+        BINARIZATION_METHOD_ASSESSMENT_SCOPE,
+        BINARIZATION_VALIDATION_SCOPE,
+        BINARIZATION_INTEGRATION_SCOPE,
+    ),
+}.items():
+    SCOPE_OPERATION_CONTRACTS[_scopes[0]] = (f"{_domain}-assess-evidence",)
+    SCOPE_OPERATION_CONTRACTS[_scopes[1]] = (f"{_domain}-compare-evidence",)
+    SCOPE_OPERATION_CONTRACTS[_scopes[2]] = (f"{_domain}-validate-evidence",)
+    SCOPE_OPERATION_CONTRACTS[_scopes[3]] = (
+        f"integrate-validated-{_domain}",
+        "preserve-exceptions-and-continue",
+        "package-immutable-lossless-collection",
+    )
+
+NORMALIZATION_OPERATION_CONTRACTS = frozenset({
+    (
+        "canonical-source-reconstruction",
+        "axis-aligned-document-crop",
+        "lossless-png-encoding",
+        "pixel-roundtrip-verification",
+    ),
+    (
+        "canonical-source-reconstruction",
+        "axis-aligned-document-crop",
+        "lossless-png-encoding",
+        "pixel-roundtrip-verification",
+        "preserve-gross-page-orientation",
+        "gated-conservative-hough-deskew",
+    ),
+})
 
 # These fields are observations or duplicated provenance, not domain results.
 # Their authoritative values remain in ``effective_inputs`` and ``execution``.
@@ -516,6 +608,82 @@ def fingerprint_paths(paths: Iterable[Path], repository_root: Path) -> list[dict
     return records
 
 
+def _logical_source_label(value: str) -> str:
+    label = value.strip().replace("\\", "/")
+    logical = PurePosixPath(label)
+    if not label or logical.is_absolute() or ".." in logical.parts:
+        raise EvidenceError(f"Canonical source input has an invalid logical path: {value!r}")
+    normalized = logical.as_posix()
+    if normalized.startswith("./"):
+        normalized = normalized[2:]
+    return normalized
+
+
+def fingerprint_source_inputs(inputs: Iterable[str]) -> list[dict[str, Any]]:
+    """Fingerprint physical inputs under explicit, stable semantic paths.
+
+    ``LOGICAL=PHYSICAL`` mappings decouple canonical identity from temporary
+    workspace layout.  A logical path of ``.`` maps a directory's contents to
+    the identity root and provides a migration path for existing contracts.
+    """
+    records: list[dict[str, Any]] = []
+    for specification in inputs:
+        logical_value, separator, physical_value = specification.partition("=")
+        if not separator or not physical_value.strip():
+            raise EvidenceError(
+                "Canonical source inputs must use LOGICAL_PATH=PHYSICAL_PATH syntax"
+            )
+        logical = _logical_source_label(logical_value)
+        physical = Path(physical_value)
+        if not physical.exists():
+            raise EvidenceError(f"Canonical source input does not exist: {physical}")
+        candidates = [physical] if physical.is_file() else sorted(
+            (
+                candidate
+                for candidate in physical.rglob("*")
+                if candidate.is_file()
+                and "__pycache__" not in candidate.parts
+                and candidate.suffix not in {".pyc", ".pyo"}
+            ),
+            key=lambda candidate: candidate.as_posix(),
+        )
+        for candidate in candidates:
+            if physical.is_file():
+                label = logical
+            else:
+                relative = candidate.relative_to(physical).as_posix()
+                label = relative if logical == "." else f"{logical}/{relative}"
+            records.append({
+                "path": label,
+                "bytes": candidate.stat().st_size,
+                "sha256": file_sha256(candidate),
+            })
+    records.sort(key=lambda record: record["path"])
+    labels = [record["path"] for record in records]
+    if len(labels) != len(set(labels)):
+        raise EvidenceError("Canonical source inputs contain duplicate logical paths")
+    return records
+
+
+def canonical_operations(scope: str, supplied: Iterable[str]) -> list[str]:
+    operations = tuple(supplied)
+    if scope == NORMALIZATION_SCOPE:
+        if operations not in NORMALIZATION_OPERATION_CONTRACTS:
+            raise EvidenceError(
+                f"Canonical operation contract drift for {scope}: {operations!r}"
+            )
+        return list(operations)
+    expected = SCOPE_OPERATION_CONTRACTS.get(scope)
+    if expected is None:
+        raise EvidenceError(f"Canonical Build Evidence scope has no operation contract: {scope!r}")
+    if operations and operations != expected:
+        raise EvidenceError(
+            f"Canonical operation contract drift for {scope}: "
+            f"expected {expected!r}, received {operations!r}"
+        )
+    return list(expected)
+
+
 def fingerprint_selected_detector(
     selection: dict[str, Any] | None,
     detector_root: Path | None,
@@ -615,12 +783,16 @@ def _load_json_object(path: Path, description: str) -> dict[str, Any]:
 def build_effective_inputs(args: argparse.Namespace) -> dict[str, Any]:
     if not _is_sha256(args.source_manifest_sha256):
         raise EvidenceError("Source release-manifest SHA-256 is invalid")
-    if not args.operation:
-        raise EvidenceError("The deterministic operation contract is empty")
     if not args.config or not args.implementation or not args.runtime_contract:
         raise EvidenceError("Configuration, implementation, and runtime contracts are all required")
     repository_root = args.repository_root.resolve()
-    source_files = fingerprint_paths([args.source_root], args.source_root)
+    operations = canonical_operations(args.scope, args.operation)
+    source_inputs = getattr(args, "source_input", None) or []
+    source_files = (
+        fingerprint_source_inputs(source_inputs)
+        if source_inputs
+        else fingerprint_paths([args.source_root], args.source_root)
+    )
     implementation = fingerprint_paths(args.implementation, repository_root)
     configuration = fingerprint_paths(args.config, repository_root)
     runtime_contract = fingerprint_paths(args.runtime_contract, repository_root)
@@ -639,7 +811,7 @@ def build_effective_inputs(args: argparse.Namespace) -> dict[str, Any]:
             "resource_provenance_version": RESOURCE_PROVENANCE_VERSION,
             "mode": args.mode,
             "image_limit": args.image_limit,
-            "operations": list(args.operation),
+            "operations": operations,
         },
         "source": {
             "repository": args.source_repository,
@@ -1509,7 +1681,12 @@ def finalize(args: argparse.Namespace) -> dict[str, Any]:
         PHOTOMETRIC_VALIDATION_SCOPE: _photometric_validation_page_results,
     }
     registered = set(SCOPE_ARTIFACT_PROFILES)
-    if set(SCOPE_EVIDENCE_PATHS) != registered or set(page_builders) != registered:
+    operation_scopes = set(SCOPE_OPERATION_CONTRACTS) | {NORMALIZATION_SCOPE}
+    if (
+        set(SCOPE_EVIDENCE_PATHS) != registered
+        or set(page_builders) != registered
+        or operation_scopes != registered
+    ):
         raise EvidenceError("Canonical Build Evidence scope registries are inconsistent")
     page_builder = page_builders[scope]
     pages = page_builder(args.output_root, "EXECUTED", "APPLY", str(plan["effective_build_identity"]))
@@ -1604,6 +1781,13 @@ def parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--operation", action="append", default=[])
     prepare_parser.add_argument("--repository-root", type=Path, required=True)
     prepare_parser.add_argument("--source-root", type=Path, required=True)
+    prepare_parser.add_argument(
+        "--source-input",
+        action="append",
+        default=[],
+        metavar="LOGICAL_PATH=PHYSICAL_PATH",
+        help="Fingerprint a physical source under a stable semantic path",
+    )
     prepare_parser.add_argument("--source-repository", required=True)
     prepare_parser.add_argument("--source-release", required=True)
     prepare_parser.add_argument("--source-manifest-sha256", required=True)

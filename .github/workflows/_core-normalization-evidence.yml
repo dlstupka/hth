@@ -132,7 +132,62 @@ jobs:
         shell: bash
         env: {PYTHONPATH: hth-pipeline}
         run: |
-          python -m hth.canonical_build_evidence prepare --scope "${{ steps.contract.outputs.scope }}" --policy "${{ inputs.canonical_build_policy }}" --contract-version 1 --mode diagnostic-evidence --operation "${{ inputs.domain }}-${{ inputs.stage }}-evidence" --repository-root hth-pipeline --source-root "${{ steps.contract.outputs.root }}" --source-repository "$RESULTS_REPOSITORY" --source-release "${{ steps.upstream.outputs.tag }}" --source-manifest-sha256 "${{ steps.upstream.outputs.asset_sha256 }}" --source-commit "${{ steps.upstream.outputs.identity }}" --config "${{ steps.contract.outputs.config }}" --implementation "${{ steps.contract.outputs.implementation }}" --runtime-contract hth-pipeline/requirements.txt --runtime-contract hth-pipeline/.github/actions/setup-hth-python/action.yml --runtime-package numpy --runtime-package opencv-python-headless --results-root results-repo --evidence "${{ steps.contract.outputs.evidence }}" --plan "$RUNNER_TEMP/${{ inputs.domain }}-${{ inputs.stage }}-cbe-plan.json" --pipeline-repository "$GITHUB_REPOSITORY" --pipeline-commit "$GITHUB_SHA" --results-repository "$RESULTS_REPOSITORY" --results-ref "${{ steps.upstream.outputs.results_commit }}" --workflow-run-id "$GITHUB_RUN_ID" --runner-name "$RUNNER_NAME" --runner-environment "${{ runner.environment }}" --runner-os "$RUNNER_OS" --runner-arch "$RUNNER_ARCH" --github-output "$GITHUB_OUTPUT" --github-summary "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          root="${{ steps.contract.outputs.root }}"
+          domain="${{ inputs.domain }}"
+          source_inputs=(
+            --source-input "release.json=$root/release.json"
+            --source-input "${{ steps.upstream.outputs.parent }}-normalization-manifest.json=$root/${{ steps.upstream.outputs.manifest }}"
+          )
+          if [[ "$domain" == tonal || "$domain" == chromatic ]]; then
+            assessment_name="$domain-assessment.json"
+            method_assessment_name="$domain-method-assessment.json"
+          else
+            assessment_name=assessment.json
+            method_assessment_name=method-assessment.json
+          fi
+          case "${{ inputs.stage }}" in
+            assess) ;;
+            compare)
+              source_inputs+=(--source-input "$assessment_name=$root/assessment.json")
+              ;;
+            validate)
+              source_inputs+=(--source-input "$assessment_name=$root/assessment.json")
+              source_inputs+=(--source-input "$method_assessment_name=$root/method-assessment.json")
+              ;;
+          esac
+          python -m hth.canonical_build_evidence prepare \
+            --scope "${{ steps.contract.outputs.scope }}" \
+            --policy "${{ inputs.canonical_build_policy }}" \
+            --contract-version 1 \
+            --mode diagnostic-evidence \
+            --repository-root hth-pipeline \
+            --source-root "$root" \
+            "${source_inputs[@]}" \
+            --source-repository "$RESULTS_REPOSITORY" \
+            --source-release "${{ steps.upstream.outputs.tag }}" \
+            --source-manifest-sha256 "${{ steps.upstream.outputs.asset_sha256 }}" \
+            --source-commit "${{ steps.upstream.outputs.identity }}" \
+            --config "${{ steps.contract.outputs.config }}" \
+            --implementation "${{ steps.contract.outputs.implementation }}" \
+            --runtime-contract hth-pipeline/requirements.txt \
+            --runtime-contract hth-pipeline/.github/actions/setup-hth-python/action.yml \
+            --runtime-package numpy \
+            --runtime-package opencv-python-headless \
+            --results-root results-repo \
+            --evidence "${{ steps.contract.outputs.evidence }}" \
+            --plan "$RUNNER_TEMP/${{ inputs.domain }}-${{ inputs.stage }}-cbe-plan.json" \
+            --pipeline-repository "$GITHUB_REPOSITORY" \
+            --pipeline-commit "$GITHUB_SHA" \
+            --results-repository "$RESULTS_REPOSITORY" \
+            --results-ref "${{ steps.upstream.outputs.results_commit }}" \
+            --workflow-run-id "$GITHUB_RUN_ID" \
+            --runner-name "$RUNNER_NAME" \
+            --runner-environment "${{ runner.environment }}" \
+            --runner-os "$RUNNER_OS" \
+            --runner-arch "$RUNNER_ARCH" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
       - name: Restore cached immutable upstream collection
         id: asset
         if: steps.cbe.outputs.decision == 'execute'

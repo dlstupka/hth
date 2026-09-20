@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import io
 import json
 import re
@@ -11,12 +12,18 @@ from pathlib import Path
 
 from hth.canonical_build_evidence import (
     CROP_FRAMING_ASSESSMENT_SCOPE,
+    CHROMATIC_INTEGRATION_SCOPE,
     EvidenceError,
+    SCOPE_ARTIFACT_PROFILES,
+    SCOPE_OPERATION_CONTRACTS,
     TONAL_ASSESSMENT_SCOPE,
     TONAL_INTEGRATION_SCOPE,
     TONAL_METHOD_ASSESSMENT_SCOPE,
     canonical_hash,
+    canonical_operations,
     canonicalize_result,
+    fingerprint_paths,
+    fingerprint_source_inputs,
     finalize,
     merge_stores,
     prepare,
@@ -56,7 +63,14 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
             policy=policy,
             mode="production",
             image_limit=0,
-            operation=["extract", "analyze", "detect"],
+            operation=[
+                "source-image-extract",
+                "word-crop",
+                "analysis-derivative",
+                "thumbnail",
+                "page-quality-analysis",
+                "physical-document-detection",
+            ],
             repository_root=self.pipeline,
             source_root=self.source,
             source_repository="owner/source",
@@ -119,9 +133,97 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
             summary.read_text(encoding="utf-8"),
         )
 
+    def test_logical_source_inputs_ignore_physical_staging_names(self) -> None:
+        first = self.source / "workflow-a.json"
+        second_root = self.root / "refactored-workflow"
+        second_root.mkdir()
+        second = second_root / "generic-name.json"
+        first.write_text('{"value": 1}\n', encoding="utf-8")
+        second.write_bytes(first.read_bytes())
+
+        original = self.args()
+        original.source_input = [f"semantic/input.json={first}"]
+        original_plan = prepare(original)
+
+        refactored = self.args()
+        refactored.source_root = second_root
+        refactored.source_input = [f"semantic/input.json={second}"]
+        refactored.plan = self.root / "refactored-plan.json"
+        refactored_plan = prepare(refactored)
+
+        self.assertEqual(
+            original_plan["effective_build_identity"],
+            refactored_plan["effective_build_identity"],
+        )
+        self.assertEqual(
+            original_plan["effective_inputs"]["source"]["files"],
+            [{
+                "path": "semantic/input.json",
+                "bytes": first.stat().st_size,
+                "sha256": hashlib.sha256(first.read_bytes()).hexdigest(),
+            }],
+        )
+
+    def test_registered_operation_contract_rejects_yaml_drift(self) -> None:
+        args = self.args()
+        args.operation = ["renamed-by-workflow-refactor"]
+        with self.assertRaisesRegex(EvidenceError, "operation contract drift"):
+            prepare(args)
+
+    def test_every_cbe_scope_has_one_canonical_operation_contract(self) -> None:
+        self.assertEqual(
+            set(SCOPE_ARTIFACT_PROFILES),
+            set(SCOPE_OPERATION_CONTRACTS) | {"hth-normalization"},
+        )
+
+    def test_consolidated_integrations_retain_pre_refactor_operation_contracts(self) -> None:
+        self.assertEqual(canonical_operations(TONAL_INTEGRATION_SCOPE, []), [
+            "consume-immutable-photometric-collection",
+            "classify-every-page-by-tonal-metrics",
+            "apply-only-validated-bounded-tonal-method",
+            "preserve-exceptions-and-continue",
+            "package-immutable-lossless-collection",
+        ])
+        self.assertEqual(canonical_operations(CHROMATIC_INTEGRATION_SCOPE, []), [
+            "consume-immutable-tonal-collection",
+            "classify-every-page-by-chromatic-metrics",
+            "apply-only-validated-bounded-chromatic-method",
+            "preserve-exceptions-and-continue",
+            "package-immutable-lossless-collection",
+        ])
+
+    def test_logical_aliases_preserve_legacy_tonal_contract_fingerprints(self) -> None:
+        legacy = self.root / "legacy-tonal-contract"
+        refactored = self.root / "generic-contract"
+        legacy.mkdir()
+        refactored.mkdir()
+        payloads = {
+            "release.json": b"release",
+            "photometric-normalization-manifest.json": b"manifest",
+            "tonal-assessment.json": b"assessment",
+            "tonal-method-assessment.json": b"methods",
+        }
+        generic_names = {
+            "release.json": "upstream-release.json",
+            "photometric-normalization-manifest.json": "upstream-manifest.json",
+            "tonal-assessment.json": "assessment.json",
+            "tonal-method-assessment.json": "method-assessment.json",
+        }
+        for name, payload in payloads.items():
+            (legacy / name).write_bytes(payload)
+            (refactored / generic_names[name]).write_bytes(payload)
+
+        expected = fingerprint_paths([legacy], legacy)
+        actual = fingerprint_source_inputs([
+            f"{logical}={refactored / physical}"
+            for logical, physical in generic_names.items()
+        ])
+        self.assertEqual(actual, expected)
+
     def test_tonal_scope_prepares_with_registered_evidence_path(self) -> None:
         args = self.args()
         args.scope = TONAL_INTEGRATION_SCOPE
+        args.operation = []
         args.evidence = self.results / "normalization/tonal-integration/canonical-build-evidence.json"
         plan = prepare(args)
         self.assertEqual(plan["scope"], TONAL_INTEGRATION_SCOPE)
@@ -130,7 +232,7 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
     def test_tonal_assessment_scope_establishes_and_reuses_compact_evidence(self) -> None:
         args = self.args()
         args.scope = TONAL_ASSESSMENT_SCOPE
-        args.operation = ["measure-tonal-evidence"]
+        args.operation = []
         args.evidence = self.results / "normalization/tonal/canonical-build-evidence.json"
         plan = prepare(args)
         self.assertEqual(plan["decision"], "execute")
@@ -161,7 +263,7 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
     def test_crop_framing_collapses_algorithm_variants_into_canonical_page_evidence(self) -> None:
         args = self.args()
         args.scope = CROP_FRAMING_ASSESSMENT_SCOPE
-        args.operation = ["compare-crop-framing"]
+        args.operation = []
         args.evidence = self.results / "normalization/crop-framing/canonical-build-evidence.json"
         prepare(args)
         write_json(self.output / "assessment.json", {
@@ -195,7 +297,7 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
     def test_crop_framing_rejects_duplicate_algorithm_variant(self) -> None:
         args = self.args()
         args.scope = CROP_FRAMING_ASSESSMENT_SCOPE
-        args.operation = ["compare-crop-framing"]
+        args.operation = []
         args.evidence = self.results / "normalization/crop-framing/canonical-build-evidence.json"
         prepare(args)
         write_json(self.output / "assessment.json", {
@@ -220,7 +322,7 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
     def test_empty_bounded_method_candidate_set_is_valid_compact_evidence(self) -> None:
         args = self.args()
         args.scope = TONAL_METHOD_ASSESSMENT_SCOPE
-        args.operation = ["compare-tonal-methods"]
+        args.operation = []
         args.evidence = self.results / "normalization/tonal-methods/canonical-build-evidence.json"
         prepare(args)
         write_json(self.output / "assessment.json", {
@@ -529,7 +631,12 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
     def test_normalization_scope_establishes_and_reuses_compact_page_evidence(self) -> None:
         args = self.args()
         args.scope = "hth-normalization"
-        args.operation = ["reconstruct", "crop", "verify"]
+        args.operation = [
+            "canonical-source-reconstruction",
+            "axis-aligned-document-crop",
+            "lossless-png-encoding",
+            "pixel-roundtrip-verification",
+        ]
         args.evidence = self.results / "normalization/canonical-build-evidence.json"
         plan = prepare(args)
         self.assertEqual(plan["decision"], "execute")
@@ -571,7 +678,7 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
     def test_photometric_integration_scope_establishes_and_reuses_page_complete_evidence(self) -> None:
         args = self.args()
         args.scope = "hth-photometric-integration"
-        args.operation = ["reconstruct", "correct", "package"]
+        args.operation = []
         args.evidence = self.results / "normalization/photometric-integration/canonical-build-evidence.json"
         plan = prepare(args)
         self.assertEqual(plan["decision"], "execute")

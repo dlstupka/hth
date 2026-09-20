@@ -142,7 +142,59 @@ jobs:
         shell: bash
         env: {PYTHONPATH: hth-pipeline}
         run: |
-          python -m hth.canonical_build_evidence prepare --scope "${{ steps.contract.outputs.scope }}" --policy "${{ inputs.canonical_build_policy }}" --contract-version 1 --mode complete-production --operation "integrate-validated-${{ inputs.domain }}" --operation preserve-exceptions-and-continue --operation package-immutable-lossless-collection --repository-root hth-pipeline --source-root "$RUNNER_TEMP/normalization-integration-inputs" --source-repository "$RESULTS_REPOSITORY" --source-release "${{ steps.contract.outputs.tag }}" --source-manifest-sha256 "${{ steps.contract.outputs.asset_sha256 }}" --source-commit "${{ steps.contract.outputs.parent_identity }}" --config "hth-pipeline/config/${{ inputs.domain }}-assessment.json" --config "hth-pipeline/config/${{ inputs.domain }}-method-assessment.json" --config "hth-pipeline/config/${{ inputs.domain }}-method-validation.json" --implementation "${{ steps.contract.outputs.implementation }}" --runtime-contract hth-pipeline/requirements.txt --runtime-package numpy --runtime-package opencv-python-headless --results-root results-repo --evidence "results-repo/normalization/${{ inputs.domain }}-integration/canonical-build-evidence.json" --plan "$RUNNER_TEMP/normalization-integration-cbe.json" --pipeline-repository "$GITHUB_REPOSITORY" --pipeline-commit "$GITHUB_SHA" --results-repository "$RESULTS_REPOSITORY" --results-ref "${{ steps.contract.outputs.results_commit }}" --workflow-run-id "$GITHUB_RUN_ID" --runner-name "$RUNNER_NAME" --runner-environment "${{ runner.environment }}" --runner-os "$RUNNER_OS" --runner-arch "$RUNNER_ARCH" --github-output "$GITHUB_OUTPUT" --github-summary "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          root="$RUNNER_TEMP/normalization-integration-inputs"
+          domain="${{ inputs.domain }}"
+          if [[ "$domain" == tonal || "$domain" == chromatic ]]; then
+            source_inputs=(
+              --source-input "release.json=$root/upstream-release.json"
+              --source-input "${{ steps.contract.outputs.parent_manifest }}=$root/upstream-manifest.json"
+              --source-input "$domain-assessment.json=$root/assessment.json"
+              --source-input "$domain-method-assessment.json=$root/method-assessment.json"
+              --source-input "$domain-validation.json=$root/validation.json"
+            )
+          else
+            source_inputs=(
+              --source-input "upstream-release.json=$root/upstream-release.json"
+              --source-input "upstream-manifest.json=$root/upstream-manifest.json"
+              --source-input "assessment.json=$root/assessment.json"
+              --source-input "method-assessment.json=$root/method-assessment.json"
+              --source-input "validation.json=$root/validation.json"
+            )
+          fi
+          python -m hth.canonical_build_evidence prepare \
+            --scope "${{ steps.contract.outputs.scope }}" \
+            --policy "${{ inputs.canonical_build_policy }}" \
+            --contract-version 1 \
+            --mode complete-production \
+            --repository-root hth-pipeline \
+            --source-root "$root" \
+            "${source_inputs[@]}" \
+            --source-repository "$RESULTS_REPOSITORY" \
+            --source-release "${{ steps.contract.outputs.tag }}" \
+            --source-manifest-sha256 "${{ steps.contract.outputs.asset_sha256 }}" \
+            --source-commit "${{ steps.contract.outputs.parent_identity }}" \
+            --config "hth-pipeline/config/${{ inputs.domain }}-assessment.json" \
+            --config "hth-pipeline/config/${{ inputs.domain }}-method-assessment.json" \
+            --config "hth-pipeline/config/${{ inputs.domain }}-method-validation.json" \
+            --implementation "${{ steps.contract.outputs.implementation }}" \
+            --runtime-contract hth-pipeline/requirements.txt \
+            --runtime-package numpy \
+            --runtime-package opencv-python-headless \
+            --results-root results-repo \
+            --evidence "results-repo/normalization/${{ inputs.domain }}-integration/canonical-build-evidence.json" \
+            --plan "$RUNNER_TEMP/normalization-integration-cbe.json" \
+            --pipeline-repository "$GITHUB_REPOSITORY" \
+            --pipeline-commit "$GITHUB_SHA" \
+            --results-repository "$RESULTS_REPOSITORY" \
+            --results-ref "${{ steps.contract.outputs.results_commit }}" \
+            --workflow-run-id "$GITHUB_RUN_ID" \
+            --runner-name "$RUNNER_NAME" \
+            --runner-environment "${{ runner.environment }}" \
+            --runner-os "$RUNNER_OS" \
+            --runner-arch "$RUNNER_ARCH" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
       - name: Audit reusable immutable normalization release
         if: steps.cbe.outputs.decision != 'execute'
         shell: bash

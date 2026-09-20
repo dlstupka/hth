@@ -209,6 +209,7 @@ jobs:
             --scope hth-photometric-validation --policy "${{ inputs.canonical_build_policy || 'auto' }}" --contract-version 1 \
             --mode diagnostic-evidence --operation complete-held-out-photometric-validation \
             --repository-root hth-pipeline --source-root "${{ steps.contract.outputs.source_root }}" \
+            --source-input ".=${{ steps.contract.outputs.source_root }}" \
             --source-repository "$RESULTS_REPOSITORY" \
             --source-release "${{ steps.provenance.outputs.method_assessment_identity }}" \
             --source-manifest-sha256 "${{ steps.provenance.outputs.method_assessment_identity }}" \
