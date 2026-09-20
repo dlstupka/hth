@@ -221,7 +221,9 @@ class PhotometricIntegrationTests(unittest.TestCase):
     def test_workflow_exists_and_publishes_durable_release(self) -> None:
         root = Path(__file__).resolve().parents[1]
         workflow = (root / ".github/workflows/integrate-photometric.yml").read_text(encoding="utf-8")
-        self.assertIn("name: HTH normalize photometric integration", workflow)
+        self.assertIn("name: _HTH normalize photometric integration (internal)", workflow)
+        self.assertIn("workflow_call:", workflow)
+        self.assertNotIn("workflow_dispatch:", workflow)
         self.assertIn("python -m hth.integrate_photometric prepare", workflow)
         self.assertIn("python -m hth.integrate_photometric integrate", workflow)
         self.assertIn("python -m hth.integrate_photometric package", workflow)

@@ -20,7 +20,7 @@ Thin entry workflows:
 
 The wrappers select mode, source, publication behavior, retention, validation policy, and runner. Manual core-backed workflows expose the common runner vocabulary and default to GitHub-hosted execution unless a different runner is selected. Preprocessing and persisted-evidence report generation use separate reusable cores so changes to one execution surface cannot accidentally alter the other.
 
-Standalone review, preparation, and normalization workflows:
+Reusable normalization stage workflows:
 
 ```text
 .github/workflows/assess-crop-framing.yml
@@ -31,29 +31,25 @@ Standalone review, preparation, and normalization workflows:
 .github/workflows/validate-photometric-method.yml
 .github/workflows/integrate-photometric.yml
 .github/workflows/integrate-normalization.yml
-.github/workflows/normalize-gs0002.yml
-.github/workflows/normalize.yml
 ```
+
+These workflows are internal `workflow_call` components of
+`normalize.yml`; they are not independent production entry points. Keeping the
+stage boundaries makes contracts, permissions, testing, and recovery explicit
+without exposing implementation stages in the manual Actions menu.
 
 `assess-crop-framing.yml` resolves the approved detector, materializes the
 immutable GS0002 image bundle, and compares axis-aligned, rotation-crop, and
 projective framing. It uploads temporary assessment evidence only; it neither
 publishes normalization output nor mutates calibration intelligence.
 
-`assess-orientation-deskew.yml` is presented as **HTH prepare normalization
-recommendation**. It validates the persisted canonical crop evidence,
+`assess-orientation-deskew.yml` prepares the normalization recommendation. It
+validates the persisted canonical crop evidence,
 reconstructs only a stratified sample from the immutable source release, and
 proves every sampled crop by pixel hash. It compares all four gross-orientation
 views plus bounded projection-profile and Hough-line deskew candidates, creates
 a plain-language recommendation, and persists its compact evidence and proposed
 policy. It does not apply a pixel-changing transform.
-
-`normalize-gs0002.yml` is the bounded validation entry point for the selected
-normalization recipe. It validates authoritative Canonical Build Evidence and
-the published preprocess artifacts, materializes immutable GS0002 source
-images, applies the stored preferred-detector geometry, and optionally validates
-the persisted prepared deskew recommendation. It does not rerun detector
-inference or publish normalized collection assets.
 
 `normalize.yml` applies the selected recipe to the complete canonical
 collection. It reconstructs manifest-verified pixels from the immutable source
@@ -82,9 +78,10 @@ eligible for downstream HTR whether its action is `corrected-and-continue` or
 
 The user-facing design is intentionally not modeled on the current Golden Set
 creation sequence. Internal commands remain composable for testing and
-maintenance, while a researcher sees one preparation action followed by one
-explicit apply-or-preserve choice. Golden Set creation should eventually adopt
-the same guided orchestration rather than serve as the template here.
+maintenance, while a researcher sees one collection-normalization entry point
+with an explicit apply-or-preserve choice. Golden Set creation should
+eventually adopt the same guided orchestration rather than serve as the
+template here.
 
 ## Canonical workflow stages
 

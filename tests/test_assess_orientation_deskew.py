@@ -316,7 +316,9 @@ class OrientationDeskewAssessmentTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         workflow = (root / ".github/workflows/assess-orientation-deskew.yml").read_text(encoding="utf-8")
 
-        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("workflow_call:", workflow)
+        self.assertNotIn("workflow_dispatch:", workflow)
+        self.assertIn("name: _HTH normalize prepare recommendation (internal)", workflow)
         self.assertIn("normalization/normalization-manifest.json", workflow)
         self.assertIn("normalization/canonical-build-evidence.json", workflow)
         self.assertIn("python -m hth.assess_orientation_deskew prepare", workflow)

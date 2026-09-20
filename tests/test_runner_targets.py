@@ -166,7 +166,7 @@ jobs:
             if not path.name.startswith("_core-"):
                 for option in expected_options:
                     self.assertIn(option, text, path.name)
-        self.assertGreater(runner_workflows, 10)
+        self.assertEqual(runner_workflows, 8)
 
     def test_catalog_has_one_default(self) -> None:
         catalog = load_runner_targets()

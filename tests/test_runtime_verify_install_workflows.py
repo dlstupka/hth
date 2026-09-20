@@ -144,7 +144,7 @@ class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
                     block,
                     workflow.name,
                 )
-        self.assertEqual(checkout_count, 22)
+        self.assertEqual(checkout_count, 21)
 
         action = RESULTS_CHECKOUT_ACTION.read_text(encoding="utf-8")
         prepare = action.index("- name: Prepare reusable results checkout")

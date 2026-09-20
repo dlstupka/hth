@@ -1,12 +1,7 @@
 # Document normalization
 
-`HTH normalize HTH-GOLDEN-0002` is the bounded validation workflow for HTH's canonical
-normalization recipe. It applies either the persisted prepared recommendation
-or the explicit `axis-aligned-only` fallback to the 18 immutable
-`HTH-GOLDEN-0002` images.
-
-`HTH normalize collection` is the production-scale continuation. Its default
-is the latest compatible prepared recommendation; a researcher may select
+`HTH normalize collection` is the single production entry point. Its default
+is the compatible recommendation prepared within the orchestration; a researcher may select
 `axis-aligned-only` to preserve the crop without deskew. The current San
 Antonio collection has 929 pages.
 
@@ -41,19 +36,17 @@ perspective warping, resizes, enhances, or binarizes the source image.
 
 ## Current researcher workflow
 
-From an existing canonical crop, this stage has two human actions:
-
-1. Run **HTH normalize prepare recommendation**. Assessment, recommendation,
-   persistence, and review packaging happen in that one action.
-2. Review the plain-language result and run **HTH normalize collection**. Keep
-   the default prepared recommendation to approve it, or select
-   `axis-aligned-only` to preserve pixels after cropping.
+From an existing canonical crop, run **HTH normalize collection**. Keep the
+default prepared recommendation to permit evidence-backed conservative deskew,
+or select `axis-aligned-only` to preserve pixels after cropping. Assessment,
+recommendation, validation, persistence, and downstream integration remain
+separate internal jobs within that orchestration.
 
 No artifact paths, evidence identities, policy files, or command-line options
-must be transferred between those actions. The approval boundary remains
-because deskew resamples archival pixels. This deliberately avoids using the
-current multi-step Golden Set creation flow as the usability model; that flow
-has its own simplification work to do.
+must be transferred between actions. The explicit recipe selection remains the
+approval boundary because deskew resamples archival pixels. This deliberately
+avoids using the current multi-step Golden Set creation flow as the usability
+model; that flow has its own simplification work to do.
 
 ## Canonical preprocess handoff
 
@@ -62,8 +55,8 @@ published image manifest, page analysis, and Canonical Build Evidence from the
 collection results repository. It validates the authoritative evidence record
 and every canonical published JSON artifact before processing.
 
-For every GS0002 page, the immutable release image SHA-256 must agree with all
-three existing authorities:
+For every Golden Set page, the immutable release image SHA-256 must agree with
+all three existing authorities:
 
 - the approved Golden Set image identity;
 - the canonical preprocess image manifest; and
@@ -72,30 +65,6 @@ three existing authorities:
 The crop is rejected if any identity differs or the stored preferred detector
 geometry is missing. This makes normalization a strict downstream consumer of
 the proven preprocess result rather than a second inference path.
-
-## Review artifact
-
-The uploaded `hth-gs0002-normalized-*` artifact contains:
-
-```text
-normalization-manifest.json
-normalization-manifest.csv
-preprocess-evidence.json
-geometry-evidence.json
-review-manifest.json
-summary.md
-index.html
-normalized/
-contact-sheets/
-```
-
-The normalization manifest records the half-open crop coordinates, source and
-output dimensions, byte and pixel hashes, detector identity, canonical
-preprocess identities, normalization policy identity, and canonical
-normalization-result identity. Each PNG is decoded after writing and compared
-pixel-for-pixel with the in-memory crop. Review cadence and contact-sheet
-membership live separately in `review-manifest.json`; they are not canonical
-normalization results.
 
 ## Complete collection workflow
 
@@ -211,10 +180,11 @@ The `start_stage` menu supports development and recovery without creating an
 alternative production path. Selecting a stage skips earlier jobs and runs that
 stage plus every downstream stage. Skipped prerequisites must already have
 valid persisted evidence; missing or incompatible evidence fails closed. The
-individual stage workflows remain available for focused diagnosis. A skipped
-dependency is accepted only when the selected `start_stage` intentionally
-enters at the dependent stage; a failure-caused skip stops the downstream
-graph instead of silently consuming an older result.
+internal stage workflows remain independently testable but are invoked only by
+the collection orchestrator. A skipped dependency is accepted only when the
+selected `start_stage` intentionally enters at the dependent stage; a
+failure-caused skip stops the downstream graph instead of silently consuming
+an older result.
 
 The optional complete normalized-image artifact is disabled by default because
 requesting an ephemeral copy necessarily forces canonical normalization to

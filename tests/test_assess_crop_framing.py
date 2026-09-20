@@ -108,15 +108,15 @@ class CropFramingAssessmentTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         workflow = (root / ".github/workflows/assess-crop-framing.yml").read_text(encoding="utf-8")
 
-        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("workflow_call:", workflow)
+        self.assertNotIn("workflow_dispatch:", workflow)
+        self.assertIn("name: _HTH normalize crop and framing assess (internal)", workflow)
         self.assertIn("HTH-GOLDEN-0002", workflow)
         self.assertIn("Resolve Rank #1 approved GS0002 detector", workflow)
         self.assertIn("python -m hth.assess_crop_framing evaluate", workflow)
         self.assertIn("runner_target:", workflow)
         self.assertNotIn("specific_runner:", workflow)
         self.assertNotIn("custom_runner_label:", workflow)
-        self.assertIn("- e7k", workflow)
-        self.assertIn("- e9k", workflow)
         self.assertIn("inputs.runner_target == '192vcpu'", workflow)
         self.assertIn("runner-label: ${{ env.HTH_SELECTED_RUNNER_LABEL }}", workflow)
         self.assertNotIn("git push", workflow)

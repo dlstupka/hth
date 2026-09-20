@@ -268,9 +268,6 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
             "preprocess.yml",
             "preprocess-test.yml",
             "generate-report.yml",
-            "assess-crop-framing.yml",
-            "assess-orientation-deskew.yml",
-            "normalize-gs0002.yml",
             "normalize.yml",
         ):
             text = (workflow_dir / name).read_text(encoding="utf-8")
@@ -282,6 +279,24 @@ class ExecutionOptimizerWorkflowTests(unittest.TestCase):
             self.assertIn("- 32vcpu", text, name)
             self.assertNotIn("specific_runner:", text, name)
             self.assertNotIn("custom_runner_label:", text, name)
+
+    def test_normalization_components_are_internal_workflow_call_only(self) -> None:
+        workflow_dir = ROOT / ".github" / "workflows"
+        for name in (
+            "assess-crop-framing.yml",
+            "assess-orientation-deskew.yml",
+            "assess-perspective.yml",
+            "assess-photometric.yml",
+            "assess-photometric-methods.yml",
+            "validate-photometric-method.yml",
+            "integrate-photometric.yml",
+            "integrate-normalization.yml",
+        ):
+            text = (workflow_dir / name).read_text(encoding="utf-8")
+            self.assertIn("name: _HTH ", text, name)
+            self.assertIn("(internal)", text, name)
+            self.assertIn("workflow_call:", text, name)
+            self.assertNotIn("workflow_dispatch:", text, name)
 
     def test_capacity_runner_uses_catalog_label_and_detected_budget(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
