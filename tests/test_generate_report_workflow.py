@@ -91,6 +91,13 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertIn("detector-calibration-records", text)
         self.assertIn('git -C results-repo sparse-checkout add "${record_paths[@]}"', text)
 
+        generator = (ROOT / "hth" / "report_generator.py").read_text(encoding="utf-8")
+        self.assertIn("calibration_report_record_paths", generator)
+        self.assertNotIn(
+            "for record_path in smoke_record_paths(args.results_root, args.golden_set)",
+            generator,
+        )
+
     def test_optimizer_report_checkout_declares_indexes_history_and_publish_surface(self) -> None:
         text = CORE.read_text(encoding="utf-8")
         checkout = text.split("- name: Checkout execution optimizer report evidence", 1)[1].split(

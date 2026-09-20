@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from hth.report_generator import calibration_run_dirs, smoke_record_paths, smoke_run_dirs, generate_calibration_manifest, generate_full_normalization_summary, generate_optimizer_report, generate_optimizer_report_all
+from hth.report_generator import calibration_report_record_paths, calibration_run_dirs, smoke_record_paths, smoke_run_dirs, generate_calibration_manifest, generate_full_normalization_summary, generate_optimizer_report, generate_optimizer_report_all
 from hth.normalization_summary_report import TRANSFORMATION_MANIFESTS
 
 
@@ -127,6 +128,7 @@ class ReportGeneratorTests(unittest.TestCase):
                         "detector_id": "doc_ufcn_page_mask",
                         "calibration_status": "authoritative",
                         "record_path": "records/old-full",
+                        "intelligence_path": "records/old-full/calibration-intelligence.json",
                         "created_at_utc": "2026-08-19T23:00:00Z",
                         "search": {"strategy": "exhaustive", "exhaustive_complete": True},
                         "selection": {"best_avg_iou": 0.97, "minimum_iou": 0.95},
@@ -147,6 +149,23 @@ class ReportGeneratorTests(unittest.TestCase):
             self.assertEqual([path.name for path in calibration_run_dirs(root)], ["old-full"])
             self.assertEqual([path.name for path in smoke_run_dirs(root)], ["new-smoke"])
             self.assertEqual(smoke_record_paths(root), ["records/new-smoke"])
+            self.assertEqual(
+                calibration_report_record_paths(root),
+                ["records/new-smoke", "records/old-full"],
+            )
+
+    def test_calibration_report_materialization_rejects_unsafe_index_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "calibration-index.json").write_text(json.dumps({"entries": [{
+                "detector_id": "detector-a",
+                "calibration_status": "provisional",
+                "record_path": "../outside",
+                "created_at_utc": "2026-09-20T00:00:00Z",
+                "search": {"strategy": "smoke"},
+            }]}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "Unsafe persisted calibration record path"):
+                calibration_report_record_paths(root)
 
 
     def test_calibration_manifest_reads_flattened_persisted_records(self) -> None:
@@ -171,6 +190,113 @@ class ReportGeneratorTests(unittest.TestCase):
             generate_calibration_manifest(root, output, golden_set=None, pipeline_repository="", results_repository="", results_commit="", run_url="")
             self.assertTrue(output.is_file())
             self.assertIn("Regression Manifest", output.read_text(encoding="utf-8"))
+
+    def test_compact_calibration_materialization_matches_full_tree_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "full"
+            entries = []
+            for mode, tier, score, created in (
+                ("smoke", "provisional", 0.99, "2026-09-20T00:00:00Z"),
+                ("exhaustive", "authoritative", 0.97, "2026-09-14T00:00:00Z"),
+            ):
+                record = root / "records" / mode
+                record.mkdir(parents=True)
+                summary = {
+                    "run_mode": "smoke" if mode == "smoke" else "full",
+                    "evidence_tier": tier,
+                    "winner": {
+                        "parameter_set_id": f"{mode}-winner",
+                        "parameters": {"alpha": 1},
+                        "summary": {
+                            "mean_iou": score,
+                            "minimum_iou": score - 0.1,
+                            "stddev_iou": 0.01,
+                            "failure_count": 0,
+                        },
+                    },
+                    "baseline": {"summary": {"mean_iou": score - 0.2}},
+                    "page_ordinals": [1],
+                    "parameter_set_count": 1,
+                }
+                intelligence = {
+                    "available": True,
+                    "detector": "detector-a",
+                    "calibration_status": tier,
+                    "calibration_identity": {
+                        "created_at_utc": created,
+                        "golden_set": {"collection_id": "GS", "sha256": "unknown"},
+                        "build": {"github_run_number": "2" if mode == "smoke" else "1"},
+                    },
+                    "search": {
+                        "strategy": mode,
+                        "parameter_sets": 1,
+                        "exhaustive_complete": mode == "exhaustive",
+                    },
+                    "detector_selection_intelligence": {
+                        "recommended_parameter_set_id": f"{mode}-winner",
+                        "best_avg_iou": score,
+                        "minimum_iou": score - 0.1,
+                        "stddev_iou": 0.01,
+                        "failure_count": 0,
+                        "calibration_evidence": {"rating": "High"},
+                    },
+                }
+                (record / "manifest.json").write_text(
+                    json.dumps({"detector": "detector-a", "status": "passed"}), encoding="utf-8"
+                )
+                (record / "parameters.json").write_text(json.dumps({}), encoding="utf-8")
+                (record / "RUN-INFO.json").write_text(
+                    json.dumps({"elapsed_seconds": 1, "started_at_utc": created}), encoding="utf-8"
+                )
+                (record / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+                (record / "calibration-intelligence.json").write_text(
+                    json.dumps(intelligence), encoding="utf-8"
+                )
+                entries.append({
+                    "detector_id": "detector-a",
+                    "calibration_status": tier,
+                    "record_path": f"records/{mode}",
+                    "intelligence_path": f"records/{mode}/calibration-intelligence.json",
+                    "created_at_utc": created,
+                    "golden_set_sha256": "unknown",
+                    "search": intelligence["search"],
+                    "selection": {
+                        "best_avg_iou": score,
+                        "minimum_iou": score - 0.1,
+                        "failure_count": 0,
+                        "calibration_evidence": "High",
+                    },
+                })
+            (root / "calibration-index.json").write_text(
+                json.dumps({"entries": entries}), encoding="utf-8"
+            )
+
+            compact = Path(temp) / "compact"
+            compact.mkdir()
+            shutil.copy2(root / "calibration-index.json", compact / "calibration-index.json")
+            paths = calibration_report_record_paths(root)
+            self.assertEqual(paths, ["records/exhaustive", "records/smoke"])
+            for relative in paths:
+                destination = compact / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(root / relative, destination)
+
+            full_report = Path(temp) / "full.md"
+            compact_report = Path(temp) / "compact.md"
+            kwargs = {
+                "golden_set": None,
+                "pipeline_repository": "",
+                "results_repository": "",
+                "results_commit": "",
+                "run_url": "",
+            }
+            generate_calibration_manifest(root, full_report, **kwargs)
+            generate_calibration_manifest(compact, compact_report, **kwargs)
+            self.assertEqual(
+                compact_report.read_text(encoding="utf-8"),
+                full_report.read_text(encoding="utf-8"),
+            )
+            self.assertIn("**exhaustive**", compact_report.read_text(encoding="utf-8"))
 
     def test_optimizer_report_recovers_run_from_parallelism_for_legacy_index(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import shutil
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from hth.domain.calibration import authoritative_record
@@ -73,6 +73,65 @@ def smoke_record_paths(results_root: Path, golden_set: Path | None = None) -> li
             results_root, golden_set, existing_only=False
         )
     ]
+
+
+def _materialization_record_path(entry: dict[str, Any]) -> str:
+    """Return one safe record root and validate its indexed dependencies."""
+    raw_record = str(entry.get("record_path") or "").strip().replace("\\", "/")
+    record = PurePosixPath(raw_record)
+    if not raw_record or record.is_absolute() or ".." in record.parts:
+        raise ValueError(f"Unsafe persisted calibration record path: {raw_record!r}")
+    normalized = record.as_posix()
+    for key in ("intelligence_path", "parameter_provenance_path"):
+        raw_dependency = str(entry.get(key) or "").strip().replace("\\", "/")
+        if not raw_dependency:
+            continue
+        dependency = PurePosixPath(raw_dependency)
+        dependency_path = dependency.as_posix()
+        if (
+            dependency.is_absolute()
+            or ".." in dependency.parts
+            or not dependency_path.startswith(f"{normalized}/")
+        ):
+            raise ValueError(
+                f"Calibration {key} must remain beneath {normalized}: {raw_dependency!r}"
+            )
+    return normalized
+
+
+def calibration_report_record_paths(
+    results_root: Path,
+    golden_set: Path | None = None,
+) -> list[str]:
+    """Return the minimal complete durable-record set for Report Writer.
+
+    The smoke manifest and runtime schedule require the latest smoke observation
+    per detector.  Best Known requires the strongest compatible calibration per
+    detector independently of pipeline revision.  Both views are materialized so
+    a sparse checkout has the same selection semantics as a complete results tree.
+    """
+    entries = _matching_index_entries(
+        results_root, golden_set, existing_only=False
+    )
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for entry in entries:
+        grouped.setdefault(str(entry["detector_id"]), []).append(entry)
+
+    selected = list(
+        _selected_smoke_entries(results_root, golden_set, existing_only=False)
+    )
+    for detector in sorted(grouped):
+        # Best Known needs calibration intelligence. Entries without that
+        # dependency cannot participate in the rendered calibration view.
+        candidates = [
+            entry for entry in grouped[detector]
+            if str(entry.get("intelligence_path") or "").strip()
+        ]
+        candidate = authoritative_record(candidates)
+        if candidate is not None:
+            selected.append(candidate)
+
+    return sorted({_materialization_record_path(entry) for entry in selected})
 
 
 def calibration_run_dirs(results_root: Path, golden_set: Path | None = None) -> list[Path]:

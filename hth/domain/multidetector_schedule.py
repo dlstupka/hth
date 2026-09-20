@@ -824,6 +824,46 @@ def optimize_lpt_schedule(
                 "estimate_seconds": (0.0 if parent_shared else fixed_cost) + body / lanes,
             })
     selected["planned_tasks"] = planned_tasks
+    # Golden Set lane scaling changes each detector's internal fan-out, but it
+    # still launches one scheduler task per detector.  When the lane topology
+    # is unchanged, apply the same assignment-stability contract used by the
+    # unsharded LPT path.  Re-running LPT on every completed build can otherwise
+    # permute equal or near-equal tasks even though the projected makespan is
+    # materially unchanged.
+    if (
+        lane_plan and lane_plan["applied"]
+        and incumbent_pipeline_count == selected_pipeline_count
+        and len(incumbent_assignments) == len(detector_ids)
+        and len(planned_tasks) == len(detector_ids)
+    ):
+        task_estimates = [float(task["estimate_seconds"]) for task in planned_tasks]
+        proposed = plan_static_lpt_tasks(task_estimates, selected_pipeline_count)
+        proposed_makespan = float(selected.get("shared_preparation_seconds") or 0.0) + max(
+            (float(row["estimated_seconds"]) for row in proposed), default=0.0,
+        )
+        repriced_incumbent_loads: dict[int, float] = {}
+        for detector, estimate in zip(detector_ids, task_estimates):
+            pipeline = incumbent_assignments[detector]
+            repriced_incumbent_loads[pipeline] = (
+                repriced_incumbent_loads.get(pipeline, 0.0) + estimate
+            )
+        incumbent_makespan = float(selected.get("shared_preparation_seconds") or 0.0) + max(
+            repriced_incumbent_loads.values(), default=0.0,
+        )
+        high_water = float(selected.get("shared_preparation_seconds") or 0.0) + max(
+            task_estimates, default=0.0,
+        )
+        if not materially_improves_makespan(
+            incumbent_makespan,
+            proposed_makespan,
+            high_water_seconds=high_water,
+        ):
+            selected["predicted_makespan_seconds"] = incumbent_makespan
+            selected["predicted_pipeline_utilization"] = sum(task_estimates) / (
+                selected_pipeline_count * incumbent_makespan
+            ) if incumbent_makespan > 0 else 0.0
+            selected["detector_pipeline_assignments"] = incumbent_assignments
+            selected["schedule_retained"] = True
     selected["leading_candidates"] = [
         {
             "pipelines": int(row["pipelines"]),

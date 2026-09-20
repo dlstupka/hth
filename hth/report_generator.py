@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 
 from hth.calibration_report import (
+    calibration_report_record_paths,
     calibration_run_dirs,
     generate_calibration_manifest,
     smoke_record_paths,
@@ -16,6 +17,7 @@ from hth.normalization_summary_report import generate_full_normalization_summary
 
 __all__ = [
     "calibration_run_dirs",
+    "calibration_report_record_paths",
     "smoke_run_dirs",
     "generate_calibration_manifest",
     "smoke_record_paths",
@@ -81,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
         print(path)
         return 0
     if args.report == "detector-calibration-records":
-        for record_path in smoke_record_paths(args.results_root, args.golden_set):
+        for record_path in calibration_report_record_paths(args.results_root, args.golden_set):
             print(record_path)
         return 0
     paths = generate_optimizer_report(args.results_root, args.detector, args.output_dir)

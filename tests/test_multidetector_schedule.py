@@ -282,6 +282,36 @@ class MultiDetectorScheduleTests(unittest.TestCase):
             self.assertEqual(result["predicted_makespan_seconds"], 600.0)
             self.assertEqual(result["detector_fanout_estimates"]["slow"], 600.0)
 
+    def test_self_hosted_adaptive_retains_lane_assignment_without_material_gain(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "runtime-index.json"
+            path.write_text(json.dumps({"observations": [
+                {
+                    "detector_id": detector, "mode": "full", "resolved_strategy": "adaptive",
+                    "wall_clock_seconds": wall, "estimated_serial_runtime_seconds": serial,
+                    "golden_set_pages": 18, "observed_at_utc": "2026-09-12T00:00:00Z",
+                    "detector_pipelines": 5, "detector_pipeline_number": pipeline,
+                    "runner": {"runner_labels": ["192t"]},
+                    "build": {"github_run_id": "coordinated"},
+                }
+                for detector, wall, serial, pipeline in (
+                    ("slow", 600, 2400, 2), ("fast", 60, 60, 1),
+                )
+            ]}), encoding="utf-8")
+
+            result = optimize_lpt_schedule(
+                runtime_index_path=path, detector_ids=["slow", "fast"],
+                runner_thread_budget=16, runner_label="192t",
+                golden_set_sha256=None, mode="full", strategy="adaptive",
+                max_dimension=1800,
+            )
+
+            self.assertTrue(result["golden_set_lane_scaling_applied"])
+            self.assertTrue(result["schedule_retained"])
+            self.assertEqual(
+                result["detector_pipeline_assignments"], {"slow": 2, "fast": 1},
+            )
+
     def test_merged_shard_serial_work_prevents_next_run_whipsaw(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "runtime-index.json"

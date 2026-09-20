@@ -179,3 +179,10 @@ single publication boundary. Publication is idempotent under concurrent writers:
 the creator and any racing reuser must observe the expected asset name and SHA-256
 before the release is accepted. Workflows must not reimplement the check/create
 sequence inline.
+
+Compact report checkouts treat an index and its selected durable records as one
+materialization contract. Detector Report Writer hydrates both the latest smoke
+observation and the strongest compatible calibration for each detector before
+rendering. A sparse checkout must therefore produce the same Best Known selection
+as a complete results tree; an index alone is not evidence that its referenced
+record payloads are locally available.
