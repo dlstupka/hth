@@ -32,6 +32,7 @@ jobs:
   verify-frozen-golden-sets:
     name: Verify frozen Golden Sets
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout HTH pipeline
         uses: actions/checkout@v6

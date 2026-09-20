@@ -96,7 +96,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout compact calibration and prior crop/framing evidence
-        uses: actions/checkout@v6
+        uses: ./hth-pipeline/.github/actions/checkout-results
         with:
           repository: ${{ env.RESULTS_REPOSITORY }}
           path: results-repo

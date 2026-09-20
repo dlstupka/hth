@@ -18,6 +18,7 @@ PYTHON_ACTION = ROOT / ".github/actions/setup-hth-python/action.yml"
 MANAGED_ACTION = ROOT / ".github/actions/setup-hth-managed-runtime/action.yml"
 RUNTIME_MANAGER = ROOT / "tools" / "ensure-managed-runtime.sh"
 RESULTS_CHECKOUT_PREP = ROOT / "tools" / "prepare-reusable-results-checkout.sh"
+RESULTS_CHECKOUT_ACTION = ROOT / ".github/actions/checkout-results/action.yml"
 
 
 def _bash_executable() -> str | None:
@@ -124,21 +125,35 @@ class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
             self.assertIn("uses: ./hth-pipeline/.github/actions/setup-hth-python", text, workflow.name)
 
     def test_reusable_results_checkout_is_validated_around_checkout_action(self):
-        text = (ROOT / ".github/workflows/regress-detector.yml").read_text(encoding="utf-8")
-        self.assertEqual(text.count("- name: Prepare reusable results checkout"), 3)
-        self.assertEqual(text.count("- name: Verify reusable results checkout"), 3)
-        for match in [
-            pos for pos in range(len(text))
-            if text.startswith("- name: Prepare reusable results checkout", pos)
-        ]:
-            checkout = text.index("- name: Checkout results repository", match)
-            verify = text.index("- name: Verify reusable results checkout", checkout)
-            self.assertLess(match, checkout)
-            self.assertLess(checkout, verify)
+        checkout_count = 0
+        for workflow in (ROOT / ".github/workflows").glob("*.yml"):
+            text = workflow.read_text(encoding="utf-8")
+            lines = text.splitlines()
+            for index, line in enumerate(lines):
+                if "path: results-repo" not in line:
+                    continue
+                checkout_count += 1
+                block_start = max(
+                    position
+                    for position in range(index + 1)
+                    if lines[position].lstrip().startswith("- name:")
+                )
+                block = "\n".join(lines[block_start:index + 1])
+                self.assertIn(
+                    "uses: ./hth-pipeline/.github/actions/checkout-results",
+                    block,
+                    workflow.name,
+                )
+        self.assertEqual(checkout_count, 22)
 
-        optimizer = (ROOT / ".github/workflows/execution-optimizer.yml").read_text(encoding="utf-8")
-        self.assertEqual(optimizer.count("- name: Prepare reusable results checkout"), 1)
-        self.assertEqual(optimizer.count("- name: Verify reusable results checkout"), 1)
+        action = RESULTS_CHECKOUT_ACTION.read_text(encoding="utf-8")
+        prepare = action.index("- name: Prepare reusable results checkout")
+        checkout = action.index("- name: Checkout results repository")
+        verify = action.index("- name: Verify reusable results checkout")
+        self.assertLess(prepare, checkout)
+        self.assertLess(checkout, verify)
+        self.assertIn("uses: actions/checkout@v6", action)
+        self.assertIn('[[ "${{ inputs.path }}" == results-repo ]]', action)
 
         helper = RESULTS_CHECKOUT_PREP.read_text(encoding="utf-8")
         self.assertIn("rev-parse --verify 'HEAD^{commit}'", helper)

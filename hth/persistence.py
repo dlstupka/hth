@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -206,16 +207,39 @@ def read_json(path: Path) -> dict[str, Any]:
 
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     """Durably replace one JSON object without exposing a partial file."""
+    atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def atomic_write_text(path: Path, payload: str) -> None:
+    """Durably replace one UTF-8 text file without exposing partial content."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    encoded = json.dumps(payload, indent=2, sort_keys=True) + "\n"
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(encoded)
+            handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def atomic_copy_file(source: Path, target: Path) -> None:
+    """Copy one file through a sibling temporary and atomically publish it."""
+    source = Path(source)
+    target = Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    os.close(fd)
+    try:
+        shutil.copyfile(source, temporary)
+        with Path(temporary).open("r+b") as handle:
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
     finally:
         try:
             os.unlink(temporary)

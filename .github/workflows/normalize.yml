@@ -178,7 +178,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout canonical collection evidence
-        uses: actions/checkout@v6
+        uses: ./hth-pipeline/.github/actions/checkout-results
         with:
           repository: ${{ env.RESULTS_REPOSITORY }}
           path: results-repo
@@ -802,7 +802,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout canonical normalization evidence
-        uses: actions/checkout@v6
+        uses: ./hth-pipeline/.github/actions/checkout-results
         with:
           repository: ${{ env.RESULTS_REPOSITORY }}
           path: results-repo

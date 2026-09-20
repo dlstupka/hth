@@ -49,6 +49,7 @@ jobs:
   rerank:
     name: Rebuild historical regression metrics
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout HTH pipeline
         uses: actions/checkout@v6
@@ -58,7 +59,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout results repository
-        uses: actions/checkout@v6
+        uses: ./hth-pipeline/.github/actions/checkout-results
         with:
           repository: ${{ inputs.results_repository }}
           path: results-repo

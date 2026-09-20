@@ -1,0 +1,79 @@
+name: Checkout reusable HTH results repository
+description: Canonical guarded checkout for the mutable HTH results workspace
+
+inputs:
+  repository:
+    description: owner/name of the results repository
+    required: true
+  token:
+    description: token used by actions/checkout
+    required: true
+  path:
+    description: canonical workspace-relative checkout path
+    required: false
+    default: results-repo
+  ref:
+    description: results repository ref
+    required: false
+    default: main
+  fetch-depth:
+    description: checkout history depth
+    required: false
+    default: "1"
+  sparse-checkout:
+    description: newline-separated sparse-checkout patterns
+    required: false
+    default: ""
+  sparse-checkout-cone-mode:
+    description: whether sparse checkout uses cone mode
+    required: false
+    default: "false"
+  persist-credentials:
+    description: whether checkout credentials remain configured
+    required: false
+    default: "false"
+  show-progress:
+    description: whether checkout displays progress
+    required: false
+    default: "false"
+  pipeline-path:
+    description: workspace-relative HTH pipeline checkout
+    required: false
+    default: hth-pipeline
+
+runs:
+  using: composite
+  steps:
+    - name: Validate canonical checkout path
+      shell: bash
+      run: |
+        set -euo pipefail
+        [[ "${{ inputs.path }}" == results-repo ]] || {
+          echo "::error::HTH results checkouts must use the canonical results-repo path"
+          exit 2
+        }
+
+    - name: Prepare reusable results checkout
+      shell: bash
+      run: >-
+        bash "${{ inputs.pipeline-path }}/tools/prepare-reusable-results-checkout.sh"
+        prepare "${{ inputs.repository }}"
+
+    - name: Checkout results repository
+      uses: actions/checkout@v6
+      with:
+        repository: ${{ inputs.repository }}
+        token: ${{ inputs.token }}
+        path: ${{ inputs.path }}
+        ref: ${{ inputs.ref }}
+        fetch-depth: ${{ inputs.fetch-depth }}
+        sparse-checkout: ${{ inputs.sparse-checkout }}
+        sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
+        persist-credentials: ${{ inputs.persist-credentials }}
+        show-progress: ${{ inputs.show-progress }}
+
+    - name: Verify reusable results checkout
+      shell: bash
+      run: >-
+        bash "${{ inputs.pipeline-path }}/tools/prepare-reusable-results-checkout.sh"
+        verify "${{ inputs.repository }}"

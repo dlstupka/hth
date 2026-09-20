@@ -177,7 +177,7 @@ jobs:
 
       - name: Checkout results repository
         if: ${{ inputs.publish_results || inputs.document_detector == 'preferred' }}
-        uses: actions/checkout@v6
+        uses: ./hth-pipeline/.github/actions/checkout-results
         with:
           repository: ${{ inputs.results_repository }}
           path: results-repo

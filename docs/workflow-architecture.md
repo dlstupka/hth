@@ -164,3 +164,18 @@ The optimizer intentionally remains a direct job rather than routing detector ex
 ## Results-repository checkout policy
 
 Read-oriented workflows explicitly consume the authoritative `main` results branch. Normalization reporting uses a shallow compact evidence checkout. Detector reporting first checks out only its indexes, then hydrates the one indexed smoke record selected per detector instead of materializing the complete calibration tree. Optimizer reporting temporarily retains bounded history for migration of summaries that predate durable per-run records. Report publication retries fetch/reset to the latest `origin/main`, regenerate from that current tree, and commit on top. Workflows that genuinely require historical Git traversal must opt into deeper history explicitly rather than inheriting it accidentally.
+
+Every results-repository checkout crosses the shared
+`.github/actions/checkout-results` boundary. Before checkout, that action validates
+the reusable `results-repo` workspace, confirms its origin, removes any embedded
+token from a prior publication, and cleans only that scoped checkout. It then
+performs the caller's bounded sparse checkout and verifies the resulting repository
+is authoritative and clean. Persistent runners therefore use the same recovery
+contract in preprocessing, normalization, regression, optimization, and reporting;
+individual workflows must not call `actions/checkout` directly for `results-repo`.
+
+Immutable normalized-collection releases use `tools/hardened-release.sh` as the
+single publication boundary. Publication is idempotent under concurrent writers:
+the creator and any racing reuser must observe the expected asset name and SHA-256
+before the release is accepted. Workflows must not reimplement the check/create
+sequence inline.

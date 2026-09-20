@@ -92,7 +92,7 @@ jobs:
 
       - name: Checkout compact normalization audit evidence
         if: ${{ inputs.report_type == 'full-normalization-summary' }}
-        uses: actions/checkout@v6
+        uses: ./hth-pipeline/.github/actions/checkout-results
         with:
           repository: ${{ inputs.results_repository }}
           path: results-repo
@@ -108,7 +108,7 @@ jobs:
 
       - name: Checkout detector calibration report evidence
         if: ${{ inputs.report_type == 'detector-calibration-manifest' }}
-        uses: actions/checkout@v6
+        uses: ./hth-pipeline/.github/actions/checkout-results
         with:
           repository: ${{ inputs.results_repository }}
           path: results-repo
@@ -126,7 +126,7 @@ jobs:
 
       - name: Checkout execution optimizer report evidence
         if: ${{ inputs.report_type == 'execution-optimizer' }}
-        uses: actions/checkout@v6
+        uses: ./hth-pipeline/.github/actions/checkout-results
         with:
           repository: ${{ inputs.results_repository }}
           path: results-repo
@@ -400,5 +400,4 @@ jobs:
           if-no-files-found: error
           retention-days: ${{ inputs.artifact_retention_days }}
           compression-level: 6
-
 

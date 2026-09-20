@@ -8,11 +8,11 @@ collapse cross-run evidence.
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 from typing import Any
 
 from hth.optimizer_validity import migrate_optimizer_evidence, migrate_optimizer_run, optimizer_evidence_is_valid
+from hth.persistence import atomic_copy_file, atomic_write_json, atomic_write_text
 
 
 def run_history_dir(results_root: Path, detector: str, run_id: str) -> Path:
@@ -100,11 +100,11 @@ def persist_completed_run(*, results_root: Path, detector: str, run_id: str,
         "valid": True,
         "run_metadata": run_metadata,
     }
-    (destination / "run.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    atomic_write_json(destination / "run.json", manifest)
     for source, name in ((observation_log, "observations.jsonl"), (shard_log, "shards.jsonl"),
                          (runner_metrics_log, "runner-metrics.jsonl")):
         if source is not None and source.is_file():
-            shutil.copyfile(source, destination / name)
+            atomic_copy_file(source, destination / name)
     return destination
 
 
@@ -142,9 +142,10 @@ def persist_recovered_legacy_run(
             (str(row.get("invalid_reason")) for row in rows if row.get("valid") is False and row.get("invalid_reason")),
             "invalid legacy optimizer evidence",
         )
-    (destination / "run.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    (destination / "observations.jsonl").write_text(
-        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8"
+    atomic_write_json(destination / "run.json", manifest)
+    atomic_write_text(
+        destination / "observations.jsonl",
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
     )
     return destination
 
@@ -182,8 +183,6 @@ def completed_run_records(results_root: Path, detector: str, *, include_invalid:
             return rows
         observations = read_jsonl("observations.jsonl")
         migrated_manifest = migrate_optimizer_run(manifest, observations)
-        if migrated_manifest != manifest:
-            manifest_path.write_text(json.dumps(migrated_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         manifest = migrated_manifest
         if not include_invalid and not optimizer_evidence_is_valid(manifest):
             continue

@@ -219,6 +219,7 @@ jobs:
     if: ${{ inputs.algorithm == 'all' || inputs.algorithm == 'all-without-preference' }}
     name: Dispatch detector optimizer runs
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout HTH pipeline
         uses: actions/checkout@v6
@@ -228,7 +229,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout results repository
-        uses: actions/checkout@v6
+        uses: ./hth-pipeline/.github/actions/checkout-results
         with:
           repository: ${{ inputs.results_repository }}
           path: results-repo
@@ -374,12 +375,8 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Prepare reusable results checkout
-        shell: bash
-        run: bash hth-pipeline/tools/prepare-reusable-results-checkout.sh prepare "$RESULTS_REPOSITORY"
-
       - name: Checkout results repository
-        uses: actions/checkout@v6
+        uses: ./hth-pipeline/.github/actions/checkout-results
         with:
           repository: ${{ env.RESULTS_REPOSITORY }}
           path: results-repo
@@ -413,10 +410,6 @@ jobs:
             /execution-optimizer/
           sparse-checkout-cone-mode: false
           show-progress: false
-
-      - name: Verify reusable results checkout
-        shell: bash
-        run: bash hth-pipeline/tools/prepare-reusable-results-checkout.sh verify "$RESULTS_REPOSITORY"
 
       - name: Materialize immutable Golden Set images
         if: ${{ env.GOLDEN_RELEASE_TAG != '' }}

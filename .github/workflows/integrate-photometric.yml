@@ -102,7 +102,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout canonical normalization and photometric evidence
-        uses: actions/checkout@v6
+        uses: ./hth-pipeline/.github/actions/checkout-results
         with:
           repository: ${{ env.RESULTS_REPOSITORY }}
           path: results-repo
@@ -428,21 +428,16 @@ jobs:
           ASSET_NAME: hth-photometric-${{ steps.integration.outputs.result_identity }}.zip
         run: |
           set -euo pipefail
-          if gh release view "$RELEASE_TAG" --repo "$RESULTS_REPOSITORY" >/dev/null 2>&1; then
-            remote_digest="$(gh api "repos/$RESULTS_REPOSITORY/releases/tags/$RELEASE_TAG" --jq ".assets[] | select(.name == \"$ASSET_NAME\") | .digest")"
-            test "$remote_digest" = "sha256:$ASSET_SHA256" || {
-              echo "Existing release asset does not match the deterministic rebuilt collection" >&2
-              exit 1
-            }
-            echo "release_activity=REUSED" >> "$GITHUB_OUTPUT"
-          else
-            gh release create "$RELEASE_TAG" "$RELEASE_ASSET" \
-              --repo "$RESULTS_REPOSITORY" \
-              --target main \
-              --title "HTH photometric normalized collection $RESULT_IDENTITY" \
-              --notes "Canonical HTH-0001 illumination/background-normalized collection. Photometric result identity: $RESULT_IDENTITY. No contrast or tonal-range normalization is included."
-            echo "release_activity=CREATED" >> "$GITHUB_OUTPUT"
-          fi
+          source hth-pipeline/tools/hardened-release.sh
+          hth_publish_immutable_release \
+            "$RESULTS_REPOSITORY" \
+            "$RELEASE_TAG" \
+            "$RELEASE_ASSET" \
+            "$ASSET_NAME" \
+            "$ASSET_SHA256" \
+            "HTH photometric normalized collection $RESULT_IDENTITY" \
+            "Canonical HTH-0001 illumination/background-normalized collection. Photometric result identity: $RESULT_IDENTITY. No contrast or tonal-range normalization is included."
+          echo "release_activity=$HTH_RELEASE_ACTIVITY" >> "$GITHUB_OUTPUT"
           echo "release_url=${GITHUB_SERVER_URL}/${RESULTS_REPOSITORY}/releases/tag/${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Publish compact canonical photometric evidence

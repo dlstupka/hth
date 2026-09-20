@@ -56,6 +56,12 @@ class PersistenceArchitectureTests(unittest.TestCase):
             self.assertNotIn("def _write_json(path: Path", text, relative)
         self.assertIn("atomic_write_json", (ROOT / "hth/regression/learned_evidence.py").read_text(encoding="utf-8"))
 
+    def test_optimizer_run_history_uses_atomic_persistence_and_readers_are_pure(self):
+        text = (ROOT / "hth/optimizer_history.py").read_text(encoding="utf-8")
+        self.assertIn("atomic_write_json(destination / \"run.json\", manifest)", text)
+        self.assertIn("atomic_copy_file(source, destination / name)", text)
+        self.assertNotIn("manifest_path.write_text", text)
+
     def test_results_repository_consumers_do_not_query_index_layout_directly(self):
         for relative in (
             "hth/historical_rerank.py",

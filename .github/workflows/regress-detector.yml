@@ -266,6 +266,7 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.algorithm == 'all-without-exhaustive' }}
     name: Dispatch detectors without exhaustive regression
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout HTH pipeline
         uses: actions/checkout@v6
@@ -274,12 +275,8 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Prepare reusable results checkout
-        shell: bash
-        run: bash hth-pipeline/tools/prepare-reusable-results-checkout.sh prepare "${{ inputs.results_repository }}"
-
       - name: Checkout results repository
-        uses: actions/checkout@v6
+        uses: ./hth-pipeline/.github/actions/checkout-results
         with:
           repository: ${{ inputs.results_repository }}
           path: results-repo
@@ -291,10 +288,6 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
           token: ${{ secrets.HTH_RESULTS_TOKEN }}
-
-      - name: Verify reusable results checkout
-        shell: bash
-        run: bash hth-pipeline/tools/prepare-reusable-results-checkout.sh verify "${{ inputs.results_repository }}"
 
       - name: Dispatch missing exhaustive detector regressions
         shell: bash
@@ -332,6 +325,7 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.algorithm != 'all-without-exhaustive' }}
     name: Resolve regression runner and preferred shape
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       runs_on: ${{ steps.resolve.outputs.runs_on }}
       runner_label: ${{ steps.resolve.outputs.runner_label }}
@@ -351,12 +345,8 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Prepare reusable results checkout
-        shell: bash
-        run: bash hth-pipeline/tools/prepare-reusable-results-checkout.sh prepare "${{ github.event_name == 'workflow_dispatch' && inputs.results_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results' }}"
-
       - name: Checkout results repository
-        uses: actions/checkout@v6
+        uses: ./hth-pipeline/.github/actions/checkout-results
         with:
           repository: ${{ github.event_name == 'workflow_dispatch' && inputs.results_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results' }}
           path: results-repo
@@ -368,10 +358,6 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
           token: ${{ github.event_name != 'pull_request' && secrets.HTH_RESULTS_TOKEN || github.token }}
-
-      - name: Verify reusable results checkout
-        shell: bash
-        run: bash hth-pipeline/tools/prepare-reusable-results-checkout.sh verify "${{ github.event_name == 'workflow_dispatch' && inputs.results_repository || 'dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results' }}"
 
       - name: Resolve preferred dispatch target
         id: resolve
@@ -476,12 +462,8 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Prepare reusable results checkout
-        shell: bash
-        run: bash hth-pipeline/tools/prepare-reusable-results-checkout.sh prepare "$RESULTS_REPOSITORY"
-
       - name: Checkout results repository
-        uses: actions/checkout@v6
+        uses: ./hth-pipeline/.github/actions/checkout-results
         with:
           repository: ${{ env.RESULTS_REPOSITORY }}
           path: results-repo
@@ -506,10 +488,6 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
           token: ${{ github.event_name != 'pull_request' && secrets.HTH_RESULTS_TOKEN || github.token }}
-
-      - name: Verify reusable results checkout
-        shell: bash
-        run: bash hth-pipeline/tools/prepare-reusable-results-checkout.sh verify "$RESULTS_REPOSITORY"
 
       - name: Materialize immutable Golden Set images
         if: ${{ env.GOLDEN_RELEASE_TAG != '' }}

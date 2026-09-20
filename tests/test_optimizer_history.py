@@ -27,11 +27,12 @@ class OptimizerHistoryTests(unittest.TestCase):
 
             bad = destination.parent / "43"
             bad.mkdir()
-            (bad / "run.json").write_text(json.dumps({
+            bad_manifest = json.dumps({
                 "schema_version": 1, "record_type": "execution-optimizer-run",
                 "optimizer_run_id": "43", "detector_id": "det", "complete": True,
                 "run_metadata": {"stop_reason": "range_complete", "optimization_started_epoch": 1787947200},
-            }), encoding="utf-8")
+            })
+            (bad / "run.json").write_text(bad_manifest, encoding="utf-8")
             (bad / "observations.jsonl").write_text(json.dumps({
                 "observation_id": "bad", "source": "execution-optimizer",
                 "optimizer_run_id": "43", "detector_id": "det",
@@ -42,6 +43,7 @@ class OptimizerHistoryTests(unittest.TestCase):
             migrated = next(row for row in invalid if row["manifest"]["optimizer_run_id"] == "43")
             self.assertFalse(migrated["manifest"]["valid"])
             self.assertEqual(migrated["manifest"]["invalid_reason"], "single-detector pipeline fan-out bug")
+            self.assertEqual((bad / "run.json").read_text(encoding="utf-8"), bad_manifest)
 
     def test_incomplete_run_is_not_materialized(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -76,7 +76,7 @@ jobs:
         uses: actions/checkout@v6
         with: {path: hth-pipeline, fetch-depth: 1, persist-credentials: false}
       - name: Checkout normalization evidence
-        uses: actions/checkout@v6
+        uses: ./hth-pipeline/.github/actions/checkout-results
         with:
           repository: ${{ env.RESULTS_REPOSITORY }}
           path: results-repo
@@ -257,9 +257,14 @@ jobs:
         shell: bash
         env: {GH_TOKEN: "${{ secrets.HTH_RESULTS_TOKEN }}", TAG: "${{ steps.integration.outputs.release_tag }}", ASSET: "${{ steps.package.outputs.asset }}", SHA: "${{ steps.package.outputs.asset_sha256 }}"}
         run: |
+          set -euo pipefail
+          source hth-pipeline/tools/hardened-release.sh
           name="hth-${{ inputs.domain }}-${{ steps.integration.outputs.result_identity }}.zip"
-          if gh release view "$TAG" --repo "$RESULTS_REPOSITORY" >/dev/null 2>&1; then digest="$(gh api "repos/$RESULTS_REPOSITORY/releases/tags/$TAG" --jq ".assets[] | select(.name == \"$name\") | .digest")"; test "$digest" = "sha256:$SHA"; activity=REUSED; else gh release create "$TAG" "$ASSET" --repo "$RESULTS_REPOSITORY" --target main --title "HTH ${{ inputs.domain }} normalized collection ${{ steps.integration.outputs.result_identity }}" --notes "Deterministic selective ${{ inputs.domain }} normalization. Every page continues downstream."; activity=CREATED; fi
-          echo "release_activity=$activity" >> "$GITHUB_OUTPUT"
+          hth_publish_immutable_release \
+            "$RESULTS_REPOSITORY" "$TAG" "$ASSET" "$name" "$SHA" \
+            "HTH ${{ inputs.domain }} normalized collection ${{ steps.integration.outputs.result_identity }}" \
+            "Deterministic selective ${{ inputs.domain }} normalization. Every page continues downstream."
+          echo "release_activity=$HTH_RELEASE_ACTIVITY" >> "$GITHUB_OUTPUT"
       - name: Publish compact canonical normalization evidence
         if: steps.cbe.outputs.decision == 'execute'
         shell: bash
