@@ -45,7 +45,7 @@ class HardeningInvariantTests(unittest.TestCase):
                 predictions_index=root/"optimizer-predictions.json",
                 detector_config_root=root, golden_set=root/"golden.json",
                 max_dimension=1800,
-                profile=RunnerProfile("runner", "192t", "cpu", 192, 192),
+                profile=RunnerProfile("runner", "192vcpu", "cpu", 192, 192),
                 runner_budget=384,
             )
             env = workflow_shape_env(result)
@@ -84,7 +84,7 @@ class HardeningInvariantTests(unittest.TestCase):
                 "allocated_threads": 384,
                 "runner": {
                     "runner_name": "source-192",
-                    "runner_label": "192t",
+                    "runner_label": "192vcpu",
                     "cpu_model": "source cpu",
                     "physical_core_count": 192,
                     "logical_cpu_count": 192,
@@ -95,7 +95,7 @@ class HardeningInvariantTests(unittest.TestCase):
                 limit="", detector="example", manual_shape="",
                 parallelism_index=index, predictions_index=root/"optimizer-predictions.json",
                 detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
-                profile=RunnerProfile("target-32", "32t", "different cpu", 32, 32),
+                profile=RunnerProfile("target-32", "32vcpu", "different cpu", 32, 32),
                 runner_budget=64,
             )
             self.assertTrue(result["exact"])

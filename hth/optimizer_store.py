@@ -20,6 +20,7 @@ from typing import Any, Iterable
 
 from hth.contracts import OPTIMIZER_INDEX_SCHEMA_VERSION, adapt_optimizer_index
 from hth.domain.execution_shape import DETERMINISTIC_OPTIMIZER_STRATEGIES, optimizer_compatibility_key, optimizer_evidence_key, select_preferred_shape
+from hth.runner_targets import canonical_runner_label, canonical_runner_labels
 
 
 
@@ -83,11 +84,11 @@ def _runner_key(row: dict[str, Any]) -> str:
     runner = row.get("runner") if isinstance(row.get("runner"), dict) else {}
     labels = runner.get("runner_labels")
     if isinstance(labels, list):
-        label_text = ",".join(sorted(str(item) for item in labels))
+        label_text = ",".join(sorted(canonical_runner_labels(labels)))
     else:
         label_text = str(labels or "")
     identity = {
-        "runner_label": runner.get("runner_label"),
+        "runner_label": canonical_runner_label(runner.get("runner_label")),
         "runner_name": runner.get("runner_name"),
         "labels": label_text,
         "cpu_model": runner.get("cpu_model"),

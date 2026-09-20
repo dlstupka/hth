@@ -75,9 +75,9 @@ on:
           - rhel8
           - e7k
           - e9k
-          - 192t
-          - 96t
-          - 32t
+          - 192vcpu
+          - 96vcpu
+          - 32vcpu
       # END GENERATED RUNNER TARGET INPUT
       clean_runner:
         description: "Advanced — Wipe runner workspace and rebuild from scratch"
@@ -291,9 +291,9 @@ jobs:
         || inputs.runner_target == 'rhel8' && fromJSON('["self-hosted","Linux","X64","rhel8"]')
         || inputs.runner_target == 'e7k' && fromJSON('["self-hosted","Linux","X64","e7k"]')
         || inputs.runner_target == 'e9k' && fromJSON('["self-hosted","Linux","X64","e9k"]')
-        || inputs.runner_target == '192t' && fromJSON('["self-hosted","Linux","X64","192t"]')
-        || inputs.runner_target == '96t' && fromJSON('["self-hosted","Linux","X64","96t"]')
-        || inputs.runner_target == '32t' && fromJSON('["self-hosted","Linux","X64","32t"]')
+        || inputs.runner_target == '192vcpu' && fromJSON('["self-hosted","Linux","X64","192vcpu"]')
+        || inputs.runner_target == '96vcpu' && fromJSON('["self-hosted","Linux","X64","96vcpu"]')
+        || inputs.runner_target == '32vcpu' && fromJSON('["self-hosted","Linux","X64","32vcpu"]')
         || 'ubuntu-latest' }}
     # END GENERATED RUNNER TARGET ROUTING
     timeout-minutes: 10080
@@ -332,9 +332,9 @@ jobs:
           || inputs.runner_target == 'rhel8' && 'self-hosted,Linux,X64,rhel8'
           || inputs.runner_target == 'e7k' && 'self-hosted,Linux,X64,e7k'
           || inputs.runner_target == 'e9k' && 'self-hosted,Linux,X64,e9k'
-          || inputs.runner_target == '192t' && 'self-hosted,Linux,X64,192t'
-          || inputs.runner_target == '96t' && 'self-hosted,Linux,X64,96t'
-          || inputs.runner_target == '32t' && 'self-hosted,Linux,X64,32t'
+          || inputs.runner_target == '192vcpu' && 'self-hosted,Linux,X64,192vcpu'
+          || inputs.runner_target == '96vcpu' && 'self-hosted,Linux,X64,96vcpu'
+          || inputs.runner_target == '32vcpu' && 'self-hosted,Linux,X64,32vcpu'
           || 'github-hosted' }}
       # END GENERATED RUNNER LABEL SET
       # BEGIN GENERATED RUNNER SETUP LABEL
@@ -345,9 +345,9 @@ jobs:
           || inputs.runner_target == 'rhel8' && 'rhel8'
           || inputs.runner_target == 'e7k' && 'e7k'
           || inputs.runner_target == 'e9k' && 'e9k'
-          || inputs.runner_target == '192t' && '192t'
-          || inputs.runner_target == '96t' && '96t'
-          || inputs.runner_target == '32t' && '32t'
+          || inputs.runner_target == '192vcpu' && '192vcpu'
+          || inputs.runner_target == '96vcpu' && '96vcpu'
+          || inputs.runner_target == '32vcpu' && '32vcpu'
           || 'github-hosted' }}
       # END GENERATED RUNNER SETUP LABEL
       HTH_SPECIFIC_RUNNER_BUDGET: ""

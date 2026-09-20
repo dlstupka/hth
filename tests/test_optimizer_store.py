@@ -198,9 +198,9 @@ class OptimizerStoreTests(unittest.TestCase):
             "optimizer_run_id": "legacy-published-deadbeef",
             "optimizer_intelligence_recovery": "published-summary-history",
             "runner": {
-                "runner_label": "96t",
+                "runner_label": "96vcpu",
                 "runner_name": "rh8-al97",
-                "runner_labels": ["self-hosted", "96t"],
+                "runner_labels": ["self-hosted", "96vcpu"],
                 "logical_cpu_count": 96,
             },
         }
@@ -317,10 +317,10 @@ class OptimizerStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             rows = [
-                _row("old-a", "192t", 7, 54, 22, optimizer_run_id="33279699408"),
-                _row("old-b", "192t", 9, 42, 20, optimizer_run_id="33279699408"),
-                _row("new-a", "192t", 1, 384, 6, optimizer_run_id="33283602734"),
-                _row("new-b", "192t", 2, 192, 8, optimizer_run_id="33283602734"),
+                _row("old-a", "192vcpu", 7, 54, 22, optimizer_run_id="33279699408"),
+                _row("old-b", "192vcpu", 9, 42, 20, optimizer_run_id="33279699408"),
+                _row("new-a", "192vcpu", 1, 384, 6, optimizer_run_id="33283602734"),
+                _row("new-b", "192vcpu", 2, 192, 8, optimizer_run_id="33283602734"),
             ]
             for row in rows:
                 row["compatibility_key"] = "same-compatible-profile"

@@ -35,9 +35,9 @@ on:
           - rhel8
           - e7k
           - e9k
-          - 192t
-          - 96t
-          - 32t
+          - 192vcpu
+          - 96vcpu
+          - 32vcpu
       # END GENERATED RUNNER TARGET INPUT
       upload_full_artifact:
         description: "Upload the complete generated build as a temporary artifact"

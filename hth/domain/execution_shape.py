@@ -6,6 +6,8 @@ import math
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
+from hth.runner_targets import canonical_runner_label, canonical_runner_labels
+
 PREFERRED_SHAPE_RATE_DECIMALS = 2
 DETERMINISTIC_OPTIMIZER_STRATEGIES = frozenset({
     "exhaustive",
@@ -54,13 +56,13 @@ def optimizer_evidence_identity(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def optimizer_runner_identity(row: dict[str, Any]) -> dict[str, Any]:
-    """Concrete runner identity used only for same-profile evidence coalescing."""
+    """Canonical runner identity used only for same-profile evidence coalescing."""
     runner = row.get("runner") if isinstance(row.get("runner"), dict) else {}
     labels = runner.get("runner_labels")
     if isinstance(labels, list):
-        labels = sorted(str(value) for value in labels)
+        labels = sorted(canonical_runner_labels(labels))
     return {
-        "runner_label": runner.get("runner_label"),
+        "runner_label": canonical_runner_label(runner.get("runner_label")),
         "runner_name": runner.get("runner_name"),
         "runner_labels": labels,
         "cpu_model": normalize_cpu_model(runner.get("cpu_model")),

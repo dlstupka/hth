@@ -3,11 +3,28 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hth.write_regression_summary import _execution_shape_decision_lines, _observed_pipeline_schedule, _preferred_feedback_schedule, _schedule_reassignment_count, _scheduler_feedback_schedule, _best_known_calibrations, _calibration_record_from_payload, _combined_result_row, _estimate_scope_makespan, _render_best_known_calibrations, _render_detector_calibration, build_combined_summary, build_summary
+from hth.write_regression_summary import _assignment_decision_lines, _execution_shape_decision_lines, _observed_pipeline_schedule, _preferred_feedback_schedule, _schedule_reassignment_count, _scheduler_feedback_schedule, _best_known_calibrations, _calibration_record_from_payload, _combined_result_row, _estimate_scope_makespan, _render_best_known_calibrations, _render_detector_calibration, build_combined_summary, build_summary
 from hth.regression.parameter_space import parameter_set_equivalence_family_id
 
 
 class RegressionSummaryTests(unittest.TestCase):
+    def test_assignment_decision_renders_incumbent_candidate_and_threshold(self):
+        lines = _assignment_decision_lines({
+            "assignment_decision": "retained",
+            "assignment_decision_reason": "insufficient-makespan-improvement",
+            "assignment_incumbent_makespan_seconds": 7200.0,
+            "assignment_candidate_makespan_seconds": 7156.0,
+            "assignment_makespan_improvement": 44.0 / 7200.0,
+            "assignment_minimum_improvement": 0.20,
+        })
+
+        self.assertEqual(len(lines), 1)
+        self.assertIn("retained", lines[0])
+        self.assertIn("incumbent 2h", lines[0])
+        self.assertIn("candidate 1h 59m 16s", lines[0])
+        self.assertIn("improvement 0.6%", lines[0])
+        self.assertIn("replacement threshold 20%", lines[0])
+
     def test_retained_preferred_shape_does_not_display_assignment_churn(self):
         current = [
             {

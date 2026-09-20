@@ -81,7 +81,7 @@ class ParallelismStoreTests(unittest.TestCase):
             root = Path(td)
             first = _parallel_run(root / "a", "grabcut", "run-20260807-120000", strategy="critical", limit=10)
             second = _parallel_run(root / "b", "contour", "run-20260807-120000", strategy="exhaustive", limit=None)
-            build = {"github_run_id": "243", "mode": "full", "runner_label": "192t"}
+            build = {"github_run_id": "243", "mode": "full", "runner_label": "192vcpu"}
             a = observation_from_run(first, build=build)
             b = observation_from_run(second, build=build)
             self.assertNotEqual(a["observation_id"], b["observation_id"])

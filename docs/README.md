@@ -381,8 +381,11 @@ Manual HTH workflows expose one `runner_target` selector. Its ordered target
 catalog, complete `runs-on` label sets, and runtime setup labels are defined only
 in `config/runner-targets.json`. The catalog includes portable GitHub-hosted and
 self-hosted pools, named pools (`hth`, `rhel8`, `e7k`, and `e9k`), and explicit
-capacity pools (`192t`, `96t`, and `32t`). Capacity targets require that exact
-label in addition to GitHub's `self-hosted`, `Linux`, and `X64` labels.
+capacity pools (`192vcpu`, `96vcpu`, and `32vcpu`). Capacity targets require that exact
+label in addition to GitHub's `self-hosted`, `Linux`, and `X64` labels. Persisted
+optimizer and runtime evidence using the former `192t`, `96t`, and `32t` names
+is canonicalized to the corresponding vCPU identity for compatibility and
+deduplication while retaining the original label as raw provenance.
 
 GitHub Actions requires `workflow_dispatch` choices to be static YAML, so
 `python tools/sync-runner-targets.py` deterministically renders the catalog into
@@ -393,8 +396,9 @@ synchronizes the generated regions, and immediately rechecks them. Do not
 hand-edit generated runner-target regions.
 
 The execution optimizer derives its default thread budget from the selected
-target's runtime label. Numeric capacity labels use the existing `2 × capacity`
-policy. Explicitly requested pipeline/thread search bounds remain unchanged in
+target's runtime label. A numeric vCPU capacity label uses a `2 × vCPU` maximum
+thread budget: `192vcpu` permits 384 execution threads, `96vcpu` permits 192,
+and `32vcpu` permits 64. Explicitly requested pipeline/thread search bounds remain unchanged in
 run metadata and display. Without `allow_thread_oversubscription`, only legal
 shapes within the detected runner budget are executed; with the explicit
 override enabled, oversubscribed shapes are allowed and reported as such.

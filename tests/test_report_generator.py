@@ -378,7 +378,7 @@ class ReportGeneratorTests(unittest.TestCase):
             persisted.joinpath("summary.md").write_text(
                 "| Runner | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Sets/s |\n"
                 "|---|---:|---:|---:|---:|---:|---:|\n"
-                "| 192t — rh8-legacy (192 vCPU) | 11 | 11 | 34 | 374 | 6s | 42.67 |\n",
+                "| 192vcpu — rh8-legacy (192 vCPU) | 11 | 11 | 34 | 374 | 6s | 42.67 |\n",
                 encoding="utf-8",
             )
             subprocess.run(["git", "-C", str(root), "add", "."], check=True)
@@ -393,7 +393,7 @@ class ReportGeneratorTests(unittest.TestCase):
                 "Optimizer run: **150**\n\n"
                 "| Runner | Pipelines | Shards | Threads / pipeline | Allocated | Wall | Sets/s |\n"
                 "|---|---:|---:|---:|---:|---:|---:|\n"
-                "| 192t — rh8-modern (192 vCPU) | 1 | 1 | 384 | 384 | 6s | 9.17 |\n",
+                "| 192vcpu — rh8-modern (192 vCPU) | 1 | 1 | 384 | 384 | 6s | 9.17 |\n",
                 encoding="utf-8",
             )
             subprocess.run(["git", "-C", str(root), "add", "."], check=True)
@@ -417,7 +417,7 @@ class ReportGeneratorTests(unittest.TestCase):
             self.assertIn("| **e7k — host (96 vCPU)** | 200 | 2 | 2 | 96 |", summary)
             self.assertIn("rh8-legacy", summary)
             self.assertNotIn("rh8-modern", summary)
-            self.assertNotIn("| **192t — rh8-legacy", summary)
+            self.assertNotIn("| **192vcpu — rh8-legacy", summary)
             aggregate = generate_optimizer_report_all(root, root / "all")
             aggregate_profile = (aggregate["profiles"] / "adaptive_radial_edge.svg").read_text(encoding="utf-8")
             self.assertIn("rh8-legacy", aggregate_profile)
@@ -588,14 +588,14 @@ class ReportGeneratorTests(unittest.TestCase):
                    "threads_per_pipeline": 9, "allocated_threads": 360, "wall_clock_seconds": 3,
                    "parameter_sets_per_second": 87.48, "execution_shape": "40p/40s/9t", "optimizer_shape_sequence": 1,
                    "compatibility_key": "compatible",
-                   "runner": {"runner_label": "192t", "runner_name": "rh8-a1319", "logical_cpu_count": 192}}
+                   "runner": {"runner_label": "192vcpu", "runner_name": "rh8-a1319", "logical_cpu_count": 192}}
             new = dict(old)
             new.update({"optimizer_run_id": "101", "active_pipelines": 11, "shards": 11, "threads_per_pipeline": 34,
                         "allocated_threads": 374, "wall_clock_seconds": 4, "parameter_sets_per_second": 64.0,
                         "execution_shape": "11p/11s/34t", "optimizer_shape_sequence": 1})
             # Reuse the same concrete runner to ensure aggregate report merging
             # preserves optimizer execution identity instead of fabricating one curve.
-            new["runner"] = {"runner_label": "192t", "runner_name": "rh8-a1319", "logical_cpu_count": 192}
+            new["runner"] = {"runner_label": "192vcpu", "runner_name": "rh8-a1319", "logical_cpu_count": 192}
             (root / "optimizer-index.json").write_text(json.dumps(optimizer), encoding="utf-8")
             (root / "parallelism-index.json").write_text(json.dumps({"observations": [old, new]}), encoding="utf-8")
             self._write_completed_optimizer_summary(root, detector, "101")

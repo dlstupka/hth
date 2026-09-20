@@ -313,7 +313,7 @@ def resolve_preferred_dispatch(
             "provenance": "measured",
         }
 
-    # Before GitHub assigns a concrete machine, capacity labels such as 192t are
+    # Before GitHub assigns a concrete machine, capacity labels such as 192vcpu are
     # enough to make the same linear vCPU projection used inside the job.  Keep
     # the requested runner target; this is a prediction, not authority to reroute
     # the job onto the historical source runner.
@@ -487,6 +487,11 @@ def resolve_workflow_shape(
             "shared_preparation_seconds",
             "detector_fanout_estimates",
             "detector_pipeline_assignments", "schedule_retained",
+            "assignment_decision", "assignment_decision_reason",
+            "assignment_incumbent_makespan_seconds",
+            "assignment_candidate_makespan_seconds",
+            "assignment_makespan_improvement", "assignment_minimum_improvement",
+            "assignment_high_water_seconds",
             "detector_golden_set_lane_counts", "golden_set_lane_scaling_applied",
             "golden_set_lane_target_seconds", "golden_set_lane_makespan_improvement",
             "golden_set_lane_decision_reason",

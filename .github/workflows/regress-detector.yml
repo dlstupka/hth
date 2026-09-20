@@ -184,9 +184,9 @@ on:
           - rhel8
           - e7k
           - e9k
-          - 192t
-          - 96t
-          - 32t
+          - 192vcpu
+          - 96vcpu
+          - 32vcpu
       # END GENERATED RUNNER TARGET INPUT
       clean_runner:
         description: "Advanced — Wipe runner workspace and rebuild from scratch"

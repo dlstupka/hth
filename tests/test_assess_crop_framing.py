@@ -117,7 +117,7 @@ class CropFramingAssessmentTests(unittest.TestCase):
         self.assertNotIn("custom_runner_label:", workflow)
         self.assertIn("- e7k", workflow)
         self.assertIn("- e9k", workflow)
-        self.assertIn("inputs.runner_target == '192t'", workflow)
+        self.assertIn("inputs.runner_target == '192vcpu'", workflow)
         self.assertIn("runner-label: ${{ env.HTH_SELECTED_RUNNER_LABEL }}", workflow)
         self.assertNotIn("git push", workflow)
         self.assertNotIn("publish_results", workflow)

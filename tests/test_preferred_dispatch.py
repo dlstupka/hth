@@ -47,9 +47,9 @@ class PreferredDispatchTests(unittest.TestCase):
                 "threads_per_pipeline": 96,
                 "allocated_threads": 384,
                 "runner": {
-                    "runner_label": "192t",
+                    "runner_label": "192vcpu",
                     "runner_name": "rh8-al319",
-                    "runner_labels": ["self-hosted", "Linux", "X64", "192t"],
+                    "runner_labels": ["self-hosted", "Linux", "X64", "192vcpu"],
                     "logical_cpu_count": 192,
                 },
             }
@@ -104,9 +104,9 @@ class PreferredDispatchTests(unittest.TestCase):
                 "threads_per_pipeline": 8,
                 "allocated_threads": 384,
                 "runner": {
-                    "runner_label": "192t",
+                    "runner_label": "192vcpu",
                     "runner_name": "rh8-al319",
-                    "runner_labels": ["self-hosted", "Linux", "X64", "192t"],
+                    "runner_labels": ["self-hosted", "Linux", "X64", "192vcpu"],
                     "logical_cpu_count": 192,
                 },
             }
@@ -117,12 +117,12 @@ class PreferredDispatchTests(unittest.TestCase):
                 shape_mode="preferred", regression_mode="full", strategy="critical", limit="25",
                 detector="adaptive_multi_scale_radial_edge", parallelism_index=index,
                 detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
-                runner_target="192t",
+                runner_target="192vcpu",
             )
 
             self.assertTrue(result["exact"])
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (48, 8))
-            self.assertEqual(result["runner_label"], "192t")
+            self.assertEqual(result["runner_label"], "192vcpu")
             self.assertEqual(result["source"], "preferred-dispatch-optimizer")
 
     def test_capacity_runner_budget_preserves_free_threads_for_preferred_shape(self) -> None:
@@ -150,9 +150,9 @@ class PreferredDispatchTests(unittest.TestCase):
                 "threads_per_pipeline": 76,
                 "allocated_threads": 380,
                 "runner": {
-                    "runner_label": "192t",
+                    "runner_label": "192vcpu",
                     "runner_name": "rh8-al307",
-                    "runner_labels": ["self-hosted", "Linux", "X64", "192t"],
+                    "runner_labels": ["self-hosted", "Linux", "X64", "192vcpu"],
                     "logical_cpu_count": 192,
                 },
             }
@@ -189,7 +189,7 @@ class PreferredDispatchTests(unittest.TestCase):
                 detector_config_root=detector_root,
                 golden_set=golden,
                 max_dimension=1800,
-                profile=RunnerProfile("rh8-al319", "192t", "AMD", 192, 192),
+                profile=RunnerProfile("rh8-al319", "192vcpu", "AMD", 192, 192),
                 runner_budget=384,
                 pre_resolved_pipelines=4,
                 pre_resolved_threads=96,
@@ -222,7 +222,7 @@ class PreferredDispatchTests(unittest.TestCase):
                 detector_config_root=detector_root,
                 golden_set=golden,
                 max_dimension=1800,
-                profile=RunnerProfile("rh8-al319", "192t", "AMD", 192, 192),
+                profile=RunnerProfile("rh8-al319", "192vcpu", "AMD", 192, 192),
                 runner_budget=384,
                 pre_resolved_pipelines=4,
                 pre_resolved_threads=96,
@@ -309,9 +309,9 @@ class PreferredDispatchTests(unittest.TestCase):
                 "threads_per_pipeline": 42,
                 "allocated_threads": 378,
                 "runner": {
-                    "runner_label": "192t",
+                    "runner_label": "192vcpu",
                     "runner_name": "rh8-al318",
-                    "runner_labels": ["self-hosted", "Linux", "X64", "192t"],
+                    "runner_labels": ["self-hosted", "Linux", "X64", "192vcpu"],
                     "logical_cpu_count": 192,
                 },
             }
@@ -361,8 +361,8 @@ class PreferredDispatchTests(unittest.TestCase):
                 "wall_clock_seconds": 8.0, "parameter_sets_per_second": 32.0,
                 "active_pipelines": 5, "shards": 5, "threads_per_pipeline": 76,
                 "allocated_threads": 380,
-                "runner": {"runner_label": "192t", "runner_name": "rh8-al321",
-                           "runner_labels": ["self-hosted", "Linux", "X64", "192t"],
+                "runner": {"runner_label": "192vcpu", "runner_name": "rh8-al321",
+                           "runner_labels": ["self-hosted", "Linux", "X64", "192vcpu"],
                            "cpu_model": "AMD EPYC 9655 96-Core Processor",
                            "physical_core_count": 192, "logical_cpu_count": 192},
             }
@@ -373,7 +373,7 @@ class PreferredDispatchTests(unittest.TestCase):
                 detector="doc_ufcn_page_mask", manual_shape="", parallelism_index=index,
                 predictions_index=None, detector_config_root=detector_root, golden_set=golden,
                 max_dimension=1800,
-                profile=RunnerProfile("rh8-al321", "192t", "AMD EPYC 9655 96-Core Processor", 192, 192),
+                profile=RunnerProfile("rh8-al321", "192vcpu", "AMD EPYC 9655 96-Core Processor", 192, 192),
                 runner_budget=384,
             )
             self.assertTrue(result["exact"])

@@ -23,7 +23,7 @@ class MultiDetectorPreferredShapeTests(unittest.TestCase):
                     "detector_id": detector, "mode": "smoke", "resolved_strategy": "exhaustive",
                     "max_dimension": 1800, "wall_clock_seconds": seconds,
                     "observed_at_utc": "2026-09-10T00:00:00Z",
-                    "runner": {"runner_labels": ["192t"]},
+                    "runner": {"runner_labels": ["192vcpu"]},
                     "build": {"github_run_id": "complete"},
                 })
             runtime = base / "runtime-index.json"
@@ -31,7 +31,7 @@ class MultiDetectorPreferredShapeTests(unittest.TestCase):
             golden = base / "golden.json"
             golden.write_text("{}", encoding="utf-8")
             profile = RunnerProfile(
-                name="e9k", label="192t", cpu_model="x", physical_cores=192, logical_cpus=192
+                name="e9k", label="192vcpu", cpu_model="x", physical_cores=192, logical_cpus=192
             )
             result = resolve_workflow_shape(
                 shape_mode="preferred", regression_mode="smoke", strategy="exhaustive", limit="10",
@@ -59,7 +59,7 @@ class MultiDetectorPreferredShapeTests(unittest.TestCase):
                 (configs / f"d{i}.json").write_text(json.dumps({"detector": f"d{i}"}), encoding="utf-8")
             golden = base / "golden.json"
             golden.write_text("{}", encoding="utf-8")
-            profile = RunnerProfile(name="e9k", label="192t", cpu_model="x", physical_cores=192, logical_cpus=192)
+            profile = RunnerProfile(name="e9k", label="192vcpu", cpu_model="x", physical_cores=192, logical_cpus=192)
             result = resolve_workflow_shape(
                 shape_mode="reset", regression_mode="smoke", strategy="exhaustive", limit="10", detector="all",
                 manual_shape=None, parallelism_index=base / "parallelism.json", predictions_index=None,

@@ -326,7 +326,7 @@ class OrientationDeskewAssessmentTests(unittest.TestCase):
         self.assertIn("normalization/orientation-deskew-policy.json", workflow)
         self.assertIn("hth_hardened_persist", workflow)
         self.assertIn("runner_target:", workflow)
-        self.assertIn("inputs.runner_target == '192t'", workflow)
+        self.assertIn("inputs.runner_target == '192vcpu'", workflow)
         self.assertNotIn("specific_runner:", workflow)
         self.assertNotIn("custom_runner_label:", workflow)
         self.assertNotIn("run_document_detector", workflow)

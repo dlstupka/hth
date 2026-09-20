@@ -24,6 +24,7 @@ from hth.contracts import (
     RUNTIME_OBSERVATION_SCHEMA_VERSION,
     adapt_runtime_index,
 )
+from hth.runner_targets import canonical_runner_label, canonical_runner_labels
 MAX_OBSERVATIONS_PER_DETECTOR = 200
 
 
@@ -243,7 +244,7 @@ def _observation_score(
         score += 4; reasons.append("golden-set")
     runner = item.get("runner") if isinstance(item.get("runner"), dict) else {}
     labels = runner.get("runner_labels") if isinstance(runner.get("runner_labels"), list) else []
-    if runner_label and runner_label in labels:
+    if runner_label and canonical_runner_label(runner_label) in canonical_runner_labels(labels):
         score += 2; reasons.append("runner")
     return score, "+".join(reasons) or "detector-history"
 

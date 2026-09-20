@@ -37,6 +37,7 @@ from hth.domain.multidetector_schedule import (
     plan_static_lpt_tasks,
     select_lpt_pipeline_count,
 )
+from hth.optimizer_intelligence import logical_cpus_from_capacity_label
 from hth.runtime_store import coherent_execution_profile, select_runtime_observation
 from hth.regression.parameter_provenance import parameter_identity_sha256, resolve_parameter_set
 from hth.regression.parameter_space import parameter_set_equivalence_family_id
@@ -226,6 +227,29 @@ def _execution_shape_decision_lines(shape: dict[str, Any] | None) -> list[str]:
             f"(`{reason}`);{comparison}{count_text}{fixed_text}."
         )
     return lines
+
+
+def _assignment_decision_lines(shape: dict[str, Any] | None) -> list[str]:
+    """Render the persisted assignment-stability decision without inference."""
+    if not shape or not shape.get("assignment_decision"):
+        return []
+    incumbent = shape.get("assignment_incumbent_makespan_seconds")
+    candidate = shape.get("assignment_candidate_makespan_seconds")
+    improvement = shape.get("assignment_makespan_improvement")
+    threshold = shape.get("assignment_minimum_improvement")
+    reason = str(shape.get("assignment_decision_reason") or "unknown")
+    try:
+        comparison = (
+            f"incumbent {_duration(incumbent)}, candidate {_duration(candidate)}, "
+            f"improvement {float(improvement) * 100:.1f}%, "
+            f"replacement threshold {float(threshold) * 100:.0f}%"
+        )
+    except (TypeError, ValueError):
+        comparison = "comparison unavailable"
+    return [
+        f"**Assignment stability decision:** {shape['assignment_decision']} "
+        f"(`{reason}`); {comparison}."
+    ]
 
 
 def _compact_duration(seconds: Any) -> str:
@@ -3275,10 +3299,20 @@ def build_combined_summary(
             next_threads = max(1, thread_budget // next_pipeline_capacity)
         current_by_pipeline = {int(plan["pipeline"]): plan for plan in current_schedule}
         next_by_pipeline = {int(plan["pipeline"]): plan for plan in feedback_schedule}
+        runner_vcpus = logical_cpus_from_capacity_label(str(profile.get("runner_label") or ""))
+        capacity_policy_lines = (
+            [
+                f"**Runner capacity policy:** {runner_vcpus} vCPUs; "
+                f"{thread_budget}-thread maximum ({thread_budget / runner_vcpus:.0f}× vCPU)."
+            ]
+            if runner_vcpus else []
+        )
         lines.extend([
             "",
             f"**Preferred next execution shape:** {next_pipeline_capacity} pipeline capacity unit(s) × {next_threads} thread(s); {sum(len(plan.get('tasks', [])) for plan in feedback_schedule)} runnable job(s).",
+            *capacity_policy_lines,
             *_execution_shape_decision_lines(preferred_shape),
+            *_assignment_decision_lines(preferred_shape),
             *(
                 [
                     f"Measured fixed shared-evidence preparation: {_duration(current_observation.get('shared_evidence_preparation_seconds'))} across {len(current_observation.get('shared_evidence_preparations', []))} detector(s). This work is included in end-to-end shape evaluation but is not divided across shards or Golden Set lanes.",

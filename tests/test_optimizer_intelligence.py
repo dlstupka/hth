@@ -13,6 +13,7 @@ from hth.optimizer_intelligence import (
     resolve_selector_intelligence,
 )
 from hth.regression_shape import RunnerProfile, resolve_preferred_dispatch, resolve_workflow_shape
+from hth.domain.execution_shape import optimizer_compatibility_key
 
 
 def _sha(path: Path) -> str:
@@ -55,15 +56,37 @@ def _row(*, detector: str, detector_sha: str, golden_sha: str, runner_name: str,
 
 
 class OptimizerIntelligenceTests(unittest.TestCase):
+    def test_legacy_capacity_labels_match_new_selector_and_identity(self) -> None:
+        old = _row(
+            detector="example", detector_sha="sha", golden_sha="gold",
+            runner_name="same-runner", runner_label="192t", logical=192,
+            pipelines=7, threads=54, rate=16.0,
+        )
+        new = _row(
+            detector="example", detector_sha="sha", golden_sha="gold",
+            runner_name="same-runner", runner_label="192vcpu", logical=192,
+            pipelines=7, threads=54, rate=16.0,
+        )
+
+        resolved = resolve_selector_intelligence(
+            detector="example", rows=[old],
+            required_labels=["self-hosted", "192vcpu"],
+            target_runner_label="192vcpu", target_logical_cpus=192,
+        )
+
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved["provenance"], "measured")
+        self.assertEqual(optimizer_compatibility_key(old), optimizer_compatibility_key(new))
+
     def test_linear_cross_vcpu_projection_uses_pipeline_fraction(self) -> None:
         rows = [_row(
             detector="adaptive_radial_edge", detector_sha="sha", golden_sha="gold",
-            runner_name="rh8-s32", runner_label="32t", logical=32,
+            runner_name="rh8-s32", runner_label="32vcpu", logical=32,
             pipelines=22, threads=2, rate=74.57,
         )]
         result = resolve_optimizer_intelligence(
             detector="adaptive_radial_edge", rows=rows,
-            target_runner_name="rh8-new", target_runner_label="192t",
+            target_runner_name="rh8-new", target_runner_label="192vcpu",
             target_cpu_model="different", target_physical_cores=192,
             target_logical_cpus=192,
         )
@@ -78,12 +101,12 @@ class OptimizerIntelligenceTests(unittest.TestCase):
     def test_cross_vcpu_projection_recomputes_threads_from_target_budget(self) -> None:
         rows = [_row(
             detector="dhsegment_page_mask", detector_sha="sha", golden_sha="gold",
-            runner_name="rh8-al316", runner_label="192t", logical=192,
+            runner_name="rh8-al316", runner_label="192vcpu", logical=192,
             pipelines=7, threads=54, rate=19.69,
         )]
         result = resolve_optimizer_intelligence(
             detector="dhsegment_page_mask", rows=rows,
-            target_runner_name="rh8-s32", target_runner_label="32t",
+            target_runner_name="rh8-s32", target_runner_label="32vcpu",
             target_cpu_model="different", target_physical_cores=32,
             target_logical_cpus=32,
         )
@@ -96,16 +119,16 @@ class OptimizerIntelligenceTests(unittest.TestCase):
     def test_requested_runner_measured_evidence_beats_cross_vcpu_prediction(self) -> None:
         rows = [
             _row(detector="example", detector_sha="sha", golden_sha="gold",
-                 runner_name="source32", runner_label="32t", logical=32,
+                 runner_name="source32", runner_label="32vcpu", logical=32,
                  pipelines=22, threads=2, rate=75.0),
             _row(detector="example", detector_sha="sha", golden_sha="gold",
-                 runner_name="source192", runner_label="192t", logical=192,
+                 runner_name="source192", runner_label="192vcpu", logical=192,
                  pipelines=48, threads=8, rate=80.0),
         ]
         result = resolve_selector_intelligence(
             detector="example", rows=rows,
-            required_labels=["self-hosted", "192t"],
-            target_runner_label="192t", target_logical_cpus=192,
+            required_labels=["self-hosted", "192vcpu"],
+            target_runner_label="192vcpu", target_logical_cpus=192,
         )
         self.assertIsNotNone(result)
         self.assertEqual(result["provenance"], "measured")
@@ -122,7 +145,7 @@ class OptimizerIntelligenceTests(unittest.TestCase):
             _write_json(golden, {"pages": []})
             row = _row(
                 detector="adaptive_radial_edge", detector_sha=_sha(detector), golden_sha=_sha(golden),
-                runner_name="rh8-s32", runner_label="32t", logical=32,
+                runner_name="rh8-s32", runner_label="32vcpu", logical=32,
                 pipelines=22, threads=2, rate=74.57,
             )
             index = root / "parallelism-index.json"
@@ -132,10 +155,10 @@ class OptimizerIntelligenceTests(unittest.TestCase):
                 shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
                 detector="adaptive_radial_edge", parallelism_index=index,
                 detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
-                runner_target="192t",
+                runner_target="192vcpu",
             )
             self.assertTrue(result["exact"])
-            self.assertEqual(result["runs_on"], ["self-hosted", "Linux", "X64", "192t"])
+            self.assertEqual(result["runs_on"], ["self-hosted", "Linux", "X64", "192vcpu"])
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (132, 2))
             self.assertEqual(result["runner_budget"], 384)
             self.assertEqual(result["source"], "predicted-low-linear-vcpu-dispatch")
@@ -151,7 +174,7 @@ class OptimizerIntelligenceTests(unittest.TestCase):
             _write_json(golden, {"pages": []})
             row = _row(
                 detector="dhsegment_page_mask", detector_sha=_sha(detector), golden_sha=_sha(golden),
-                runner_name="rh8-al316", runner_label="192t", logical=192,
+                runner_name="rh8-al316", runner_label="192vcpu", logical=192,
                 pipelines=7, threads=54, rate=19.69,
             )
             index = root / "parallelism-index.json"
@@ -161,10 +184,10 @@ class OptimizerIntelligenceTests(unittest.TestCase):
                 shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
                 detector="dhsegment_page_mask", parallelism_index=index,
                 detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
-                runner_target="32t",
+                runner_target="32vcpu",
             )
             self.assertTrue(result["exact"])
-            self.assertEqual(result["runs_on"], ["self-hosted", "Linux", "X64", "32t"])
+            self.assertEqual(result["runs_on"], ["self-hosted", "Linux", "X64", "32vcpu"])
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (1, 64))
             self.assertEqual(result["runner_budget"], 64)
             self.assertEqual(result["source"], "predicted-low-linear-vcpu-dispatch")
@@ -182,7 +205,7 @@ class OptimizerIntelligenceTests(unittest.TestCase):
             _write_json(golden, {"pages": []})
             row = _row(
                 detector="adaptive_multi_scale_radial_edge", detector_sha="older-grid",
-                golden_sha=_sha(golden), runner_name="rh8-al319", runner_label="192t",
+                golden_sha=_sha(golden), runner_name="rh8-al319", runner_label="192vcpu",
                 logical=192, pipelines=48, threads=8, rate=24.94, strategy="critical",
             )
             index = root / "parallelism-index.json"
@@ -192,7 +215,7 @@ class OptimizerIntelligenceTests(unittest.TestCase):
                 shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
                 detector="adaptive_multi_scale_radial_edge", parallelism_index=index,
                 detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
-                runner_target="192t",
+                runner_target="192vcpu",
             )
             self.assertTrue(result["exact"])
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (48, 8))
@@ -211,7 +234,7 @@ class OptimizerIntelligenceTests(unittest.TestCase):
             _write_json(golden, {"pages": []})
             row = _row(
                 detector="adaptive_radial_edge", detector_sha="older-grid",
-                golden_sha=_sha(golden), runner_name="rh8-s32", runner_label="32t", logical=32,
+                golden_sha=_sha(golden), runner_name="rh8-s32", runner_label="32vcpu", logical=32,
                 pipelines=22, threads=2, rate=74.57, strategy="important+",
             )
             index = root / "parallelism-index.json"
@@ -221,7 +244,7 @@ class OptimizerIntelligenceTests(unittest.TestCase):
                 shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
                 detector="adaptive_radial_edge", parallelism_index=index,
                 detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
-                runner_target="192t",
+                runner_target="192vcpu",
             )
             self.assertTrue(result["exact"])
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (132, 2))
@@ -238,7 +261,7 @@ class OptimizerIntelligenceTests(unittest.TestCase):
             index = root / "parallelism-index.json"
             _write_json(index, {"observations": [_row(
                 detector="adaptive_radial_edge", detector_sha=_sha(detector), golden_sha=_sha(golden),
-                runner_name="rh8-s32", runner_label="32t", logical=32,
+                runner_name="rh8-s32", runner_label="32vcpu", logical=32,
                 pipelines=22, threads=2, rate=74.57,
             )]})
 
@@ -247,7 +270,7 @@ class OptimizerIntelligenceTests(unittest.TestCase):
                 detector="adaptive_radial_edge", manual_shape="", parallelism_index=index,
                 predictions_index=root / "indexes" / "optimizer-predictions.json", detector_config_root=detector_root,
                 golden_set=golden, max_dimension=1800,
-                profile=RunnerProfile("rh8-al330", "192t", "AMD EPYC", 192, 192),
+                profile=RunnerProfile("rh8-al330", "192vcpu", "AMD EPYC", 192, 192),
                 runner_budget=384,
                 pre_resolved_pipelines=132, pre_resolved_threads=2,
                 pre_resolved_source="predicted-low-linear-vcpu-dispatch",
@@ -269,12 +292,12 @@ class OptimizerIntelligenceTests(unittest.TestCase):
             index = root / "indexes" / "parallelism-index.json"
             _write_json(index, {"observations": [_row(
                 detector="adaptive_radial_edge", detector_sha=_sha(detector), golden_sha=_sha(golden),
-                runner_name="rh8-s32", runner_label="32t", logical=32, pipelines=22, threads=2, rate=74.57,
+                runner_name="rh8-s32", runner_label="32vcpu", logical=32, pipelines=22, threads=2, rate=74.57,
                 strategy="critical",
             )]})
             hint = resolve_optimizer_start_hint(
                 parallelism_index=index, detector_config=detector, golden_set=golden, max_dimension=1800,
-                target_runner_name="rh8-al321", target_runner_label="192t", target_cpu_model="AMD EPYC",
+                target_runner_name="rh8-al321", target_runner_label="192vcpu", target_cpu_model="AMD EPYC",
                 target_physical_cores=192, target_logical_cpus=192,
             )
             self.assertIsNotNone(hint)
@@ -297,14 +320,14 @@ class OptimizerIntelligenceTests(unittest.TestCase):
             summary.write_text(
                 "| Runner | Pipelines | Threads / pipeline | Allocated | Sets/s | Shape time |\n"
                 "|---|---:|---:|---:|---:|---:|\n"
-                "| 32t — rh8-s32 (32 vCPU) | 22 | 2 | 44 | 74.57 | 1m 28s |\n",
+                "| 32vcpu — rh8-s32 (32 vCPU) | 22 | 2 | 44 | 74.57 | 1m 28s |\n",
                 encoding="utf-8",
             )
             result = resolve_preferred_dispatch(
                 shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
                 detector="adaptive_radial_edge", parallelism_index=index,
                 detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
-                runner_target="192t",
+                runner_target="192vcpu",
             )
             self.assertTrue(result["exact"])
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (132, 2))
@@ -325,14 +348,14 @@ class OptimizerIntelligenceTests(unittest.TestCase):
             summary.write_text(
                 "| Runner | Pipelines | Threads / pipeline | Allocated | Sets/s | Shape time |\n"
                 "|---|---:|---:|---:|---:|---:|\n"
-                "| 192t — rh8-al319 (192 vCPU) | 48 | 8 | 384 | 24.94 | 6m 41s |\n",
+                "| 192vcpu — rh8-al319 (192 vCPU) | 48 | 8 | 384 | 24.94 | 6m 41s |\n",
                 encoding="utf-8",
             )
             result = resolve_preferred_dispatch(
                 shape_mode="preferred", regression_mode="full", strategy="exhaustive", limit="",
                 detector="adaptive_multi_scale_radial_edge", parallelism_index=index,
                 detector_config_root=detector_root, golden_set=golden, max_dimension=1800,
-                runner_target="192t",
+                runner_target="192vcpu",
             )
             self.assertTrue(result["exact"])
             self.assertEqual((result["pipelines"], result["threads_per_pipeline"]), (48, 8))
@@ -341,20 +364,20 @@ class OptimizerIntelligenceTests(unittest.TestCase):
     def test_selector_does_not_let_host_incomplete_legacy_row_outrank_characterized_runner(self) -> None:
         complete = _row(
             detector="signed_polar_boundary_vote", detector_sha="sha", golden_sha="gold",
-            runner_name="rh8-a1328", runner_label="192t", logical=192,
+            runner_name="rh8-a1328", runner_label="192vcpu", logical=192,
             pipelines=11, threads=34, rate=64.0, strategy="critical",
         )
         legacy = _row(
             detector="signed_polar_boundary_vote", detector_sha="sha", golden_sha="gold",
-            runner_name="rh8-a1319", runner_label="192t", logical=192,
+            runner_name="rh8-a1319", runner_label="192vcpu", logical=192,
             pipelines=40, threads=9, rate=87.48, strategy="exhaustive",
         )
         legacy["runner"].pop("cpu_model")
         legacy["runner"].pop("physical_core_count")
         result = resolve_selector_intelligence(
             detector="signed_polar_boundary_vote", rows=[legacy, complete],
-            required_labels=["self-hosted", "192t"],
-            target_runner_label="192t", target_logical_cpus=192,
+            required_labels=["self-hosted", "192vcpu"],
+            target_runner_label="192vcpu", target_logical_cpus=192,
         )
         self.assertIsNotNone(result)
         self.assertEqual(result["predicted_shape"]["pipelines"], 11)
@@ -364,19 +387,19 @@ class OptimizerIntelligenceTests(unittest.TestCase):
     def test_incomplete_same_vcpu_history_is_not_hardware_equivalent(self) -> None:
         complete = _row(
             detector="signed_polar_boundary_vote", detector_sha="sha", golden_sha="gold",
-            runner_name="rh8-a1328", runner_label="192t", logical=192,
+            runner_name="rh8-a1328", runner_label="192vcpu", logical=192,
             pipelines=11, threads=34, rate=64.0, strategy="critical",
         )
         legacy = _row(
             detector="signed_polar_boundary_vote", detector_sha="sha", golden_sha="gold",
-            runner_name="rh8-a1319", runner_label="192t", logical=192,
+            runner_name="rh8-a1319", runner_label="192vcpu", logical=192,
             pipelines=40, threads=9, rate=87.48, strategy="exhaustive",
         )
         legacy["runner"].pop("cpu_model")
         legacy["runner"].pop("physical_core_count")
         result = resolve_optimizer_intelligence(
             detector="signed_polar_boundary_vote", rows=[legacy, complete],
-            target_runner_name="rh8-new", target_runner_label="192t",
+            target_runner_name="rh8-new", target_runner_label="192vcpu",
             target_cpu_model="AMD EPYC", target_physical_cores=192, target_logical_cpus=192,
         )
         self.assertIsNotNone(result)

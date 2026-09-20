@@ -10,6 +10,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from hth.runner_targets import canonical_runner_label
+
 TARGET_SHARD_SECONDS = 30 * 60
 SAFETY_FACTOR = 1.20
 RUNNER_MAX_THREADS = {
@@ -44,10 +46,10 @@ class ExecutionPlan:
 
 
 def runner_max_threads(runner_label: str, available_cpus: int | None = None) -> int:
-    label = (runner_label or "").strip().lower()
+    label = canonical_runner_label(runner_label)
     configured = RUNNER_MAX_THREADS.get(label)
     if configured is None:
-        capacity_label = re.fullmatch(r"(\d+)t", label)
+        capacity_label = re.fullmatch(r"(\d+)vcpu", label)
         if capacity_label:
             # Capacity-class runner labels describe the detected vCPU class. HTH's
             # self-hosted execution policy permits up to 2x that vCPU count, which

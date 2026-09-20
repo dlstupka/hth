@@ -28,7 +28,7 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertIn("report_golden_set: ${{ inputs.golden_release_tag }}", text)
         self.assertIn("uses: ./.github/workflows/_core-report.yml", text)
         self.assertNotIn("mode: report", text)
-        for runner in ("self-hosted-linux", "self-hosted-windows", "hth", "rhel8", "e7k", "e9k", "192t", "96t", "32t"):
+        for runner in ("self-hosted-linux", "self-hosted-windows", "hth", "rhel8", "e7k", "e9k", "192vcpu", "96vcpu", "32vcpu"):
             self.assertIn(runner, text)
 
     def test_core_exposes_common_manual_runner_selection(self) -> None:

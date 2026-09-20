@@ -148,7 +148,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 "detector_config_sha256": "cfg",
                 "golden_set_sha256": "gold",
                 "max_dimension": 1800,
-                "runner": {"runner_name": "rh8-s32", "runner_label": "32t", "logical_cpu_count": 32},
+                "runner": {"runner_name": "rh8-s32", "runner_label": "32vcpu", "logical_cpu_count": 32},
                 "build": {"github_run_id": "123", "github_run_attempt": "1"},
             }
             payload = record_prediction_observations(canonical, [observation])

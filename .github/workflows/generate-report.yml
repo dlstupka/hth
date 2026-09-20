@@ -67,9 +67,9 @@ on:
           - rhel8
           - e7k
           - e9k
-          - 192t
-          - 96t
-          - 32t
+          - 192vcpu
+          - 96vcpu
+          - 32vcpu
       # END GENERATED RUNNER TARGET INPUT
 permissions:
   contents: read

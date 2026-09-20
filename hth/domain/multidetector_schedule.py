@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from hth.contracts import RUNTIME_INDEX_SCHEMA_VERSION, RUNTIME_OBSERVATION_SCHEMA_VERSION
+from hth.runner_targets import canonical_runner_label, canonical_runner_labels
 
 MIN_MAKESPAN_IMPROVEMENT = 0.20
 DEFAULT_SHARD_TARGET_SECONDS = 10 * 60
@@ -39,6 +40,44 @@ def materially_improves_makespan(
         raise ValueError("minimum_improvement must be finite and between 0 and 1")
     improvement = (incumbent - proposed) / incumbent
     return improvement + 1e-12 >= threshold
+
+
+def makespan_replacement_evidence(
+    incumbent_seconds: float | int | None,
+    proposed_seconds: float | int | None,
+    *,
+    high_water_seconds: float | int | None = None,
+    minimum_improvement: float = MIN_MAKESPAN_IMPROVEMENT,
+) -> dict[str, Any]:
+    """Describe the canonical assignment replacement decision for telemetry."""
+    incumbent = _as_float(incumbent_seconds)
+    proposed = _as_float(proposed_seconds)
+    high_water = _as_float(high_water_seconds)
+    accepted = materially_improves_makespan(
+        incumbent,
+        proposed,
+        high_water_seconds=high_water_seconds,
+        minimum_improvement=minimum_improvement,
+    )
+    improvement = (
+        (incumbent - proposed) / incumbent
+        if incumbent is not None and incumbent > 0 and proposed is not None else None
+    )
+    if accepted:
+        reason = "material-makespan-improvement"
+    elif proposed is not None and high_water is not None and proposed > high_water + 1e-9:
+        reason = "candidate-exceeds-longest-job-high-water"
+    else:
+        reason = "insufficient-makespan-improvement"
+    return {
+        "assignment_decision": "replaced" if accepted else "retained",
+        "assignment_decision_reason": reason,
+        "assignment_incumbent_makespan_seconds": incumbent,
+        "assignment_candidate_makespan_seconds": proposed,
+        "assignment_makespan_improvement": improvement,
+        "assignment_minimum_improvement": float(minimum_improvement),
+        "assignment_high_water_seconds": high_water,
+    }
 
 
 def plan_lpt_workers(detector_count: int, runner_thread_budget: int) -> int:
@@ -526,8 +565,8 @@ def optimize_lpt_schedule(
         )
         exact_dimension = all(_as_int(row.get("max_dimension")) == int(max_dimension) for row in rows)
         exact_runner = bool(runner_label) and all(
-            runner_label in (
-                row.get("runner", {}).get("runner_labels", [])
+            canonical_runner_label(runner_label) in (
+                canonical_runner_labels(row.get("runner", {}).get("runner_labels", []))
                 if isinstance(row.get("runner"), dict)
                 and isinstance(row.get("runner", {}).get("runner_labels"), list)
                 else []
@@ -591,6 +630,7 @@ def optimize_lpt_schedule(
         for detector in detector_ids
     ]
     retain_incumbent_schedule = False
+    assignment_evidence: dict[str, Any] = {}
     lane_plan = (
         plan_golden_set_lanes(
             complete, max_pipelines,
@@ -678,15 +718,16 @@ def optimize_lpt_schedule(
         incumbent_makespan = (
             global_parent_preparation + max(incumbent_loads.values()) if incumbent_loads else None
         )
-        if (
+        comparable_incumbent = (
             incumbent_pipeline_count > 0
             and incumbent_pipeline_count <= max_pipelines
             and len(incumbent_assignments) == len(detector_ids)
-            and not materially_improves_makespan(
-                incumbent_makespan, proposed_makespan,
-                high_water_seconds=floor_seconds,
+        )
+        if comparable_incumbent:
+            assignment_evidence = makespan_replacement_evidence(
+                incumbent_makespan, proposed_makespan, high_water_seconds=floor_seconds,
             )
-        ):
+        if comparable_incumbent and assignment_evidence["assignment_decision"] == "retained":
             selected_pipeline_count = incumbent_pipeline_count
             retain_incumbent_schedule = True
     for pipelines in range(1, max_pipelines + 1):
@@ -719,6 +760,7 @@ def optimize_lpt_schedule(
     if not candidates:
         return None
     selected = next(row for row in candidates if int(row["pipelines"]) == selected_pipeline_count)
+    selected.update(assignment_evidence)
     if (
         not (shard_plan and shard_plan["applied"])
         and not (lane_plan and lane_plan["applied"])
@@ -853,11 +895,13 @@ def optimize_lpt_schedule(
         high_water = float(selected.get("shared_preparation_seconds") or 0.0) + max(
             task_estimates, default=0.0,
         )
-        if not materially_improves_makespan(
+        assignment_evidence = makespan_replacement_evidence(
             incumbent_makespan,
             proposed_makespan,
             high_water_seconds=high_water,
-        ):
+        )
+        selected.update(assignment_evidence)
+        if assignment_evidence["assignment_decision"] == "retained":
             selected["predicted_makespan_seconds"] = incumbent_makespan
             selected["predicted_pipeline_utilization"] = sum(task_estimates) / (
                 selected_pipeline_count * incumbent_makespan

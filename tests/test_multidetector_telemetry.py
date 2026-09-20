@@ -40,7 +40,7 @@ class MultiDetectorTelemetryTests(unittest.TestCase):
             obs = finalize(Namespace(
                 telemetry_root=telemetry, output=out, observation_id="x", github_run_id="1", github_run_number="2",
                 mode="smoke", strategy="exhaustive", limit="10", detector_count=2, golden_set_sha256="gold",
-                runner_label="192t", runner_name="e9k", runner_thread_budget=96, threads_per_worker=48, allocated_threads=96,
+                runner_label="192vcpu", runner_name="e9k", runner_thread_budget=96, threads_per_worker=48, allocated_threads=96,
                 loading_strategy="lpt", scheduler_source="auto",
             ))
             self.assertAlmostEqual(obs["makespan_seconds"], 10.0)
@@ -89,7 +89,7 @@ class MultiDetectorTelemetryTests(unittest.TestCase):
             obs = finalize(Namespace(
                 telemetry_root=telemetry, output=out, observation_id="slots", github_run_id="1", github_run_number="2",
                 mode="smoke", strategy="exhaustive", limit="10", detector_count=2, golden_set_sha256="gold",
-                runner_label="192t", runner_name="e9k", runner_thread_budget=96, threads_per_worker=48, allocated_threads=48,
+                runner_label="192vcpu", runner_name="e9k", runner_thread_budget=96, threads_per_worker=48, allocated_threads=48,
                 loading_strategy="lpt", scheduler_source="auto",
             ))
             self.assertAlmostEqual(obs["tasks"][0]["busy_seconds"], 9.0)
@@ -117,7 +117,7 @@ class MultiDetectorTelemetryTests(unittest.TestCase):
             obs = finalize(Namespace(
                 telemetry_root=telemetry, output=out, observation_id="fixed", github_run_id="1",
                 github_run_number="2", mode="smoke", strategy="exhaustive", limit="10",
-                detector_count=1, golden_set_sha256="gold", runner_label="192t", runner_name="e9k",
+                detector_count=1, golden_set_sha256="gold", runner_label="192vcpu", runner_name="e9k",
                 runner_thread_budget=96, threads_per_worker=8, allocated_threads=8,
                 loading_strategy="lpt", scheduler_source="preferred",
             ))
@@ -156,7 +156,7 @@ class MultiDetectorTelemetryTests(unittest.TestCase):
             finalize(Namespace(
                 telemetry_root=telemetry, output=out, observation_id="lanes", github_run_id="1",
                 github_run_number="2", mode="full", strategy="adaptive", limit="",
-                detector_count=1, golden_set_sha256="gold", runner_label="192t", runner_name="e9k",
+                detector_count=1, golden_set_sha256="gold", runner_label="192vcpu", runner_name="e9k",
                 runner_thread_budget=96, threads_per_worker=2, allocated_threads=8,
                 loading_strategy="lpt", scheduler_source="preferred",
             ))

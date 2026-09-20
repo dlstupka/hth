@@ -45,22 +45,25 @@
       "setup_label": "e9k"
     },
     {
-      "id": "192t",
-      "description": "Linux x64 self-hosted runner with the 192t capacity label",
-      "runs_on": ["self-hosted", "Linux", "X64", "192t"],
-      "setup_label": "192t"
+      "id": "192vcpu",
+      "description": "Linux x64 self-hosted runner with 192 vCPUs and a 384-thread policy budget",
+      "runs_on": ["self-hosted", "Linux", "X64", "192vcpu"],
+      "setup_label": "192vcpu",
+      "aliases": ["192t"]
     },
     {
-      "id": "96t",
-      "description": "Linux x64 self-hosted runner with the 96t capacity label",
-      "runs_on": ["self-hosted", "Linux", "X64", "96t"],
-      "setup_label": "96t"
+      "id": "96vcpu",
+      "description": "Linux x64 self-hosted runner with 96 vCPUs and a 192-thread policy budget",
+      "runs_on": ["self-hosted", "Linux", "X64", "96vcpu"],
+      "setup_label": "96vcpu",
+      "aliases": ["96t"]
     },
     {
-      "id": "32t",
-      "description": "Linux x64 self-hosted runner with the 32t capacity label",
-      "runs_on": ["self-hosted", "Linux", "X64", "32t"],
-      "setup_label": "32t"
+      "id": "32vcpu",
+      "description": "Linux x64 self-hosted runner with 32 vCPUs and a 64-thread policy budget",
+      "runs_on": ["self-hosted", "Linux", "X64", "32vcpu"],
+      "setup_label": "32vcpu",
+      "aliases": ["32t"]
     }
   ]
 }

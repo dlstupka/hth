@@ -24,6 +24,7 @@ from hth.shape_prediction import resolve_shape
 from hth.contracts import adapt_parallelism_index
 from hth.optimizer_validity import migrate_optimizer_evidence, optimizer_evidence_is_valid, suppress_recovered_optimizer_duplicates
 from hth.optimizer_history import completed_run_records
+from hth.runner_targets import canonical_runner_label, canonical_runner_labels
 
 
 def _as_int(value: Any) -> int | None:
@@ -148,14 +149,16 @@ def runner_labels_from_row(row: dict[str, Any]) -> list[str]:
 
 def row_matches_required_labels(row: dict[str, Any], required_labels: Iterable[str]) -> bool:
     """GitHub self-hosted selectors are subsets of a runner's full labels."""
-    observed = set(runner_labels_from_row(row))
-    required = {str(value).strip() for value in required_labels if str(value).strip()}
+    observed = set(canonical_runner_labels(runner_labels_from_row(row)))
+    required = {
+        canonical_runner_label(value) for value in required_labels if str(value).strip()
+    }
     return bool(required) and required.issubset(observed)
 
 
 def logical_cpus_from_capacity_label(label: str | None) -> int | None:
-    """Interpret HTH capacity labels such as ``192t`` as 192 logical CPUs."""
-    match = re.fullmatch(r"(\d+)t", str(label or "").strip().lower())
+    """Interpret canonical and legacy HTH capacity labels as vCPU counts."""
+    match = re.fullmatch(r"(\d+)vcpu", canonical_runner_label(label))
     if not match:
         return None
     return max(1, int(match.group(1)))
@@ -336,9 +339,9 @@ def legacy_optimizer_rows_from_indices(indices: Iterable[dict[str, Any]], detect
             name_match = re.search(r"—\s*([^()]+?)(?:\s*\(|$)", runner_title)
             runner_name = name_match.group(1).strip() if name_match else "legacy-published"
             label_match = re.match(r"\s*([^—]+?)\s*—", runner_title)
-            runner_label = label_match.group(1).strip() if label_match else (f"{logical}t" if logical else "unknown")
+            runner_label = label_match.group(1).strip() if label_match else (f"{logical}vcpu" if logical else "unknown")
             if runner_label.lower() == "unknown" and logical:
-                runner_label = f"{logical}t"
+                runner_label = f"{logical}vcpu"
             for sequence, shape in enumerate(runner_group.get("shapes", []), start=1):
                 pipelines = _as_int(shape.get("pipelines")); threads = _as_int(shape.get("threads_per_pipeline"))
                 wall = _as_float(shape.get("fastest_wall_clock_seconds")); rate = _as_float(shape.get("parameter_sets_per_second"))

@@ -26,20 +26,29 @@ class RunnerTargetTests(unittest.TestCase):
                 "rhel8",
                 "e7k",
                 "e9k",
-                "192t",
-                "96t",
-                "32t",
+                "192vcpu",
+                "96vcpu",
+                "32vcpu",
             ],
         )
 
     def test_capacity_targets_resolve_to_exact_self_hosted_labels(self) -> None:
-        for target_id in ("192t", "96t", "32t"):
+        for target_id in ("192vcpu", "96vcpu", "32vcpu"):
             target = resolve_runner_target(target_id)
             self.assertEqual(
                 target["runs_on"],
                 ["self-hosted", "Linux", "X64", target_id],
             )
             self.assertEqual(target["setup_label"], target_id)
+
+    def test_legacy_capacity_target_aliases_resolve_to_canonical_labels(self) -> None:
+        for legacy, canonical in (
+            ("192t", "192vcpu"), ("96t", "96vcpu"), ("32t", "32vcpu"),
+        ):
+            target = resolve_runner_target(legacy)
+            self.assertEqual(target["id"], canonical)
+            self.assertEqual(target["setup_label"], canonical)
+            self.assertEqual(target["runs_on"][-1], canonical)
 
     def test_catalog_rejects_unknown_target(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unknown runner target"):

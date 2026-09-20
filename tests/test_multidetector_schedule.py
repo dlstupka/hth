@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from hth.domain.multidetector_schedule import (
+    makespan_replacement_evidence,
     materially_improves_makespan,
     normalize_pipeline_assignments,
     optimize_lpt_schedule,
@@ -32,6 +33,18 @@ class MultiDetectorScheduleTests(unittest.TestCase):
         self.assertFalse(materially_improves_makespan(200.0, 100.0, high_water_seconds=float("nan")))
         with self.assertRaisesRegex(ValueError, "minimum_improvement"):
             materially_improves_makespan(100.0, 50.0, minimum_improvement=float("nan"))
+
+    def test_makespan_replacement_evidence_records_canonical_decision(self):
+        retained = makespan_replacement_evidence(100.0, 99.0, high_water_seconds=100.0)
+        replaced = makespan_replacement_evidence(100.0, 80.0, high_water_seconds=80.0)
+
+        self.assertEqual(retained["assignment_decision"], "retained")
+        self.assertEqual(
+            retained["assignment_decision_reason"], "insufficient-makespan-improvement",
+        )
+        self.assertAlmostEqual(retained["assignment_makespan_improvement"], 0.01)
+        self.assertEqual(replaced["assignment_decision"], "replaced")
+        self.assertEqual(replaced["assignment_minimum_improvement"], 0.20)
 
     def test_capacity_sharding_never_splits_unknown_runtime(self):
         plan = plan_capacity_shards([1200.0, None], 8)
@@ -185,7 +198,7 @@ class MultiDetectorScheduleTests(unittest.TestCase):
             }]}), encoding="utf-8")
             self.assertIsNone(optimize_lpt_schedule(
                 runtime_index_path=path, detector_ids=["slow"], runner_thread_budget=384,
-                runner_label="192t", golden_set_sha256=None, mode="full",
+                runner_label="192vcpu", golden_set_sha256=None, mode="full",
                 strategy="adaptive", max_dimension=1800,
             ))
 
@@ -265,14 +278,14 @@ class MultiDetectorScheduleTests(unittest.TestCase):
                     "detector_id": detector, "mode": "full", "resolved_strategy": "adaptive",
                     "wall_clock_seconds": wall, "estimated_serial_runtime_seconds": serial,
                     "golden_set_pages": 18, "observed_at_utc": "2026-09-12T00:00:00Z",
-                    "runner": {"runner_labels": ["192t"]},
+                    "runner": {"runner_labels": ["192vcpu"]},
                     "build": {"github_run_id": "coordinated"},
                 }
                 for detector, wall, serial in (("slow", 600, 2400), ("fast", 60, 60))
             ]}), encoding="utf-8")
             result = optimize_lpt_schedule(
                 runtime_index_path=path, detector_ids=["slow", "fast"],
-                runner_thread_budget=16, runner_label="192t",
+                runner_thread_budget=16, runner_label="192vcpu",
                 golden_set_sha256=None, mode="full", strategy="adaptive",
                 max_dimension=1800,
             )
@@ -291,7 +304,7 @@ class MultiDetectorScheduleTests(unittest.TestCase):
                     "wall_clock_seconds": wall, "estimated_serial_runtime_seconds": serial,
                     "golden_set_pages": 18, "observed_at_utc": "2026-09-12T00:00:00Z",
                     "detector_pipelines": 5, "detector_pipeline_number": pipeline,
-                    "runner": {"runner_labels": ["192t"]},
+                    "runner": {"runner_labels": ["192vcpu"]},
                     "build": {"github_run_id": "coordinated"},
                 }
                 for detector, wall, serial, pipeline in (
@@ -301,13 +314,18 @@ class MultiDetectorScheduleTests(unittest.TestCase):
 
             result = optimize_lpt_schedule(
                 runtime_index_path=path, detector_ids=["slow", "fast"],
-                runner_thread_budget=16, runner_label="192t",
+                runner_thread_budget=16, runner_label="192vcpu",
                 golden_set_sha256=None, mode="full", strategy="adaptive",
                 max_dimension=1800,
             )
 
             self.assertTrue(result["golden_set_lane_scaling_applied"])
             self.assertTrue(result["schedule_retained"])
+            self.assertEqual(result["assignment_decision"], "retained")
+            self.assertEqual(
+                result["assignment_decision_reason"],
+                "insufficient-makespan-improvement",
+            )
             self.assertEqual(
                 result["detector_pipeline_assignments"], {"slow": 2, "fast": 1},
             )
@@ -323,7 +341,7 @@ class MultiDetectorScheduleTests(unittest.TestCase):
             }]}), encoding="utf-8")
             result = optimize_lpt_schedule(
                 runtime_index_path=path, detector_ids=["slow"], runner_thread_budget=384,
-                runner_label="192t", golden_set_sha256=None, mode="smoke",
+                runner_label="192vcpu", golden_set_sha256=None, mode="smoke",
                 strategy="exhaustive", max_dimension=1800,
             )
             self.assertTrue(result["sharding_applied"])
@@ -465,12 +483,13 @@ class MultiDetectorScheduleTests(unittest.TestCase):
             ]}), encoding="utf-8")
             result = optimize_lpt_schedule(
                 runtime_index_path=path, detector_ids=[f"d{i}" for i in range(8)],
-                runner_thread_budget=384, runner_label="192t", golden_set_sha256=None,
+                runner_thread_budget=384, runner_label="192vcpu", golden_set_sha256=None,
                 mode="full", strategy="adaptive", max_dimension=1800,
             )
             self.assertEqual(result["pipelines"], 8)
             self.assertEqual(result["predicted_makespan_seconds"], 100.0)
             self.assertTrue(result["schedule_retained"])
+            self.assertEqual(result["assignment_decision"], "retained")
             self.assertEqual(result["detector_pipeline_assignments"]["d0"], 1)
 
     def test_optimizer_uses_latest_complete_cross_golden_build_when_exact_is_partial(self):
@@ -545,7 +564,7 @@ class MultiDetectorScheduleTests(unittest.TestCase):
             path = Path(td) / "runtime-index.json"
             rows = []
             for build_id, dimension, label, observed, seconds in (
-                ("matching", 1800, "192t", "2026-09-08T00:00:00Z", 100.0),
+                ("matching", 1800, "192vcpu", "2026-09-08T00:00:00Z", 100.0),
                 ("newer-wrong-context", 900, "github-hosted", "2026-09-09T00:00:00Z", 10.0),
             ):
                 for detector in ("a", "b"):
@@ -559,7 +578,7 @@ class MultiDetectorScheduleTests(unittest.TestCase):
             path.write_text(json.dumps({"observations": rows}), encoding="utf-8")
             result = optimize_lpt_schedule(
                 runtime_index_path=path, detector_ids=["a", "b"], runner_thread_budget=384,
-                runner_label="192t", golden_set_sha256="gold", mode="smoke",
+                runner_label="192vcpu", golden_set_sha256="gold", mode="smoke",
                 strategy="exhaustive", max_dimension=1800,
             )
             self.assertEqual(result["evidence_build_id"], "matching")
@@ -580,7 +599,7 @@ class MultiDetectorScheduleTests(unittest.TestCase):
             ]}), encoding="utf-8")
             result = optimize_lpt_schedule(
                 runtime_index_path=runtime, detector_ids=["a", "b", "c"],
-                runner_thread_budget=384, runner_label="192t", golden_set_sha256=None,
+                runner_thread_budget=384, runner_label="192vcpu", golden_set_sha256=None,
                 mode="smoke", strategy="exhaustive", max_dimension=1800,
             )
             self.assertEqual(result["pipelines"], 4)

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from hth.persistence import ResultsRepository
+from hth.runner_targets import canonical_runner_label
 from typing import Any
 
 
@@ -51,7 +52,7 @@ def _matches(metadata: dict[str, Any], *, detector: str, runner_label: str, runn
              allow_thread_oversubscription: bool = False) -> bool:
     expected = {
         "detector_id": detector,
-        "runner_label": runner_label,
+        "runner_label": canonical_runner_label(runner_label),
         "runner_thread_budget": runner_budget,
         "thread_min": thread_min,
         "thread_max": thread_max,
@@ -61,6 +62,8 @@ def _matches(metadata: dict[str, Any], *, detector: str, runner_label: str, runn
     }
     for key, value in expected.items():
         actual = metadata.get(key, False) if key == "allow_thread_oversubscription" else metadata.get(key)
+        if key == "runner_label":
+            actual = canonical_runner_label(actual)
         if actual != value:
             return False
     return True
