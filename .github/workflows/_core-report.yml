@@ -305,10 +305,11 @@ jobs:
         shell: bash
         env:
           RESULTS_REPOSITORY: ${{ inputs.results_repository }}
+          PYTHONPATH: hth-pipeline
         run: |
           set -euo pipefail
           if [[ "${{ inputs.report_type }}" == "detector-calibration-manifest" ]]; then
-            python hth-pipeline/hth/write_action_summary.py generated-report/detector-calibration-manifest.md "$GITHUB_STEP_SUMMARY"
+            python -m hth.write_action_summary generated-report/detector-calibration-manifest.md "$GITHUB_STEP_SUMMARY"
           elif [[ "${{ inputs.report_type }}" == "execution-optimizer" ]]; then
             # Pin optimizer profile images to the exact results commit that was
             # just published. raw.githubusercontent.com branch refs can lag the
@@ -322,7 +323,7 @@ jobs:
               "${{ inputs.report_algorithm }}" \
               "$RESULTS_COMMIT"
           elif [[ "${{ inputs.report_type }}" == "full-normalization-summary" ]]; then
-            python hth-pipeline/hth/write_action_summary.py generated-report/full-normalization-summary.md "$GITHUB_STEP_SUMMARY"
+            python -m hth.write_action_summary generated-report/full-normalization-summary.md "$GITHUB_STEP_SUMMARY"
           else
             echo "::error::Unsupported report type: ${{ inputs.report_type }}"
             exit 1

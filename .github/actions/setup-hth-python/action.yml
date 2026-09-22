@@ -188,3 +188,12 @@ runs:
         if site.ENABLE_USER_SITE:
             raise SystemExit("User site-packages unexpectedly enabled")
         PY
+
+    - name: Verify / Install base HTH runtime
+      shell: bash
+      run: |
+        set -euo pipefail
+        # CBE evaluates installed runtime-package versions before any optional
+        # detector runtime is requested. A fresh GitHub-hosted venv must have
+        # the same base requirements as a reusable self-hosted environment.
+        bash "${{ inputs.pipeline-path }}/tools/ensure-managed-runtime.sh"

@@ -124,6 +124,18 @@ class RuntimeVerifyInstallWorkflowTests(unittest.TestCase):
             self.assertIn('rm -rf "/tmp/.ar/.hth-runtime"', text, workflow.name)
             self.assertIn("uses: ./hth-pipeline/.github/actions/setup-hth-python", text, workflow.name)
 
+    def test_python_bootstrap_installs_base_packages_before_cbe(self):
+        python_action = PYTHON_ACTION.read_text(encoding="utf-8")
+        self.assertIn("- name: Verify / Install base HTH runtime", python_action)
+        self.assertIn(
+            'bash "${{ inputs.pipeline-path }}/tools/ensure-managed-runtime.sh"',
+            python_action,
+        )
+        self.assertLess(
+            python_action.index('echo "HTH_VENV=$venv_dir" >> "$GITHUB_ENV"'),
+            python_action.index("- name: Verify / Install base HTH runtime"),
+        )
+
     def test_reusable_results_checkout_is_validated_around_checkout_action(self):
         checkout_count = 0
         for workflow in (ROOT / ".github/workflows").glob("*.yml"):

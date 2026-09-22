@@ -200,7 +200,8 @@ class NormalizationCanonicalEvidenceCoverageTests(unittest.TestCase):
         self.assertIn("python -m hth.report_generator full-normalization-summary", block)
         self.assertIn("reports/full-normalization-summary.md", block)
         self.assertIn("Publish canonical full normalization summary", block)
-        self.assertIn("hth/write_action_summary.py", block)
+        self.assertIn("python -m hth.write_action_summary", block)
+        self.assertIn("PYTHONPATH: hth-pipeline", block)
         self.assertNotIn('--github-summary "$GITHUB_STEP_SUMMARY"', block)
         setup_block = block.split("- name: Set up canonical HTH Python runtime", 1)[1].split("- name: Inventory durable result releases", 1)[0]
         self.assertNotIn("python-version:", setup_block)

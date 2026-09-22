@@ -902,8 +902,10 @@ jobs:
 
       - name: Publish canonical full normalization summary
         shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
         run: |
           set -euo pipefail
-          python hth-pipeline/hth/write_action_summary.py \
+          python -m hth.write_action_summary \
             results-repo/reports/full-normalization-summary.md \
             "$GITHUB_STEP_SUMMARY"

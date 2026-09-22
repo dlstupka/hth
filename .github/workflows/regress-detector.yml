@@ -684,7 +684,7 @@ jobs:
             --multidetector-index results-repo/indexes/multidetector-index.json \
             --output regression-summary.md
 
-          python hth-pipeline/hth/write_action_summary.py regression-summary.md "$GITHUB_STEP_SUMMARY"
+          python -m hth.write_action_summary regression-summary.md "$GITHUB_STEP_SUMMARY"
 
       - name: Upload regression run
         if: ${{ always() && !cancelled() }}

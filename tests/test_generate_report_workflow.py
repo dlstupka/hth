@@ -129,6 +129,12 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         generate_step = text.split("- name: Generate selected report", 1)[1].split("- name: Publish regenerated report", 1)[0]
         self.assertNotIn("GITHUB_STEP_SUMMARY", generate_step)
         self.assertIn("- name: Publish regenerated report summary", text)
+        summary_step = text.split("- name: Publish regenerated report summary", 1)[1].split(
+            "- name: Assemble report research artifact", 1
+        )[0]
+        self.assertIn("PYTHONPATH: hth-pipeline", summary_step)
+        self.assertEqual(2, summary_step.count("python -m hth.write_action_summary"))
+        self.assertNotIn("python hth-pipeline/hth/write_action_summary.py", summary_step)
         publish_pos = text.index("- name: Publish regenerated report")
         summary_pos = text.index("- name: Publish regenerated report summary")
         self.assertLess(publish_pos, summary_pos)

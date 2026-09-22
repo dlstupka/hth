@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,7 +10,34 @@ from pathlib import Path
 from hth.write_action_summary import append_bounded_summary, compact_manifest
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 class WriteActionSummaryTests(unittest.TestCase):
+    def test_summary_writer_runs_as_module_from_workflow_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "report.md"
+            destination = root / "summary.md"
+            source.write_text("# Report\n", encoding="utf-8")
+            environment = {**os.environ, "PYTHONPATH": str(ROOT)}
+            subprocess.run(
+                [sys.executable, "-m", "hth.write_action_summary", str(source), str(destination)],
+                cwd=root,
+                env=environment,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual("# Report\n", destination.read_text(encoding="utf-8"))
+
+    def test_all_workflows_use_package_aware_summary_writer(self) -> None:
+        for name in ("_core-report.yml", "regress-detector.yml", "normalize.yml"):
+            with self.subTest(workflow=name):
+                text = (ROOT / ".github/workflows" / name).read_text(encoding="utf-8")
+                self.assertIn("python -m hth.write_action_summary", text)
+                self.assertNotIn("python hth-pipeline/hth/write_action_summary.py", text)
+
     def test_compact_manifest_omits_nested_per_detector_detail_sections(self) -> None:
         text = """# Manifest\n\n## Ranked Detector Smoke Test Results\n\n| Rank | Detector |\n|---:|---|\n| 1 | A |\n\n<details open>\n<summary><h3>Per-Detector Calibration Reports</h3></summary>\n\n<details>\n<summary>A</summary>\nvery large calibration body\n</details>\n\n</details>\n\n## Keep Me\n\nimportant execution summary\n\n<details open>\n<summary><h3>Per-Detector Regression Reports</h3></summary>\n\n<details>\n<summary>A</summary>\nvery large regression body\n</details>\n\n</details>\n\n## Tail\n\nkept\n"""
         compacted, removed = compact_manifest(text)
