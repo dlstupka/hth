@@ -21,6 +21,7 @@ from typing import Any, Iterable
 from hth.contracts import OPTIMIZER_INDEX_SCHEMA_VERSION, adapt_optimizer_index
 from hth.domain.execution_shape import DETERMINISTIC_OPTIMIZER_STRATEGIES, optimizer_compatibility_key, optimizer_evidence_key, select_preferred_shape
 from hth.runner_targets import canonical_runner_label, canonical_runner_labels
+from hth.report_navigation import detector_navigation_slug
 
 
 
@@ -461,11 +462,6 @@ def _render_preferred_configuration(index: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _nav_slug(text: str) -> str:
-    slug = "-".join(part for part in re.sub(r"[^a-zA-Z0-9]+", " ", text).lower().split() if part)
-    return slug or "section"
-
-
 def _render_optimizer_navigation(*, detectors: list[str] | None = None) -> list[str]:
     lines = [
         '<a id="table-of-contents"></a>',
@@ -478,11 +474,11 @@ def _render_optimizer_navigation(*, detectors: list[str] | None = None) -> list[
     ]
     if detectors:
         for detector in detectors:
-            lines.append(f"  - [{detector}](#detector-run-profile-{_nav_slug(detector)})")
+            lines.append(f"  - [{detector}](#detector-run-profile-{detector_navigation_slug(detector)})")
     lines.append("- [Detector Pipeline-Thread Shape Optimization Data](#detector-pipeline-thread-shape-optimization-data)")
     if detectors:
         for detector in detectors:
-            lines.append(f"  - [{detector}](#detector-shape-data-{_nav_slug(detector)})")
+            lines.append(f"  - [{detector}](#detector-shape-data-{detector_navigation_slug(detector)})")
     lines.extend(["", "</details>", ""])
     return lines
 
@@ -674,7 +670,7 @@ def render_all_markdown(indices: list[dict[str, Any]]) -> str:
     ])
     for index in indices:
         detector = str(index.get("detector_id") or "unknown")
-        slug = _nav_slug(detector)
+        slug = detector_navigation_slug(detector)
         lines.extend([
             f'<a id="detector-run-profile-{slug}"></a>',
             "<details>",
@@ -691,7 +687,9 @@ def render_all_markdown(indices: list[dict[str, Any]]) -> str:
 
     lines.extend([
         '<a id="detector-pipeline-thread-shape-optimization-data"></a>',
-        "<details>",
+        # Child anchors must be visible for GitHub Actions summary navigation.
+        # Keep the per-detector tables collapsed to avoid expanding the report.
+        "<details open>",
         "<summary><strong>3. Detector Pipeline-Thread Shape Optimization Data</strong></summary>",
         "",
         "Coalesced compatible shape measurements from completed optimizer runs are shown below.",
@@ -699,7 +697,7 @@ def render_all_markdown(indices: list[dict[str, Any]]) -> str:
     ])
     for index in indices:
         detector = str(index.get("detector_id") or "unknown")
-        slug = _nav_slug(detector)
+        slug = detector_navigation_slug(detector)
         lines.extend([
             f'<a id="detector-shape-data-{slug}"></a>',
             "<details>",

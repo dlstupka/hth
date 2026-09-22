@@ -30,6 +30,60 @@ class WriteActionSummaryTests(unittest.TestCase):
             self.assertLessEqual(destination.stat().st_size, 512)
             self.assertTrue(result["truncated"])
 
+    def test_compaction_removes_links_to_omitted_detector_details(self) -> None:
+        text = (
+            '# Manifest\n\n<a id="table-of-contents"></a>\n<details open>\n'
+            '<summary><strong>Navigation</strong></summary>\n\n'
+            '- [Calibration](#detector-calibration-report)\n'
+            '  - [Per-Detector Calibration Reports](#per-detector-calibration-reports)\n'
+            '    - [A](#calibration-a)\n'
+            '- [Regression](#detector-regression-reports)\n'
+            '  - [Per-Detector Regression Reports](#per-detector-regression-reports)\n'
+            '    - [A](#regression-a)\n\n</details>\n\n'
+            '<a id="detector-calibration-report"></a>\n<details open>\n'
+            '<summary><h2>Detector Calibration Report</h2></summary>\n'
+            '<details open>\n<summary><h3>Per-Detector Calibration Reports</h3></summary>\n'
+            '<a id="calibration-a"></a>\n<details><summary>A</summary>body</details>\n'
+            '</details>\n</details>\n'
+            '<a id="detector-regression-reports"></a>\n<details open>\n'
+            '<summary><h2>Detector Regression Reports</h2></summary>\n'
+            '<details open>\n<summary><h3>Per-Detector Regression Reports</h3></summary>\n'
+            '<a id="regression-a"></a>\n<details><summary>A</summary>body</details>\n'
+            '</details>\n</details>\n'
+        )
+        compacted, removed = compact_manifest(text)
+        self.assertEqual(2, len(removed))
+        self.assertIn('- [Calibration](#detector-calibration-report)', compacted)
+        self.assertIn('- [Regression](#detector-regression-reports)', compacted)
+        self.assertNotIn('](#per-detector-calibration-reports)', compacted)
+        self.assertNotIn('](#per-detector-regression-reports)', compacted)
+        self.assertNotIn('](#calibration-a)', compacted)
+        self.assertNotIn('](#regression-a)', compacted)
+
+    def test_truncation_prunes_links_to_later_sections(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "report.md"
+            destination = root / "summary.md"
+            source.write_text(
+                '# Report\n\n<a id="table-of-contents"></a>\n<details open>\n'
+                '<summary><strong>Navigation</strong></summary>\n\n'
+                '- [First](#first)\n- [Later](#later)\n\n</details>\n\n'
+                '<a id="first"></a>\n## First\n\n' + ('filler ' * 60) +
+                '\n\n<a id="later"></a>\n## Later\n',
+                encoding="utf-8",
+            )
+            result = append_bounded_summary(source, destination, max_bytes=550)
+            summary = destination.read_text(encoding="utf-8")
+            self.assertTrue(result["truncated"])
+            self.assertIn('](#first)', summary)
+            self.assertNotIn('](#later)', summary)
+            short_destination = root / "short-summary.md"
+            append_bounded_summary(source, short_destination, max_bytes=350)
+            short_summary = short_destination.read_text(encoding="utf-8")
+            self.assertIn('<a id="table-of-contents"></a>', short_summary)
+            self.assertNotIn('<details open>', short_summary)
+
 
 if __name__ == "__main__":
     unittest.main()

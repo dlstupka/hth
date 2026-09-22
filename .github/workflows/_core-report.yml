@@ -346,12 +346,16 @@ jobs:
           cp "$FREEZE_SOURCE" "report-research-artifact/golden-set/${GOLDEN_ID}.freeze.json"
 
           if [[ "${{ inputs.report_type }}" == "full-normalization-summary" ]]; then
-            # A normalization audit is fully reconstructable from its persisted
-            # CBE/manifests and lifecycle ledger. Historical detector calibration
-            # trees are unrelated and can be several gigabytes.
+            # Include persisted CBE/manifests and any available lifecycle ledger.
+            # Historical detector calibration trees are unrelated and can be
+            # several gigabytes.
             mkdir -p report-research-artifact/intelligence/metadata
-            cp results-repo/metadata/resource-lifecycle.json \
-              report-research-artifact/intelligence/metadata/resource-lifecycle.json
+            if [[ -f results-repo/metadata/resource-lifecycle.json ]]; then
+              cp results-repo/metadata/resource-lifecycle.json \
+                report-research-artifact/intelligence/metadata/resource-lifecycle.json
+            else
+              echo "::warning::Normalization lifecycle ledger is missing; the generated audit is marked INCOMPLETE."
+            fi
             cp -a results-repo/normalization \
               report-research-artifact/intelligence/normalization
             if [[ -f results-repo/reports/full-normalization-summary.md ]]; then
@@ -382,9 +386,9 @@ jobs:
 
           This artifact accompanies the GitHub Actions report summary. It contains the
           generated report, the frozen Golden Set identity/provenance, and the persisted
-          evidence needed to reproduce and research the selected report. Normalization
-          artifacts contain the canonical normalization evidence and lifecycle ledger;
-          detector reports contain calibration/execution intelligence.
+          available evidence to research the selected report. Normalization artifacts
+          contain canonical normalization evidence and, when present, its lifecycle
+          ledger; detector reports contain calibration/execution intelligence.
 
           Individual detector regression/debug/verbose logging is intentionally excluded;
           durable calibration records and raw evidence remain linked at their exact results
@@ -400,4 +404,3 @@ jobs:
           if-no-files-found: error
           retention-days: ${{ inputs.artifact_retention_days }}
           compression-level: 6
-

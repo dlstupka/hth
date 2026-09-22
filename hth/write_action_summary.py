@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from hth.report_navigation import prune_navigation_links
+
 DEFAULT_MAX_BYTES = 950 * 1024
 _DETAIL_MARKERS = (
     "<summary><h3>Per-Detector Calibration Reports</h3></summary>",
@@ -50,7 +52,7 @@ def compact_manifest(text: str) -> tuple[str, list[str]]:
         compacted, changed = _remove_balanced_details(compacted, marker)
         if changed:
             removed.append(marker)
-    return compacted, removed
+    return prune_navigation_links(compacted), removed
 
 
 def _truncate_blocks(text: str, byte_budget: int) -> str:
@@ -86,7 +88,7 @@ def append_bounded_summary(source: Path, destination: Path, max_bytes: int = DEF
     candidate = compacted
     truncated = False
     if len(candidate.encode("utf-8")) + notice_bytes > available:
-        candidate = _truncate_blocks(candidate, max(0, available - notice_bytes))
+        candidate = prune_navigation_links(_truncate_blocks(candidate, max(0, available - notice_bytes)))
         truncated = True
 
     if removed or truncated:
@@ -96,7 +98,7 @@ def append_bounded_summary(source: Path, destination: Path, max_bytes: int = DEF
 
     encoded = output.encode("utf-8")
     if len(encoded) > available:
-        output = _truncate_blocks(output, available)
+        output = prune_navigation_links(_truncate_blocks(output, available))
         encoded = output.encode("utf-8")
         truncated = True
 

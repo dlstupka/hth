@@ -117,8 +117,10 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         )[0]
         normalization = assemble.split(
             'if [[ "${{ inputs.report_type }}" == "full-normalization-summary" ]]', 1
-        )[1].split("else", 1)[0]
+        )[1].split("\n          else\n", 1)[0]
         self.assertIn("results-repo/metadata/resource-lifecycle.json", normalization)
+        self.assertIn('if [[ -f results-repo/metadata/resource-lifecycle.json ]]; then', normalization)
+        self.assertIn("the generated audit is marked INCOMPLETE", normalization)
         self.assertIn("cp -a results-repo/normalization", normalization)
         self.assertNotIn("source-documents", normalization)
 

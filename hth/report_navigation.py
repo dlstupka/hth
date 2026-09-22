@@ -4,10 +4,15 @@ from __future__ import annotations
 import re
 
 
-def _slugify_heading(text: str) -> str:
+def navigation_slug(text: str) -> str:
     value = re.sub(r"[`*_]", "", text).strip().lower()
     value = re.sub(r"[^a-z0-9]+", "-", value).strip("-")
     return value or "section"
+
+
+def detector_navigation_slug(detector_id: str) -> str:
+    """Keep historical detector fragment IDs with underscores as separators."""
+    return navigation_slug(detector_id.replace("_", " "))
 
 
 def _navigation_heading(line: str) -> tuple[int, str] | None:
@@ -46,7 +51,7 @@ def add_report_navigation(lines: list[str]) -> list[str]:
         if heading is None:
             continue
         level, title = heading
-        base = _slugify_heading(title)
+        base = navigation_slug(title)
         used[base] = used.get(base, 0) + 1
         slug = base if used[base] == 1 else f"{base}-{used[base]}"
         headings.append((level, title, slug))
@@ -105,3 +110,28 @@ def add_report_navigation(lines: list[str]) -> list[str]:
     if heading_index:
         result.extend(["", "[↑ Back to Navigation](#table-of-contents)"])
     return result
+
+
+def prune_navigation_links(text: str) -> str:
+    """Remove table-of-contents links to sections omitted from displayed text."""
+    targets = set(re.findall(r'<a id="([^"]+)"></a>', text))
+    in_navigation = False
+    navigation_start: int | None = None
+    result: list[str] = []
+    for line in text.splitlines(keepends=True):
+        if "<summary><strong>Navigation</strong></summary>" in line:
+            in_navigation = True
+            navigation_start = len(result) - 1 if result and "<details" in result[-1] else len(result)
+        elif in_navigation and "</details>" in line:
+            in_navigation = False
+            navigation_start = None
+        if in_navigation and line.lstrip().startswith("- "):
+            link = re.search(r"\]\(#([^)]+)\)\s*$", line)
+            if link and link.group(1) not in targets:
+                continue
+        result.append(line)
+    if in_navigation and navigation_start is not None:
+        # A byte-bounded summary may end inside the navigation panel. Keep
+        # the table-of-contents anchor, but discard the unclosed HTML panel.
+        del result[navigation_start:]
+    return "".join(result)

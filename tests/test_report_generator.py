@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -87,6 +88,9 @@ class ReportGeneratorTests(unittest.TestCase):
 
             self.assertIn('<a id="table-of-contents"></a>', report)
             self.assertIn("<summary><strong>Navigation</strong></summary>", report)
+            navigation = report.split('<summary><strong>Navigation</strong></summary>', 1)[1].split('</details>', 1)[0]
+            anchors = set(re.findall(r'<a id="([^"]+)"></a>', report))
+            self.assertTrue(set(re.findall(r'\]\(#([^)]+)\)', navigation)) <= anchors)
             for section in (
                 "Audit status",
                 "Normalization result chain",

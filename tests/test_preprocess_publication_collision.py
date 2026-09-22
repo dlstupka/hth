@@ -30,6 +30,16 @@ class PreprocessPublicationCollisionTests(unittest.TestCase):
         self.assertIn("hth_results_stage results-repo", block)
         self.assertNotIn("git -C results-repo add --all", block)
 
+    def test_production_does_not_replace_normalization_owned_metadata(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        prepare = text.split("- name: Prepare production publication", 1)[1].split("- name: Publish production publication", 1)[0]
+        publish = self._publication_block()
+        self.assertNotIn("rm -rf results-repo/metadata", prepare)
+        self.assertNotIn("results-repo/metadata results-repo/analysis", publish)
+        self.assertIn("production_metadata_paths=(", publish)
+        self.assertIn('"${production_metadata_paths[@]}"', publish)
+        self.assertNotIn("metadata analysis ocr", publish)
+
     def test_production_owned_paths_are_materialized_by_sparse_checkout(self):
         text = WORKFLOW.read_text(encoding="utf-8")
         checkout_start = text.index("- name: Checkout results repository")

@@ -929,7 +929,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          rm -rf results-repo/metadata
           mkdir -p results-repo/metadata
           cp -a "$OUTPUT_DIRECTORY/metadata/." results-repo/metadata/
 
@@ -1062,22 +1061,38 @@ jobs:
             user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           publication_payload="$RUNNER_TEMP/hth-production-publication-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar"
+          # Production owns these files, not the whole metadata directory.
+          # Normalization publishes its lifecycle ledger alongside them.
+          production_metadata_paths=(
+            metadata/canonical-build-evidence.json
+            metadata/image_manifest.json
+            metadata/image_manifest.csv
+            metadata/exact_duplicates.json
+            metadata/page_map_template.csv
+          )
+          for path in "${production_metadata_paths[@]}"; do
+            test -f "results-repo/$path"
+          done
           tar -C results-repo -cf "$publication_payload" \
-            metadata analysis ocr transcriptions translations indexes \
+            "${production_metadata_paths[@]}" \
+            analysis ocr transcriptions translations indexes \
             docs BUILD-INFO.yaml README.md \
             reports/preprocess-summary.json
 
           apply_production_publication() {
-            # These are the production writer's owned paths. Remove them before
-            # restoring the run snapshot so deletions are persisted as well as
-            # additions, while every unrelated results-repo path remains intact.
+            # Only remove production-owned metadata files. Other metadata,
+            # including normalization's lifecycle ledger, belongs to other
+            # writers and must survive this publication and every retry.
             remote_cbe="$RUNNER_TEMP/hth-remote-cbe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${HTH_PERSIST_ATTEMPTS}.json"
             rm -f "$remote_cbe"
             if [[ -f results-repo/metadata/canonical-build-evidence.json ]]; then
               cp results-repo/metadata/canonical-build-evidence.json "$remote_cbe"
             fi
+            for path in "${production_metadata_paths[@]}"; do
+              rm -f "results-repo/$path"
+            done
             rm -rf \
-              results-repo/metadata results-repo/analysis \
+              results-repo/analysis \
               results-repo/ocr results-repo/transcriptions results-repo/translations \
               results-repo/indexes results-repo/docs \
               results-repo/BUILD-INFO.yaml results-repo/README.md \
@@ -1092,7 +1107,8 @@ jobs:
             hth_results_remove_legacy_indexes results-repo
 
             hth_results_stage results-repo \
-              metadata analysis ocr transcriptions translations indexes \
+              "${production_metadata_paths[@]}" \
+              analysis ocr transcriptions translations indexes \
               docs BUILD-INFO.yaml README.md \
               reports/preprocess-summary.json
           }

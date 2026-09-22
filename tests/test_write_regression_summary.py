@@ -1,10 +1,12 @@
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
 
 from hth.write_regression_summary import _assignment_decision_lines, _execution_shape_decision_lines, _observed_pipeline_schedule, _preferred_feedback_schedule, _schedule_reassignment_count, _scheduler_feedback_schedule, _best_known_calibrations, _calibration_record_from_payload, _combined_result_row, _estimate_scope_makespan, _render_best_known_calibrations, _render_detector_calibration, build_combined_summary, build_summary
 from hth.regression.parameter_space import parameter_set_equivalence_family_id
+from hth.write_action_summary import compact_manifest
 
 
 class RegressionSummaryTests(unittest.TestCase):
@@ -811,6 +813,13 @@ class RegressionSummaryTests(unittest.TestCase):
             self.assertIn("    - [Contour Envelope (`contour`)](#contour-envelope-contour-2)", text)
             self.assertIn('<a id="detector-calibration-report"></a>', text)
             self.assertIn('<a id="contour-envelope-contour-2"></a>', text)
+            compacted, removed = compact_manifest(text)
+            self.assertEqual(2, len(removed))
+            navigation = compacted.split('<summary><strong>Navigation</strong></summary>', 1)[1].split('</details>', 1)[0]
+            anchors = set(re.findall(r'<a id="([^"]+)"></a>', compacted))
+            self.assertTrue(set(re.findall(r'\]\(#([^)]+)\)', navigation)) <= anchors)
+            self.assertNotIn('](#contour-envelope-contour)', navigation)
+            self.assertNotIn('](#contour-envelope-contour-2)', navigation)
             self.assertIn("### Regression Completion Summary", text)
             self.assertIn("| Measure | Value | Notes |", text)
             self.assertIn("| Aggregate detector runtime | 2s |", text)

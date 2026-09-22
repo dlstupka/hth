@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -43,6 +44,23 @@ def _row(identifier: str, runner: str, pipelines: int, threads: int, wall: float
 
 
 class OptimizerStoreTests(unittest.TestCase):
+    def test_all_detector_shape_navigation_targets_are_visible(self) -> None:
+        first = build_optimizer_index({"observations": [_row("first", "e7k", 4, 16, 500)]}, "adaptive_radial_edge")
+        second_row = _row("second", "e7k", 4, 16, 500)
+        second_row["detector_id"] = "border_fusion_quad"
+        second = build_optimizer_index({"observations": [second_row]}, "border_fusion_quad")
+        markdown = render_all_markdown([first, second])
+        navigation = markdown.split('<summary><strong>Navigation</strong></summary>', 1)[1].split('</details>', 1)[0]
+        anchors = set(re.findall(r'<a id="([^"]+)"></a>', markdown))
+        self.assertTrue(set(re.findall(r'\]\(#([^)]+)\)', navigation)) <= anchors)
+        section = markdown.split('<a id="detector-pipeline-thread-shape-optimization-data"></a>', 1)[1]
+        self.assertTrue(section.lstrip().startswith("<details open>"))
+        for detector in ("adaptive_radial_edge", "border_fusion_quad"):
+            with self.subTest(detector=detector):
+                anchor = f"detector-shape-data-{detector.replace('_', '-')}"
+                self.assertIn(f"](#{anchor})", markdown)
+                self.assertIn(f'<a id="{anchor}"></a>\n<details>', section)
+
 
 
     def test_critical_optimizer_subset_is_retained_as_execution_evidence(self) -> None:
