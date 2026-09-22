@@ -1,5 +1,6 @@
 =========================================================================
-HTH DEVELOPMENT STANDARD
+# HTH DEVELOPMENT STANDARD
+=========================================================================
 
 This document is the authoritative source for:
 
@@ -17,8 +18,6 @@ Before making ANY implementation changes:
 4. Follow the conventions herein.
 
 Failure to do so invalidates the implementation.
-=========================================================================
-
 
 
 =========================================================================

@@ -6,6 +6,88 @@ HTH is designed for difficult historical collections: photographed manuscripts, 
 
 The current reference collection is **[HTH-0001 — San Antonio Baptisms, 1788–1824 and 1858–1898](https://github.com/dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898)**, but the pipeline and detector framework are intentionally collection-independent.
 
+## Motivation
+
+### Is HTH worth doing?
+
+Many of the individual capabilities used by HTH are not unique, nor should they be.
+
+[Transkribus](https://www.transkribus.org/) has become a capable end-to-end historical-document platform supporting layout analysis, handwritten text recognition (HTR), model training, annotation, structured export, search, and publication. Its layout system preserves spatial information through regions and baselines and supports established formats including PAGE XML, ALTO XML, and TEI XML.
+
+The open-source [eScriptorium](https://escriptorium.eu/) platform likewise provides historical-document ingestion, layout analysis, HTR/OCR, correction, model training, and structured export, building heavily on [Kraken](https://kraken.re/).
+
+If the goal of HTH were simply:
+
+> Take old scanned documents, clean them up, recognize the handwriting, and make them searchable.
+
+then much of that problem has already been solved.
+
+HTH is interested in something broader — and, deliberately, in some of the unusually boring and easily overlooked parts of the problem.
+
+### Evidence before algorithms
+
+HTH is built around an evidence-driven processing architecture for historical documents.
+
+Rather than merely saying “run page detection,” for example, HTH has used competing detectors, parameterized calibration, human-reviewed and frozen Golden Sets, automated regression, optimization evidence, parameter-set equivalence, runner-aware execution, persistent results, provenance, and deterministic reuse.
+
+The same principles extend beyond page detection. A document may pass through collection processing, normalization, layout analysis, HTR, transcription, translation, structured extraction, and historical interpretation. Each transformation can affect what later stages see and, ultimately, what a researcher concludes.
+
+HTH's goal is therefore not to invent every algorithm in that chain. It is to provide reusable, scalable, and maintainable framework scaffolding in which existing and future technologies can be integrated, evaluated against evidence, and replaced when something better comes along.
+
+The framework should be able to answer not only:
+
+> What result did we get?
+
+but also:
+
+> What source produced it?
+> What process transformed it?
+> Which implementation and parameters were used?
+> What evidence justified that choice?
+> Was the result machine-generated or human-reviewed?
+> Has anything capable of changing the result changed since it was evaluated?
+> Can the result be traced back to the archival source?
+
+### Provenance is part of the research
+
+This emphasis is increasingly relevant beyond HTH.
+
+The 2026 paper [*From OCR to Analysis: Tracking Correction Provenance in Digital Humanities Pipelines*](https://arxiv.org/abs/2603.00884) argues that provenance should be treated as a first-class analytical layer in digital-humanities pipelines. The authors demonstrate that correction pathways can alter downstream entity extraction and document-level interpretation, and argue for preserving transformation history to support reproducibility, source criticism, and uncertainty-aware interpretation.
+
+That problem is closely aligned with what HTH is designed to address.
+
+A corrected transcription, normalized image, extracted person, translated phrase, or historical assertion should not quietly replace what came before it. HTH aims to preserve the chain of evidence connecting derived information to the original archival material.
+
+### Integrate first
+
+HTH does not need to outperform every specialized system at every task.
+
+For example, HTH does not need to build a better HTR engine than [Transkribus](https://www.transkribus.org/) or Kraken. Mature systems already provide sophisticated recognition and layout capabilities, and [Transkribus](https://www.transkribus.org/) exposes layout and HTR functionality through APIs. Kraken independently exposes trainable segmentation and recognition and supports PAGE XML and ALTO output.
+
+That creates an opportunity rather than a conflict.
+
+HTH can evaluate approaches such as [Kraken](https://kraken.re/), [Transkribus](https://www.transkribus.org/), [Doc-UFCN](https://github.com/monniert/doc-ufcn), other specialized methods, and future models in much the same way that it evaluates competing page-detection approaches today.
+
+The objective is not to choose a technology permanently. It is to determine which approach works best for the evidence at hand, preserve why and how it was used, and make replacement possible without redesigning the surrounding research workflow.
+
+### The value of HTH
+
+The overlap between HTH and mature systems such as [Transkribus](https://www.transkribus.org/) and [eScriptorium](https://escriptorium.eu/) is therefore intentional.
+
+HTH should consume excellent external components whenever practical and concentrate its own development on the layers that connect them:
+
+**evidence, evaluation, provenance, integration, orchestration, reproducibility, and historical research.**
+
+The long-term objective is an auditable chain such as:
+
+**archival source → collection → physical document → normalization → layout → transcription → translation → structured evidence → entity linkage → historical interpretation**
+
+At every step, HTH should preserve enough information to explain how the next step was produced and, where possible, trace derived evidence back to the source.
+
+The value of HTH is therefore not that every component is unique.
+
+It is that the framework is designed so that **the algorithms can change without losing the evidence.**
+
 ## What HTH does
 
 HTH provides a reproducible pipeline for:
