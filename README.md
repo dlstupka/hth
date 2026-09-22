@@ -66,7 +66,7 @@ For example, HTH does not need to build a better HTR engine than [Transkribus](h
 
 That creates an opportunity rather than a conflict.
 
-HTH can evaluate approaches such as [Kraken](https://kraken.re/), [Transkribus](https://www.transkribus.org/), [Doc-UFCN](https://github.com/monniert/doc-ufcn), other specialized methods, and future models in much the same way that it evaluates competing page-detection approaches today.
+HTH can evaluate approaches such as [Kraken](https://kraken.re/), [Transkribus](https://www.transkribus.org/), [Doc-UFCN](https://gitlab.teklia.com/dla/doc-ufcn), other specialized methods, and future models in much the same way that it evaluates competing page-detection approaches today.
 
 The objective is not to choose a technology permanently. It is to determine which approach works best for the evidence at hand, preserve why and how it was used, and make replacement possible without redesigning the surrounding research workflow.
 
