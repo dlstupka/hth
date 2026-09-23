@@ -409,6 +409,23 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
         self.publish_evidence_and_results(evidence)
         return evidence
 
+    def establish_second_variant(self) -> tuple[dict, dict]:
+        prior = self.establish()
+        (self.pipeline / "config.json").write_text('{"threshold": 2}\n', encoding="utf-8")
+        self.assertEqual(prepare(self.args())["decision"], "execute")
+        write_json(self.output / "summary.json", {"image_count": 2})
+        current = finalize(argparse.Namespace(
+            plan=self.root / "plan.json",
+            output_root=self.output,
+            evidence_store=self.results / "metadata/canonical-build-evidence.json",
+            evidence_output=self.output / "metadata/canonical-build-evidence.json",
+            github_output="",
+            github_summary="",
+        ))
+        self.publish_evidence_and_results(current)
+        (self.pipeline / "config.json").write_text('{"threshold": 1}\n', encoding="utf-8")
+        return prior, current
+
     def test_canonical_result_ignores_telemetry_and_duplicated_provenance(self) -> None:
         left = {"value": 7, "generated_at_utc": "first", "pipeline_commit": "a", "nested": {"elapsed_ms": 1}}
         right = {"nested": {"elapsed_ms": 99}, "pipeline_commit": "b", "generated_at_utc": "second", "value": 7}
@@ -612,6 +629,65 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
             validate_published_results(evidence, self.results)
         with self.assertRaisesRegex(EvidenceError, "Persisted canonical result mismatch"):
             prepare(self.args())
+
+    def test_prior_exact_record_is_restored_with_result_verification(self) -> None:
+        prior, current = self.establish_second_variant()
+        self.assertNotEqual(
+            prior["canonical_result"]["identity"], current["canonical_result"]["identity"]
+        )
+        with self.assertRaisesRegex(EvidenceError, "currently published"):
+            prepare(self.args("audit"))
+
+        args = self.args()
+        args.github_summary = str(self.root / "restore-summary.md")
+        plan = prepare(args)
+        self.assertEqual(plan["decision"], "execute")
+        self.assertTrue(plan["comparison_required"])
+        self.assertTrue(plan["restoring_prior_identity"])
+        self.assertEqual(plan["incumbent_result_identity"], prior["canonical_result"]["identity"])
+        self.assertIn(
+            "restoring this result with incumbent-equivalence verification",
+            Path(args.github_summary).read_text(encoding="utf-8"),
+        )
+
+        self.materialize_outputs()
+        restored = finalize(argparse.Namespace(
+            plan=args.plan,
+            output_root=self.output,
+            evidence_store=args.evidence,
+            evidence_output=self.output / "metadata/canonical-build-evidence.json",
+            github_output="",
+            github_summary="",
+        ))
+        self.assertEqual(restored["canonical_result"]["identity"], prior["canonical_result"]["identity"])
+        self.assertTrue(restored["execution"]["verified_against_incumbent"])
+        self.publish_evidence_and_results(restored)
+        self.assertEqual(prepare(self.args())["decision"], "reuse")
+
+        (self.pipeline / "config.json").write_text('{"threshold": 2}\n', encoding="utf-8")
+        reverse = prepare(self.args())
+        self.assertEqual(reverse["decision"], "execute")
+        self.assertTrue(reverse["restoring_prior_identity"])
+        self.assertEqual(reverse["incumbent_result_identity"], current["canonical_result"]["identity"])
+
+    def test_prior_record_does_not_hide_corrupt_current_publication(self) -> None:
+        self.establish_second_variant()
+        write_json(self.results / "reports/preprocess-summary.json", {"image_count": 999})
+        with self.assertRaisesRegex(EvidenceError, "Persisted canonical result mismatch"):
+            prepare(self.args())
+
+    def test_prior_record_restoration_rejects_different_rebuilt_result(self) -> None:
+        self.establish_second_variant()
+        self.assertTrue(prepare(self.args())["restoring_prior_identity"])
+        with self.assertRaisesRegex(EvidenceError, "Determinism verification failed"):
+            finalize(argparse.Namespace(
+                plan=self.root / "plan.json",
+                output_root=self.output,
+                evidence_store=self.results / "metadata/canonical-build-evidence.json",
+                evidence_output=self.output / "metadata/canonical-build-evidence.json",
+                github_output="",
+                github_summary="",
+            ))
 
     def test_self_consistent_but_incomplete_artifact_contract_is_rejected(self) -> None:
         evidence = self.establish()

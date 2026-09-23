@@ -1036,6 +1036,7 @@ def _decision_justification(
     policy: str,
     decision: str,
     artifact_required: bool,
+    restoring_prior_identity: bool,
     store: dict[str, Any],
     effective_inputs: dict[str, Any],
 ) -> str:
@@ -1045,6 +1046,11 @@ def _decision_justification(
         return "Exact effective inputs and published artifacts audited; execution skipped."
     if policy == "force-verify":
         return "Explicit verification of an exact CBE match; rebuilt output must match."
+    if restoring_prior_identity:
+        return (
+            "Exact CBE record exists, but another build is currently published; "
+            "restoring this result with incumbent-equivalence verification."
+        )
     if artifact_required and policy == "auto" and canonical_hash(effective_inputs) in store["records"]:
         return "Full artifact requested; rebuilt output must match exact CBE evidence."
 
@@ -1141,13 +1147,31 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         raise EvidenceError("rebuild cannot replace evidence for an unchanged identity; use force-verify")
 
     comparison_required = exact and args.policy in {"auto", "force-verify"}
+    restoring_prior_identity = False
     if exact:
         assert incumbent is not None
-        validate_published_results(incumbent, args.results_root)
+        authoritative = store["records"].get(store.get("authoritative_identity"))
+        if authoritative is None or authoritative is incumbent:
+            validate_published_results(incumbent, args.results_root)
+        else:
+            # The results branch has one mutable publication surface, while the
+            # store retains multiple valid effective-input identities.  Confirm
+            # that the currently published authoritative result is intact before
+            # treating an older exact record as a verified restoration target.
+            validate_published_results(authoritative, args.results_root)
+            if (
+                incumbent["canonical_result"]["identity"]
+                != authoritative["canonical_result"]["identity"]
+            ):
+                restoring_prior_identity = True
+            else:
+                validate_published_results(incumbent, args.results_root)
+    if args.policy == "audit" and restoring_prior_identity:
+        raise EvidenceError("audit requires the exact CBE result to be currently published")
 
     if args.policy == "audit":
         decision, activity, domain_result = "audit", "EVALUATED", "SKIP"
-    elif args.policy == "auto" and exact and not args.artifact_required:
+    elif args.policy == "auto" and exact and not args.artifact_required and not restoring_prior_identity:
         decision, activity, domain_result = "reuse", "REUSED", "SKIP"
     else:
         decision, activity, domain_result = "execute", "EXECUTED", "APPLY"
@@ -1162,6 +1186,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         policy=args.policy,
         decision=decision,
         artifact_required=args.artifact_required,
+        restoring_prior_identity=restoring_prior_identity,
         store=store,
         effective_inputs=effective_inputs,
     )
@@ -1213,6 +1238,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
             incumbent["canonical_result"]["identity"] if exact and incumbent is not None else None
         ),
         "comparison_required": comparison_required,
+        "restoring_prior_identity": restoring_prior_identity,
         "artifact_required": args.artifact_required,
         "resource_utilization": resource_utilization,
         "page_evaluations": page_evaluations,
