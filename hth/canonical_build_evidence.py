@@ -1387,6 +1387,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
     snapshot_available = bool(
         restoring_prior_identity and incumbent is not None and args.policy == "auto"
         and not args.artifact_required
+        and args.scope in {PREPROCESS_SCOPE, NORMALIZATION_SCOPE}
         and validate_cache_snapshot(args.results_root, args.scope, incumbent)
     )
 

@@ -688,6 +688,34 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceError, "Persisted canonical result mismatch"):
             prepare(self.args())
 
+    def test_prior_integration_record_rebuilds_without_variant_cache_lookup(self) -> None:
+        args = self.args()
+        args.scope = TONAL_INTEGRATION_SCOPE
+        args.evidence = self.results / "normalization/tonal-integration/canonical-build-evidence.json"
+        effective_inputs = {"variant": "prior"}
+        identity = canonical_hash(effective_inputs)
+        prior = {
+            "effective_inputs": effective_inputs,
+            "effective_build_identity": identity,
+            "canonical_result": {"identity": "a" * 64, "pages": []},
+        }
+        current = {
+            "effective_inputs": {"variant": "current"},
+            "canonical_result": {"identity": "b" * 64, "pages": []},
+        }
+        store = {
+            "records": {identity: prior, "current": current},
+            "authoritative_identity": "current",
+        }
+        with patch("hth.canonical_build_evidence.build_effective_inputs", return_value=effective_inputs), \
+             patch("hth.canonical_build_evidence.load_evidence_store", return_value=store), \
+             patch("hth.canonical_build_evidence.validate_published_results"):
+            plan = prepare(args)
+
+        self.assertEqual(plan["decision"], "execute")
+        self.assertTrue(plan["restoring_prior_identity"])
+        self.assertTrue(plan["comparison_required"])
+
     def test_prior_record_restoration_rejects_different_rebuilt_result(self) -> None:
         self.establish_second_variant()
         self.assertTrue(prepare(self.args())["restoring_prior_identity"])
