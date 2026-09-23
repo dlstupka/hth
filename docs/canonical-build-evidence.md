@@ -58,7 +58,7 @@ rename logical inputs or operation contracts merely to match generic step names.
 
 Every CBE plan and completed record also carries a `resource_utilization`
 section. It records whether the identity-keyed CBE cache lookup hit or missed,
-whether the build reused, validated, populated, or verification-refreshed that
+whether the build reused, restored, validated, populated, or verification-refreshed that
 entry, and the exact immutable source release consumed by the build. Resource
 provenance has its own contract version inside the Effective Build Identity, so
 adding this lifecycle contract causes one intentional seed build instead of
@@ -109,12 +109,36 @@ canonical analysis SHA-256, activity, and domain result. These page boundaries
 are the handoff used by artifact-only GS0002 normalization. The current
 implementation does not introduce a page-asset cache.
 
+## Runtime-variant publication snapshots
+
+The results branch has one authoritative publication at a time, even though its
+CBE store retains multiple effective identities. Preprocess and canonical
+normalization preserve identity-keyed snapshots under
+`cbe-cache/<scope>/<effective-build-identity>/`. Each snapshot carries a file
+manifest with raw SHA-256 digests and the CBE canonical-result identity. It
+contains the published metadata and analysis, not full-resolution preprocess
+or normalized images. Snapshot creation is additive; an existing identity is
+validated, not overwritten.
+
+Under `auto`, a non-current exact identity with a complete snapshot takes the
+`restore` path. The workflow validates the current publication and every
+snapshot file, restores the saved publication, updates the authoritative CBE
+pointer, and commits through hardened results persistence. It skips the
+expensive preprocessing or normalization engine. A missing historical snapshot
+falls back to a full rebuild checked against its saved canonical result; that
+publication seeds the snapshot. A present but corrupt snapshot fails closed.
+The first runtime switch after this change may therefore require one final
+rebuild, while subsequent switches between seeded variants are metadata-only
+restores.
+
 ## Policies
 
-- `auto`: validate exact evidence and its published artifacts. Reuse the proven
-  result when no new complete build artifact was requested. Missing or genuinely
-  changed effective inputs execute and establish a new baseline. An exact identity
-  whose persisted artifacts are missing or corrupt fails closed.
+- `auto`: validate exact evidence and the current publication. Reuse the
+  authoritative result, or restore a verified non-current variant snapshot,
+  when no new complete build artifact was requested. Missing or genuinely
+  changed effective inputs execute and establish a new baseline. A missing
+  historical snapshot triggers a verified rebuild; a corrupt current
+  publication or present-but-corrupt snapshot fails closed.
 - `audit`: require and validate exact persisted evidence without processing.
 - `force-verify`: require exact persisted evidence, execute the complete process,
   compare canonical results, and fail on any discrepancy. The incumbent evidence

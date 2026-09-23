@@ -210,6 +210,7 @@ jobs:
             /metadata/
             /reports/
             /analysis/
+            /cbe-cache/hth-preprocess/
             /ocr/
             /transcriptions/
             /translations/
@@ -466,6 +467,37 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY" \
             "${ARTIFACT_ARGS[@]}"
+
+      - name: Restore cached preprocess runtime variant
+        if: ${{ inputs.mode == 'production' && inputs.publish_results && steps.cbe_plan.outputs.decision == 'restore' }}
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          source hth-pipeline/tools/hardened-persistence.sh
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          apply_cached_preprocess_variant() {
+            python -m hth.canonical_build_evidence snapshot \
+              --scope hth-preprocess \
+              --source-root results-repo \
+              --cache-root results-repo \
+              --evidence results-repo/metadata/canonical-build-evidence.json
+            python -m hth.canonical_build_evidence restore \
+              --plan "$RUNNER_TEMP/hth-cbe-plan.json" \
+              --results-root results-repo \
+              --github-summary "$GITHUB_STEP_SUMMARY"
+            hth_results_stage results-repo \
+              metadata/canonical-build-evidence.json \
+              metadata/image_manifest.json metadata/image_manifest.csv \
+              metadata/exact_duplicates.json metadata/page_map_template.csv \
+              analysis reports/preprocess-summary.json BUILD-INFO.yaml \
+              cbe-cache/hth-preprocess
+          }
+          hth_hardened_persist results-repo main \
+            "Restore cached preprocess variant ${{ steps.cbe_plan.outputs.effective_build_identity }}" \
+            apply_cached_preprocess_variant \
+            "Preprocess variant restore"
 
       ############################################################
       # STAGE_PREPROCESS
@@ -912,6 +944,7 @@ jobs:
         if: ${{ inputs.mode == 'production' && inputs.publish_results && steps.cbe_plan.outputs.decision == 'execute' }}
         shell: bash
         env:
+          PYTHONPATH: hth-pipeline
           SOURCE_COMMIT: ${{ steps.build.outputs.source_commit }}
           SOURCE_RELEASE_TAG: ${{ steps.build.outputs.source_release_tag }}
           SOURCE_RELEASE_MANIFEST_SHA256: ${{ steps.build.outputs.source_release_manifest_sha256 }}
@@ -936,6 +969,9 @@ jobs:
           cp "$OUTPUT_DIRECTORY/summary.json" \
             results-repo/reports/preprocess-summary.json
 
+          # The production publication replaces analysis as a unit. Avoid
+          # carrying files from a previously published runtime into this cache.
+          rm -rf results-repo/analysis
           mkdir -p results-repo/analysis
           cp -a "$OUTPUT_DIRECTORY/page-analysis/." results-repo/analysis/
 
@@ -1015,6 +1051,13 @@ jobs:
           )
           PY
 
+          python -m hth.canonical_build_evidence snapshot \
+            --scope hth-preprocess \
+            --source-root results-repo \
+            --cache-root results-repo \
+            --evidence results-repo/metadata/canonical-build-evidence.json \
+            --identity "$CBE_EFFECTIVE_BUILD_IDENTITY"
+
           if [[ ! -f results-repo/README.md ]]; then
             cat > results-repo/README.md <<'EOF'
           # San Antonio Baptism Records — Processed Publication
@@ -1073,13 +1116,29 @@ jobs:
           for path in "${production_metadata_paths[@]}"; do
             test -f "results-repo/$path"
           done
+          new_cache_path="cbe-cache/hth-preprocess/${{ steps.cbe_plan.outputs.effective_build_identity }}"
           tar -C results-repo -cf "$publication_payload" \
             "${production_metadata_paths[@]}" \
             analysis ocr transcriptions translations indexes \
             docs BUILD-INFO.yaml README.md \
-            reports/preprocess-summary.json
+            reports/preprocess-summary.json \
+            "$new_cache_path"
 
           apply_production_publication() {
+            python -m hth.canonical_build_evidence snapshot \
+              --scope hth-preprocess \
+              --source-root results-repo \
+              --cache-root results-repo \
+              --evidence results-repo/metadata/canonical-build-evidence.json
+            if [[ -d "results-repo/$new_cache_path" ]]; then
+              incoming_cache="$(mktemp -d "$RUNNER_TEMP/hth-incoming-cbe.XXXXXX")"
+              tar -C "$incoming_cache" -xf "$publication_payload" "$new_cache_path"
+              if ! diff -qr "results-repo/$new_cache_path" "$incoming_cache/$new_cache_path"; then
+                echo "::error::Immutable CBE variant cache collision for $new_cache_path"
+                return 1
+              fi
+              rm -rf "$incoming_cache"
+            fi
             # Only remove production-owned metadata files. Other metadata,
             # including normalization's lifecycle ledger, belongs to other
             # writers and must survive this publication and every retry.
@@ -1110,7 +1169,7 @@ jobs:
               "${production_metadata_paths[@]}" \
               analysis ocr transcriptions translations indexes \
               docs BUILD-INFO.yaml README.md \
-              reports/preprocess-summary.json
+              reports/preprocess-summary.json cbe-cache/hth-preprocess
           }
 
           hth_hardened_persist \

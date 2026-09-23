@@ -28,6 +28,9 @@ from hth.canonical_build_evidence import (
     finalize,
     merge_stores,
     prepare,
+    restore_variant,
+    snapshot_variant,
+    validate_cache_snapshot,
     validate_published_results,
 )
 
@@ -393,6 +396,15 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes((self.output / "metadata/canonical-build-evidence.json").read_bytes())
 
+    def materialize_preprocess_cache_companions(self) -> None:
+        for relative in (
+            "BUILD-INFO.yaml", "metadata/image_manifest.csv", "metadata/page_map_template.csv",
+            "analysis/page-analysis.csv", "analysis/review-queue.csv",
+        ):
+            target = self.results / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("fixture\n", encoding="utf-8")
+
     def establish(self) -> dict:
         plan = prepare(self.args())
         self.assertEqual(plan["decision"], "execute")
@@ -689,6 +701,63 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
                 github_summary="",
             ))
 
+    def test_two_runtime_variants_restore_from_verified_snapshots(self) -> None:
+        prior = self.establish()
+        self.materialize_preprocess_cache_companions()
+        (self.results / "analysis/old-only.csv").write_text("old\n", encoding="utf-8")
+        snapshot_args = argparse.Namespace(
+            scope="hth-preprocess", source_root=self.results, cache_root=self.results,
+            evidence=self.results / "metadata/canonical-build-evidence.json", identity="",
+        )
+        snapshot_variant(snapshot_args)
+        # Capture companions as well as the five canonical CBE artifacts.
+        snapshot_dir = self.results / "cbe-cache/hth-preprocess" / prior["effective_build_identity"]
+        self.assertTrue(snapshot_dir.is_dir())
+
+        (self.pipeline / "config.json").write_text('{"threshold": 2}\n', encoding="utf-8")
+        self.assertEqual(prepare(self.args())["decision"], "execute")
+        write_json(self.output / "summary.json", {"image_count": 2})
+        current = finalize(argparse.Namespace(
+            plan=self.root / "plan.json", output_root=self.output,
+            evidence_store=snapshot_args.evidence,
+            evidence_output=self.output / "metadata/canonical-build-evidence.json",
+            github_output="", github_summary="",
+        ))
+        self.publish_evidence_and_results(current)
+        (self.results / "analysis/old-only.csv").unlink()
+        (self.results / "analysis/new-only.csv").write_text("new\n", encoding="utf-8")
+        snapshot_variant(snapshot_args)
+        (self.pipeline / "config.json").write_text('{"threshold": 1}\n', encoding="utf-8")
+        first = prepare(self.args())
+        self.assertEqual(first["decision"], "restore")
+        self.assertEqual(first["activity"], "REUSED")
+        self.assertFalse(first["comparison_required"])
+        self.assertEqual(first["resource_utilization"]["canonical_evidence_cache"]["action"], "restored")
+        restore_variant(argparse.Namespace(plan=self.root / "plan.json", results_root=self.results, github_summary=""))
+        validate_published_results(prior, self.results)
+        self.assertTrue((self.results / "analysis/old-only.csv").is_file())
+        self.assertFalse((self.results / "analysis/new-only.csv").exists())
+        self.assertEqual(prepare(self.args())["decision"], "reuse")
+
+        (self.pipeline / "config.json").write_text('{"threshold": 2}\n', encoding="utf-8")
+        self.assertEqual(prepare(self.args())["decision"], "restore")
+        restore_variant(argparse.Namespace(plan=self.root / "plan.json", results_root=self.results, github_summary=""))
+        validate_published_results(current, self.results)
+        self.assertFalse((self.results / "analysis/old-only.csv").exists())
+        self.assertTrue((self.results / "analysis/new-only.csv").is_file())
+
+    def test_variant_snapshot_corruption_fails_closed(self) -> None:
+        prior = self.establish()
+        self.materialize_preprocess_cache_companions()
+        snapshot_variant(argparse.Namespace(
+            scope="hth-preprocess", source_root=self.results, cache_root=self.results,
+            evidence=self.results / "metadata/canonical-build-evidence.json", identity="",
+        ))
+        path = self.results / "cbe-cache/hth-preprocess" / prior["effective_build_identity"] / "reports/preprocess-summary.json"
+        path.write_text('{"image_count": 999}\n', encoding="utf-8")
+        with self.assertRaisesRegex(EvidenceError, "cache file mismatch"):
+            validate_cache_snapshot(self.results, "hth-preprocess", prior)
+
     def test_self_consistent_but_incomplete_artifact_contract_is_rejected(self) -> None:
         evidence = self.establish()
         evidence["canonical_result"]["artifacts"] = evidence["canonical_result"]["artifacts"][:-1]
@@ -817,6 +886,70 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
         self.assertEqual(page["normalized_image_sha256"], "2" * 64)
         self.assertEqual(prepare(args)["decision"], "reuse")
 
+    def test_normalization_runtime_variants_restore_without_reexecution(self) -> None:
+        args = self.args()
+        args.scope = "hth-normalization"
+        args.operation = [
+            "canonical-source-reconstruction", "axis-aligned-document-crop",
+            "lossless-png-encoding", "pixel-roundtrip-verification",
+        ]
+        args.evidence = self.results / "normalization/canonical-build-evidence.json"
+
+        def publish(evidence: dict) -> None:
+            destination = self.results / "normalization/normalization-manifest.json"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes((self.output / "normalization-manifest.json").read_bytes())
+            args.evidence.write_bytes((self.output / "canonical-build-evidence.json").read_bytes())
+            (self.results / "normalization/normalization-manifest.csv").write_text("page\n1\n", encoding="utf-8")
+            (self.results / "normalization/summary.md").write_text(
+                evidence["effective_build_identity"] + "\n", encoding="utf-8"
+            )
+
+        def finish() -> dict:
+            return finalize(argparse.Namespace(
+                plan=args.plan, output_root=self.output, evidence_store=args.evidence,
+                evidence_output=self.output / "canonical-build-evidence.json",
+                github_output="", github_summary="",
+            ))
+
+        self.assertEqual(prepare(args)["decision"], "execute")
+        manifest = {"schema_version": "1.0", "pages": [{
+            "global_ordinal": 1, "source_sha256": "1" * 64,
+            "output_sha256": "2" * 64, "output_pixel_sha256": "3" * 64,
+            "crop_left": 1, "crop_top": 2, "crop_right_exclusive": 101,
+            "crop_bottom_exclusive": 202, "source_width": 120,
+            "source_height": 220, "output_width": 100, "output_height": 200,
+        }]}
+        write_json(self.output / "normalization-manifest.json", manifest)
+        prior = finish()
+        publish(prior)
+        cache_args = argparse.Namespace(
+            scope=args.scope, source_root=self.results, cache_root=self.results,
+            evidence=args.evidence, identity="",
+        )
+        snapshot_variant(cache_args)
+
+        (self.pipeline / "config.json").write_text('{"threshold": 2}\n', encoding="utf-8")
+        self.assertEqual(prepare(args)["decision"], "execute")
+        manifest["pages"][0]["output_sha256"] = "4" * 64
+        write_json(self.output / "normalization-manifest.json", manifest)
+        current = finish()
+        publish(current)
+        snapshot_variant(cache_args)
+
+        (self.pipeline / "config.json").write_text('{"threshold": 1}\n', encoding="utf-8")
+        self.assertEqual(prepare(args)["decision"], "restore")
+        restore_variant(argparse.Namespace(plan=args.plan, results_root=self.results, github_summary=""))
+        validate_published_results(prior, self.results)
+        self.assertEqual(
+            (self.results / "normalization/summary.md").read_text(encoding="utf-8").strip(),
+            prior["effective_build_identity"],
+        )
+        (self.pipeline / "config.json").write_text('{"threshold": 2}\n', encoding="utf-8")
+        self.assertEqual(prepare(args)["decision"], "restore")
+        restore_variant(argparse.Namespace(plan=args.plan, results_root=self.results, github_summary=""))
+        validate_published_results(current, self.results)
+
     def test_photometric_integration_scope_establishes_and_reuses_page_complete_evidence(self) -> None:
         args = self.args()
         args.scope = "hth-photometric-integration"
@@ -924,6 +1057,20 @@ class CanonicalBuildEvidenceWorkflowTests(unittest.TestCase):
         self.assertIn("canonical_build_evidence:", self.core)
         self.assertIn("effective_build_identity:", self.core)
         self.assertIn("canonical_result_identity:", self.core)
+
+    def test_runtime_variant_snapshots_are_published_and_restorable(self) -> None:
+        normalize = (self.root / ".github/workflows/normalize.yml").read_text(encoding="utf-8")
+        for workflow, scope, plan in (
+            (self.core, "hth-preprocess", "cbe_plan"),
+            (normalize, "hth-normalization", "normalization_plan"),
+        ):
+            with self.subTest(scope=scope):
+                self.assertIn(f"/cbe-cache/{scope}/", workflow)
+                self.assertIn(f"steps.{plan}.outputs.decision == 'restore'", workflow)
+                self.assertIn(f"--scope {scope}", workflow)
+                self.assertIn("python -m hth.canonical_build_evidence snapshot", workflow)
+                self.assertIn("python -m hth.canonical_build_evidence restore", workflow)
+                self.assertIn(f"cbe-cache/{scope}", workflow)
 
 
 if __name__ == "__main__":

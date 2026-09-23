@@ -14,7 +14,9 @@ import hashlib
 import importlib.metadata
 import json
 import platform
+import shutil
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,8 +30,18 @@ SCHEMA_VERSION = "1.0"
 EVIDENCE_TYPE = "canonical-build-evidence"
 STORE_TYPE = "canonical-build-evidence-store"
 RESOURCE_PROVENANCE_VERSION = "1"
+CACHE_MANIFEST_VERSION = "1"
 PREPROCESS_SCOPE = "hth-preprocess"
 NORMALIZATION_SCOPE = "hth-normalization"
+CACHE_REQUIRED_COMPANIONS = {
+    PREPROCESS_SCOPE: (
+        "BUILD-INFO.yaml", "metadata/image_manifest.csv", "metadata/page_map_template.csv",
+        "analysis/page-analysis.csv", "analysis/review-queue.csv",
+    ),
+    NORMALIZATION_SCOPE: (
+        "normalization/normalization-manifest.csv", "normalization/summary.md",
+    ),
+}
 PHOTOMETRIC_INTEGRATION_SCOPE = "hth-photometric-integration"
 TONAL_ASSESSMENT_SCOPE = "hth-tonal-assessment"
 TONAL_METHOD_ASSESSMENT_SCOPE = "hth-tonal-method-assessment"
@@ -982,6 +994,207 @@ def validate_published_results(payload: dict[str, Any], results_root: Path) -> N
             )
 
 
+def _cache_directory(root: Path, scope: str, identity: str) -> Path:
+    if scope not in {PREPROCESS_SCOPE, NORMALIZATION_SCOPE} or not _is_sha256(identity):
+        raise EvidenceError("CBE variant cache requires a supported scope and build identity")
+    return Path(root) / "cbe-cache" / scope / identity
+
+
+def _cache_owned_paths(root: Path, scope: str) -> list[str]:
+    if scope == PREPROCESS_SCOPE:
+        fixed = [
+            "BUILD-INFO.yaml",
+            "metadata/image_manifest.json",
+            "metadata/image_manifest.csv",
+            "metadata/exact_duplicates.json",
+            "metadata/page_map_template.csv",
+            "reports/preprocess-summary.json",
+        ]
+        analysis = root / "analysis"
+        if analysis.exists() and (not analysis.is_dir() or analysis.is_symlink()):
+            raise EvidenceError("CBE cache analysis publication is not a regular directory")
+        extra = [path.relative_to(root).as_posix() for path in analysis.rglob("*") if path.is_file()] if analysis.exists() else []
+        return sorted(set(fixed + extra))
+    if scope == NORMALIZATION_SCOPE:
+        return [
+            "normalization/normalization-manifest.json",
+            "normalization/normalization-manifest.csv",
+            "normalization/summary.md",
+            "normalization/applied-normalization-policy.json",
+        ]
+    raise EvidenceError(f"CBE variant cache does not support scope {scope!r}")
+
+
+def _cache_path_allowed(scope: str, relative: str) -> bool:
+    path = PurePosixPath(relative)
+    if (path.is_absolute() or not relative or path.as_posix() != relative
+            or ".." in path.parts or "\\" in relative):
+        return False
+    if scope == PREPROCESS_SCOPE:
+        return relative in {
+            "BUILD-INFO.yaml", "metadata/image_manifest.json", "metadata/image_manifest.csv",
+            "metadata/exact_duplicates.json", "metadata/page_map_template.csv",
+            "reports/preprocess-summary.json",
+        } or (len(path.parts) > 1 and path.parts[0] == "analysis")
+    return relative in {
+        "normalization/normalization-manifest.json",
+        "normalization/normalization-manifest.csv",
+        "normalization/summary.md",
+        "normalization/applied-normalization-policy.json",
+    }
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _confined_cache_file(root: Path, relative: str) -> Path:
+    path = root / relative
+    if not path.resolve().is_relative_to(root.resolve()):
+        raise EvidenceError(f"CBE variant cache path escapes its root: {relative}")
+    return path
+
+
+def validate_cache_snapshot(root: Path, scope: str, record: dict[str, Any]) -> bool:
+    identity = record["effective_build_identity"]
+    directory = _cache_directory(root, scope, identity)
+    if not directory.exists():
+        return False
+    if directory.is_symlink() or not directory.is_dir():
+        raise EvidenceError("CBE variant cache is not a regular directory")
+    manifest = _load_json_object(directory / "cache-manifest.json", "CBE variant cache manifest")
+    if (manifest.get("schema_version") != CACHE_MANIFEST_VERSION
+            or manifest.get("scope") != scope
+            or manifest.get("effective_build_identity") != identity
+            or manifest.get("canonical_result_identity") != record["canonical_result"]["identity"]):
+        raise EvidenceError("CBE variant cache identity mismatch")
+    files = manifest.get("files")
+    if not isinstance(files, list) or not files:
+        raise EvidenceError("CBE variant cache has no files")
+    seen: set[str] = set()
+    for item in files:
+        if not isinstance(item, dict):
+            raise EvidenceError("CBE variant cache file entry is invalid")
+        relative = item.get("path")
+        expected = item.get("sha256")
+        if (not isinstance(relative, str) or not _cache_path_allowed(scope, relative)
+                or relative in seen or not _is_sha256(expected)):
+            raise EvidenceError("CBE variant cache file path or hash is invalid")
+        seen.add(relative)
+        path = _confined_cache_file(directory, relative)
+        if not path.is_file() or path.is_symlink() or _sha256_file(path) != expected:
+            raise EvidenceError(f"CBE variant cache file mismatch: {relative}")
+    required = {spec.published_path for spec in artifact_profile(scope)}
+    required.update(CACHE_REQUIRED_COMPANIONS[scope])
+    if not required.issubset(seen):
+        raise EvidenceError("CBE variant cache is missing required publication files")
+    validate_published_results(record, directory)
+    return True
+
+
+def snapshot_variant(args: argparse.Namespace) -> Path | None:
+    source_root = Path(args.source_root)
+    cache_root = Path(args.cache_root)
+    scope = args.scope
+    store = load_evidence_store(args.evidence, scope=scope)
+    identity = args.identity or store.get("authoritative_identity")
+    if not identity and not args.identity:
+        return None
+    record = store["records"].get(identity)
+    if record is None:
+        raise EvidenceError("CBE variant cache has no record for requested identity")
+    validate_published_results(record, source_root)
+    destination = _cache_directory(cache_root, scope, identity)
+    if destination.exists():
+        validate_cache_snapshot(cache_root, scope, record)
+        return destination
+    paths = [relative for relative in _cache_owned_paths(source_root, scope) if (source_root / relative).is_file()]
+    required = {spec.published_path for spec in artifact_profile(scope)}
+    required.update(CACHE_REQUIRED_COMPANIONS[scope])
+    if not required.issubset(paths):
+        raise EvidenceError("CBE variant cache source is missing required publication files")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(tempfile.mkdtemp(prefix=f".{identity}.", dir=destination.parent))
+    try:
+        files = []
+        for relative in paths:
+            source = _confined_cache_file(source_root, relative)
+            if source.is_symlink():
+                raise EvidenceError(f"CBE variant cache source is a symlink: {relative}")
+            target = _confined_cache_file(temporary, relative)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
+            files.append({"path": relative, "sha256": _sha256_file(target)})
+        _write_json(temporary / "cache-manifest.json", {
+            "schema_version": CACHE_MANIFEST_VERSION,
+            "scope": scope,
+            "effective_build_identity": identity,
+            "canonical_result_identity": record["canonical_result"]["identity"],
+            "files": files,
+        })
+        validate_published_results(record, temporary)
+        temporary.replace(destination)
+    finally:
+        if temporary.exists():
+            shutil.rmtree(temporary)
+    validate_cache_snapshot(cache_root, scope, record)
+    return destination
+
+
+def restore_variant(args: argparse.Namespace) -> dict[str, Any]:
+    plan = _load_json_object(args.plan, "Canonical Build Evidence plan")
+    if plan.get("decision") != "restore":
+        raise EvidenceError("CBE variant restore requires a restore plan")
+    scope = plan["scope"]
+    root = Path(args.results_root)
+    store_path = root / evidence_relative_path(scope)
+    store = load_evidence_store(store_path, scope=scope)
+    identity = plan["effective_build_identity"]
+    record = store["records"].get(identity)
+    if record is None or record["canonical_result"]["identity"] != plan.get("incumbent_result_identity"):
+        raise EvidenceError("CBE variant restore record changed since planning")
+    current_identity = store.get("authoritative_identity")
+    current = store["records"].get(current_identity)
+    if (current is None or current_identity != plan.get("published_authoritative_identity")
+            or current["canonical_result"]["identity"]
+            != plan.get("published_authoritative_result_identity")):
+        raise EvidenceError("CBE authoritative publication changed since planning")
+    validate_published_results(current, root)
+    if not validate_cache_snapshot(root, scope, record):
+        raise EvidenceError("CBE variant restore snapshot is missing")
+    directory = _cache_directory(root, scope, identity)
+    manifest = _load_json_object(directory / "cache-manifest.json", "CBE variant cache manifest")
+    if scope == PREPROCESS_SCOPE:
+        analysis = root / "analysis"
+        if analysis.exists():
+            if analysis.is_symlink() or not analysis.is_dir():
+                raise EvidenceError("CBE analysis publication is not a regular directory")
+            shutil.rmtree(analysis)
+    for relative in _cache_owned_paths(root, scope):
+        path = _confined_cache_file(root, relative)
+        if path.exists() and path.is_file():
+            path.unlink()
+    for item in manifest["files"]:
+        relative = item["path"]
+        target = _confined_cache_file(root, relative)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(_confined_cache_file(directory, relative), target)
+    validate_published_results(record, root)
+    store["authoritative_identity"] = identity
+    _write_json(store_path, store)
+    _append_summary(args.github_summary, [
+        "### Canonical Build Evidence variant restore", "",
+        f"- Restored identity: `{identity}`",
+        f"- Canonical result: `{record['canonical_result']['identity']}`",
+        "- All snapshot files and canonical artifacts verified before publication.",
+    ])
+    return record
+
+
 def load_evidence_store(path: Path, *, scope: str) -> dict[str, Any]:
     path = Path(path)
     if not path.is_file():
@@ -1042,6 +1255,8 @@ def _decision_justification(
 ) -> str:
     if decision == "reuse":
         return "Exact effective inputs and published artifacts verified."
+    if decision == "restore":
+        return "Exact CBE variant snapshot verified; republishing saved results without recomputation."
     if decision == "audit":
         return "Exact effective inputs and published artifacts audited; execution skipped."
     if policy == "force-verify":
@@ -1169,17 +1384,30 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
     if args.policy == "audit" and restoring_prior_identity:
         raise EvidenceError("audit requires the exact CBE result to be currently published")
 
+    snapshot_available = bool(
+        restoring_prior_identity and incumbent is not None and args.policy == "auto"
+        and not args.artifact_required
+        and validate_cache_snapshot(args.results_root, args.scope, incumbent)
+    )
+
     if args.policy == "audit":
         decision, activity, domain_result = "audit", "EVALUATED", "SKIP"
+    elif snapshot_available:
+        decision, activity, domain_result = "restore", "REUSED", "SKIP"
     elif args.policy == "auto" and exact and not args.artifact_required and not restoring_prior_identity:
         decision, activity, domain_result = "reuse", "REUSED", "SKIP"
     else:
         decision, activity, domain_result = "execute", "EXECUTED", "APPLY"
+    if decision == "restore":
+        # Snapshot integrity, not a new execution's result comparison, justifies
+        # this reuse decision. Keep the two verification modes distinct.
+        comparison_required = False
 
     cache_lookup = "hit" if exact else "miss"
     cache_action = {
         "audit": "validated",
         "reuse": "reused",
+        "restore": "restored",
         "execute": "verified-and-refreshed" if comparison_required else "populated",
     }[decision]
     justification = _decision_justification(
@@ -1215,7 +1443,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
     }
 
     page_evaluations = []
-    if decision in {"audit", "reuse"} and incumbent is not None:
+    if decision in {"audit", "reuse", "restore"} and incumbent is not None:
         for page in incumbent["canonical_result"]["pages"]:
             page_evaluations.append({
                 "global_ordinal": page["global_ordinal"],
@@ -1236,6 +1464,11 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         "effective_inputs": effective_inputs,
         "incumbent_result_identity": (
             incumbent["canonical_result"]["identity"] if exact and incumbent is not None else None
+        ),
+        "published_authoritative_identity": store.get("authoritative_identity"),
+        "published_authoritative_result_identity": (
+            store["records"][store["authoritative_identity"]]["canonical_result"]["identity"]
+            if store.get("authoritative_identity") in store["records"] else None
         ),
         "comparison_required": comparison_required,
         "restoring_prior_identity": restoring_prior_identity,
@@ -1280,7 +1513,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         f"- Source release utilized: `{args.source_repository}@{args.source_release}`",
         f"- Evidence: {code_link(evidence_relative, evidence_url)}",
     ]
-    if decision in {"audit", "reuse"} and incumbent is not None:
+    if decision in {"audit", "reuse", "restore"} and incumbent is not None:
         persisted_elapsed = execution_elapsed_seconds(dict(incumbent.get("execution") or {}))
         if persisted_elapsed is not None:
             summary_lines.append(
@@ -1957,6 +2190,16 @@ def parser() -> argparse.ArgumentParser:
     merge_parser.add_argument("--base", type=Path, required=True)
     merge_parser.add_argument("--incoming", type=Path, required=True)
     merge_parser.add_argument("--output", type=Path, required=True)
+    snapshot_parser = commands.add_parser("snapshot", help="Save an immutable identity-keyed publication snapshot")
+    snapshot_parser.add_argument("--scope", choices=(PREPROCESS_SCOPE, NORMALIZATION_SCOPE), required=True)
+    snapshot_parser.add_argument("--source-root", type=Path, required=True)
+    snapshot_parser.add_argument("--cache-root", type=Path, required=True)
+    snapshot_parser.add_argument("--evidence", type=Path, required=True)
+    snapshot_parser.add_argument("--identity", default="")
+    restore_parser = commands.add_parser("restore", help="Restore a verified CBE variant snapshot")
+    restore_parser.add_argument("--plan", type=Path, required=True)
+    restore_parser.add_argument("--results-root", type=Path, required=True)
+    restore_parser.add_argument("--github-summary", default="")
     return root
 
 
@@ -1966,8 +2209,12 @@ def main() -> int:
         prepare(args)
     elif args.command == "finalize":
         finalize(args)
-    else:
+    elif args.command == "merge":
         merge_stores(args)
+    elif args.command == "snapshot":
+        snapshot_variant(args)
+    else:
+        restore_variant(args)
     return 0
 
 

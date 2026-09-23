@@ -193,6 +193,7 @@ jobs:
             /analysis/page-analysis.json
             /analysis/analysis-summary.json
             /normalization/
+            /cbe-cache/hth-normalization/
           sparse-checkout-cone-mode: false
           persist-credentials: true
 
@@ -329,6 +330,32 @@ jobs:
             "${artifact_args[@]}" \
             "${transform_args[@]}"
 
+      - name: Restore cached normalization runtime variant
+        if: ${{ steps.normalization_plan.outputs.decision == 'restore' }}
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail
+          source hth-pipeline/tools/hardened-persistence.sh
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          apply_cached_normalization_variant() {
+            python -m hth.canonical_build_evidence snapshot \
+              --scope hth-normalization \
+              --source-root results-repo \
+              --cache-root results-repo \
+              --evidence results-repo/normalization/canonical-build-evidence.json
+            python -m hth.canonical_build_evidence restore \
+              --plan "$RUNNER_TEMP/hth-normalization-plan.json" \
+              --results-root results-repo \
+              --github-summary "$GITHUB_STEP_SUMMARY"
+            hth_results_stage results-repo normalization cbe-cache/hth-normalization
+          }
+          hth_hardened_persist results-repo main \
+            "Restore cached normalization variant ${{ steps.normalization_plan.outputs.effective_build_identity }}" \
+            apply_cached_normalization_variant \
+            "Normalization variant restore"
+
       - name: Download immutable source release
         id: source_release
         if: ${{ steps.normalization_plan.outputs.decision == 'execute' }}
@@ -423,9 +450,33 @@ jobs:
           if [[ -f normalized-collection/normalization-policy.json ]]; then
             cp normalized-collection/normalization-policy.json "$staging/normalization/applied-normalization-policy.json"
           fi
-          tar -C "$staging" -cf "$payload" normalization
+          python -m hth.canonical_build_evidence snapshot \
+            --scope hth-normalization \
+            --source-root "$staging" \
+            --cache-root results-repo \
+            --evidence "$staging/normalization/canonical-build-evidence.json" \
+            --identity "${{ steps.normalization_plan.outputs.effective_build_identity }}"
+          mkdir -p "$staging/cbe-cache/hth-normalization"
+          cp -a "results-repo/cbe-cache/hth-normalization/${{ steps.normalization_plan.outputs.effective_build_identity }}" \
+            "$staging/cbe-cache/hth-normalization/"
+          new_cache_path="cbe-cache/hth-normalization/${{ steps.normalization_plan.outputs.effective_build_identity }}"
+          tar -C "$staging" -cf "$payload" normalization cbe-cache/hth-normalization
 
           apply_normalization_publication() {
+            python -m hth.canonical_build_evidence snapshot \
+              --scope hth-normalization \
+              --source-root results-repo \
+              --cache-root results-repo \
+              --evidence results-repo/normalization/canonical-build-evidence.json
+            if [[ -d "results-repo/$new_cache_path" ]]; then
+              incoming_cache="$(mktemp -d "$RUNNER_TEMP/hth-incoming-normalization-cbe.XXXXXX")"
+              tar -C "$incoming_cache" -xf "$payload" "$new_cache_path"
+              if ! diff -qr "results-repo/$new_cache_path" "$incoming_cache/$new_cache_path"; then
+                echo "::error::Immutable CBE variant cache collision for $new_cache_path"
+                return 1
+              fi
+              rm -rf "$incoming_cache"
+            fi
             remote_store="$RUNNER_TEMP/hth-remote-normalization-cbe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${HTH_PERSIST_ATTEMPTS}.json"
             rm -f "$remote_store"
             if [[ -f results-repo/normalization/canonical-build-evidence.json ]]; then
@@ -440,7 +491,7 @@ jobs:
                 --incoming results-repo/normalization/canonical-build-evidence.json \
                 --output results-repo/normalization/canonical-build-evidence.json
             fi
-            hth_results_stage results-repo normalization
+            hth_results_stage results-repo normalization cbe-cache/hth-normalization
           }
 
           hth_hardened_persist \
