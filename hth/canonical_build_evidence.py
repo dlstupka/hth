@@ -1031,6 +1031,102 @@ def _append_summary(path: str, lines: list[str]) -> None:
         handle.write("\n".join(lines) + "\n")
 
 
+def _decision_justification(
+    *,
+    policy: str,
+    decision: str,
+    artifact_required: bool,
+    store: dict[str, Any],
+    effective_inputs: dict[str, Any],
+) -> str:
+    if decision == "reuse":
+        return "Exact effective inputs and published artifacts verified."
+    if decision == "audit":
+        return "Exact effective inputs and published artifacts audited; execution skipped."
+    if policy == "force-verify":
+        return "Explicit verification of an exact CBE match; rebuilt output must match."
+    if artifact_required and policy == "auto" and canonical_hash(effective_inputs) in store["records"]:
+        return "Full artifact requested; rebuilt output must match exact CBE evidence."
+
+    records = store["records"]
+    prior = records.get(store.get("authoritative_identity"))
+    if prior is None:
+        if not records:
+            if policy == "rebuild":
+                return "Explicit rebuild requested; no prior CBE evidence for this scope."
+            return "No prior CBE evidence for this scope."
+        return "No exact CBE match; authoritative comparison unavailable."
+    old = prior["effective_inputs"]
+    changes: list[str] = []
+
+    def shown(value: Any) -> str:
+        if value is None:
+            return "missing"
+        safe = str(value).replace("`", "'")
+        return f"`{safe}`"
+
+    old_runtime = old.get("runtime") or {}
+    new_runtime = effective_inputs.get("runtime") or {}
+    for key, label in (
+        ("python_implementation", "Python implementation"),
+        ("python_version", "Python"),
+        ("python_cache_tag", "Python cache tag"),
+    ):
+        if old_runtime.get(key) != new_runtime.get(key):
+            changes.append(f"{label} {shown(old_runtime.get(key))} → {shown(new_runtime.get(key))}")
+    for key in sorted(set(old_runtime.get("packages") or {}) | set(new_runtime.get("packages") or {})):
+        before = (old_runtime.get("packages") or {}).get(key)
+        after = (new_runtime.get("packages") or {}).get(key)
+        if before != after:
+            changes.append(f"{key} {shown(before)} → {shown(after)}")
+    for key in sorted(set(old_runtime.get("declared_components") or {}) | set(new_runtime.get("declared_components") or {})):
+        before = (old_runtime.get("declared_components") or {}).get(key)
+        after = (new_runtime.get("declared_components") or {}).get(key)
+        if before != after:
+            changes.append(f"{key} {shown(before)} → {shown(after)}")
+
+    for key, label in (
+        ("configuration", "configuration"),
+        ("implementation", "implementation"),
+        ("selected_detector_implementation", "selected detector code"),
+        ("runtime_contract", "runtime contract"),
+    ):
+        before = {item["path"]: item for item in old.get(key) or []}
+        after = {item["path"]: item for item in effective_inputs.get(key) or []}
+        changed = sorted(
+            path for path in before.keys() | after.keys()
+            if before.get(path) != after.get(path)
+        )
+        if changed:
+            names = ", ".join(shown(path) for path in changed[:2])
+            changes.append(f"{label}: {names}" + (f" (+{len(changed) - 2} more)" if len(changed) > 2 else ""))
+
+    old_source = old.get("source") or {}
+    new_source = effective_inputs.get("source") or {}
+    for key in ("repository", "release", "commit", "release_manifest_sha256"):
+        if old_source.get(key) != new_source.get(key):
+            changes.append(f"source {key.replace('_', ' ')} changed")
+    before_files = {item["path"]: item for item in old_source.get("files") or []}
+    after_files = {item["path"]: item for item in new_source.get("files") or []}
+    changed_files = sorted(
+        path for path in before_files.keys() | after_files.keys()
+        if before_files.get(path) != after_files.get(path)
+    )
+    if changed_files:
+        changes.append(f"source files changed ({len(changed_files)})")
+    if old.get("contract") != effective_inputs.get("contract"):
+        changes.append("operation contract changed")
+    if old.get("detector_selection") != effective_inputs.get("detector_selection"):
+        changes.append("detector selection changed")
+
+    if not changes:
+        return "No exact CBE match; prior effective-input difference could not be summarized."
+    visible = changes[:4]
+    suffix = f"; +{len(changes) - 4} more changes" if len(changes) > 4 else ""
+    prefix = "Explicit rebuild; " if policy == "rebuild" else "No exact CBE match; "
+    return prefix + "changed since authoritative build: " + "; ".join(visible) + suffix + "."
+
+
 def prepare(args: argparse.Namespace) -> dict[str, Any]:
     effective_inputs = build_effective_inputs(args)
     identity = canonical_hash(effective_inputs)
@@ -1062,6 +1158,13 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         "reuse": "reused",
         "execute": "verified-and-refreshed" if comparison_required else "populated",
     }[decision]
+    justification = _decision_justification(
+        policy=args.policy,
+        decision=decision,
+        artifact_required=args.artifact_required,
+        store=store,
+        effective_inputs=effective_inputs,
+    )
     resource_utilization = {
         "schema_version": RESOURCE_PROVENANCE_VERSION,
         "canonical_evidence_cache": {
@@ -1145,6 +1248,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         f"- Activity: `{activity}`",
         f"- Domain result: `{domain_result}`",
         f"- Decision: `{decision}`",
+        f"- Why: {justification}",
         f"- Pages marked unnecessary: `{len(page_evaluations)}`",
         f"- Evidence cache: `{cache_lookup}` / `{cache_action}`",
         f"- Source release utilized: `{args.source_repository}@{args.source_release}`",

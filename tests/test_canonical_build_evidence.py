@@ -9,6 +9,7 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from hth.canonical_build_evidence import (
     CROP_FRAMING_ASSESSMENT_SCOPE,
@@ -470,6 +471,49 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
         self.assertEqual(evidence["canonical_result"]["pages"][0]["domain_result"], "APPLY")
         self.assertEqual(len(evidence["effective_inputs"]["source"]["files"]), 1)
 
+    def test_first_build_summary_explains_missing_evidence(self) -> None:
+        args = self.args()
+        args.github_summary = str(self.root / "summary.md")
+        prepare(args)
+        self.assertIn(
+            "- Decision: `execute`\n- Why: No prior CBE evidence for this scope.",
+            Path(args.github_summary).read_text(encoding="utf-8"),
+        )
+
+    def test_runtime_mismatch_summary_names_actual_versions(self) -> None:
+        prior_runtime = {
+            "python_implementation": "CPython", "python_version": "3.12.14",
+            "python_cache_tag": "cpython-312", "packages": {"numpy": "2.5.3"},
+        }
+        current_runtime = {
+            **prior_runtime, "python_version": "3.12.0",
+            "packages": {"numpy": "2.4.6"},
+        }
+        with patch("hth.canonical_build_evidence.runtime_identity", return_value=prior_runtime):
+            self.establish()
+        args = self.args()
+        args.github_summary = str(self.root / "summary.md")
+        with patch("hth.canonical_build_evidence.runtime_identity", return_value=current_runtime):
+            plan = prepare(args)
+        self.assertEqual(plan["decision"], "execute")
+        self.assertIn(
+            "- Why: No exact CBE match; changed since authoritative build: "
+            "Python `3.12.14` → `3.12.0`; numpy `2.5.3` → `2.4.6`.",
+            Path(args.github_summary).read_text(encoding="utf-8"),
+        )
+
+    def test_configuration_mismatch_summary_names_changed_file(self) -> None:
+        self.establish()
+        (self.pipeline / "config.json").write_text('{"threshold": 2}\n', encoding="utf-8")
+        args = self.args()
+        args.github_summary = str(self.root / "summary.md")
+        prepare(args)
+        self.assertIn(
+            "- Why: No exact CBE match; changed since authoritative build: "
+            "configuration: `config.json`.",
+            Path(args.github_summary).read_text(encoding="utf-8"),
+        )
+
     def test_summary_reports_executed_and_reused_build_stage_time(self) -> None:
         args = self.args()
         summary = self.root / "summary.md"
@@ -496,6 +540,7 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
         reused_args.github_summary = str(reused_summary)
         prepare(reused_args)
         reused_rendered = reused_summary.read_text(encoding="utf-8")
+        self.assertIn("- Why: Exact effective inputs and published artifacts verified.", reused_rendered)
         self.assertIn("- Build stage time:", reused_rendered)
         self.assertIn(f"(`{expected_elapsed}` seconds)", reused_rendered)
 
@@ -520,9 +565,30 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
 
     def test_artifact_request_executes_but_requires_incumbent_equivalence(self) -> None:
         self.establish()
-        plan = prepare(self.args(artifact_required=True))
+        args = self.args(artifact_required=True)
+        args.github_summary = str(self.root / "summary.md")
+        plan = prepare(args)
         self.assertEqual(plan["decision"], "execute")
         self.assertTrue(plan["comparison_required"])
+        self.assertIn(
+            "- Why: Full artifact requested; rebuilt output must match exact CBE evidence.",
+            Path(args.github_summary).read_text(encoding="utf-8"),
+        )
+
+    def test_explicit_policy_summaries_explain_the_decision(self) -> None:
+        self.establish()
+        for policy, expected in (
+            ("audit", "Exact effective inputs and published artifacts audited; execution skipped."),
+            ("force-verify", "Explicit verification of an exact CBE match; rebuilt output must match."),
+        ):
+            with self.subTest(policy=policy):
+                args = self.args(policy)
+                args.github_summary = str(self.root / f"{policy}-summary.md")
+                prepare(args)
+                self.assertIn(
+                    f"- Why: {expected}",
+                    Path(args.github_summary).read_text(encoding="utf-8"),
+                )
 
     def test_force_verify_fails_if_result_changes_for_same_identity(self) -> None:
         self.establish()
