@@ -84,6 +84,7 @@ jobs:
             /normalization/photometric-validation/
             /normalization/photometric-integration-policy.json
             /normalization/photometric-integration/
+            /cbe-cache/hth-photometric-integration/
           sparse-checkout-cone-mode: false
           persist-credentials: true
 
@@ -212,6 +213,22 @@ jobs:
             --runner-arch "$RUNNER_ARCH" \
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
+      - name: Restore verified photometric integration variant
+        if: steps.cbe_plan.outputs.decision == 'restore'
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          source hth-pipeline/tools/hardened-persistence.sh
+          git -C results-repo config user.name "github-actions[bot]"
+          git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          restore_photometric() {
+            python -m hth.canonical_build_evidence snapshot --scope hth-photometric-integration --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/photometric-integration/canonical-build-evidence.json
+            python -m hth.canonical_build_evidence restore --plan "$RUNNER_TEMP/photometric-cbe-plan.json" --results-root results-repo --github-summary "$GITHUB_STEP_SUMMARY"
+            hth_results_stage results-repo normalization/photometric-integration cbe-cache/hth-photometric-integration
+          }
+          hth_hardened_persist results-repo main "Restore photometric integration variant" restore_photometric "Photometric integration variant restore"
 
       - name: Audit reusable immutable photometric release
         if: steps.cbe_plan.outputs.decision != 'execute'
@@ -424,6 +441,7 @@ jobs:
           cp photometric-integrated-collection/canonical-build-evidence.json "$cbe_incoming"
 
           apply_photometric_integration() {
+            python -m hth.canonical_build_evidence snapshot --scope hth-photometric-integration --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/photometric-integration/canonical-build-evidence.json
             python -m hth.canonical_build_evidence merge \
               --scope hth-photometric-integration \
               --base results-repo/normalization/photometric-integration/canonical-build-evidence.json \
@@ -432,7 +450,8 @@ jobs:
             rm -rf results-repo/normalization/photometric-integration
             mkdir -p results-repo/normalization/photometric-integration
             cp "$payload"/* results-repo/normalization/photometric-integration/
-            hth_results_stage results-repo normalization/photometric-integration
+            python -m hth.canonical_build_evidence snapshot --scope hth-photometric-integration --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/photometric-integration/canonical-build-evidence.json
+            hth_results_stage results-repo normalization/photometric-integration cbe-cache/hth-photometric-integration
           }
           hth_hardened_persist results-repo main \
             "Publish photometric integration ${{ steps.integration.outputs.result_identity }}" \

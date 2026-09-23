@@ -82,6 +82,7 @@ jobs:
             /normalization/normalization-manifest.json
             /normalization/perspective-policy.json
             /normalization/photometric/
+            /cbe-cache/hth-photometric-assessment/
             /normalization/photometric-policy.json
           sparse-checkout-cone-mode: false
           persist-credentials: true
@@ -207,6 +208,20 @@ jobs:
             --runner-environment "${{ runner.environment }}" --runner-os "$RUNNER_OS" --runner-arch "$RUNNER_ARCH" \
             --github-output "$GITHUB_OUTPUT" --github-summary "$GITHUB_STEP_SUMMARY"
 
+      - name: Restore verified photometric assessment variant
+        if: steps.cbe.outputs.decision == 'restore'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail; source hth-pipeline/tools/hardened-persistence.sh
+          git -C results-repo config user.name "github-actions[bot]"; git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          restore_variant() {
+            python -m hth.canonical_build_evidence snapshot --scope hth-photometric-assessment --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/photometric/canonical-build-evidence.json
+            python -m hth.canonical_build_evidence restore --plan "$RUNNER_TEMP/photometric-assessment-cbe-plan.json" --results-root results-repo --github-summary "$GITHUB_STEP_SUMMARY"
+            hth_results_stage results-repo normalization/photometric normalization/photometric-policy.json cbe-cache/hth-photometric-assessment
+          }
+          hth_hardened_persist results-repo main "Restore photometric assessment variant" restore_variant "Photometric assessment variant restore"
+
       - name: Download immutable source release
         id: source_release
         if: steps.cbe.outputs.decision == 'execute'
@@ -304,15 +319,18 @@ jobs:
           cp photometric-assessment/canonical-build-evidence.json "$RUNNER_TEMP/photometric-cbe-incoming.json"
 
           apply_photometric_assessment() {
+            python -m hth.canonical_build_evidence snapshot --scope hth-photometric-assessment --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/photometric/canonical-build-evidence.json
             python -m hth.canonical_build_evidence merge \
               --scope hth-photometric-assessment \
               --base results-repo/normalization/photometric/canonical-build-evidence.json \
               --incoming "$RUNNER_TEMP/photometric-cbe-incoming.json" \
               --output "$payload/canonical-build-evidence.json"
+            rm -rf results-repo/normalization/photometric
             mkdir -p results-repo/normalization/photometric
             cp "$payload"/* results-repo/normalization/photometric/
             cp "$payload/photometric-policy.json" results-repo/normalization/photometric-policy.json
-            hth_results_stage results-repo normalization/photometric normalization/photometric-policy.json
+            python -m hth.canonical_build_evidence snapshot --scope hth-photometric-assessment --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/photometric/canonical-build-evidence.json
+            hth_results_stage results-repo normalization/photometric normalization/photometric-policy.json cbe-cache/hth-photometric-assessment
           }
           hth_hardened_persist results-repo main \
             "Publish photometric assessment ${{ github.run_id }}" \

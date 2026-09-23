@@ -83,6 +83,7 @@ jobs:
             /normalization/photometric-methods/
             /normalization/photometric-method-policy.json
             /normalization/photometric-validation/
+            /cbe-cache/hth-photometric-validation/
             /normalization/photometric-integration-policy.json
           sparse-checkout-cone-mode: false
           persist-credentials: true
@@ -203,6 +204,20 @@ jobs:
             --runner-environment "${{ runner.environment }}" --runner-os "$RUNNER_OS" --runner-arch "$RUNNER_ARCH" \
             --github-output "$GITHUB_OUTPUT" --github-summary "$GITHUB_STEP_SUMMARY"
 
+      - name: Restore verified photometric validation variant
+        if: steps.cbe.outputs.decision == 'restore'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail; source hth-pipeline/tools/hardened-persistence.sh
+          git -C results-repo config user.name "github-actions[bot]"; git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          restore_variant() {
+            python -m hth.canonical_build_evidence snapshot --scope hth-photometric-validation --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/photometric-validation/canonical-build-evidence.json
+            python -m hth.canonical_build_evidence restore --plan "$RUNNER_TEMP/photometric-validation-cbe-plan.json" --results-root results-repo --github-summary "$GITHUB_STEP_SUMMARY"
+            hth_results_stage results-repo normalization/photometric-validation normalization/photometric-integration-policy.json cbe-cache/hth-photometric-validation
+          }
+          hth_hardened_persist results-repo main "Restore photometric validation variant" restore_variant "Photometric validation variant restore"
+
       - name: Download immutable source release
         id: source_release
         if: steps.cbe.outputs.decision == 'execute'
@@ -303,15 +318,18 @@ jobs:
           cp photometric-method-validation/canonical-build-evidence.json "$RUNNER_TEMP/photometric-validation-cbe-incoming.json"
 
           apply_photometric_validation() {
+            python -m hth.canonical_build_evidence snapshot --scope hth-photometric-validation --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/photometric-validation/canonical-build-evidence.json
             python -m hth.canonical_build_evidence merge \
               --scope hth-photometric-validation \
               --base results-repo/normalization/photometric-validation/canonical-build-evidence.json \
               --incoming "$RUNNER_TEMP/photometric-validation-cbe-incoming.json" \
               --output "$payload/canonical-build-evidence.json"
+            rm -rf results-repo/normalization/photometric-validation
             mkdir -p results-repo/normalization/photometric-validation
             cp "$payload"/* results-repo/normalization/photometric-validation/
             cp "$payload/photometric-integration-policy.json" results-repo/normalization/photometric-integration-policy.json
-            hth_results_stage results-repo normalization/photometric-validation normalization/photometric-integration-policy.json
+            python -m hth.canonical_build_evidence snapshot --scope hth-photometric-validation --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/photometric-validation/canonical-build-evidence.json
+            hth_results_stage results-repo normalization/photometric-validation normalization/photometric-integration-policy.json cbe-cache/hth-photometric-validation
           }
           hth_hardened_persist results-repo main \
             "Publish photometric method validation ${{ github.run_id }}" \

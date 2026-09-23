@@ -86,6 +86,7 @@ jobs:
             /normalization/canonical-build-evidence.json
             /normalization/normalization-manifest.json
             /normalization/orientation-deskew/
+            /cbe-cache/hth-orientation-deskew-assessment/
             /normalization/orientation-deskew-policy.json
           sparse-checkout-cone-mode: false
           persist-credentials: true
@@ -216,6 +217,20 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
+      - name: Restore verified orientation/deskew variant
+        if: steps.cbe.outputs.decision == 'restore'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail; source hth-pipeline/tools/hardened-persistence.sh
+          git -C results-repo config user.name "github-actions[bot]"; git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          restore_variant() {
+            python -m hth.canonical_build_evidence snapshot --scope hth-orientation-deskew-assessment --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/orientation-deskew/canonical-build-evidence.json
+            python -m hth.canonical_build_evidence restore --plan "$RUNNER_TEMP/orientation-deskew-cbe-plan.json" --results-root results-repo --github-summary "$GITHUB_STEP_SUMMARY"
+            hth_results_stage results-repo normalization/orientation-deskew normalization/orientation-deskew-policy.json cbe-cache/hth-orientation-deskew-assessment
+          }
+          hth_hardened_persist results-repo main "Restore orientation/deskew variant" restore_variant "Orientation/deskew variant restore"
+
       - name: Download immutable source release
         id: source_release
         if: steps.cbe.outputs.decision == 'execute'
@@ -318,11 +333,13 @@ jobs:
           cp "${{ steps.paths.outputs.assessment_output }}/canonical-build-evidence.json" "$RUNNER_TEMP/orientation-deskew-cbe-incoming.json"
 
           apply_normalization_recommendation() {
+            python -m hth.canonical_build_evidence snapshot --scope hth-orientation-deskew-assessment --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/orientation-deskew/canonical-build-evidence.json
             python -m hth.canonical_build_evidence merge \
               --scope hth-orientation-deskew-assessment \
               --base results-repo/normalization/orientation-deskew/canonical-build-evidence.json \
               --incoming "$RUNNER_TEMP/orientation-deskew-cbe-incoming.json" \
               --output "$payload/canonical-build-evidence.json"
+            rm -rf results-repo/normalization/orientation-deskew
             mkdir -p results-repo/normalization/orientation-deskew
             cp "$payload/assessment.json" results-repo/normalization/orientation-deskew/
             cp "$payload/sample-plan.json" results-repo/normalization/orientation-deskew/
@@ -331,9 +348,10 @@ jobs:
             cp "$payload/normalization-policy.json" results-repo/normalization/orientation-deskew/
             cp "$payload/canonical-build-evidence.json" results-repo/normalization/orientation-deskew/
             cp "$payload/normalization-policy.json" results-repo/normalization/orientation-deskew-policy.json
+            python -m hth.canonical_build_evidence snapshot --scope hth-orientation-deskew-assessment --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/orientation-deskew/canonical-build-evidence.json
             hth_results_stage results-repo \
               normalization/orientation-deskew \
-              normalization/orientation-deskew-policy.json
+              normalization/orientation-deskew-policy.json cbe-cache/hth-orientation-deskew-assessment
           }
 
           hth_hardened_persist \

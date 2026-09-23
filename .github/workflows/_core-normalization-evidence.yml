@@ -79,6 +79,21 @@ jobs:
             /normalization/binarization/
             /normalization/binarization-methods/
             /normalization/binarization-validation/
+            /cbe-cache/hth-tonal-assessment/
+            /cbe-cache/hth-tonal-method-assessment/
+            /cbe-cache/hth-tonal-validation/
+            /cbe-cache/hth-chromatic-assessment/
+            /cbe-cache/hth-chromatic-method-assessment/
+            /cbe-cache/hth-chromatic-validation/
+            /cbe-cache/hth-denoising-assessment/
+            /cbe-cache/hth-denoising-method-assessment/
+            /cbe-cache/hth-denoising-validation/
+            /cbe-cache/hth-sharpening-assessment/
+            /cbe-cache/hth-sharpening-method-assessment/
+            /cbe-cache/hth-sharpening-validation/
+            /cbe-cache/hth-binarization-assessment/
+            /cbe-cache/hth-binarization-method-assessment/
+            /cbe-cache/hth-binarization-validation/
           sparse-checkout-cone-mode: false
           persist-credentials: true
       - name: Set up canonical HTH Python runtime
@@ -188,6 +203,19 @@ jobs:
             --runner-arch "$RUNNER_ARCH" \
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
+      - name: Restore verified normalization evidence variant
+        if: steps.cbe.outputs.decision == 'restore'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail; source hth-pipeline/tools/hardened-persistence.sh
+          git -C results-repo config user.name "github-actions[bot]"; git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          restore_evidence() {
+            python -m hth.canonical_build_evidence snapshot --scope "${{ steps.contract.outputs.scope }}" --source-root results-repo --cache-root results-repo --evidence "${{ steps.contract.outputs.evidence }}"
+            python -m hth.canonical_build_evidence restore --plan "$RUNNER_TEMP/${{ inputs.domain }}-${{ inputs.stage }}-cbe-plan.json" --results-root results-repo --github-summary "$GITHUB_STEP_SUMMARY"
+            hth_results_stage results-repo "${{ steps.contract.outputs.destination }}" "cbe-cache/${{ steps.contract.outputs.scope }}"
+          }
+          hth_hardened_persist results-repo main "Restore ${{ inputs.domain }} ${{ inputs.stage }} evidence variant" restore_evidence "Normalization evidence variant restore"
       - name: Restore cached immutable upstream collection
         id: asset
         if: steps.cbe.outputs.decision == 'execute'
@@ -239,7 +267,13 @@ jobs:
           set -euo pipefail; source hth-pipeline/tools/hardened-persistence.sh
           git -C results-repo config user.name "github-actions[bot]"; git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           destination="${{ steps.contract.outputs.destination }}"; output="${{ steps.contract.outputs.output }}"; payload="$RUNNER_TEMP/normalization-publication"; incoming="$RUNNER_TEMP/normalization-cbe.json"; rm -rf "$payload"; mkdir "$payload"; cp "normalization-output/$output" "$payload/$output"; cp normalization-output/canonical-build-evidence.json "$incoming"
-          apply_evidence() { python -m hth.canonical_build_evidence merge --scope "${{ steps.contract.outputs.scope }}" --base "results-repo/$destination/canonical-build-evidence.json" --incoming "$incoming" --output "$payload/canonical-build-evidence.json"; rm -rf "results-repo/$destination"; mkdir -p "results-repo/$destination"; cp "$payload"/*.json "results-repo/$destination/"; hth_results_stage results-repo "$destination"; }
+          apply_evidence() {
+            python -m hth.canonical_build_evidence snapshot --scope "${{ steps.contract.outputs.scope }}" --source-root results-repo --cache-root results-repo --evidence "results-repo/$destination/canonical-build-evidence.json"
+            python -m hth.canonical_build_evidence merge --scope "${{ steps.contract.outputs.scope }}" --base "results-repo/$destination/canonical-build-evidence.json" --incoming "$incoming" --output "$payload/canonical-build-evidence.json"
+            rm -rf "results-repo/$destination"; mkdir -p "results-repo/$destination"; cp "$payload"/*.json "results-repo/$destination/"
+            python -m hth.canonical_build_evidence snapshot --scope "${{ steps.contract.outputs.scope }}" --source-root results-repo --cache-root results-repo --evidence "results-repo/$destination/canonical-build-evidence.json"
+            hth_results_stage results-repo "$destination" "cbe-cache/${{ steps.contract.outputs.scope }}"
+          }
           hth_hardened_persist results-repo main "Publish ${{ inputs.domain }} ${{ inputs.stage }} evidence" apply_evidence "Normalization evidence publication"
       - name: Upload compact normalization evidence
         if: steps.cbe.outputs.decision == 'execute'

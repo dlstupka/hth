@@ -79,6 +79,8 @@ class ReportGeneratorTests(unittest.TestCase):
             self.assertIn("Status: **COMPLETE**", report)
             self.assertNotIn("<summary><h2>Engineering recommendations</h2></summary>", report)
             self.assertIn("<summary><h2>Engineering reference</h2></summary>", report)
+            self.assertIn("Recorded build activity", report)
+            self.assertIn("does not describe reuse in this report run", report)
 
     def test_full_normalization_summary_has_shared_navigation_and_collapsible_sections(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -182,18 +184,30 @@ class ReportGeneratorTests(unittest.TestCase):
                 "record_path": "records/a-full", "intelligence_path": "records/a-full/calibration-intelligence.json",
                 "created_at_utc": "2026-01-02", "golden_set_sha256": "unknown"
             }]}), encoding="utf-8")
-            (record / "manifest.json").write_text(json.dumps({"detector": "a", "status": "passed"}), encoding="utf-8")
+            (record / "manifest.json").write_text(json.dumps({
+                "detector": "a", "status": "passed",
+                "outputs": ["parameter-provenance.json", "raw/results.csv", "reports/rankings.csv"],
+            }), encoding="utf-8")
             (record / "parameters.json").write_text(json.dumps({}), encoding="utf-8")
             (record / "RUN-INFO.json").write_text(json.dumps({"elapsed_seconds": 1}), encoding="utf-8")
             (record / "summary.json").write_text(json.dumps({
                 "winner": {"parameter_set_id": "p1", "summary": {"mean_iou": 0.9, "minimum_iou": 0.8, "stddev_iou": 0.01, "failure_count": 0}},
                 "baseline": {"summary": {"mean_iou": 0.7}}, "page_ordinals": [1], "parameter_set_count": 1
             }), encoding="utf-8")
-            (record / "calibration-intelligence.json").write_text(json.dumps({"available": True, "detector": "a"}), encoding="utf-8")
+            (record / "calibration-intelligence.json").write_text(json.dumps({
+                "available": True, "detector": "a", "persistence": {"record_path": "records/a-full"},
+            }), encoding="utf-8")
+            (record / "parameter-provenance.json").write_text("{}", encoding="utf-8")
+            (record / "raw").mkdir()
+            (record / "raw" / "results.csv.gz").write_bytes(b"persisted")
             output = root / "report.md"
             generate_calibration_manifest(root, output, golden_set=None, pipeline_repository="", results_repository="", results_commit="", run_url="")
             self.assertTrue(output.is_file())
             self.assertIn("Regression Manifest", output.read_text(encoding="utf-8"))
+            text = output.read_text(encoding="utf-8")
+            self.assertIn("`parameter-provenance.json` — present", text)
+            self.assertIn("`raw/results.csv` — present", text)
+            self.assertIn("`reports/rankings.csv` — not retained in durable record", text)
 
     def test_compact_calibration_materialization_matches_full_tree_selection(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

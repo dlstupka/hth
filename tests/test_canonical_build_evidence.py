@@ -15,6 +15,7 @@ from hth.canonical_build_evidence import (
     CROP_FRAMING_ASSESSMENT_SCOPE,
     CHROMATIC_INTEGRATION_SCOPE,
     EvidenceError,
+    PHOTOMETRIC_ASSESSMENT_SCOPE,
     SCOPE_ARTIFACT_PROFILES,
     SCOPE_OPERATION_CONTRACTS,
     TONAL_ASSESSMENT_SCOPE,
@@ -688,7 +689,7 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceError, "Persisted canonical result mismatch"):
             prepare(self.args())
 
-    def test_prior_integration_record_rebuilds_without_variant_cache_lookup(self) -> None:
+    def test_prior_integration_record_restores_only_with_verified_variant_cache(self) -> None:
         args = self.args()
         args.scope = TONAL_INTEGRATION_SCOPE
         args.evidence = self.results / "normalization/tonal-integration/canonical-build-evidence.json"
@@ -715,6 +716,70 @@ class CanonicalBuildEvidenceTests(unittest.TestCase):
         self.assertEqual(plan["decision"], "execute")
         self.assertTrue(plan["restoring_prior_identity"])
         self.assertTrue(plan["comparison_required"])
+        with patch("hth.canonical_build_evidence.build_effective_inputs", return_value=effective_inputs), \
+             patch("hth.canonical_build_evidence.load_evidence_store", return_value=store), \
+             patch("hth.canonical_build_evidence.validate_published_results"), \
+             patch("hth.canonical_build_evidence.validate_cache_snapshot", return_value=True):
+            cached_plan = prepare(args)
+        self.assertEqual(cached_plan["decision"], "restore")
+        self.assertFalse(cached_plan["comparison_required"])
+
+    def test_compact_integration_variant_restores_exact_publication(self) -> None:
+        scope = TONAL_INTEGRATION_SCOPE
+        stage = self.results / "normalization/tonal-integration"
+        stage.mkdir(parents=True)
+        for spec in SCOPE_ARTIFACT_PROFILES[scope]:
+            target = self.results / spec.published_path
+            target.write_text('{"variant":"prior"}\n', encoding="utf-8")
+        (stage / "summary.md").write_text("prior\n", encoding="utf-8")
+        (stage / "old-only.json").write_text("{}\n", encoding="utf-8")
+        prior_id, current_id = "a" * 64, "b" * 64
+        prior = {"effective_build_identity": prior_id, "canonical_result": {"identity": "c" * 64}}
+        current = {"effective_build_identity": current_id, "canonical_result": {"identity": "d" * 64}}
+        store = {"records": {prior_id: prior, current_id: current}, "authoritative_identity": prior_id}
+        evidence = stage / "canonical-build-evidence.json"
+        with patch("hth.canonical_build_evidence.load_evidence_store", return_value=store), \
+             patch("hth.canonical_build_evidence.validate_published_results"):
+            snapshot_variant(argparse.Namespace(scope=scope, source_root=self.results,
+                cache_root=self.results, evidence=evidence, identity=""))
+            self.assertTrue(validate_cache_snapshot(self.results, scope, prior))
+            (stage / "old-only.json").unlink()
+            (stage / "new-only.json").write_text("{}\n", encoding="utf-8")
+            for spec in SCOPE_ARTIFACT_PROFILES[scope]:
+                (self.results / spec.published_path).write_text('{"variant":"current"}\n', encoding="utf-8")
+            store["authoritative_identity"] = current_id
+            plan = self.root / "compact-plan.json"
+            write_json(plan, {"decision": "restore", "scope": scope,
+                "effective_build_identity": prior_id,
+                "incumbent_result_identity": prior["canonical_result"]["identity"],
+                "published_authoritative_identity": current_id,
+                "published_authoritative_result_identity": current["canonical_result"]["identity"]})
+            restore_variant(argparse.Namespace(plan=plan, results_root=self.results, github_summary=""))
+        self.assertTrue((stage / "old-only.json").is_file())
+        self.assertFalse((stage / "new-only.json").exists())
+        self.assertEqual((stage / "summary.md").read_text(encoding="utf-8"), "prior\n")
+
+    def test_assessment_variant_snapshot_includes_external_policy(self) -> None:
+        scope = PHOTOMETRIC_ASSESSMENT_SCOPE
+        stage = self.results / "normalization/photometric"
+        stage.mkdir(parents=True)
+        for spec in SCOPE_ARTIFACT_PROFILES[scope]:
+            (self.results / spec.published_path).write_text("{}\n", encoding="utf-8")
+        policy = self.results / "normalization/photometric-policy.json"
+        policy.write_text('{"policy":"first"}\n', encoding="utf-8")
+        identity = "a" * 64
+        record = {"effective_build_identity": identity, "canonical_result": {"identity": "b" * 64}}
+        store = {"records": {identity: record}, "authoritative_identity": identity}
+        with patch("hth.canonical_build_evidence.load_evidence_store", return_value=store), \
+             patch("hth.canonical_build_evidence.validate_published_results"):
+            snapshot_variant(argparse.Namespace(scope=scope, source_root=self.results,
+                cache_root=self.results, evidence=stage / "canonical-build-evidence.json", identity=""))
+            self.assertTrue(validate_cache_snapshot(self.results, scope, record))
+            cached_policy = self.results / "cbe-cache" / scope / identity / "normalization/photometric-policy.json"
+            self.assertEqual(cached_policy.read_text(encoding="utf-8"), '{"policy":"first"}\n')
+            cached_policy.write_text('{"policy":"corrupt"}\n', encoding="utf-8")
+            with self.assertRaisesRegex(EvidenceError, "cache file mismatch"):
+                validate_cache_snapshot(self.results, scope, record)
 
     def test_prior_record_restoration_rejects_different_rebuilt_result(self) -> None:
         self.establish_second_variant()

@@ -184,7 +184,9 @@ def generate_full_normalization_summary(
         "<details>",
         "<summary><h2>Canonical Build Evidence ledger</h2></summary>",
         "",
-        "| Stage scope | State | Activity | Pages | Effective build | Canonical result | Source release utilized | Evidence |",
+        "Recorded build activity describes when the authoritative result was created; it does not describe reuse in this report run. The reuse decision and reason are shown in each workflow's Canonical Build Evidence summary.",
+        "",
+        "| Stage scope | State | Recorded build activity | Pages | Effective build | Canonical result | Source release utilized | Evidence |",
         "|---|---:|---|---:|---|---|---|---|",
     ])
     for row in stages:

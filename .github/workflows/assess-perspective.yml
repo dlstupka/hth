@@ -81,6 +81,7 @@ jobs:
             /normalization/canonical-build-evidence.json
             /normalization/normalization-manifest.json
             /normalization/perspective/
+            /cbe-cache/hth-perspective-assessment/
             /normalization/perspective-policy.json
           sparse-checkout-cone-mode: false
           persist-credentials: true
@@ -194,6 +195,20 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
+      - name: Restore verified perspective variant
+        if: steps.cbe.outputs.decision == 'restore'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail; source hth-pipeline/tools/hardened-persistence.sh
+          git -C results-repo config user.name "github-actions[bot]"; git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          restore_variant() {
+            python -m hth.canonical_build_evidence snapshot --scope hth-perspective-assessment --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/perspective/canonical-build-evidence.json
+            python -m hth.canonical_build_evidence restore --plan "$RUNNER_TEMP/perspective-cbe-plan.json" --results-root results-repo --github-summary "$GITHUB_STEP_SUMMARY"
+            hth_results_stage results-repo normalization/perspective normalization/perspective-policy.json cbe-cache/hth-perspective-assessment
+          }
+          hth_hardened_persist results-repo main "Restore perspective variant" restore_variant "Perspective variant restore"
+
       - name: Download immutable source release
         id: source_release
         if: steps.cbe.outputs.decision == 'execute'
@@ -292,15 +307,18 @@ jobs:
           cp perspective-assessment/canonical-build-evidence.json "$RUNNER_TEMP/perspective-cbe-incoming.json"
 
           apply_perspective_assessment() {
+            python -m hth.canonical_build_evidence snapshot --scope hth-perspective-assessment --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/perspective/canonical-build-evidence.json
             python -m hth.canonical_build_evidence merge \
               --scope hth-perspective-assessment \
               --base results-repo/normalization/perspective/canonical-build-evidence.json \
               --incoming "$RUNNER_TEMP/perspective-cbe-incoming.json" \
               --output "$payload/canonical-build-evidence.json"
+            rm -rf results-repo/normalization/perspective
             mkdir -p results-repo/normalization/perspective
             cp "$payload"/* results-repo/normalization/perspective/
             cp "$payload/perspective-policy.json" results-repo/normalization/perspective-policy.json
-            hth_results_stage results-repo normalization/perspective normalization/perspective-policy.json
+            python -m hth.canonical_build_evidence snapshot --scope hth-perspective-assessment --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/perspective/canonical-build-evidence.json
+            hth_results_stage results-repo normalization/perspective normalization/perspective-policy.json cbe-cache/hth-perspective-assessment
           }
           hth_hardened_persist results-repo main \
             "Publish perspective assessment ${{ github.run_id }}" \

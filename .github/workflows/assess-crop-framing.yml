@@ -83,6 +83,7 @@ jobs:
             parameter-provenance-index.json
             /source-documents/*/golden-sets/*/*/calibrations/*/*/parameter-provenance.json
             /normalization/crop-framing/
+            /cbe-cache/hth-crop-framing-assessment/
           sparse-checkout-cone-mode: false
           persist-credentials: true
           token: ${{ secrets.HTH_RESULTS_TOKEN || github.token }}
@@ -183,6 +184,20 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
+      - name: Restore verified crop/framing variant
+        if: steps.cbe.outputs.decision == 'restore'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail; source hth-pipeline/tools/hardened-persistence.sh
+          git -C results-repo config user.name "github-actions[bot]"; git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          restore_variant() {
+            python -m hth.canonical_build_evidence snapshot --scope hth-crop-framing-assessment --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/crop-framing/canonical-build-evidence.json
+            python -m hth.canonical_build_evidence restore --plan "$RUNNER_TEMP/crop-framing-cbe-plan.json" --results-root results-repo --github-summary "$GITHUB_STEP_SUMMARY"
+            hth_results_stage results-repo normalization/crop-framing cbe-cache/hth-crop-framing-assessment
+          }
+          hth_hardened_persist results-repo main "Restore crop/framing variant" restore_variant "Crop/framing variant restore"
+
       - name: Set up approved detector runtime
         if: steps.cbe.outputs.decision == 'execute'
         uses: ./hth-pipeline/.github/actions/setup-hth-managed-runtime
@@ -281,6 +296,7 @@ jobs:
           cp crop-framing-assessment/{assessment.json,detector-selection.json,geometry-evidence.json} "$payload/"
           cp crop-framing-assessment/canonical-build-evidence.json "$incoming"
           apply_crop_framing_evidence() {
+            python -m hth.canonical_build_evidence snapshot --scope hth-crop-framing-assessment --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/crop-framing/canonical-build-evidence.json
             python -m hth.canonical_build_evidence merge \
               --scope hth-crop-framing-assessment \
               --base results-repo/normalization/crop-framing/canonical-build-evidence.json \
@@ -289,7 +305,8 @@ jobs:
             rm -rf results-repo/normalization/crop-framing
             mkdir -p results-repo/normalization/crop-framing
             cp "$payload"/* results-repo/normalization/crop-framing/
-            hth_results_stage results-repo normalization/crop-framing
+            python -m hth.canonical_build_evidence snapshot --scope hth-crop-framing-assessment --source-root results-repo --cache-root results-repo --evidence results-repo/normalization/crop-framing/canonical-build-evidence.json
+            hth_results_stage results-repo normalization/crop-framing cbe-cache/hth-crop-framing-assessment
           }
           hth_hardened_persist results-repo main \
             "Publish crop/framing canonical evidence $GITHUB_RUN_ID" \

@@ -215,6 +215,7 @@ def generate_calibration_manifest(
             calibration_index=repository.readable_index_path("calibration-index.json"),
             runtime_index=repository.readable_index_path("runtime-index.json"),
             report_writer_smoke_reference=True,
+            persisted_results_root=results_root,
         )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(text, encoding="utf-8")

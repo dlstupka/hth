@@ -474,6 +474,14 @@ SCOPE_EVIDENCE_PATHS = {
     PHOTOMETRIC_VALIDATION_SCOPE: "normalization/photometric-validation/canonical-build-evidence.json",
 }
 
+CACHE_REQUIRED_COMPANIONS.update({
+    ORIENTATION_DESKEW_ASSESSMENT_SCOPE: ("normalization/orientation-deskew-policy.json",),
+    PERSPECTIVE_ASSESSMENT_SCOPE: ("normalization/perspective-policy.json",),
+    PHOTOMETRIC_ASSESSMENT_SCOPE: ("normalization/photometric-policy.json",),
+    PHOTOMETRIC_METHOD_ASSESSMENT_SCOPE: ("normalization/photometric-method-policy.json",),
+    PHOTOMETRIC_VALIDATION_SCOPE: ("normalization/photometric-integration-policy.json",),
+})
+
 
 def artifact_profile(scope: str) -> tuple[ArtifactSpec, ...]:
     try:
@@ -995,7 +1003,7 @@ def validate_published_results(payload: dict[str, Any], results_root: Path) -> N
 
 
 def _cache_directory(root: Path, scope: str, identity: str) -> Path:
-    if scope not in {PREPROCESS_SCOPE, NORMALIZATION_SCOPE} or not _is_sha256(identity):
+    if scope not in SCOPE_EVIDENCE_PATHS or not _is_sha256(identity):
         raise EvidenceError("CBE variant cache requires a supported scope and build identity")
     return Path(root) / "cbe-cache" / scope / identity
 
@@ -1022,6 +1030,15 @@ def _cache_owned_paths(root: Path, scope: str) -> list[str]:
             "normalization/summary.md",
             "normalization/applied-normalization-policy.json",
         ]
+    if scope in SCOPE_EVIDENCE_PATHS:
+        directory = root / PurePosixPath(evidence_relative_path(scope)).parent
+        if directory.exists() and (not directory.is_dir() or directory.is_symlink()):
+            raise EvidenceError("CBE cache publication is not a regular directory")
+        files = [
+            path.relative_to(root).as_posix() for path in directory.rglob("*")
+            if path.is_file() and path.name != "canonical-build-evidence.json"
+        ] if directory.exists() else []
+        return sorted(set(files + list(CACHE_REQUIRED_COMPANIONS.get(scope, ()))))
     raise EvidenceError(f"CBE variant cache does not support scope {scope!r}")
 
 
@@ -1036,12 +1053,18 @@ def _cache_path_allowed(scope: str, relative: str) -> bool:
             "metadata/exact_duplicates.json", "metadata/page_map_template.csv",
             "reports/preprocess-summary.json",
         } or (len(path.parts) > 1 and path.parts[0] == "analysis")
-    return relative in {
-        "normalization/normalization-manifest.json",
-        "normalization/normalization-manifest.csv",
-        "normalization/summary.md",
-        "normalization/applied-normalization-policy.json",
-    }
+    if scope == NORMALIZATION_SCOPE:
+        return relative in {
+            "normalization/normalization-manifest.json",
+            "normalization/normalization-manifest.csv",
+            "normalization/summary.md",
+            "normalization/applied-normalization-policy.json",
+        }
+    if scope in SCOPE_EVIDENCE_PATHS:
+        directory = PurePosixPath(evidence_relative_path(scope)).parent
+        within_stage = path.parts[:len(directory.parts)] == directory.parts and len(path.parts) > len(directory.parts)
+        return (within_stage and path != directory / "canonical-build-evidence.json") or relative in CACHE_REQUIRED_COMPANIONS.get(scope, ())
+    return False
 
 
 def _sha256_file(path: Path) -> str:
@@ -1089,7 +1112,7 @@ def validate_cache_snapshot(root: Path, scope: str, record: dict[str, Any]) -> b
         if not path.is_file() or path.is_symlink() or _sha256_file(path) != expected:
             raise EvidenceError(f"CBE variant cache file mismatch: {relative}")
     required = {spec.published_path for spec in artifact_profile(scope)}
-    required.update(CACHE_REQUIRED_COMPANIONS[scope])
+    required.update(CACHE_REQUIRED_COMPANIONS.get(scope, ()))
     if not required.issubset(seen):
         raise EvidenceError("CBE variant cache is missing required publication files")
     validate_published_results(record, directory)
@@ -1114,7 +1137,7 @@ def snapshot_variant(args: argparse.Namespace) -> Path | None:
         return destination
     paths = [relative for relative in _cache_owned_paths(source_root, scope) if (source_root / relative).is_file()]
     required = {spec.published_path for spec in artifact_profile(scope)}
-    required.update(CACHE_REQUIRED_COMPANIONS[scope])
+    required.update(CACHE_REQUIRED_COMPANIONS.get(scope, ()))
     if not required.issubset(paths):
         raise EvidenceError("CBE variant cache source is missing required publication files")
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1387,7 +1410,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
     snapshot_available = bool(
         restoring_prior_identity and incumbent is not None and args.policy == "auto"
         and not args.artifact_required
-        and args.scope in {PREPROCESS_SCOPE, NORMALIZATION_SCOPE}
+        and args.scope in SCOPE_EVIDENCE_PATHS
         and validate_cache_snapshot(args.results_root, args.scope, incumbent)
     )
 
@@ -2192,7 +2215,7 @@ def parser() -> argparse.ArgumentParser:
     merge_parser.add_argument("--incoming", type=Path, required=True)
     merge_parser.add_argument("--output", type=Path, required=True)
     snapshot_parser = commands.add_parser("snapshot", help="Save an immutable identity-keyed publication snapshot")
-    snapshot_parser.add_argument("--scope", choices=(PREPROCESS_SCOPE, NORMALIZATION_SCOPE), required=True)
+    snapshot_parser.add_argument("--scope", choices=tuple(SCOPE_EVIDENCE_PATHS), required=True)
     snapshot_parser.add_argument("--source-root", type=Path, required=True)
     snapshot_parser.add_argument("--cache-root", type=Path, required=True)
     snapshot_parser.add_argument("--evidence", type=Path, required=True)

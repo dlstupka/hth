@@ -239,6 +239,21 @@ class NormalizationCanonicalEvidenceCoverageTests(unittest.TestCase):
                 self.assertIn("--source-input", text)
         self.assertEqual(covered, 11)
 
+    def test_compact_normalization_workflows_preserve_runtime_variants(self) -> None:
+        for filename in (
+            "assess-crop-framing.yml", "assess-orientation-deskew.yml",
+            "assess-perspective.yml", "assess-photometric.yml",
+            "assess-photometric-methods.yml", "validate-photometric-method.yml",
+            "integrate-photometric.yml", "_core-normalization-evidence.yml",
+            "integrate-normalization.yml",
+        ):
+            workflow = (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8")
+            with self.subTest(workflow=filename):
+                self.assertIn("decision == 'restore'", workflow)
+                self.assertGreaterEqual(workflow.count("canonical_build_evidence snapshot"), 2)
+                self.assertIn("canonical_build_evidence restore", workflow)
+                self.assertIn("/cbe-cache/hth-", workflow)
+
     def test_consolidated_workflows_preserve_domain_semantic_input_names(self) -> None:
         evidence = (ROOT / ".github/workflows/_core-normalization-evidence.yml").read_text(
             encoding="utf-8"

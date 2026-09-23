@@ -81,6 +81,11 @@ jobs:
             /normalization/binarization-methods/
             /normalization/binarization-validation/
             /normalization/binarization-integration/
+            /cbe-cache/hth-tonal-integration/
+            /cbe-cache/hth-chromatic-integration/
+            /cbe-cache/hth-denoising-integration/
+            /cbe-cache/hth-sharpening-integration/
+            /cbe-cache/hth-binarization-integration/
           sparse-checkout-cone-mode: false
           persist-credentials: true
       - name: Set up canonical HTH Python runtime
@@ -171,6 +176,19 @@ jobs:
             --runner-arch "$RUNNER_ARCH" \
             --github-output "$GITHUB_OUTPUT" \
             --github-summary "$GITHUB_STEP_SUMMARY"
+      - name: Restore verified normalization integration variant
+        if: steps.cbe.outputs.decision == 'restore'
+        shell: bash
+        env: {PYTHONPATH: hth-pipeline}
+        run: |
+          set -euo pipefail; source hth-pipeline/tools/hardened-persistence.sh
+          git -C results-repo config user.name "github-actions[bot]"; git -C results-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          restore_integration() {
+            python -m hth.canonical_build_evidence snapshot --scope "${{ steps.contract.outputs.scope }}" --source-root results-repo --cache-root results-repo --evidence "results-repo/normalization/${{ inputs.domain }}-integration/canonical-build-evidence.json"
+            python -m hth.canonical_build_evidence restore --plan "$RUNNER_TEMP/normalization-integration-cbe.json" --results-root results-repo --github-summary "$GITHUB_STEP_SUMMARY"
+            hth_results_stage results-repo "normalization/${{ inputs.domain }}-integration" "cbe-cache/${{ steps.contract.outputs.scope }}"
+          }
+          hth_hardened_persist results-repo main "Restore ${{ inputs.domain }} integration variant" restore_integration "Normalization integration variant restore"
       - name: Audit reusable immutable normalization release
         if: steps.cbe.outputs.decision != 'execute'
         shell: bash
@@ -257,7 +275,13 @@ jobs:
           cp "normalization-collection/$d-validation.json" "$payload/"
           cp normalization-collection/release.json "$payload/"
           cp normalization-collection/canonical-build-evidence.json "$incoming"
-          apply_integration() { python -m hth.canonical_build_evidence merge --scope "${{ steps.contract.outputs.scope }}" --base "results-repo/$destination/canonical-build-evidence.json" --incoming "$incoming" --output "$payload/canonical-build-evidence.json"; rm -rf "results-repo/$destination"; mkdir -p "results-repo/$destination"; cp "$payload"/* "results-repo/$destination/"; hth_results_stage results-repo "$destination"; }
+          apply_integration() {
+            python -m hth.canonical_build_evidence snapshot --scope "${{ steps.contract.outputs.scope }}" --source-root results-repo --cache-root results-repo --evidence "results-repo/$destination/canonical-build-evidence.json"
+            python -m hth.canonical_build_evidence merge --scope "${{ steps.contract.outputs.scope }}" --base "results-repo/$destination/canonical-build-evidence.json" --incoming "$incoming" --output "$payload/canonical-build-evidence.json"
+            rm -rf "results-repo/$destination"; mkdir -p "results-repo/$destination"; cp "$payload"/* "results-repo/$destination/"
+            python -m hth.canonical_build_evidence snapshot --scope "${{ steps.contract.outputs.scope }}" --source-root results-repo --cache-root results-repo --evidence "results-repo/$destination/canonical-build-evidence.json"
+            hth_results_stage results-repo "$destination" "cbe-cache/${{ steps.contract.outputs.scope }}"
+          }
           hth_hardened_persist results-repo main "Publish $d integration ${{ steps.integration.outputs.result_identity }}" apply_integration "Normalization integration publication"
           python -m hth.release_provenance_summary --title "Durable $d result" --result-label "$d result" --result-identity "${{ steps.integration.outputs.result_identity }}" --repository "$RESULTS_REPOSITORY" --release-tag "${{ steps.integration.outputs.release_tag }}" --release-activity "${{ steps.release.outputs.release_activity }}" --results-commit "$HTH_PERSIST_COMMIT" --github-summary "$GITHUB_STEP_SUMMARY"
       - name: Upload compact normalization review

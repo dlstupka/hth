@@ -894,6 +894,7 @@ def build_summary(
     results_commit: str = "",
     calibration_index: Path | None = None,
     parameter_build_index: dict[str, list[dict[str, Any]]] | None = None,
+    persisted_results_root: Path | None = None,
 ) -> str:
     manifest = _read_json(run_dir / "manifest.json")
     info = _read_json(run_dir / "RUN-INFO.json")
@@ -998,8 +999,17 @@ def build_summary(
         lines.extend(["", "### Outputs", ""])
         for output in display_outputs:
             path = run_dir / str(output)
-            state = "present" if path.exists() else "missing"
             persisted_path = _persisted_output_path(record_path, output)
+            persisted_file = (persisted_results_root / persisted_path) if persisted_results_root is not None and persisted_path else None
+            if persisted_file is not None and not persisted_file.resolve().is_relative_to(persisted_results_root.resolve()):
+                persisted_file = None
+            local_present = path.resolve().is_relative_to(run_dir.resolve()) and path.is_file()
+            if local_present or (persisted_file is not None and persisted_file.is_file()):
+                state = "present"
+            elif persisted_results_root is not None and record_path and not persisted_path:
+                state = "not retained in durable record"
+            else:
+                state = "missing"
             output_url = _results_blob(results_repository, results_commit, persisted_path)
             lines.append(f"- {code_link(output, output_url)} — {state}")
 
@@ -2999,6 +3009,7 @@ def build_combined_summary(
     runtime_index: Path | None = None,
     multidetector_index: Path | None = None,
     report_writer_smoke_reference: bool = False,
+    persisted_results_root: Path | None = None,
 ) -> str:
     if not run_dirs:
         raise ValueError("At least one regression run directory is required")
@@ -3014,6 +3025,7 @@ def build_combined_summary(
             results_commit=results_commit,
             calibration_index=calibration_index,
             parameter_build_index=parameter_build_index,
+            persisted_results_root=persisted_results_root,
         )
 
     combined_rows = sorted(
@@ -3385,6 +3397,7 @@ def build_combined_summary(
                 results_commit=results_commit,
                 calibration_index=calibration_index,
                 parameter_build_index=parameter_build_index,
+                persisted_results_root=persisted_results_root,
             ).rstrip()
         )
         lines.extend(["", "</details>"])
