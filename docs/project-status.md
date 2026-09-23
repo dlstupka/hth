@@ -1,6 +1,6 @@
 # Hidden Texas History — Project Status
 
-*Last updated: 2026-09-18*
+*Last updated: 2026-09-23*
 
 ## Mission
 
@@ -10,9 +10,9 @@ Build an open, reproducible historic-document research framework for preserving,
 
 **HTH-0001 — San Antonio Baptisms, 1788–1824 and 1858–1898**
 
-- 11 source DOCX masters preserved in immutable source release `HTH-SOURCE-0001`;
-- 928 embedded source images processed in the current production corpus;
-- frozen five-page Golden Set `HTH-0001` with immutable identity and SHA-256;
+- legacy source edition `HTH-SOURCE-0001` retains its 11 DOCX masters and original 928-page build provenance;
+- current `HTH-SOURCE-0002` source edition contains 929 images;
+- the original five-page `HTH-0001` and the 18-page `HTH-GOLDEN-0002` are separate frozen Golden Sets with immutable identities;
 - source, pipeline, detector, parameter-set, publication, and run provenance recorded in machine-readable outputs.
 
 The original corpus was bootstrapped through browser/AHK capture. HTH now prefers direct authorized archival acquisition and includes a FamilySearch API acquisition adapter pending developer/API access.
@@ -31,9 +31,18 @@ immutable source release
 → durable results + temporary full-build artifact
 ```
 
-The current approved document detector is **Fusion Gen3 — AMSRE + Doc-UFCN** (`amsre_doc_ufcn_fusion`) resolved from authoritative calibration evidence for `HTH-0001`.
+Detector selection is Golden-Set-specific. The original `HTH-0001` production
+build selected **Fusion Gen3 — AMSRE + Doc-UFCN**
+(`amsre_doc_ufcn_fusion`); the verified `HTH-GOLDEN-0002` production build
+selected **Doc-UFCN Page-Mask** (`doc_ufcn_page_mask`) from its own approved
+calibration evidence.
 
-The first successful full production build processed all **928/928 pages**, produced **928/928 detector candidates**, recorded **0 detector errors / 0 missing candidates**, and measured **0.920780 average detector confidence** across the corpus. Confidence is a prioritization signal, not IoU or ground truth.
+The first successful full production build on the original source edition
+processed **928/928 pages**, produced **928/928 detector candidates**, recorded
+**0 detector errors / 0 missing candidates**, and measured **0.920780 average
+detector confidence**. The later verified `HTH-SOURCE-0002` production run
+processed **929/929 pages** with **0 page-processing and detector errors**.
+Confidence is a prioritization signal, not IoU or ground truth.
 
 ## Calibration and execution intelligence
 
@@ -52,21 +61,34 @@ Detector research has exercised the framework through hundreds of regression run
 
 Large source masters are distributed through immutable GitHub Releases rather than Git LFS. Builds verify release-manifest hashes before processing.
 
-The next source-quality objective is to reacquire the current FamilySearch collection through authorized FamilySearch API/image access at the best available source quality, eliminating browser/AHK capture from the preferred acquisition path while retaining the original source edition as provenance.
+The current `HTH-SOURCE-0002` edition and its frozen Golden Set are distinct
+from the original bootstrap edition. Further source-quality work should verify
+the best available authorized FamilySearch API/image access and retain both
+source editions as provenance rather than replacing either in place.
 
 ## Next technical work
 
-1. Canonicalize identity and provenance presentation across every human-facing
-   Actions summary and report. One shared renderer must produce identical link
-   behavior without workflow-specific exceptions: Git commit identities link
-   to their commits, release-backed result identities link to their immutable
-   releases, and evidence identities link to the pinned manifest that defines
-   them. Machine-readable JSON/CSV manifests retain raw deterministic identity
-   values, with explicit companion URL fields only where the schema requires
-   navigable provenance.
+### Hardening verification TODO
+
+- [ ] Live-test CBE runtime-variant restoration for both full preprocess and
+  canonical normalization with an A → B → A runtime sequence (including exact
+  Python and NumPy versions). Confirm the final A run chooses `restore`,
+  verifies the saved snapshot, republishes the A result without rerunning the
+  expensive engine, and reports the correct CBE decision, runtime difference,
+  and result identity. A first switch that must seed a missing snapshot is not
+  sufficient evidence of a cache hit.
+
+1. Finish the provenance-link coverage audit. Shared Markdown link helpers and
+   report navigation now cover the main Actions summaries and reports, but some
+   detailed report surfaces still render identities as plain code (for example,
+   `hth/normalization_report.py`). Bring remaining human-facing commit,
+   release-backed result, and evidence-identity links onto the shared helpers;
+   keep raw deterministic values in machine-readable JSON/CSV.
 2. Complete authorized direct-source acquisition for the reference collection.
 3. Compare direct-source production inference with the bootstrap source edition.
-4. Use full-collection evidence—especially low-confidence and detector-disagreement pages—to decide whether and how to instantiate `HTH-GOLDEN-0002`.
+4. Review full-collection low-confidence and detector-disagreement pages for
+   genuinely new failure classes; any change to frozen `HTH-GOLDEN-0002` truth
+   or membership requires a new Golden Set identity and release.
 5. Continue downstream transcription, translation, indexing, citation, and historical-research stages.
 6. Keep collection-specific data and immutable source truth outside the reusable HTH engine so additional collections can use the same framework.
 
