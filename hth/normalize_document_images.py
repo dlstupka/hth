@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 
 from hth.canonical_build_evidence import (
+    NORMALIZATION_SCOPE,
     PREPROCESS_SCOPE,
     canonical_hash,
     load_evidence_store,
@@ -37,9 +38,12 @@ def _load_transform_policy(
     path: Path | None,
     preprocess_evidence: dict[str, Any],
     detector_selection: dict[str, Any],
-) -> dict[str, Any] | None:
+    image_manifest: dict[str, Any],
+    page_analysis: dict[str, Any],
+    prior_normalization_manifest_path: Path | None,
+) -> tuple[dict[str, Any] | None, dict[int, str]]:
     if path is None:
-        return None
+        return None, {}
     policy = _read_json(path)
     claimed_identity = str(policy.get("policy_identity") or "")
     identity_payload = dict(policy)
@@ -62,15 +66,75 @@ def _load_transform_policy(
     compatibility = policy.get("compatibility") or {}
     current_preprocess = str((preprocess_evidence.get("canonical_result") or {}).get("identity") or "")
     expected = str(compatibility.get("canonical_preprocess_result_identity") or "")
-    if not expected or expected != current_preprocess:
-        raise ValueError("Transform policy was assessed against a different canonical preprocess result")
     if compatibility.get("detector") != detector_selection.get("detector"):
         raise ValueError("Transform policy was assessed with a different document detector")
     if compatibility.get("parameter_identity_sha256") != detector_selection.get("parameter_identity_sha256"):
         raise ValueError("Transform policy was assessed with different detector parameters")
     if compatibility.get("base_normalization_policy_id") != POLICY_ID:
         raise ValueError("Transform policy was assessed against a different crop policy")
-    return policy
+    if not expected:
+        raise ValueError("Transform policy has no canonical preprocess result identity")
+    if expected == current_preprocess:
+        return policy, {}
+
+    # A CBE result identity may change even when the exact input pixels to
+    # conservative deskew have not. Only reuse the recommendation if its
+    # published, CBE-verified normalization basis matches every current source
+    # image and selected crop. The pixel digest is rechecked after cropping.
+    if prior_normalization_manifest_path is None or not prior_normalization_manifest_path.is_file():
+        raise ValueError("Transform policy was assessed against a different canonical preprocess result; no prior normalization basis is available")
+    results_root = prior_normalization_manifest_path.parent.parent
+    store = load_evidence_store(
+        prior_normalization_manifest_path.parent / "canonical-build-evidence.json",
+        scope=NORMALIZATION_SCOPE,
+    )
+    authoritative = str(store.get("authoritative_identity") or "")
+    record = (store.get("records") or {}).get(authoritative)
+    if not authoritative or not isinstance(record, dict):
+        raise ValueError("Prior normalization basis has no authoritative Canonical Build Evidence")
+    validate_published_results(record, results_root)
+    prior = _read_json(prior_normalization_manifest_path)
+    if (prior.get("canonical_preprocess") or {}).get("canonical_result_identity") != expected:
+        raise ValueError("Prior normalization basis does not match the assessed preprocess result")
+    if prior.get("canonical_result_identity") != (policy.get("evidence") or {}).get("canonical_normalization_result_identity"):
+        raise ValueError("Prior normalization basis does not match the assessed normalization result")
+    prior_detector = prior.get("detector_selection") or {}
+    if (prior_detector.get("detector"), prior_detector.get("parameter_identity_sha256")) != (
+        detector_selection.get("detector"), detector_selection.get("parameter_identity_sha256")
+    ):
+        raise ValueError("Prior normalization basis used different detector parameters")
+    if (prior.get("policy") or {}).get("base_policy_id") != POLICY_ID:
+        raise ValueError("Prior normalization basis used a different crop policy")
+
+    prior_pages = prior.get("pages") or []
+    image_pages = image_manifest.get("records") or []
+    analysis_pages = page_analysis.get("records") or []
+    prior_by_ordinal = {int(page["global_ordinal"]): page for page in prior_pages}
+    analysis_by_ordinal = {int(page["global_ordinal"]): page for page in analysis_pages}
+    image_ordinals = {int(page["global_ordinal"]) for page in image_pages}
+    if (
+        not prior_pages
+        or len(prior_by_ordinal) != len(prior_pages)
+        or len(analysis_by_ordinal) != len(analysis_pages)
+        or len(image_ordinals) != len(image_pages)
+        or set(prior_by_ordinal) != image_ordinals
+        or set(analysis_by_ordinal) != image_ordinals
+    ):
+        raise ValueError("Prior normalization basis has a different or ambiguous page population")
+    crop_hashes: dict[int, str] = {}
+    for image_page in image_pages:
+        ordinal = int(image_page["global_ordinal"])
+        prior_page = prior_by_ordinal[ordinal]
+        candidate = _candidate(analysis_by_ordinal[ordinal], str(detector_selection["detector"]))
+        crop_hash = str(prior_page.get("base_crop_pixel_sha256") or "")
+        if (
+            prior_page.get("source_sha256") != image_page.get("sha256")
+            or prior_page.get("detector_corners") != candidate.get("corners")
+            or len(crop_hash) != 64
+        ):
+            raise ValueError(f"Prior normalization basis differs from current source or crop on page {ordinal}")
+        crop_hashes[ordinal] = crop_hash
+    return policy, crop_hashes
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -224,6 +288,7 @@ def normalize(
     status: str = "artifact-only",
     contact_sheet_every: int = 1,
     transform_policy_path: Path | None = None,
+    prior_normalization_manifest_path: Path | None = None,
 ) -> dict[str, Any]:
     golden_set = _read_json(golden_set_path) if golden_set_path else None
     manifest = _read_json(manifest_path)
@@ -232,7 +297,14 @@ def normalize(
     detector = str(selection.get("detector") or "").strip()
     if not detector:
         raise ValueError("Canonical page analysis has no resolved document_detector")
-    transform_policy = _load_transform_policy(transform_policy_path, preprocess_evidence, selection)
+    transform_policy, prior_crop_hashes = _load_transform_policy(
+        transform_policy_path,
+        preprocess_evidence,
+        selection,
+        manifest,
+        analysis,
+        prior_normalization_manifest_path,
+    )
 
     manifest_by_ordinal = {int(item["global_ordinal"]): item for item in manifest.get("records") or []}
     analysis_by_ordinal = {int(item["global_ordinal"]): item for item in analysis.get("records") or []}
@@ -287,6 +359,9 @@ def normalize(
         analysis_record = analysis_by_ordinal.get(ordinal) or {}
         candidate = _candidate(analysis_record, detector)
         base_crop, bounds = axis_aligned_crop(image, candidate["corners"])
+        base_crop_hash = _pixel_sha256(base_crop)
+        if prior_crop_hashes and prior_crop_hashes[ordinal] != base_crop_hash:
+            raise ValueError(f"Prior normalization basis has different cropped pixels on page {ordinal}")
         if transform_policy is None:
             normalized = base_crop
             transformation = {
@@ -314,7 +389,7 @@ def normalize(
             "output_file": target.relative_to(output).as_posix(),
             "output_sha256": _sha256(target),
             "output_pixel_sha256": _pixel_sha256(normalized),
-            "base_crop_pixel_sha256": _pixel_sha256(base_crop),
+            "base_crop_pixel_sha256": base_crop_hash,
             "base_crop_width": int(base_crop.shape[1]),
             "base_crop_height": int(base_crop.shape[0]),
             "transform_decision": transformation["decision"],
@@ -419,6 +494,13 @@ def normalize(
         "pages_transformed": sum(row["transform_decision"] == "apply" for row in rows),
         "pages_preserved": sum(row["transform_decision"] != "apply" for row in rows),
     }
+    if prior_crop_hashes:
+        payload["transform_policy_compatibility"] = {
+            "mode": "verified-identical-base-crops",
+            "assessed_preprocess_result_identity": (transform_policy.get("compatibility") or {}).get("canonical_preprocess_result_identity"),
+            "current_preprocess_result_identity": canonical_result_identity,
+            "pages_verified": len(prior_crop_hashes),
+        }
     (output / "normalization-manifest.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (output / "preprocess-evidence.json").write_text(json.dumps(preprocess_evidence, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (output / "geometry-evidence.json").write_text(json.dumps({"document_detector": selection, "records": geometry_records}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -475,6 +557,7 @@ def main(argv: list[str] | None = None) -> int:
         status=args.status,
         contact_sheet_every=args.contact_sheet_every,
         transform_policy_path=args.transform_policy,
+        prior_normalization_manifest_path=args.results_root / "normalization/normalization-manifest.json",
     )
     if args.github_summary:
         with args.github_summary.open("a", encoding="utf-8") as handle:

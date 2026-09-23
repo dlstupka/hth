@@ -7,6 +7,7 @@ import unittest
 import zipfile
 from io import BytesIO
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -14,16 +15,147 @@ from PIL import Image
 
 from hth.normalize_document_images import (
     POLICY_ID,
+    _load_transform_policy,
+    _pixel_sha256,
     axis_aligned_bounds,
     axis_aligned_crop,
     materialize_canonical_images,
     normalize,
 )
+from hth.canonical_build_evidence import canonical_hash
 from hth.orientation_deskew import rotate_expand
 from hth.normalization_report import should_render_review
 
 
 class NormalizeDocumentImagesTests(unittest.TestCase):
+    def _stale_policy_fixture(self, root: Path):
+        policy = {
+            "policy_type": "orientation-deskew-normalization",
+            "policy_id": "hough-lines-conservative-v1",
+            "status": "recommended-for-validation",
+            "gross_orientation": {"action": "preserve"},
+            "deskew": {
+                "estimator": "hough-lines", "canvas": "expanded-white", "interpolation": "linear",
+                "minimum_absolute_correction_degrees": 0.5,
+                "maximum_absolute_correction_degrees": 1.5,
+                "minimum_confidence": 0.7,
+                "minimum_line_count": 20,
+                "maximum_weighted_mad_degrees": 1.0,
+            },
+            "compatibility": {
+                "canonical_preprocess_result_identity": "a" * 64,
+                "detector": "test_detector",
+                "parameter_identity_sha256": "p" * 64,
+                "base_normalization_policy_id": POLICY_ID,
+            },
+            "evidence": {"canonical_normalization_result_identity": "n" * 64},
+        }
+        policy["policy_identity"] = canonical_hash(policy)
+        policy_path = root / "policy.json"
+        policy_path.write_text(json.dumps(policy), encoding="utf-8")
+        prior_path = root / "normalization/normalization-manifest.json"
+        prior_path.parent.mkdir()
+        corners = [[2, 2], [17, 2], [17, 17], [2, 17]]
+        prior = {
+            "canonical_preprocess": {"canonical_result_identity": "a" * 64},
+            "canonical_result_identity": "n" * 64,
+            "detector_selection": {"detector": "test_detector", "parameter_identity_sha256": "p" * 64},
+            "policy": {"base_policy_id": POLICY_ID},
+            "pages": [{
+                "global_ordinal": 1,
+                "source_sha256": "s" * 64,
+                "detector_corners": corners,
+                "base_crop_pixel_sha256": "c" * 64,
+            }],
+        }
+        prior_path.write_text(json.dumps(prior), encoding="utf-8")
+        evidence = {"canonical_result": {"identity": "b" * 64}}
+        selection = {"detector": "test_detector", "parameter_identity_sha256": "p" * 64}
+        manifest = {"records": [{"global_ordinal": 1, "sha256": "s" * 64}]}
+        analysis = {"records": [{
+            "global_ordinal": 1,
+            "geometry_candidates": [{"method": "test_detector", "status": "ok", "corners": corners}],
+        }]}
+        return policy_path, prior_path, evidence, selection, manifest, analysis
+
+    def test_stale_policy_requires_proven_identical_crop_basis(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            policy_path, prior_path, evidence, selection, manifest, analysis = self._stale_policy_fixture(Path(temporary))
+            with patch("hth.normalize_document_images.load_evidence_store", return_value={
+                "authoritative_identity": "verified", "records": {"verified": {}}
+            }), patch("hth.normalize_document_images.validate_published_results"):
+                policy, crop_hashes = _load_transform_policy(
+                    policy_path, evidence, selection, manifest, analysis, prior_path
+                )
+                self.assertEqual(policy["policy_id"], "hough-lines-conservative-v1")
+                self.assertEqual(crop_hashes, {1: "c" * 64})
+                manifest["records"][0]["sha256"] = "different"
+                with self.assertRaisesRegex(ValueError, "source or crop"):
+                    _load_transform_policy(policy_path, evidence, selection, manifest, analysis, prior_path)
+                manifest["records"][0]["sha256"] = "s" * 64
+                analysis["records"][0]["geometry_candidates"][0]["corners"] = [[3, 2], [17, 2], [17, 17], [2, 17]]
+                with self.assertRaisesRegex(ValueError, "source or crop"):
+                    _load_transform_policy(policy_path, evidence, selection, manifest, analysis, prior_path)
+
+    def test_stale_policy_fails_closed_without_valid_published_basis(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            policy_path, prior_path, evidence, selection, manifest, analysis = self._stale_policy_fixture(Path(temporary))
+            with self.assertRaisesRegex(ValueError, "no prior normalization basis"):
+                _load_transform_policy(policy_path, evidence, selection, manifest, analysis, None)
+            with patch("hth.normalize_document_images.load_evidence_store", return_value={
+                "authoritative_identity": "verified", "records": {"verified": {}}
+            }), patch("hth.normalize_document_images.validate_published_results", side_effect=ValueError("tampered manifest")):
+                with self.assertRaisesRegex(ValueError, "tampered manifest"):
+                    _load_transform_policy(policy_path, evidence, selection, manifest, analysis, prior_path)
+
+    def test_stale_policy_rejects_different_cropped_pixels(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            policy_path, prior_path, evidence, selection, manifest, analysis = self._stale_policy_fixture(root)
+            images = root / "images"
+            images.mkdir()
+            image = np.full((20, 20, 3), 127, dtype=np.uint8)
+            source = images / "fs_0001.png"
+            self.assertTrue(cv2.imwrite(str(source), image))
+            source_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+            manifest["records"][0]["sha256"] = source_sha
+            prior = json.loads(prior_path.read_text(encoding="utf-8"))
+            prior["pages"][0]["source_sha256"] = source_sha
+            prior_path.write_text(json.dumps(prior), encoding="utf-8")
+            manifest_path = root / "image-manifest.json"
+            analysis_path = root / "page-analysis.json"
+            analysis["document_detector"] = selection
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            analysis_path.write_text(json.dumps(analysis), encoding="utf-8")
+            evidence["effective_build_identity"] = "e" * 64
+            evidence["canonical_result"]["pages"] = [{"global_ordinal": 1, "canonical_image_sha256": source_sha}]
+            with patch("hth.normalize_document_images.load_evidence_store", return_value={
+                "authoritative_identity": "verified", "records": {"verified": {}}
+            }), patch("hth.normalize_document_images.validate_published_results"):
+                with self.assertRaisesRegex(ValueError, "different cropped pixels"):
+                    normalize(
+                        None, images, manifest_path, analysis_path, evidence, root / "output",
+                        transform_policy_path=policy_path,
+                        prior_normalization_manifest_path=prior_path,
+                    )
+
+            prior["pages"][0]["base_crop_pixel_sha256"] = _pixel_sha256(image[2:17, 2:17])
+            prior_path.write_text(json.dumps(prior), encoding="utf-8")
+            with patch("hth.normalize_document_images.load_evidence_store", return_value={
+                "authoritative_identity": "verified", "records": {"verified": {}}
+            }), patch("hth.normalize_document_images.validate_published_results"):
+                payload = normalize(
+                    None, images, manifest_path, analysis_path, evidence, root / "verified-output",
+                    contact_sheet_every=0,
+                    transform_policy_path=policy_path,
+                    prior_normalization_manifest_path=prior_path,
+                )
+            self.assertEqual(
+                payload["transform_policy_compatibility"]["mode"],
+                "verified-identical-base-crops",
+            )
+            self.assertEqual(payload["transform_policy_compatibility"]["pages_verified"], 1)
+
     def test_review_selection_is_noncanonical_and_always_includes_transforms(self) -> None:
         self.assertFalse(should_render_review(4, 10, 0, "preserve"))
         self.assertTrue(should_render_review(4, 10, 0, "apply"))
