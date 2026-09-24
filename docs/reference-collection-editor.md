@@ -1,6 +1,13 @@
 # HTH Reference Collection Editor — Detector Golden Set
 
-Open `tools/reference-collection-director.html` for the detector and layout tabs, or `tools/reference-collection-editor.html` directly. The detector workbench displays registered geometry candidates beside approved page-box truth. It opens the frozen HTH-GOLDEN-0002 reference by default; use the Golden Set selector to load another detector reference JSON. For GS0002 images, download the immutable `HTH-GOLDEN-0002.images.zip` release asset and open it directly; do not select the full results checkout through the folder picker. A small extracted image folder remains supported.
+Run `python tools/reference-collection-director.py` to open both editors through the localhost launcher. Enter the public collection source-repository URL and load the frozen Golden Set release; the current collection and HTH-GOLDEN-0002 are defaults. The director downloads and verifies the release once for both tabs. Each editor has independent source-repository and Golden Set controls, so research in one tab need not change the other. Download and hash-check status appears in the editor. A manually downloaded release ZIP or small extracted image folder remains a fallback. Do not select the full results checkout for source images.
+
+The companion results repository is shown automatically as `<source-repository>-results`.
+Use **Git pull results checkout** to fast-forward the matching local sibling
+checkout; the status reports the resulting commit or explains why the update
+was refused. **Open result repository workspace** remains available for its
+derived analysis. Reopen the picker after a pull because browsers retain a
+snapshot of the files previously selected.
 
 | Overlay | Color |
 |---|---|
@@ -74,10 +81,11 @@ Legacy page-level geometry fields are no longer rendered as an additional detect
 
 ## Files
 
-The workbench is self-contained:
+The editor and local launcher are:
 
 ```text
 tools/reference-collection-editor.html
+tools/reference-collection-director.py
 ```
 
-Open it locally in a modern browser, then choose **Open results workspace** and select the results repository directory containing the raw images and `page-analysis.json`.
+Open the localhost page in a modern browser for automatic release loading. **Open result repository workspace** remains an optional route for derived analysis and detector overlays such as `page-analysis.json`; it is not the source of frozen Golden Set images.

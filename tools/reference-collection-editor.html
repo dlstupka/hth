@@ -19,6 +19,8 @@ h1{font-size:19px;margin:0}.sub{font-size:12px;color:var(--muted);margin-top:3px
 button,.filebtn,select,input,textarea{font:inherit}
 button,.filebtn{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:8px 11px;cursor:pointer}
 button:hover,.filebtn:hover{border-color:var(--accent)}
+.tools #releaseRepo{width:min(340px,80vw)}.tools #releaseTag{width:170px}
+.tools .results-link{font-size:12px;color:var(--muted);align-self:center}.tools .results-link a{color:var(--accent)}
 .primary{background:#164f83;border-color:#2b79b9}
 .good{background:#174d35;border-color:#2f8e61}
 button:disabled{opacity:.45;cursor:not-allowed}
@@ -65,6 +67,10 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
   <div><h1>HTH Reference Collection Editor</h1><div class="sub">Approve physical-document geometry and layout examples for Stage 2.</div></div>
   <div class="tools">
     <select id="goldenSetChoice" aria-label="Detector Golden Set"><option value="default">HTH-GOLDEN-0002</option><option value="manual">Choose detector Golden Set JSON…</option><option value="source-draft">New draft from workspace analysis</option></select>
+    <input id="releaseRepo" type="url" aria-label="Source repository" value="https://github.com/dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898" placeholder="Source repository URL">
+    <input id="releaseTag" list="releaseOptions" aria-label="Golden Set release" value="HTH-GOLDEN-0002" placeholder="Golden Set release"><datalist id="releaseOptions"></datalist>
+    <button id="loadRelease" type="button">Load source release</button>
+    <span class="results-link">Results: <a id="resultsRepo" target="_blank" rel="noopener noreferrer"></a></span><button id="updateResults" type="button">Git pull results checkout</button>
     <label class="filebtn">Open result repository workspace<input id="workspaceFolder" type="file" webkitdirectory multiple></label>
     <label class="filebtn">Open GS0002 image ZIP<input id="imageBundle" type="file" accept=".zip,application/zip"></label>
     <label class="filebtn">Load reference JSON<input id="jsonFile" type="file" accept=".json,application/json"></label>
@@ -75,9 +81,9 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
 
 <main>
 <section class="workspace">
-  <div class="status"><span id="status">Open the GS0002 image ZIP, or choose a small results workspace. Do not select the full results repository.</span><span id="zoomLabel">Fit</span></div><div id="ribbon" class="ribbon"><span class="pill">No page loaded</span></div>
+  <div class="status"><span id="status">Load the source repository release for verified images. Result workspace is optional analysis input.</span><span id="zoomLabel">Fit</span></div><div id="ribbon" class="ribbon"><span class="pill">No page loaded</span></div>
   <div id="canvasWrap" class="canvaswrap">
-    <div id="empty" class="empty"><div><h2>No page loaded</h2><p>Open the results repository folder (recommended), or load <code>reference_collection.json</code> and <code>raw/</code> separately.</p></div></div>
+    <div id="empty" class="empty"><div><h2>No page loaded</h2><p>Load the frozen Golden Set release above; open a result repository workspace separately if you need detector-analysis overlays.</p></div></div>
     <div id="canvasHint" class="canvas-hint" hidden></div><canvas id="canvas" hidden></canvas>
   </div>
   <div id="thumbnailBar" class="thumbnailbar"></div>
@@ -235,6 +241,7 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
 
 <script src="reference-collection-defaults.js"></script>
 <script src="reference-collection-images.js"></script>
+<script src="reference-collection-source.js"></script>
 <script>
 (()=>{'use strict';
 
@@ -898,6 +905,21 @@ async function exportJson(){
   }finally{button.disabled=false}
 }
 
+async function applySourceRelease(release){
+  if(s.dirty&&!confirm('Discard unsaved detector Golden Set changes?'))return;
+  s.collection=normalize(structuredClone(release.golden_set));s.pages=s.collection.pages;
+  s.manualGoldenSet=true;s.sourceDraftMode=false;s.dirty=false;
+  $('releaseRepo').value=release.sourceRepo;$('releaseTag').value=release.tag;showResults();
+  let option=$('goldenSetChoice').querySelector('option[value="release"]');if(!option){option=document.createElement('option');option.value='release';$('goldenSetChoice').appendChild(option)}
+  option.textContent=`Release ${release.tag}`;option.disabled=true;$('goldenSetChoice').value='release';
+  await loadWorkspace(release.files);
+  $('status').textContent=`${release.tag}: ${release.files.length} frozen source images verified.`
+}
+async function listSourceReleases(){try{const tags=await window.HTH_REFERENCE_SOURCE.listGoldenSets($('releaseRepo').value);$('releaseOptions').replaceChildren(...tags.map(tag=>{const option=document.createElement('option');option.value=tag;return option}));if(tags.length&&!tags.includes($('releaseTag').value))$('releaseTag').value=tags[0];$('status').textContent=`${tags.length} Golden Set release(s) available for this source repository.`}catch(error){$('status').textContent=error.message}}
+function showResults(){const url=window.HTH_REFERENCE_SOURCE.resultsRepository($('releaseRepo').value);$('resultsRepo').textContent=url||'Enter a valid source repository';$('resultsRepo').href=url||'#';$('updateResults').disabled=!url}
+$('releaseRepo').oninput=showResults;$('releaseRepo').onchange=listSourceReleases;
+$('updateResults').onclick=async()=>{const button=$('updateResults');button.disabled=true;try{await window.HTH_REFERENCE_SOURCE.updateResults($('releaseRepo').value,message=>$('status').textContent=message)}catch(error){$('status').textContent=error.message}finally{button.disabled=false}};
+$('loadRelease').onclick=async()=>{const button=$('loadRelease');button.disabled=true;try{const release=await window.HTH_REFERENCE_SOURCE.loadRelease($('releaseRepo').value,$('releaseTag').value,message=>$('status').textContent=message);await applySourceRelease(release)}catch(error){$('status').textContent=error.message}finally{button.disabled=false}};
 $('workspaceFolder').onchange=async e=>{try{await loadWorkspace(e.target.files)}catch(err){alert(`Could not open workspace: ${err.message}`)}};
 $('imageBundle').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{const images=await window.HTH_REFERENCE_IMAGES.readGs0002Bundle(file,message=>$('status').textContent=message);await loadWorkspace(images)}catch(error){$('status').textContent=error.message}};
 $('goldenSetChoice').onchange=()=>{const choice=$('goldenSetChoice').value;if(choice==='manual'){$('jsonFile').click();return}if(s.dirty&&!confirm('Discard unsaved detector Golden Set changes?'))return;s.manualGoldenSet=false;s.sourceDraftMode=choice==='source-draft';if(s.sourceDraftMode){if(!s.analysis.size){alert('Open a workspace containing page-analysis.json first.');$('goldenSetChoice').value='default';s.sourceDraftMode=false;return}s.collection=synthesizeSourceCollection({records:[...s.analysis.values()]})}else s.collection=normalize(structuredClone(window.HTH_REFERENCE_DEFAULTS.detector));s.pages=s.collection.pages;s.dirty=false;enable(true);rebuild();collectionStatus();load(0)};
@@ -987,7 +1009,8 @@ window.onkeydown=e=>{
   if(key==='c'){$('compare').click();return}
 };
 window.onbeforeunload=e=>{if(s.dirty){e.preventDefault();e.returnValue=''}};
-window.addEventListener('message',e=>{if(e.source!==window.parent||e.data?.type!=='HTH_REFERENCE_WORKSPACE'||!Array.isArray(e.data.files))return;loadWorkspace(e.data.files).catch(error=>alert(error.message))});
+window.addEventListener('message',e=>{if(e.source!==window.parent)return;if(e.data?.type==='HTH_REFERENCE_RELEASE'){applySourceRelease(e.data.release).catch(error=>alert(error.message));return}if(e.data?.type==='HTH_REFERENCE_WORKSPACE'&&Array.isArray(e.data.files))loadWorkspace(e.data.files).catch(error=>alert(error.message))});
+showResults();
 s.collection=normalize(structuredClone(window.HTH_REFERENCE_DEFAULTS.detector));s.pages=s.collection.pages;enable(true);rebuild();collectionStatus();load(0);
 
 })();

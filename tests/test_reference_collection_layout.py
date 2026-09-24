@@ -30,6 +30,11 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn("type:'HTH_REFERENCE_WORKSPACE',files", director)
         self.assertIn('id="bundle" type="file"', director)
         self.assertIn('readGs0002Bundle(file', director)
+        self.assertIn('id="sourceRepo" type="url"', director)
+        self.assertIn('id="goldenSetId" list="goldenSetOptions"', director)
+        self.assertIn("type:'HTH_REFERENCE_RELEASE',release", director)
+        self.assertIn('id="resultsRepo"', director)
+        self.assertIn('id="updateResults"', director)
         self.assertNotIn('id="workspace" type="file" webkitdirectory', director)
         self.assertFalse((ROOT / 'tools/reference-collection-editor-multidetector.html').exists())
 
@@ -46,6 +51,11 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             self.assertIn('id="goldenSetChoice"', editor)
             self.assertIn('value="manual"', editor)
             self.assertIn('HTH_REFERENCE_WORKSPACE', editor)
+            self.assertIn('id="releaseRepo" type="url"', editor)
+            self.assertIn('id="releaseTag" list="releaseOptions"', editor)
+            self.assertIn('HTH_REFERENCE_RELEASE', editor)
+            self.assertIn('id="resultsRepo"', editor)
+            self.assertIn('id="updateResults"', editor)
         self.assertIn('Open result repository workspace', detector)
         self.assertIn('not the results repository', layout)
 
@@ -68,7 +78,8 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn(str(freeze['image_bundle']['size']), defaults)
         self.assertIn(freeze['image_bundle']['sha256'], defaults)
         self.assertIn("sha256(bytes) !== bundle.sha256", importer)
-        self.assertIn("sha256(imageBytes) !== expected.get(number)", importer)
+        self.assertIn("sha256(imageBytes) !== record.sha256", importer)
+        self.assertIn("record.size !== undefined && size !== record.size", importer)
 
     def test_layout_candidates_cannot_become_approved_truth_implicitly(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')

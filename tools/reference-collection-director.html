@@ -5,32 +5,41 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>HTH Reference Collection Director</title>
 <style>
-:root{color-scheme:dark;font:14px system-ui,sans-serif;background:#101318;color:#e7edf5}*{box-sizing:border-box}body{margin:0}header{padding:12px 16px;border-bottom:1px solid #394653;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}h1{font-size:19px;margin:0}.sub{color:#aab7c5;font-size:12px}.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}button,.file{color:#e7edf5;background:#202731;border:1px solid #465362;border-radius:6px;padding:8px 11px;cursor:pointer}.file input{display:none}.tabs{display:flex;gap:8px;padding:8px 12px;background:#171d25;border-bottom:1px solid #394653}.tabs button[aria-selected=true]{background:#1260a8;border-color:#58a6ff}.frame{width:100%;height:calc(100vh - 132px);border:0;display:block}.frame[hidden]{display:none}.note{padding:6px 12px;background:#1d2630;color:#c5d0dc;font-size:12px}
+:root{color-scheme:dark;font:14px system-ui,sans-serif;background:#101318;color:#e7edf5}*{box-sizing:border-box}body{margin:0}header{padding:12px 16px;border-bottom:1px solid #394653;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}h1{font-size:19px;margin:0}.sub{color:#aab7c5;font-size:12px}.sub a{color:#79b8ff}.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}button,.file,input{color:#e7edf5;background:#202731;border:1px solid #465362;border-radius:6px;padding:8px 11px;font:inherit}button,.file{cursor:pointer}button:disabled{opacity:.5}.file input{display:none}#sourceRepo{width:min(420px,80vw)}#goldenSetId{width:190px}.tabs{display:flex;gap:8px;padding:8px 12px;background:#171d25;border-bottom:1px solid #394653}.tabs button[aria-selected=true]{background:#1260a8;border-color:#58a6ff}.frame{width:100%;height:calc(100vh - 164px);border:0;display:block}.frame[hidden]{display:none}.note{padding:6px 12px;background:#1d2630;color:#c5d0dc;font-size:12px}.note summary{cursor:pointer}.status{padding:7px 12px;background:#182431;color:#c5d0dc;min-height:31px}
 </style>
 </head>
 <body>
 <header>
-  <div><h1>HTH Reference Collection Director</h1><div class="sub">Detector geometry and layout truth are reviewed separately. GS0002 loads as the default in both tabs.</div></div>
-  <div class="tools"><a class="file" href="https://github.com/dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898/releases/download/HTH-GOLDEN-0002/HTH-GOLDEN-0002.images.zip">Download GS0002 images</a><label class="file">Open GS0002 image ZIP<input id="bundle" type="file" accept=".zip,application/zip"></label><label class="file">Or choose image files<input id="workspace" type="file" accept="image/*" multiple></label><span id="workspaceStatus" class="sub">Images not selected</span></div>
+  <div><h1>HTH Reference Collection Director</h1><div class="sub">Detector geometry and layout truth are reviewed separately. GS0002 loads as the default in both tabs.</div><div class="sub">Results repository: <a id="resultsRepo" target="_blank" rel="noopener noreferrer"></a> (derived from source)</div></div>
+  <form id="loadForm" class="tools"><label for="sourceRepo">Source repository</label><input id="sourceRepo" type="url" required value="https://github.com/dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898"><label for="goldenSetId">Golden Set</label><input id="goldenSetId" list="goldenSetOptions" required value="HTH-GOLDEN-0002"><datalist id="goldenSetOptions"></datalist><button id="loadBoth" type="submit">Load both tabs</button><button id="updateResults" type="button">Git pull results checkout</button></form>
 </header>
 <div class="tabs" role="tablist" aria-label="Reference editors">
   <button id="detectorTab" role="tab" aria-selected="true" aria-controls="detectorFrame">Detector Golden Set</button>
   <button id="layoutTab" role="tab" aria-selected="false" aria-controls="layoutFrame">Layout Golden Set</button>
 </div>
-<div class="note">Use the 18-image GS0002 release bundle, or select individual source images. Do not select the full results repository. Each tab has its own Golden Set selector, review state, and export.</div>
+<details class="note"><summary>Manual image fallback and launch help</summary><p>Automatic loading and Git pull require <code>python tools/reference-collection-director.py</code>. Git pull updates the validated sibling results checkout. The browser workspace picker remains available in the detector tab; reopen it after an update. Each tab can override the source repository and Golden Set independently.</p><label class="file">Open GS0002 image ZIP<input id="bundle" type="file" accept=".zip,application/zip"></label> <label class="file">Or choose source image files<input id="workspace" type="file" accept="image/*" multiple></label></details>
+<div id="workspaceStatus" class="status" role="status" aria-live="polite">Enter a source repository and load its current Golden Set.</div>
 <iframe id="detectorFrame" class="frame" title="Detector Golden Set editor" src="reference-collection-editor.html"></iframe>
 <iframe id="layoutFrame" class="frame" title="Layout Golden Set editor" src="reference-collection-layout.html" hidden></iframe>
 <script src="reference-collection-defaults.js"></script>
 <script src="reference-collection-images.js"></script>
+<script src="reference-collection-source.js"></script>
 <script>
 (()=>{'use strict';
-const $=id=>document.getElementById(id);let files=[];
-function send(frame){if(files.length&&frame.contentWindow)frame.contentWindow.postMessage({type:'HTH_REFERENCE_WORKSPACE',files},'*')}
+const $=id=>document.getElementById(id);let files=[],release=null;
+const status=message=>$('workspaceStatus').textContent=message;
+function showResults(){const url=window.HTH_REFERENCE_SOURCE.resultsRepository($('sourceRepo').value);$('resultsRepo').textContent=url||'Enter a valid source repository';$('resultsRepo').href=url||'#';$('updateResults').disabled=!url}
+function send(frame){if(!files.length||!frame.contentWindow)return;frame.contentWindow.postMessage(release?{type:'HTH_REFERENCE_RELEASE',release}:{type:'HTH_REFERENCE_WORKSPACE',files},'*')}
 function tab(which){const detector=which==='detector';$('detectorFrame').hidden=!detector;$('layoutFrame').hidden=detector;$('detectorTab').setAttribute('aria-selected',String(detector));$('layoutTab').setAttribute('aria-selected',String(!detector))}
 $('detectorTab').onclick=()=>tab('detector');$('layoutTab').onclick=()=>tab('layout');
-$('workspace').onchange=e=>{files=[...e.target.files].filter(file=>file.type.startsWith('image/')||/\.(png|jpe?g|tiff?)$/i.test(file.name));$('workspaceStatus').textContent=`${files.length} image files selected`;send($('detectorFrame'));send($('layoutFrame'))};
-$('bundle').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{files=await window.HTH_REFERENCE_IMAGES.readGs0002Bundle(file,message=>$('workspaceStatus').textContent=message);$('workspaceStatus').textContent=`${files.length} GS0002 images verified`;send($('detectorFrame'));send($('layoutFrame'))}catch(error){files=[];$('workspaceStatus').textContent=error.message}};
+async function listSets(){try{const tags=await window.HTH_REFERENCE_SOURCE.listGoldenSets($('sourceRepo').value);$('goldenSetOptions').replaceChildren(...tags.map(tag=>{const option=document.createElement('option');option.value=tag;return option}));if(tags.length&&!tags.includes($('goldenSetId').value))$('goldenSetId').value=tags[0];status(`${tags.length} Golden Set release(s) available; choose one and load.`)}catch(error){status(error.message)}}
+$('sourceRepo').oninput=showResults;$('sourceRepo').onchange=listSets;
+$('updateResults').onclick=async()=>{const button=$('updateResults');button.disabled=true;try{await window.HTH_REFERENCE_SOURCE.updateResults($('sourceRepo').value,status)}catch(error){status(error.message)}finally{button.disabled=false}};
+$('loadForm').onsubmit=async event=>{event.preventDefault();$('loadBoth').disabled=true;try{release=await window.HTH_REFERENCE_SOURCE.loadRelease($('sourceRepo').value,$('goldenSetId').value,status);files=release.files;send($('detectorFrame'));send($('layoutFrame'))}catch(error){status(error.message)}finally{$('loadBoth').disabled=false}};
+$('workspace').onchange=e=>{release=null;files=[...e.target.files].filter(file=>file.type.startsWith('image/')||/\.(png|jpe?g|tiff?)$/i.test(file.name));status(`${files.length} source image files selected`);send($('detectorFrame'));send($('layoutFrame'))};
+$('bundle').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{release=null;files=await window.HTH_REFERENCE_IMAGES.readGs0002Bundle(file,status);status(`${files.length} GS0002 images verified`);send($('detectorFrame'));send($('layoutFrame'))}catch(error){files=[];status(error.message)}};
 $('detectorFrame').onload=()=>send($('detectorFrame'));$('layoutFrame').onload=()=>send($('layoutFrame'));
+showResults();if(location.protocol!=='file:')listSets();else status('For automatic loading, run python tools/reference-collection-director.py and use the localhost page it opens.');
 })();
 </script>
 </body>

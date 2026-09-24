@@ -1,15 +1,22 @@
 # HTH layout reference editor
 
-Open `tools/reference-collection-director.html` for detector and layout tabs, or
-`tools/reference-collection-layout.html` directly. The detector tab defaults to
-HTH-GOLDEN-0002; the layout tab defaults to its HTH-GOLDEN-0002-LAYOUT draft.
-Both have independent manual Golden Set selectors. Download
-[`HTH-GOLDEN-0002.images.zip`](https://github.com/dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898/releases/download/HTH-GOLDEN-0002/HTH-GOLDEN-0002.images.zip)
-from the immutable Golden Set release, then open that ZIP in the director. It
-verifies the bundle and all 18 image SHA-256 values locally and shares only
-those images with the two tabs. An extracted source image folder also works.
-Do **not** open the full results checkout: it contains many derived files and
-does not supply the frozen GS0002 source images.
+Run `python tools/reference-collection-director.py` and open the localhost URL
+it prints. Enter the public collection source-repository URL, then **Load both
+tabs**. The director defaults to the Baptisms collection and HTH-GOLDEN-0002,
+but each editor also has its own source-repository and Golden Set controls for
+independent research. The director resolves the immutable release, downloads
+its frozen Golden Set and source-image bundle, shows download/checking status,
+and verifies the freeze record, bundle SHA-256, and every image SHA-256 before
+sharing the images with both tabs. It does not need the results repository.
+Opening the HTML directly from disk cannot perform automatic release downloads;
+the ZIP and extracted-image controls remain as manual fallback.
+
+The results repository is derived as `<source-repository>-results` and shown in
+the director and both tabs; it is not another required input. **Git pull results
+checkout** updates the matching sibling checkout with `--ff-only` after checking
+its origin and tracked-file cleanliness, and reports whether the commit changed.
+If using the detector tab's workspace picker, reopen it after the pull to read
+the updated local files. The pull action does not change the frozen source release.
 
 The initial `config/golden_sets/HTH-GOLDEN-0002-LAYOUT.draft.json` is an
 **unapproved draft**. It carries the 18 frozen GS0002 page ordinals, source
@@ -18,8 +25,8 @@ does not alter the approved detector Golden Set. Region truth uses source-image
 pixel coordinates and cannot be applied directly to a normalized view without
 the recorded geometric transform.
 
-In the layout tab, open the bundle (or a small source image folder) and verify its digest before
-editing a page. Draw rectangular or polygonal regions, drag a selected vertex
+In the layout tab, load a source release (or use the director's shared load)
+before editing a page. Draw rectangular or polygonal regions, drag a selected vertex
 to correct a polygon, choose the region class, then mark the page reviewed. An
 expanded Kraken layout artifact may be imported as **unapproved proposals**;
 the editor checks its Golden Set and source-file identities before displaying
