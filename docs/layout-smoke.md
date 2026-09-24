@@ -15,10 +15,12 @@ a `smoke` or `full` mode. For HTH-GOLDEN-0002, it verifies source and final
 normalized views against the selected Results ref, then invokes managed Kraken
 on both views. The older HTH-GOLDEN-0001 uses a different source release and
 is evaluated source-only; the summary explicitly says so rather than implying
-an unverified normalized comparison. `smoke` selects up to six evenly spaced
-pages from the frozen Golden Set (6 of 18 for GS0002, 2 of 5 for GS0001); `full`
-selects every Golden Set page. Neither
-mode processes the entire 929-page collection. It uploads compact native geometry, per-page health
+an unverified normalized comparison. `smoke` evaluates every page in the
+selected immutable Golden Set: 18 of 18 for GS0002 and 5 of 5 for GS0001.
+`full` means the complete 929-page collection, as in the upstream flows. That
+collection materialization is not wired into this workflow yet, so `full` fails
+at scope validation rather than silently running only the Golden Set. The smoke
+uploads compact native geometry, per-page health
 metrics, batch timings/warning counts, logs, and provenance as an artifact.
 It does not publish to the Results repository or upload the source/normalized
 pixel bundles; those are reproducible from the frozen release and manifests.

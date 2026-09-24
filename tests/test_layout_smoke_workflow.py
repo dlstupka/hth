@@ -59,6 +59,7 @@ class LayoutSmokeWorkflowTests(unittest.TestCase):
         self.assertIn('default: smoke', workflow)
         self.assertIn('          - full', workflow)
         self.assertIn('--mode "${{ inputs.mode }}"', workflow)
+        self.assertIn("Full collection layout is not wired yet", workflow)
         self.assertIn("/normalization/binarization-integration/binarization-normalization-manifest.json", workflow)
         self.assertIn("persist-credentials: false", workflow)
         self.assertNotIn("hth_hardened_persist", workflow)
@@ -87,14 +88,17 @@ class LayoutSmokeWorkflowTests(unittest.TestCase):
             self.assertIn(str(source.resolve()), command)
             self.assertIn(str((results / "fs_0003.json").resolve()), command)
 
-    def test_mode_selects_bounded_or_complete_frozen_membership(self) -> None:
-        pages = [{"global_ordinal": ordinal} for ordinal in range(18)]
-        self.assertEqual(
-            [page["global_ordinal"] for page in MODULE._select_pages(pages, "smoke")],
-            [0, 3, 7, 10, 14, 17],
-        )
-        self.assertEqual(MODULE._select_pages(pages, "full"), pages)
-        self.assertEqual(MODULE._select_pages(pages[:5], "smoke"), [pages[0], pages[4]])
+    def test_smoke_preserves_complete_frozen_membership_and_full_rejects_it(self) -> None:
+        freeze = json.loads((ROOT / "config/golden_sets/HTH-GOLDEN-0002.freeze.json").read_text(encoding="utf-8"))
+        ordinals = freeze["membership"]["global_ordinals"]
+        self.assertEqual(freeze["membership"]["page_count"], 18)
+        pages = [{"global_ordinal": ordinal} for ordinal in ordinals]
+        self.assertEqual(MODULE._select_pages(pages, "smoke"), pages)
+        self.assertEqual(MODULE._select_pages(pages[:5], "smoke"), pages[:5])
+        with self.assertRaisesRegex(ValueError, "929 collection pages"):
+            MODULE._select_pages(pages, "full")
+        collection = [{"global_ordinal": ordinal} for ordinal in range(1, 930)]
+        self.assertEqual(MODULE._select_pages(collection, "full", "layout-collection-inputs"), collection)
         with self.assertRaises(ValueError):
             MODULE._select_pages(pages, "invalid")
 

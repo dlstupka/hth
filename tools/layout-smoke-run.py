@@ -55,19 +55,16 @@ def _run_view(command: list[str], results: Path, log: Path, page_count: int) -> 
     }
 
 
-def _select_pages(pages: list[dict], mode: str) -> list[dict]:
+def _select_pages(pages: list[dict], mode: str, purpose: str = "layout-evaluation-inputs") -> list[dict]:
     if mode not in {"smoke", "full"}:
         raise ValueError(f"Unsupported layout mode: {mode}")
     if not pages:
         raise ValueError("No Golden Set pages to evaluate")
-    if mode == "full":
-        return pages
-    sample_size = min(6, max(1, (len(pages) + 2) // 3))
-    if sample_size == 1:
-        return [pages[len(pages) // 2]]
-    # Deterministic coverage across the frozen Golden Set's ordered membership.
-    indices = [round(index * (len(pages) - 1) / (sample_size - 1)) for index in range(sample_size)]
-    return [pages[index] for index in indices]
+    if mode == "full" and (purpose != "layout-collection-inputs" or len(pages) != 929):
+        raise ValueError("Full layout requires verified inputs for all 929 collection pages; Golden Set inputs are smoke-only")
+    # The selected immutable Golden Set is already the bounded smoke scope.
+    # Never silently drop members based on the workflow mode.
+    return pages
 
 
 def run(
@@ -86,7 +83,7 @@ def run(
     pages = inputs["pages"]
     if len({int(page["global_ordinal"]) for page in pages}) != len(pages):
         raise ValueError("Paired inputs contain duplicate page ordinals")
-    selected = _select_pages(pages, mode)
+    selected = _select_pages(pages, mode, inputs.get("purpose", ""))
     views = inputs.get("views", ["source", "normalized"])
     if views not in (["source"], ["source", "normalized"]):
         raise ValueError(f"Unsupported layout input views: {views}")

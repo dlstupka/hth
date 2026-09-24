@@ -27,7 +27,7 @@ on:
           - HTH-GOLDEN-0001
           - HTH-GOLDEN-0002
       mode:
-        description: "Layout mode: representative Golden Set sample or complete Golden Set"
+        description: "Smoke: all selected Golden Set pages; full: 929-page collection (not yet wired)"
         required: true
         default: smoke
         type: choice
@@ -108,6 +108,13 @@ jobs:
           || 'github-hosted' }}
       # END GENERATED RUNNER SETUP LABEL
     steps:
+      - name: Validate layout scope
+        if: inputs.mode == 'full'
+        shell: bash
+        run: |
+          echo "::error::Full collection layout is not wired yet. Smoke covers every page of the selected immutable Golden Set; full must cover all 929 collection pages."
+          exit 1
+
       - name: Checkout HTH pipeline
         uses: actions/checkout@v6
         with:
