@@ -323,6 +323,7 @@ This directory contains the design, operating, and project-reference documentati
 
 ## Geometry and detectors
 
+- [Layout reconnaissance: HTH-GOLDEN-0002](layout-smoke.md) — paired source/normalized smoke and decision-useful metric policy.
 - [Multi-detector geometry](multidetector-geometry.md) — detector registry and geometry pipeline.
 - [Physical geometry evaluation](physical-geometry-evaluation.md) — geometry validation and evaluation rules.
 - [Detector components](detector-components.md) — connected-components detector.

@@ -22,3 +22,4 @@ working/
 *.bak
 Thumbs.db
 .DS_Store
+.tmp-layout-recon/

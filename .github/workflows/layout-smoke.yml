@@ -1,0 +1,174 @@
+name: HTH layout smoke
+
+run-name: Compare layout on source and normalized GS0002 pages
+
+on:
+  workflow_dispatch:
+    inputs:
+      results_repository:
+        description: "Canonical collection results repository"
+        required: true
+        default: "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898-results"
+        type: string
+      results_ref:
+        description: "Results ref containing the normalization manifests (commit SHA recommended)"
+        required: true
+        default: main
+        type: string
+      # BEGIN GENERATED RUNNER TARGET INPUT
+      runner_target:
+        description: "Execution runner target"
+        required: true
+        default: github-hosted
+        type: choice
+        options:
+          - github-hosted
+          - self-hosted-linux
+          - self-hosted-windows
+          - hth
+          - rhel8
+          - e7k
+          - e9k
+          - 192vcpu
+          - 96vcpu
+          - 32vcpu
+      # END GENERATED RUNNER TARGET INPUT
+      artifact_retention_days:
+        description: "Days to retain compact layout smoke evidence"
+        required: true
+        default: 14
+        type: number
+
+permissions:
+  contents: read
+
+concurrency:
+  group: layout-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: init.defaultBranch
+  GIT_CONFIG_VALUE_0: main
+  GOLDEN_SET_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898
+  GOLDEN_SET_RELEASE: HTH-GOLDEN-0002
+  GOLDEN_SET_FREEZE: hth-pipeline/config/golden_sets/HTH-GOLDEN-0002.freeze.json
+
+jobs:
+  layout-smoke:
+    name: Verify paired GS0002 layout baseline
+    # BEGIN GENERATED RUNNER TARGET ROUTING
+    runs-on: >-
+      ${{ inputs.runner_target == 'self-hosted-linux' && fromJSON('["self-hosted","Linux","X64"]')
+        || inputs.runner_target == 'self-hosted-windows' && fromJSON('["self-hosted","Windows","X64"]')
+        || inputs.runner_target == 'hth' && fromJSON('["self-hosted","Linux","X64","hth"]')
+        || inputs.runner_target == 'rhel8' && fromJSON('["self-hosted","Linux","X64","rhel8"]')
+        || inputs.runner_target == 'e7k' && fromJSON('["self-hosted","Linux","X64","e7k"]')
+        || inputs.runner_target == 'e9k' && fromJSON('["self-hosted","Linux","X64","e9k"]')
+        || inputs.runner_target == '192vcpu' && fromJSON('["self-hosted","Linux","X64","192vcpu"]')
+        || inputs.runner_target == '96vcpu' && fromJSON('["self-hosted","Linux","X64","96vcpu"]')
+        || inputs.runner_target == '32vcpu' && fromJSON('["self-hosted","Linux","X64","32vcpu"]')
+        || 'ubuntu-latest' }}
+    # END GENERATED RUNNER TARGET ROUTING
+    timeout-minutes: 90
+    env:
+      # BEGIN GENERATED RUNNER SETUP LABEL
+      HTH_SELECTED_RUNNER_LABEL: >-
+        ${{ inputs.runner_target == 'self-hosted-linux' && 'linux'
+          || inputs.runner_target == 'self-hosted-windows' && 'windows'
+          || inputs.runner_target == 'hth' && 'hth'
+          || inputs.runner_target == 'rhel8' && 'rhel8'
+          || inputs.runner_target == 'e7k' && 'e7k'
+          || inputs.runner_target == 'e9k' && 'e9k'
+          || inputs.runner_target == '192vcpu' && '192vcpu'
+          || inputs.runner_target == '96vcpu' && '96vcpu'
+          || inputs.runner_target == '32vcpu' && '32vcpu'
+          || 'github-hosted' }}
+      # END GENERATED RUNNER SETUP LABEL
+    steps:
+      - name: Checkout HTH pipeline
+        uses: actions/checkout@v6
+        with:
+          path: hth-pipeline
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout compact normalization evidence
+        uses: ./hth-pipeline/.github/actions/checkout-results
+        with:
+          repository: ${{ inputs.results_repository }}
+          path: results-repo
+          ref: ${{ inputs.results_ref }}
+          token: ${{ secrets.HTH_RESULTS_TOKEN || github.token }}
+          fetch-depth: 1
+          sparse-checkout: |
+            /normalization/normalization-manifest.json
+            /normalization/photometric-methods/assessment.json
+            /normalization/photometric-integration/photometric-normalization-manifest.json
+            /normalization/binarization-integration/binarization-normalization-manifest.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Set up canonical HTH Python runtime
+        uses: ./hth-pipeline/.github/actions/setup-hth-python
+        with:
+          pipeline-path: hth-pipeline
+          runner-label: ${{ env.HTH_SELECTED_RUNNER_LABEL }}
+
+      - name: Set up managed Kraken runtime
+        uses: ./hth-pipeline/.github/actions/setup-hth-managed-runtime
+        with:
+          pipeline-path: hth-pipeline
+          need-kraken: "true"
+          verify-abi: "true"
+
+      - name: Download immutable GS0002 images
+        shell: bash
+        env:
+          HTH_SOURCE_TOKEN: ${{ secrets.HTH_SOURCE_TOKEN || github.token }}
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          python -m hth.golden_set_release \
+            --repository "$GOLDEN_SET_REPOSITORY" \
+            --tag "$GOLDEN_SET_RELEASE" \
+            --freeze "$GOLDEN_SET_FREEZE" \
+            --destination "$RUNNER_TEMP/golden-set-images"
+
+      - name: Materialize and verify paired source/normalized inputs
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+        run: |
+          set -euo pipefail
+          results_commit="$(git -C results-repo rev-parse HEAD)"
+          python hth-pipeline/tools/layout-smoke-inputs.py \
+            --freeze "$GOLDEN_SET_FREEZE" \
+            --images-root "$RUNNER_TEMP/golden-set-images" \
+            --base-manifest results-repo/normalization/normalization-manifest.json \
+            --photometric-manifest results-repo/normalization/photometric-integration/photometric-normalization-manifest.json \
+            --method-assessment results-repo/normalization/photometric-methods/assessment.json \
+            --final-manifest results-repo/normalization/binarization-integration/binarization-normalization-manifest.json \
+            --results-commit "$results_commit" \
+            --output "$RUNNER_TEMP/layout-smoke-pairs"
+
+      - name: Run paired Kraken baseline and summarize health
+        shell: bash
+        run: |
+          set -euo pipefail
+          python hth-pipeline/tools/layout-smoke-run.py \
+            --paired-inputs "$RUNNER_TEMP/layout-smoke-pairs/paired-inputs.json" \
+            --output "$RUNNER_TEMP/layout-smoke-evidence" \
+            --threads 4 \
+            --expected-kraken-version 7.0.2 \
+            --github-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload compact layout smoke evidence
+        if: success()
+        uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
+        with:
+          name: hth-gs0002-layout-smoke-${{ github.run_number }}
+          path: ${{ runner.temp }}/layout-smoke-evidence
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact_retention_days }}
+          compression-level: 6
