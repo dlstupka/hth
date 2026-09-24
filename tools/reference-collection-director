@@ -1,1 +1,1 @@
-python tools/reference-collection-director.py&
+python ${HTH_HOME}/tools/reference-collection-director.py&
