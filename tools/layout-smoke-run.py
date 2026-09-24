@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the bounded paired layout smoke with one Kraken process per view."""
+"""Run bounded paired layout evaluation with one Kraken process per view."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def _run_view(command: list[str], results: Path, log: Path, page_count: int) -> 
                 exit_code = process.wait(timeout=15)
                 break
             except subprocess.TimeoutExpired:
-                print(f"Layout smoke: {results.name} {len(list(results.glob('fs_*.json')))}/{page_count} pages", flush=True)
+                print(f"Layout: {results.name} {len(list(results.glob('fs_*.json')))}/{page_count} pages", flush=True)
     produced = len(list(results.glob("fs_*.json")))
     output = log.read_text(encoding="utf-8", errors="replace")
     print(output[-4000:], flush=True)
@@ -55,17 +55,41 @@ def _run_view(command: list[str], results: Path, log: Path, page_count: int) -> 
     }
 
 
-def run(paired_inputs: Path, output: Path, threads: int, expected_kraken_version: str, github_summary: Path | None = None) -> dict:
+def _select_pages(pages: list[dict], mode: str) -> list[dict]:
+    if mode not in {"smoke", "full"}:
+        raise ValueError(f"Unsupported layout mode: {mode}")
+    if not pages:
+        raise ValueError("No Golden Set pages to evaluate")
+    if mode == "full":
+        return pages
+    sample_size = min(6, max(1, (len(pages) + 2) // 3))
+    if sample_size == 1:
+        return [pages[len(pages) // 2]]
+    # Deterministic coverage across the frozen Golden Set's ordered membership.
+    indices = [round(index * (len(pages) - 1) / (sample_size - 1)) for index in range(sample_size)]
+    return [pages[index] for index in indices]
+
+
+def run(
+    paired_inputs: Path,
+    output: Path,
+    threads: int,
+    expected_kraken_version: str,
+    github_summary: Path | None = None,
+    mode: str = "smoke",
+) -> dict:
     if threads <= 0:
         raise ValueError("Positive thread count required")
     if output.exists() and any(output.iterdir()):
         raise ValueError(f"Output is not empty: {output}")
     inputs = json.loads(paired_inputs.read_text(encoding="utf-8"))
     pages = inputs["pages"]
-    if inputs.get("golden_set_id") != "HTH-GOLDEN-0002" or len(pages) != 18:
-        raise ValueError("This smoke requires the frozen 18-page GS0002 input")
     if len({int(page["global_ordinal"]) for page in pages}) != len(pages):
         raise ValueError("Paired inputs contain duplicate page ordinals")
+    selected = _select_pages(pages, mode)
+    views = inputs.get("views", ["source", "normalized"])
+    if views not in (["source"], ["source", "normalized"]):
+        raise ValueError(f"Unsupported layout input views: {views}")
     version = metadata.version("kraken")
     if version != expected_kraken_version:
         raise ValueError(f"Expected Kraken {expected_kraken_version}, found {version}")
@@ -78,14 +102,20 @@ def run(paired_inputs: Path, output: Path, threads: int, expected_kraken_version
         raise FileNotFoundError("Kraken CLI is not on PATH")
 
     output.mkdir(parents=True)
-    shutil.copyfile(paired_inputs, output / "paired-inputs.json")
+    selected_inputs = {
+        **inputs,
+        "evaluation_mode": mode,
+        "golden_set_page_count": len(pages),
+        "pages": selected,
+    }
+    (output / "paired-inputs.json").write_text(json.dumps(selected_inputs, indent=2) + "\n", encoding="utf-8")
     batches = []
-    for view in ("source", "normalized"):
+    for view in views:
         results = output / view
         results.mkdir()
-        command = _command(kraken, pages, paired_inputs.parent, results, view, threads)
-        batches.append(_run_view(command, results, output / f"{view}.log", len(pages)))
-    execution = {"schema_version": "1.0", "batches": batches}
+        command = _command(kraken, selected, paired_inputs.parent, results, view, threads)
+        batches.append(_run_view(command, results, output / f"{view}.log", len(selected)))
+    execution = {"schema_version": "1.0", "evaluation_mode": mode, "batches": batches}
     (output / "execution.json").write_text(json.dumps(execution, indent=2) + "\n", encoding="utf-8")
     report_command = [
         sys.executable, str(ROOT / "tools" / "layout-smoke-report.py"),
@@ -110,10 +140,11 @@ def main() -> None:
     parser.add_argument("--paired-inputs", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--mode", choices=("smoke", "full"), default="smoke")
     parser.add_argument("--expected-kraken-version", default="7.0.2")
     parser.add_argument("--github-summary", type=Path)
     args = parser.parse_args()
-    run(args.paired_inputs, args.output, args.threads, args.expected_kraken_version, args.github_summary)
+    run(args.paired_inputs, args.output, args.threads, args.expected_kraken_version, args.github_summary, args.mode)
 
 
 if __name__ == "__main__":

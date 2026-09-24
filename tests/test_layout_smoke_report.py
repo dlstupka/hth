@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -13,6 +15,30 @@ SPEC.loader.exec_module(MODULE)
 
 
 class LayoutSmokeReportTests(unittest.TestCase):
+    def test_source_only_report_does_not_claim_a_normalized_pair(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source_dir = Path(directory) / "source"
+            source_dir.mkdir()
+            (source_dir / "fs_0001.json").write_text(
+                json.dumps({"type": "baselines", "lines": [], "regions": {}, "line_orders": []}),
+                encoding="utf-8",
+            )
+            inputs = {
+                "views": ["source"],
+                "evaluation_mode": "full",
+                "golden_set_id": "HTH-0001",
+                "golden_set_sha256": "a" * 64,
+                "source_release": {},
+                "results_commit": None,
+                "base_normalization_result_identity": None,
+                "final_normalization_result_identity": None,
+                "pages": [{"global_ordinal": 1, "source_size": [10, 10], "source_pixel_sha256": "b" * 64}],
+            }
+            report = MODULE.summarize(inputs, source_dir, Path(directory) / "missing", "c" * 64, "7.0.2", "cpu", 4)
+            self.assertEqual(report["views"], ["source"])
+            self.assertNotIn("normalized", report["summary"])
+            self.assertIsNone(report["paired_pages_with_line_count_change"])
+
     def test_valid_geometry_and_missing_reading_order(self) -> None:
         payload = {
             "type": "baselines",

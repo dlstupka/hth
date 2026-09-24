@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize decision-useful health metrics from a paired Kraken layout smoke.
+"""Summarize decision-useful health metrics from paired Kraken layout evaluation.
 
 Native segmentation JSON remains the detailed research artifact. Counts are
 diagnostics, not accuracy measurements without layout ground truth.
@@ -88,6 +88,9 @@ def summarize(
         raise ValueError("Full lowercase model SHA-256 required")
     if not engine_version or not device or threads <= 0:
         raise ValueError("Engine version, device, and positive thread count are required")
+    views = inputs.get("views", ["source", "normalized"])
+    if views not in (["source"], ["source", "normalized"]):
+        raise ValueError(f"Unsupported layout input views: {views}")
     rows = []
     for page in inputs["pages"]:
         ordinal = int(page["global_ordinal"])
@@ -95,22 +98,26 @@ def summarize(
         source = inspect_segmentation(
             json.loads((source_dir / name).read_text(encoding="utf-8")), page["source_size"]
         )
-        normalized = inspect_segmentation(
-            json.loads((normalized_dir / name).read_text(encoding="utf-8")), page["normalized_size"]
-        )
-        rows.append({
+        row = {
             "global_ordinal": ordinal,
             "source_pixel_sha256": page["source_pixel_sha256"],
-            "normalized_pixel_sha256": page["normalized_pixel_sha256"],
-            "photometric_route": page["photometric_route"],
             "source": source,
-            "normalized": normalized,
-            "line_count_delta": normalized["lines"] - source["lines"],
-        })
+        }
+        if "normalized" in views:
+            normalized = inspect_segmentation(
+                json.loads((normalized_dir / name).read_text(encoding="utf-8")), page["normalized_size"]
+            )
+            row.update({
+                "normalized_pixel_sha256": page["normalized_pixel_sha256"],
+                "photometric_route": page["photometric_route"],
+                "normalized": normalized,
+                "line_count_delta": normalized["lines"] - source["lines"],
+            })
+        rows.append(row)
     if not rows:
         raise ValueError("No paired pages")
     summary = {}
-    for view in ("source", "normalized"):
+    for view in views:
         counts = [row[view]["lines"] for row in rows]
         regions = Counter()
         for row in rows:
@@ -129,7 +136,10 @@ def summarize(
         }
     report = {
         "schema_version": "1.0",
-        "purpose": "layout-smoke-health-not-accuracy",
+        "purpose": "layout-evaluation-health-not-accuracy",
+        "evaluation_mode": inputs.get("evaluation_mode", "full"),
+        "golden_set_page_count": inputs.get("golden_set_page_count", len(rows)),
+        "views": views,
         "golden_set_id": inputs["golden_set_id"],
         "golden_set_sha256": inputs["golden_set_sha256"],
         "source_release": inputs["source_release"],
@@ -145,8 +155,13 @@ def summarize(
             "command": "segment -bl",
         },
         "summary": summary,
-        "paired_pages_with_line_count_change": sum(row["line_count_delta"] != 0 for row in rows),
-        "photometric_routes": dict(sorted(Counter(row["photometric_route"] for row in rows).items())),
+        "paired_pages_with_line_count_change": (
+            sum(row["line_count_delta"] != 0 for row in rows) if "normalized" in views else None
+        ),
+        "photometric_routes": (
+            dict(sorted(Counter(row["photometric_route"] for row in rows).items()))
+            if "normalized" in views else None
+        ),
         "pages": rows,
     }
     if execution is not None:
@@ -176,22 +191,31 @@ def main() -> None:
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     if args.github_summary:
         source = report["summary"]["source"]
-        normalized = report["summary"]["normalized"]
+        normalized = report["summary"].get("normalized")
         with args.github_summary.open("a", encoding="utf-8") as handle:
-            handle.write("\n### GS0002 paired layout smoke — diagnostic, not accuracy\n\n")
-            handle.write("| Signal | Source | Final normalized |\n| --- | ---: | ---: |\n")
+            handle.write(f"\n### {report['golden_set_id']} layout {report['evaluation_mode']} — diagnostic, not accuracy\n\n")
+            if normalized is None:
+                handle.write("Source only: matching verified normalized evidence is unavailable for this older Golden Set.\n\n")
+                handle.write("| Signal | Source |\n| --- | ---: |\n")
+            else:
+                handle.write("| Signal | Source | Final normalized |\n| --- | ---: | ---: |\n")
             for label, key in (
                 ("Pages", "pages"),
                 ("Baselines", "total_lines"),
                 ("Text regions", "total_regions_by_type"),
                 ("Invalid line geometry", "invalid_line_geometry"),
                 ("Orphan lines", "orphan_lines"),
-                ("Pages without complete reading order", "pages_without_complete_reading_order"),
             ):
                 left = source[key].get("text", 0) if key == "total_regions_by_type" else source[key]
-                right = normalized[key].get("text", 0) if key == "total_regions_by_type" else normalized[key]
-                handle.write(f"| {label} | {left} | {right} |\n")
-            handle.write("\nCounts are review triggers. GS0002 has no line/region truth, so no accuracy score is inferred.\n")
+                if normalized is None:
+                    handle.write(f"| {label} | {left} |\n")
+                else:
+                    right = normalized[key].get("text", 0) if key == "total_regions_by_type" else normalized[key]
+                    handle.write(f"| {label} | {left} | {right} |\n")
+            handle.write(
+                "\nReading order: not emitted by this Kraken baseline-segmentation command; "
+                "no reading-order judgment is made. Counts are review triggers, not accuracy scores.\n"
+            )
     print(json.dumps({"summary": report["summary"], "paired_pages_with_line_count_change": report["paired_pages_with_line_count_change"]}, indent=2))
 
 

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,9 +17,36 @@ SPEC = importlib.util.spec_from_file_location("layout_smoke_run", RUNNER)
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+INPUTS_SPEC = importlib.util.spec_from_file_location("layout_smoke_inputs", ROOT / "tools" / "layout-smoke-inputs.py")
+assert INPUTS_SPEC is not None and INPUTS_SPEC.loader is not None
+INPUTS_MODULE = importlib.util.module_from_spec(INPUTS_SPEC)
+INPUTS_SPEC.loader.exec_module(INPUTS_MODULE)
 
 
 class LayoutSmokeWorkflowTests(unittest.TestCase):
+    def test_older_golden_set_materializes_source_without_normalization_claim(self) -> None:
+        freeze_path = ROOT / "config/golden_sets/HTH-0001.freeze.json"
+        freeze = json.loads(freeze_path.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as directory:
+            images = Path(directory) / "images"
+            for row in freeze["image_bundle"]["images"]:
+                target = images / row["path"]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(b"image fixture")
+            expected_sha = {str(images / row["path"]): row["sha256"] for row in freeze["image_bundle"]["images"]}
+            expected_sha[str(ROOT / freeze["golden_set_path"])] = freeze["golden_set_sha256"]
+            with patch.object(INPUTS_MODULE, "_sha256", side_effect=lambda path: expected_sha[str(path)]), patch.object(
+                INPUTS_MODULE.cv2, "imread", return_value=np.zeros((2, 2, 3), dtype=np.uint8)
+            ):
+                result = INPUTS_MODULE.materialize(
+                    freeze_path, images, Path("unused"), Path("unused"), Path("unused"), Path("unused"),
+                    Path(directory) / "out", "", source_only=True,
+                )
+            self.assertEqual(result["views"], ["source"])
+            self.assertEqual(len(result["pages"]), 5)
+            self.assertIsNone(result["final_normalization_result_identity"])
+            self.assertNotIn("normalized_file", result["pages"][0])
+
     def test_workflow_is_manual_read_only_and_uses_managed_runtime(self) -> None:
         workflow = (ROOT / ".github/workflows/layout-smoke.yml").read_text(encoding="utf-8")
         self.assertIn("workflow_dispatch:", workflow)
@@ -25,9 +56,19 @@ class LayoutSmokeWorkflowTests(unittest.TestCase):
         self.assertIn("golden_set_release", workflow)
         self.assertIn("layout-smoke-inputs.py", workflow)
         self.assertIn("layout-smoke-run.py", workflow)
+        self.assertIn('default: smoke', workflow)
+        self.assertIn('          - full', workflow)
+        self.assertIn('--mode "${{ inputs.mode }}"', workflow)
         self.assertIn("/normalization/binarization-integration/binarization-normalization-manifest.json", workflow)
         self.assertIn("persist-credentials: false", workflow)
         self.assertNotIn("hth_hardened_persist", workflow)
+        self.assertIn("$RUNNER_TEMP/layout-pairs", workflow)
+        self.assertNotIn("$RUNNER_TEMP/layout-smoke-pairs", workflow)
+
+    def test_progress_log_uses_neutral_layout_label(self) -> None:
+        runner = RUNNER.read_text(encoding="utf-8")
+        self.assertIn('print(f"Layout: {results.name}', runner)
+        self.assertNotIn("Layout smoke:", runner)
 
     def test_batch_command_is_argv_and_contains_both_paths(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -45,6 +86,17 @@ class LayoutSmokeWorkflowTests(unittest.TestCase):
             self.assertEqual(command[-2:], ["segment", "-bl"])
             self.assertIn(str(source.resolve()), command)
             self.assertIn(str((results / "fs_0003.json").resolve()), command)
+
+    def test_mode_selects_bounded_or_complete_frozen_membership(self) -> None:
+        pages = [{"global_ordinal": ordinal} for ordinal in range(18)]
+        self.assertEqual(
+            [page["global_ordinal"] for page in MODULE._select_pages(pages, "smoke")],
+            [0, 3, 7, 10, 14, 17],
+        )
+        self.assertEqual(MODULE._select_pages(pages, "full"), pages)
+        self.assertEqual(MODULE._select_pages(pages[:5], "smoke"), [pages[0], pages[4]])
+        with self.assertRaises(ValueError):
+            MODULE._select_pages(pages, "invalid")
 
     def test_batch_runner_records_bounded_diagnostics(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

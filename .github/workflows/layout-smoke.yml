@@ -1,6 +1,9 @@
-name: HTH layout smoke
+name: HTH layout
 
-run-name: Compare layout on source and normalized GS0002 pages
+run-name: >-
+  ${{ inputs.mode == 'full'
+      && format('Evaluate layout against complete {0}', inputs.golden_release_tag)
+      || format('Smoke test layout against {0}', inputs.golden_release_tag) }}
 
 on:
   workflow_dispatch:
@@ -15,6 +18,22 @@ on:
         required: true
         default: main
         type: string
+      golden_release_tag:
+        description: Immutable Golden Set release tag
+        required: true
+        default: HTH-GOLDEN-0002
+        type: choice
+        options:
+          - HTH-GOLDEN-0001
+          - HTH-GOLDEN-0002
+      mode:
+        description: "Layout mode: representative Golden Set sample or complete Golden Set"
+        required: true
+        default: smoke
+        type: choice
+        options:
+          - smoke
+          - full
       # BEGIN GENERATED RUNNER TARGET INPUT
       runner_target:
         description: "Execution runner target"
@@ -34,7 +53,7 @@ on:
           - 32vcpu
       # END GENERATED RUNNER TARGET INPUT
       artifact_retention_days:
-        description: "Days to retain compact layout smoke evidence"
+        description: "Days to retain compact layout evidence"
         required: true
         default: 14
         type: number
@@ -51,12 +70,15 @@ env:
   GIT_CONFIG_KEY_0: init.defaultBranch
   GIT_CONFIG_VALUE_0: main
   GOLDEN_SET_REPOSITORY: dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898
-  GOLDEN_SET_RELEASE: HTH-GOLDEN-0002
-  GOLDEN_SET_FREEZE: hth-pipeline/config/golden_sets/HTH-GOLDEN-0002.freeze.json
+  GOLDEN_SET_RELEASE: ${{ inputs.golden_release_tag }}
+  GOLDEN_SET_FREEZE: >-
+    ${{ inputs.golden_release_tag == 'HTH-GOLDEN-0001'
+        && 'hth-pipeline/config/golden_sets/HTH-0001.freeze.json'
+        || 'hth-pipeline/config/golden_sets/HTH-GOLDEN-0002.freeze.json' }}
 
 jobs:
   layout-smoke:
-    name: Verify paired GS0002 layout baseline
+    name: Evaluate Golden Set layout
     # BEGIN GENERATED RUNNER TARGET ROUTING
     runs-on: >-
       ${{ inputs.runner_target == 'self-hosted-linux' && fromJSON('["self-hosted","Linux","X64"]')
@@ -94,6 +116,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout compact normalization evidence
+        if: inputs.golden_release_tag == 'HTH-GOLDEN-0002'
         uses: ./hth-pipeline/.github/actions/checkout-results
         with:
           repository: ${{ inputs.results_repository }}
@@ -122,7 +145,7 @@ jobs:
           need-kraken: "true"
           verify-abi: "true"
 
-      - name: Download immutable GS0002 images
+      - name: Download immutable Golden Set images
         shell: bash
         env:
           HTH_SOURCE_TOKEN: ${{ secrets.HTH_SOURCE_TOKEN || github.token }}
@@ -135,13 +158,19 @@ jobs:
             --freeze "$GOLDEN_SET_FREEZE" \
             --destination "$RUNNER_TEMP/golden-set-images"
 
-      - name: Materialize and verify paired source/normalized inputs
+      - name: Materialize and verify Golden Set inputs
         shell: bash
         env:
           PYTHONPATH: hth-pipeline
         run: |
           set -euo pipefail
-          results_commit="$(git -C results-repo rev-parse HEAD)"
+          results_commit=""
+          view_args=()
+          if [[ "$GOLDEN_SET_RELEASE" == "HTH-GOLDEN-0001" ]]; then
+            view_args+=(--source-only)
+          else
+            results_commit="$(git -C results-repo rev-parse HEAD)"
+          fi
           python hth-pipeline/tools/layout-smoke-inputs.py \
             --freeze "$GOLDEN_SET_FREEZE" \
             --images-root "$RUNNER_TEMP/golden-set-images" \
@@ -150,25 +179,27 @@ jobs:
             --method-assessment results-repo/normalization/photometric-methods/assessment.json \
             --final-manifest results-repo/normalization/binarization-integration/binarization-normalization-manifest.json \
             --results-commit "$results_commit" \
-            --output "$RUNNER_TEMP/layout-smoke-pairs"
+            "${view_args[@]}" \
+            --output "$RUNNER_TEMP/layout-pairs"
 
-      - name: Run paired Kraken baseline and summarize health
+      - name: Run Kraken layout evaluation
         shell: bash
         run: |
           set -euo pipefail
           python hth-pipeline/tools/layout-smoke-run.py \
-            --paired-inputs "$RUNNER_TEMP/layout-smoke-pairs/paired-inputs.json" \
-            --output "$RUNNER_TEMP/layout-smoke-evidence" \
+            --paired-inputs "$RUNNER_TEMP/layout-pairs/paired-inputs.json" \
+            --output "$RUNNER_TEMP/layout-evidence" \
+            --mode "${{ inputs.mode }}" \
             --threads 4 \
             --expected-kraken-version 7.0.2 \
             --github-summary "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload compact layout smoke evidence
+      - name: Upload compact layout evidence
         if: success()
         uses: ./hth-pipeline/.github/actions/hardened-upload-artifact
         with:
-          name: hth-gs0002-layout-smoke-${{ github.run_number }}
-          path: ${{ runner.temp }}/layout-smoke-evidence
+          name: layout-${{ inputs.golden_release_tag }}-${{ inputs.mode }}-${{ github.run_number }}
+          path: ${{ runner.temp }}/layout-evidence
           if-no-files-found: error
           retention-days: ${{ inputs.artifact_retention_days }}
           compression-level: 6

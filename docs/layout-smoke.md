@@ -1,8 +1,8 @@
-# Layout reconnaissance: HTH-GOLDEN-0002
+# Layout reconnaissance: frozen Golden Sets
 
-This is a bounded layout *smoke*, not a production layout stage or a model
-selection. `tools/layout-smoke-inputs.py` reconstructs the 18 source and final
-normalized page views from the frozen Golden Set and pinned Results manifests.
+This is a bounded layout evaluation, not a production layout stage or a model
+selection. For GS0002, `tools/layout-smoke-inputs.py` reconstructs the 18 source
+and final normalized page views from the frozen Golden Set and pinned Results manifests.
 It verifies the frozen Golden Set, each source file and source pixel digest,
 the canonical crop pixels, and each final normalized pixel digest before
 emitting a pair. A later layout stage can therefore compare input views by
@@ -10,9 +10,15 @@ page identity without silently substituting a visually similar image. The
 source view is the original/pre-normalization page; the normalized view is
 the final persisted normalization result.
 
-The manual `HTH layout smoke` Actions workflow runs the same paired-input
-verification against a selected Results ref, then invokes the managed Kraken
-runtime on both views. It uploads compact native geometry, per-page health
+The manual `HTH layout` Actions workflow selects an immutable Golden Set and
+a `smoke` or `full` mode. For HTH-GOLDEN-0002, it verifies source and final
+normalized views against the selected Results ref, then invokes managed Kraken
+on both views. The older HTH-GOLDEN-0001 uses a different source release and
+is evaluated source-only; the summary explicitly says so rather than implying
+an unverified normalized comparison. `smoke` selects up to six evenly spaced
+pages from the frozen Golden Set (6 of 18 for GS0002, 2 of 5 for GS0001); `full`
+selects every Golden Set page. Neither
+mode processes the entire 929-page collection. It uploads compact native geometry, per-page health
 metrics, batch timings/warning counts, logs, and provenance as an artifact.
 It does not publish to the Results repository or upload the source/normalized
 pixel bundles; those are reproducible from the frozen release and manifests.
@@ -20,7 +26,7 @@ pixel bundles; those are reproducible from the frozen release and manifests.
 `tools/layout-smoke-report.py` summarizes Kraken's native baseline output for
 both views. Native polygons and baselines remain the research output; the
 summary carries only provenance and diagnostics that answer a decision. The
-smoke deliberately does **not** report an accuracy score: GS0002 has approved
+evaluation deliberately does **not** report an accuracy score: GS0002 has approved
 page geometry, not line, region, or reading-order ground truth. Line-count
 changes between views are review triggers, not evidence that either view is
 better.
@@ -83,7 +89,7 @@ photometric `apply` route and 15 preserved the canonical crop pixels.
 | Text regions | 78 | 81 |
 | Invalid line / region geometry | 0 / 0 | 0 / 0 |
 | Lines with no valid region association | 1 | 1 |
-| Pages with complete reading order | 0/18 | 0/18 |
+| Reading order emitted by Kraken `segment -bl` | No | No |
 
 Fourteen paired pages changed baseline count. The largest drops after
 normalization were pages 197 (-26, photometric correction) and 155 (-25, crop
