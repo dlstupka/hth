@@ -363,8 +363,8 @@ This directory contains the design, operating, and project-reference documentati
 ## Publication and review tools
 
 - [Publication](publication.md) — publication layout, provenance, and outputs.
-- [Reference collection editor](reference-collection-editor.md) — single-detector review tool.
-- [Multi-detector reference collection editor](reference-collection-editor-multidetector.md) — multi-detector review tool.
+- [Reference collection editor](reference-collection-editor.md) — multidetector page-box Golden Set review tool.
+- [Layout reference editor](reference-collection-layout.md) — draft region truth anchored to immutable Golden Set images.
 
 - Manual regression defaults to `preferred` execution shape: compatible persisted optimizer intelligence supplies the detector pipeline count and threads/pipeline as one exact execution contract. If no compatible preference exists, HTH falls back to the existing `auto` planner. `manual` accepts a compact shape such as `8p/48t`. Automatic smoke runs continue to use `auto`.
 

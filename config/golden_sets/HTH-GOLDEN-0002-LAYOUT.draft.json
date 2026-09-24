@@ -1,0 +1,233 @@
+{
+  "schema_version": "0.1",
+  "layout_golden_set_id": "HTH-GOLDEN-0002-LAYOUT",
+  "status": "draft",
+  "source_golden_set_id": "HTH-GOLDEN-0002",
+  "source_golden_set_sha256": "00a8b142ecd24f49637af5c5e5e31e5b17f64065c33d91a5f4fbeccaaa04a6ee",
+  "source_release": {
+    "repository": "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898",
+    "tag": "HTH-SOURCE-0002",
+    "manifest_sha256": "871caffe1b6b09a14d3db130be220db6537cbd3746faeecb9f2efd3bfbcd7123",
+    "image_identity": "global_ordinal"
+  },
+  "coordinate_view": "source",
+  "annotation_contract": "regions-v1",
+  "pages": [
+    {
+      "global_ordinal": 3,
+      "image_sha256": "50cfee1a71d75a354a66be69bdf8725ecdfef5fa00942174c54ea500d87de392",
+      "approved_document_bbox": [
+        66,
+        26,
+        1117,
+        1346
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    },
+    {
+      "global_ordinal": 64,
+      "image_sha256": "188ba397f84e901b4ccf5355cc74ebaa6af083372506b2c915f532205b49e65a",
+      "approved_document_bbox": [
+        89,
+        66,
+        1550,
+        1221
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    },
+    {
+      "global_ordinal": 65,
+      "image_sha256": "98949736e4e64f61f7d02c802e529646bb8c34ed41f8b34b9e9ddf97980ecc2a",
+      "approved_document_bbox": [
+        135,
+        23,
+        1657,
+        1216
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    },
+    {
+      "global_ordinal": 95,
+      "image_sha256": "866b3559a4d943dc3918709c4b76a9b12d949e752b84bf3fd6633a21078089ab",
+      "approved_document_bbox": [
+        148,
+        21,
+        1637,
+        1347
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    },
+    {
+      "global_ordinal": 100,
+      "image_sha256": "da1e308b7a04d32b8953833028bc8f8cf6d8fc2be34dbb77ea36e46582ccb64f",
+      "approved_document_bbox": [
+        44,
+        44,
+        1511,
+        1334
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    },
+    {
+      "global_ordinal": 101,
+      "image_sha256": "44827f741f88a026189198c12086a8b72e9da0f1bcc3be0073858ce81dbd67d9",
+      "approved_document_bbox": [
+        65,
+        41,
+        1489,
+        1291
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    },
+    {
+      "global_ordinal": 155,
+      "image_sha256": "88b503b70a8d3a53719e138bb58ea5c818b6be00e0da409ec87e06fa2e3f813f",
+      "approved_document_bbox": [
+        95,
+        79,
+        1453,
+        1301
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    },
+    {
+      "global_ordinal": 197,
+      "image_sha256": "04580dad5d687210c562703c3e89e5ad8205c4838d0682a56518886098b33791",
+      "approved_document_bbox": [
+        139,
+        80,
+        1520,
+        1306
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    },
+    {
+      "global_ordinal": 251,
+      "image_sha256": "d5ebbb010ceb3ec24cec30b1c2eccc34177e8ea6aad6328af260cab08bb941c7",
+      "approved_document_bbox": [
+        153,
+        65,
+        1540,
+        1297
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    },
+    {
+      "global_ordinal": 298,
+      "image_sha256": "ad05f0225c4b15a5612e4027cf413017a6089bdd2e39b36fe0439bef03dde80c",
+      "approved_document_bbox": [
+        135,
+        66,
+        1523,
+        1300
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    },
+    {
+      "global_ordinal": 380,
+      "image_sha256": "3a95d628879018669f40bbcc6aa260a2711973dad254ff0eab23cb8903ad7224",
+      "approved_document_bbox": [
+        177,
+        59,
+        1558,
+        1309
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    },
+    {
+      "global_ordinal": 381,
+      "image_sha256": "b6eb1a5192a3a4c5f0dcb123049ffd6b78faf07f044d4ec807224c11546a0d5f",
+      "approved_document_bbox": [
+        185,
+        55,
+        1558,
+        1321
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    },
+    {
+      "global_ordinal": 400,
+      "image_sha256": "b6acce104be74f9b1717936a0a5ea8716b402c97cc2c94825602c5d3a9cae973",
+      "approved_document_bbox": [
+        72,
+        67,
+        1585,
+        1304
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    },
+    {
+      "global_ordinal": 500,
+      "image_sha256": "b2f8f67e37955373c7a23816a855186c86b247b68245dae86603f79a9304de03",
+      "approved_document_bbox": [
+        41,
+        89,
+        1518,
+        1301
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    },
+    {
+      "global_ordinal": 710,
+      "image_sha256": "534abe0ba5c1c92b5a3ef856868b89ef5d71ceea0c28f864661d43b19b3855a9",
+      "approved_document_bbox": [
+        61,
+        38,
+        1497,
+        1342
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    },
+    {
+      "global_ordinal": 728,
+      "image_sha256": "7446bc76d2bccff0ec0b3ba48c838bb6c76ecfba36e07496472b3a6f7aaf3c38",
+      "approved_document_bbox": [
+        128,
+        86,
+        1454,
+        1310
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    },
+    {
+      "global_ordinal": 821,
+      "image_sha256": "6f1e8f4e56f690131a1d68b0ac9edf9de2d4d85a27a089d529f1cdaf1ca34e4e",
+      "approved_document_bbox": [
+        146,
+        72,
+        1460,
+        1290
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    },
+    {
+      "global_ordinal": 920,
+      "image_sha256": "801bbcfc2a24159f9cf6dbe556f35527c4c8df32d990ac6b08a5aaf831b1fa89",
+      "approved_document_bbox": [
+        134,
+        73,
+        1463,
+        1286
+      ],
+      "review_status": "unreviewed",
+      "regions": []
+    }
+  ]
+}
