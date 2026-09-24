@@ -1,6 +1,6 @@
 # HTH Reference Collection Editor — Detector Golden Set
 
-Open `tools/reference-collection-director.html` for the detector and layout tabs, or `tools/reference-collection-editor.html` directly. The detector workbench displays registered geometry candidates beside approved page-box truth. It opens the frozen HTH-GOLDEN-0002 reference by default; use the Golden Set selector to load another detector reference JSON. Images still require explicit browser access to a local workspace or image folder.
+Open `tools/reference-collection-director.html` for the detector and layout tabs, or `tools/reference-collection-editor.html` directly. The detector workbench displays registered geometry candidates beside approved page-box truth. It opens the frozen HTH-GOLDEN-0002 reference by default; use the Golden Set selector to load another detector reference JSON. For GS0002 images, download the immutable `HTH-GOLDEN-0002.images.zip` release asset and open it directly; do not select the full results checkout through the folder picker. A small extracted image folder remains supported.
 
 | Overlay | Color |
 |---|---|

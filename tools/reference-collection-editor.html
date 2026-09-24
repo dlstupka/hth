@@ -65,16 +65,17 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
   <div><h1>HTH Reference Collection Editor</h1><div class="sub">Approve physical-document geometry and layout examples for Stage 2.</div></div>
   <div class="tools">
     <select id="goldenSetChoice" aria-label="Detector Golden Set"><option value="default">HTH-GOLDEN-0002</option><option value="manual">Choose detector Golden Set JSON…</option><option value="source-draft">New draft from workspace analysis</option></select>
-    <label class="filebtn">Open results workspace<input id="workspaceFolder" type="file" webkitdirectory multiple></label>
+    <label class="filebtn">Open result repository workspace<input id="workspaceFolder" type="file" webkitdirectory multiple></label>
+    <label class="filebtn">Open GS0002 image ZIP<input id="imageBundle" type="file" accept=".zip,application/zip"></label>
     <label class="filebtn">Load reference JSON<input id="jsonFile" type="file" accept=".json,application/json"></label>
-    <label class="filebtn">Load image folder<input id="imageFolder" type="file" webkitdirectory multiple accept="image/*"></label>
+    <label class="filebtn">Load extracted image folder<input id="imageFolder" type="file" webkitdirectory multiple accept="image/*"></label>
     <button id="export" class="primary" disabled>Export JSON</button>
   </div>
 </header>
 
 <main>
 <section class="workspace">
-  <div class="status"><span id="status">Open a results workspace, or load the reference JSON and raw image folder separately.</span><span id="zoomLabel">Fit</span></div><div id="ribbon" class="ribbon"><span class="pill">No page loaded</span></div>
+  <div class="status"><span id="status">Open the GS0002 image ZIP, or choose a small results workspace. Do not select the full results repository.</span><span id="zoomLabel">Fit</span></div><div id="ribbon" class="ribbon"><span class="pill">No page loaded</span></div>
   <div id="canvasWrap" class="canvaswrap">
     <div id="empty" class="empty"><div><h2>No page loaded</h2><p>Open the results repository folder (recommended), or load <code>reference_collection.json</code> and <code>raw/</code> separately.</p></div></div>
     <div id="canvasHint" class="canvas-hint" hidden></div><canvas id="canvas" hidden></canvas>
@@ -233,6 +234,7 @@ textarea{min-height:72px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8
 </main>
 
 <script src="reference-collection-defaults.js"></script>
+<script src="reference-collection-images.js"></script>
 <script>
 (()=>{'use strict';
 
@@ -897,6 +899,7 @@ async function exportJson(){
 }
 
 $('workspaceFolder').onchange=async e=>{try{await loadWorkspace(e.target.files)}catch(err){alert(`Could not open workspace: ${err.message}`)}};
+$('imageBundle').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{const images=await window.HTH_REFERENCE_IMAGES.readGs0002Bundle(file,message=>$('status').textContent=message);await loadWorkspace(images)}catch(error){$('status').textContent=error.message}};
 $('goldenSetChoice').onchange=()=>{const choice=$('goldenSetChoice').value;if(choice==='manual'){$('jsonFile').click();return}if(s.dirty&&!confirm('Discard unsaved detector Golden Set changes?'))return;s.manualGoldenSet=false;s.sourceDraftMode=choice==='source-draft';if(s.sourceDraftMode){if(!s.analysis.size){alert('Open a workspace containing page-analysis.json first.');$('goldenSetChoice').value='default';s.sourceDraftMode=false;return}s.collection=synthesizeSourceCollection({records:[...s.analysis.values()]})}else s.collection=normalize(structuredClone(window.HTH_REFERENCE_DEFAULTS.detector));s.pages=s.collection.pages;s.dirty=false;enable(true);rebuild();collectionStatus();load(0)};
 $('jsonFile').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;s.collection=normalize(JSON.parse(await f.text()));s.pages=s.collection.pages;s.manualGoldenSet=true;s.sourceDraftMode=false;$('goldenSetChoice').value='manual';enable(true);rebuild();collectionStatus();load(0)}catch(err){alert(err.message)}};
 $('imageFolder').onchange=e=>{s.images.clear();[...e.target.files].filter(f=>f.type.startsWith('image/')).forEach(f=>{const o=ordinalFromName(f.name);if(o!==null&&!s.images.has(o))s.images.set(o,f)});if(s.index>=0)load(s.index)};

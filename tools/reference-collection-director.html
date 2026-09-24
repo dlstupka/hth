@@ -11,22 +11,25 @@
 <body>
 <header>
   <div><h1>HTH Reference Collection Director</h1><div class="sub">Detector geometry and layout truth are reviewed separately. GS0002 loads as the default in both tabs.</div></div>
-  <div class="tools"><label class="file">Open shared image workspace<input id="workspace" type="file" webkitdirectory multiple></label><span id="workspaceStatus" class="sub">Images not selected</span></div>
+  <div class="tools"><a class="file" href="https://github.com/dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898/releases/download/HTH-GOLDEN-0002/HTH-GOLDEN-0002.images.zip">Download GS0002 images</a><label class="file">Open GS0002 image ZIP<input id="bundle" type="file" accept=".zip,application/zip"></label><label class="file">Or choose image files<input id="workspace" type="file" accept="image/*" multiple></label><span id="workspaceStatus" class="sub">Images not selected</span></div>
 </header>
 <div class="tabs" role="tablist" aria-label="Reference editors">
   <button id="detectorTab" role="tab" aria-selected="true" aria-controls="detectorFrame">Detector Golden Set</button>
   <button id="layoutTab" role="tab" aria-selected="false" aria-controls="layoutFrame">Layout Golden Set</button>
 </div>
-<div class="note">Select a source-image folder once here, or use either editor directly. Each tab has its own Golden Set selector, review state, and export.</div>
+<div class="note">Use the 18-image GS0002 release bundle, or select individual source images. Do not select the full results repository. Each tab has its own Golden Set selector, review state, and export.</div>
 <iframe id="detectorFrame" class="frame" title="Detector Golden Set editor" src="reference-collection-editor.html"></iframe>
 <iframe id="layoutFrame" class="frame" title="Layout Golden Set editor" src="reference-collection-layout.html" hidden></iframe>
+<script src="reference-collection-defaults.js"></script>
+<script src="reference-collection-images.js"></script>
 <script>
 (()=>{'use strict';
 const $=id=>document.getElementById(id);let files=[];
 function send(frame){if(files.length&&frame.contentWindow)frame.contentWindow.postMessage({type:'HTH_REFERENCE_WORKSPACE',files},'*')}
 function tab(which){const detector=which==='detector';$('detectorFrame').hidden=!detector;$('layoutFrame').hidden=detector;$('detectorTab').setAttribute('aria-selected',String(detector));$('layoutTab').setAttribute('aria-selected',String(!detector))}
 $('detectorTab').onclick=()=>tab('detector');$('layoutTab').onclick=()=>tab('layout');
-$('workspace').onchange=e=>{files=[...e.target.files];$('workspaceStatus').textContent=`${files.length} files selected`;send($('detectorFrame'));send($('layoutFrame'))};
+$('workspace').onchange=e=>{files=[...e.target.files].filter(file=>file.type.startsWith('image/')||/\.(png|jpe?g|tiff?)$/i.test(file.name));$('workspaceStatus').textContent=`${files.length} image files selected`;send($('detectorFrame'));send($('layoutFrame'))};
+$('bundle').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{files=await window.HTH_REFERENCE_IMAGES.readGs0002Bundle(file,message=>$('workspaceStatus').textContent=message);$('workspaceStatus').textContent=`${files.length} GS0002 images verified`;send($('detectorFrame'));send($('layoutFrame'))}catch(error){files=[];$('workspaceStatus').textContent=error.message}};
 $('detectorFrame').onload=()=>send($('detectorFrame'));$('layoutFrame').onload=()=>send($('layoutFrame'));
 })();
 </script>

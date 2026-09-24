@@ -28,6 +28,9 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('src="reference-collection-editor.html"', director)
         self.assertIn('src="reference-collection-layout.html"', director)
         self.assertIn("type:'HTH_REFERENCE_WORKSPACE',files", director)
+        self.assertIn('id="bundle" type="file"', director)
+        self.assertIn('readGs0002Bundle(file', director)
+        self.assertNotIn('id="workspace" type="file" webkitdirectory', director)
         self.assertFalse((ROOT / 'tools/reference-collection-editor-multidetector.html').exists())
 
     def test_both_editors_default_to_gs0002_and_allow_manual_selection(self):
@@ -38,9 +41,13 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('HTH-GOLDEN-0002', defaults)
         for editor in (detector, layout):
             self.assertIn('reference-collection-defaults.js', editor)
+            self.assertIn('reference-collection-images.js', editor)
+            self.assertIn('readGs0002Bundle(file', editor)
             self.assertIn('id="goldenSetChoice"', editor)
             self.assertIn('value="manual"', editor)
             self.assertIn('HTH_REFERENCE_WORKSPACE', editor)
+        self.assertIn('Open result repository workspace', detector)
+        self.assertIn('not the results repository', layout)
 
     def test_offline_defaults_match_authoritative_files(self):
         lines = (ROOT / 'tools/reference-collection-defaults.js').read_text(encoding='utf-8').splitlines()
@@ -52,6 +59,16 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
                     bundled[key] = json.loads(stripped.partition(': ')[2].rstrip(','))
         self.assertEqual(bundled['detector'], json.loads((ROOT / 'config/golden_sets/HTH-GOLDEN-0002.golden-set.json').read_text(encoding='utf-8')))
         self.assertEqual(bundled['layout'], json.loads((ROOT / 'config/golden_sets/HTH-GOLDEN-0002-LAYOUT.draft.json').read_text(encoding='utf-8')))
+
+    def test_gs0002_bundle_import_uses_frozen_identity_and_per_image_hashes(self):
+        freeze = json.loads((ROOT / 'config/golden_sets/HTH-GOLDEN-0002.freeze.json').read_text(encoding='utf-8'))
+        defaults = (ROOT / 'tools/reference-collection-defaults.js').read_text(encoding='utf-8')
+        importer = (ROOT / 'tools/reference-collection-images.js').read_text(encoding='utf-8')
+        self.assertIn(freeze['image_bundle']['asset'], defaults)
+        self.assertIn(str(freeze['image_bundle']['size']), defaults)
+        self.assertIn(freeze['image_bundle']['sha256'], defaults)
+        self.assertIn("sha256(bytes) !== bundle.sha256", importer)
+        self.assertIn("sha256(imageBytes) !== expected.get(number)", importer)
 
     def test_layout_candidates_cannot_become_approved_truth_implicitly(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
