@@ -97,6 +97,11 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('main{display:grid;grid-template-columns:minmax(0,1fr) 330px;flex:1;min-height:0}', editor)
         self.assertIn('.viewport{flex:1;min-height:0;overflow:auto', editor)
 
+    def test_layout_proposals_have_visible_outline_without_heavier_fill(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        self.assertIn("drawPath(r.boundary,'#704000','rgba(229,184,92,.07)'", editor)
+        self.assertIn("selected.index===i?3.5:2.25,'#f3c76a'", editor)
+
     def test_detector_page_thumbnails_stay_above_independently_scrolling_image(self):
         editor = (ROOT / 'tools/reference-collection-editor.html').read_text(encoding='utf-8')
         self.assertLess(editor.index('id="thumbnailBar" class="thumbnailbar"'), editor.index('id="canvasWrap" class="canvaswrap"'))
