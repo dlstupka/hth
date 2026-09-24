@@ -97,6 +97,12 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('main{display:grid;grid-template-columns:minmax(0,1fr) 330px;flex:1;min-height:0}', editor)
         self.assertIn('.viewport{flex:1;min-height:0;overflow:auto', editor)
 
+    def test_detector_page_thumbnails_stay_above_independently_scrolling_image(self):
+        editor = (ROOT / 'tools/reference-collection-editor.html').read_text(encoding='utf-8')
+        self.assertLess(editor.index('id="thumbnailBar" class="thumbnailbar"'), editor.index('id="canvasWrap" class="canvaswrap"'))
+        self.assertIn('.workspace{min-width:0;min-height:0;display:grid;grid-template-rows:auto auto auto minmax(0,1fr)}', editor)
+        self.assertIn('main{display:grid;grid-template-columns:minmax(0,1fr) 360px;flex:1;min-height:0}', editor)
+
 
 if __name__ == '__main__':
     unittest.main()
