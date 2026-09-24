@@ -91,6 +91,12 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('source image SHA-256 differs from the frozen Golden Set', editor)
         self.assertIn('candidate source identity mismatch', editor)
 
+    def test_layout_page_tabs_stay_above_independently_scrolling_image(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        self.assertLess(editor.index('id="pages" class="pages"'), editor.index('class="viewport"'))
+        self.assertIn('main{display:grid;grid-template-columns:minmax(0,1fr) 330px;flex:1;min-height:0}', editor)
+        self.assertIn('.viewport{flex:1;min-height:0;overflow:auto', editor)
+
 
 if __name__ == '__main__':
     unittest.main()
