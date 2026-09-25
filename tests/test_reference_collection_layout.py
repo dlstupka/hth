@@ -168,7 +168,20 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('function renderAlgorithmOverlays()', editor)
         self.assertIn("algorithm_id:'kraken'", editor)
         self.assertIn("if($('showTruth').checked)for", editor)
-        self.assertIn('if(algorithmShown(r)', editor)
+        self.assertIn('if(proposalShown(r)', editor)
+
+    def test_layout_dismissals_are_draft_data_and_can_be_shown_or_restored(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        self.assertIn('id="showDismissed" type="checkbox"', editor)
+        self.assertIn('id="restoreProposal"', editor)
+        self.assertIn('function isDismissed(candidate)', editor)
+        self.assertIn("page().dismissed_proposal_ids??=[]", editor)
+        self.assertIn('dismissed.push(candidate.id)', editor)
+        self.assertIn('page().dismissed_proposal_ids=page().dismissed_proposal_ids.filter', editor)
+        self.assertIn("id:await candidateId('kraken',kind,boundary)", editor)
+        self.assertIn("JSON.stringify(collection,null,2)", editor)
+        self.assertIn(".filter(candidate=>!isDismissed(candidate))", editor)
+        self.assertNotIn("proposals.get(page().global_ordinal).splice(selected.index,1)", editor)
 
     def test_detector_page_thumbnails_stay_above_independently_scrolling_image(self):
         editor = (ROOT / 'tools/reference-collection-editor.html').read_text(encoding='utf-8')

@@ -54,8 +54,12 @@ Choose the region class, then mark the page reviewed. An
 expanded Kraken layout artifact may be imported as **unapproved proposals**;
 the editor checks its Golden Set and source-file identities before displaying
 the source-view polygons. Adopt selected proposals only after visual review;
-unwanted proposals can be dismissed from the current editing session.
-Export the draft JSON regularly; it is not an approved or frozen release.
+unwanted proposals can be dismissed without deleting their review decision.
+Dismissed proposals are hidden by default; **Show dismissed** displays them in
+muted gray so one can be selected and restored. The draft JSON stores stable
+proposal IDs under each page's `dismissed_proposal_ids`, so the decisions return
+when the draft and the same Kraken proposals are imported again. Export the
+draft JSON after dismissing or restoring; it is not an approved or frozen release.
 The page-only zoom carries forward to untouched pages and remembers each page
 you adjust, including after a browser reload. Zoom preferences are browser-local
 display state, not part of the exported Golden Set draft.
