@@ -118,8 +118,10 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
 
     def test_layout_proposals_have_visible_outline_without_heavier_fill(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
-        self.assertIn("drawPath(r.boundary,'#704000','rgba(229,184,92,.07)'", editor)
-        self.assertIn("selected.index===i?3.5:2.25,'#f3c76a'", editor)
+        self.assertIn("drawPath(r.boundary,'#704000','rgba(229,184,92,.07)',2.25,'#f3c76a')", editor)
+        self.assertIn("drawPath(currentProposals[selected.index].boundary,'#0969da','rgba(229,184,92,.07)',2.25,'#dff5ff')", editor)
+        self.assertIn("drawPath(r.boundary,'#0969da','rgba(81,220,145,.1)',2,'#dff5ff')", editor)
+        self.assertLess(editor.index("drawPath(r.boundary,'#704000'"), editor.index("drawPath(currentProposals[selected.index].boundary,'#0969da'"))
 
     def test_detector_page_thumbnails_stay_above_independently_scrolling_image(self):
         editor = (ROOT / 'tools/reference-collection-editor.html').read_text(encoding='utf-8')
