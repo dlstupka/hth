@@ -120,8 +120,33 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         self.assertIn("drawPath(r.boundary,'#704000','rgba(229,184,92,.07)',2.25,'#f3c76a')", editor)
         self.assertIn("drawPath(currentProposals[selected.index].boundary,'#0969da','rgba(229,184,92,.07)',2.25,'#dff5ff')", editor)
-        self.assertIn("drawPath(r.boundary,'#0969da','rgba(81,220,145,.1)',2,'#dff5ff')", editor)
+        self.assertIn("drawPath(r.boundary,'#008f4b','rgba(81,220,145,.1)',2,'#caffdf')", editor)
         self.assertLess(editor.index("drawPath(r.boundary,'#704000'"), editor.index("drawPath(currentProposals[selected.index].boundary,'#0969da'"))
+
+    def test_layout_annotation_controls_are_visible_and_recoverable(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        for control in ('selectTool', 'rectangle', 'polygon', 'finishPolygon',
+                        'cancelDrawing', 'undo', 'redo', 'deleteVertex',
+                        'deleteRegion', 'dismissProposal', 'toolState'):
+            self.assertIn(f'id="{control}"', editor)
+        self.assertIn(".classList.toggle('tool-active'", editor)
+        self.assertIn('function selectAt(p)', editor)
+        self.assertIn('function drawDraft()', editor)
+        self.assertIn('function capturePage(', editor)
+        self.assertIn('function undo()', editor)
+        self.assertIn('function redo()', editor)
+        self.assertIn('if(!validPolygon(updated,image.naturalWidth,image.naturalHeight))', editor)
+        self.assertIn('if(action.type===\'rectangle\')', editor)
+
+    def test_layout_algorithm_and_golden_set_overlays_are_independent(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        self.assertIn('id="showTruth" type="checkbox" checked', editor)
+        self.assertIn('id="algorithmOverlays"', editor)
+        self.assertIn("algorithmVisibility=new Map([['kraken',{label:'Kraken',visible:true}]])", editor)
+        self.assertIn('function renderAlgorithmOverlays()', editor)
+        self.assertIn("algorithm_id:'kraken'", editor)
+        self.assertIn("if($('showTruth').checked)for", editor)
+        self.assertIn('if(algorithmShown(r)', editor)
 
     def test_detector_page_thumbnails_stay_above_independently_scrolling_image(self):
         editor = (ROOT / 'tools/reference-collection-editor.html').read_text(encoding='utf-8')

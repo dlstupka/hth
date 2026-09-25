@@ -35,11 +35,20 @@ pixel coordinates and cannot be applied directly to a normalized view without
 the recorded geometric transform.
 
 In the layout tab, load a source release (or use the director's shared load)
-before editing a page. Draw rectangular or polygonal regions, drag a selected vertex
-to correct a polygon, choose the region class, then mark the page reviewed. An
+before editing a page. Choose a visibly active drawing tool: drag to draw a
+rectangle, or click polygon vertices and use **Finish polygon**. Use
+**Select / edit** to click an approved region on the image and drag its visible
+vertex handles. Double-click an edge to insert a vertex. A vertex or the whole
+region can be deleted; **Undo** and
+**Redo** also work while drawing a polygon. Layout Golden Set regions are green,
+while algorithm proposals are amber. Both overlays are shown by default and
+can be hidden independently above the page. Algorithm switches are generated
+from the available algorithms; Kraken is the first supported proposal source.
+Choose the region class, then mark the page reviewed. An
 expanded Kraken layout artifact may be imported as **unapproved proposals**;
 the editor checks its Golden Set and source-file identities before displaying
-the source-view polygons. Adopt selected proposals only after visual review.
+the source-view polygons. Adopt selected proposals only after visual review;
+unwanted proposals can be dismissed from the current editing session.
 Export the draft JSON regularly; it is not an approved or frozen release.
 The page-only zoom carries forward to untouched pages and remembers each page
 you adjust, including after a browser reload. Zoom preferences are browser-local
