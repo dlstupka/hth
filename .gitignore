@@ -1,6 +1,5 @@
 # Python
 .venv/
-.test-*/
 __pycache__/
 *.py[cod]
 
@@ -19,8 +18,9 @@ working/
 *.pdf
 
 # Temporary files
+.tmp-*/
+.test-*/
 *.tmp
 *.bak
-Thumbs.db
 .DS_Store
-.tmp-layout-recon/
+Thumbs.db
