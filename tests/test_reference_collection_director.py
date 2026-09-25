@@ -1,10 +1,15 @@
 """Offline checks for the director's public-release trust boundary."""
 
 import importlib.util
+import hashlib
+import io
 import json
 import subprocess
 import tempfile
+import threading
 import unittest
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 
@@ -21,6 +26,11 @@ TAG = "HTH-GOLDEN-0002"
 
 class ReferenceCollectionDirectorTests(unittest.TestCase):
     def setUp(self):
+        self.cache = tempfile.TemporaryDirectory()
+        self.addCleanup(self.cache.cleanup)
+        cache_patch = patch.object(DIRECTOR, "CACHE_ROOT", Path(self.cache.name))
+        cache_patch.start()
+        self.addCleanup(cache_patch.stop)
         self.freeze = json.loads((ROOT / f"config/golden_sets/{TAG}.freeze.json").read_text(encoding="utf-8"))
         self.golden_bytes = (ROOT / f"config/golden_sets/{TAG}.golden-set.json").read_bytes()
         self.release_url = f"https://api.github.com/repos/{REPOSITORY}/releases/tags/{TAG}"
@@ -55,6 +65,56 @@ class ReferenceCollectionDirectorTests(unittest.TestCase):
         self.assertEqual(result["tag"], TAG)
         self.assertEqual(result["golden_set_sha256"], self.freeze["golden_set_sha256"])
         self.assertEqual(result["bundle"]["size"], 37619784)
+
+    def test_reuses_digest_checked_golden_set_json(self):
+        values = {
+            self.release_url: json.dumps({"tag_name": TAG, "assets": self.assets}).encode(),
+            self.assets[0]["browser_download_url"]: json.dumps(self.freeze).encode(),
+            self.assets[1]["browser_download_url"]: self.golden_bytes,
+        }
+        with patch.object(DIRECTOR, "_read_limited", side_effect=values.__getitem__) as read:
+            DIRECTOR.resolve_release(REPOSITORY, TAG)
+            DIRECTOR.resolve_release(REPOSITORY, TAG)
+        urls = [call.args[0] for call in read.call_args_list]
+        self.assertEqual(urls.count(self.assets[1]["browser_download_url"]), 1)
+        self.assertEqual(urls.count(self.assets[0]["browser_download_url"]), 2)
+
+    def test_bundle_cache_hit_and_corruption_refetch(self):
+        payload = b"verified Golden Set ZIP fixture"
+        sha256 = hashlib.sha256(payload).hexdigest()
+        bundle_url = f"https://github.com/{REPOSITORY}/releases/download/{TAG}/images.zip"
+        release = {"bundle": {"size": len(payload), "sha256": sha256}, "bundle_url": bundle_url}
+        server = DIRECTOR.DirectorServer(("127.0.0.1", 0))
+        server.releases[(REPOSITORY, TAG)] = release
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        def stop_server():
+            server.shutdown()
+            thread.join(5)
+            server.server_close()
+        self.addCleanup(stop_server)
+
+        def upstream(url, accept="application/octet-stream"):
+            self.assertEqual(url, bundle_url)
+            response = io.BytesIO(payload)
+            response.headers = {"Content-Length": str(len(payload))}
+            return response
+
+        query = urllib.parse.urlencode({"source_repo": f"https://github.com/{REPOSITORY}", "golden_set_id": TAG})
+        url = f"http://127.0.0.1:{server.server_port}/api/image-bundle?{query}"
+        with patch.object(DIRECTOR, "_open", side_effect=upstream) as opened:
+            with urllib.request.urlopen(url) as response:
+                self.assertEqual(response.read(), payload)
+                self.assertEqual(response.headers["X-HTH-Cache"], "miss")
+            with urllib.request.urlopen(url) as response:
+                self.assertEqual(response.read(), payload)
+                self.assertEqual(response.headers["X-HTH-Cache"], "hit")
+            self.assertEqual(opened.call_count, 1)
+            DIRECTOR._cache_path(sha256).write_bytes(b"corrupt")
+            with urllib.request.urlopen(url) as response:
+                self.assertEqual(response.read(), payload)
+                self.assertEqual(response.headers["X-HTH-Cache"], "miss")
+            self.assertEqual(opened.call_count, 2)
 
     def test_rejects_changed_bundle_digest(self):
         self.assets[2]["digest"] = "sha256:" + "0" * 64

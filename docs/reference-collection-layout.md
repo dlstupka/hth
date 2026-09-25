@@ -10,6 +10,15 @@ and verifies the freeze record, bundle SHA-256, and every image SHA-256 before
 sharing the images with both tabs. It does not need the results repository.
 Opening the HTML directly from disk cannot perform automatic release downloads;
 the ZIP and extracted-image controls remain as manual fallback.
+The local director keeps release assets in a content-addressed cache outside
+the repository (under the user's local application-data directory on Windows).
+On subsequent loads it verifies the frozen image bundle's size and SHA-256
+before using it, so the 36 MiB ZIP need not be downloaded again. A corrupt
+cache entry is discarded and fetched afresh; the browser still verifies the
+bundle and every image before either editor sees pixels. The status bar reports
+whether the image bundle was downloaded or reused locally. Restart the Python
+launcher after updating its code; refreshing the browser alone does not update
+an already-running server.
 
 The results repository is derived as `<source-repository>-results` and shown in
 the director and both tabs; it is not another required input. **Git pull results

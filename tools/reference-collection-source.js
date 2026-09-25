@@ -27,9 +27,11 @@ window.HTH_REFERENCE_SOURCE = (() => {
     const query = params(sourceRepo, goldenSetId);
     status('Resolving frozen Golden Set release…');
     const release = await readJson(await fetch(`/api/reference-release?${query}`));
-    status(`Verified ${release.tag} identity; downloading ${release.bundle.asset}…`);
+    status(`Verified ${release.tag} identity; checking the local image cache…`);
     const response = await fetch(`/api/image-bundle?${query}`);
     if (!response.ok) throw Error((await response.json()).error || `Image download returned HTTP ${response.status}`);
+    const cacheHit = response.headers.get('X-HTH-Cache') === 'hit';
+    status(cacheHit ? `Reusing verified local ${release.bundle.asset}…` : `Downloading ${release.bundle.asset} and filling the local cache…`);
     const total = release.bundle.size, chunks = [], reader = response.body.getReader();
     let received = 0;
     while (true) {
@@ -37,13 +39,13 @@ window.HTH_REFERENCE_SOURCE = (() => {
       if (done) break;
       chunks.push(value);
       received += value.byteLength;
-      status(`Downloading ${release.bundle.asset}: ${(received / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} MiB`);
+      status(`${cacheHit ? 'Loading cached' : 'Downloading'} ${release.bundle.asset}: ${(received / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} MiB`);
       if (received > total) throw Error('Image download exceeded the frozen bundle size.');
     }
     if (received !== total) throw Error(`Image download incomplete: ${received}/${total} bytes.`);
     const file = new File(chunks, release.bundle.asset, { type: 'application/zip' });
     const files = await window.HTH_REFERENCE_IMAGES.readBundle(file, release.bundle, release.golden_set, status);
-    status(`${files.length} images verified for ${release.tag}.`);
+    status(`${files.length} images verified for ${release.tag} (${cacheHit ? 'local cache hit' : 'local cache filled'}).`);
     return { ...release, sourceRepo, files };
   }
   async function updateResults(sourceRepo, status = () => {}) {

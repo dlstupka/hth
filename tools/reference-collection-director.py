@@ -10,8 +10,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
+import tempfile
 import threading
 import urllib.error
 import urllib.parse
@@ -27,6 +29,10 @@ SOURCE_RE = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+
 GOLDEN_SET_RE = re.compile(r"^HTH-GOLDEN-\d{4,}$")
 MAX_JSON_BYTES = 2_000_000
 MAX_BUNDLE_BYTES = 128_000_000
+CACHE_ROOT = Path(os.environ.get("HTH_REFERENCE_CACHE_ROOT") or
+                  (Path(os.environ["LOCALAPPDATA"]) / "HTH" / "reference-collection-cache"
+                   if os.environ.get("LOCALAPPDATA") else Path.home() / ".cache" / "hth" / "reference-collection"))
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def source_repository(value: str) -> str:
@@ -91,6 +97,54 @@ def _read_limited(url: str, limit: int = MAX_JSON_BYTES) -> bytes:
     return payload
 
 
+def _cache_path(sha256: str) -> Path:
+    if not SHA256_RE.fullmatch(sha256):
+        raise ValueError("Invalid immutable asset SHA-256")
+    return CACHE_ROOT / "sha256" / sha256[:2] / sha256
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _verified_cached_asset(sha256: str, size: int | None = None) -> Path | None:
+    path = _cache_path(sha256)
+    if not path.is_file():
+        return None
+    if (size is not None and path.stat().st_size != size) or _sha256_file(path) != sha256:
+        path.unlink(missing_ok=True)
+        return None
+    return path
+
+
+def _read_cached_json_asset(asset: dict[str, Any], expected_sha256: str | None = None) -> bytes:
+    digest = expected_sha256 or str(asset.get("digest", "")).removeprefix("sha256:")
+    trusted_digest = digest if SHA256_RE.fullmatch(digest) else None
+    size = int(asset.get("size") or 0)
+    cached = _verified_cached_asset(trusted_digest, size if size > 0 else None) if trusted_digest else None
+    if cached:
+        if cached.stat().st_size > MAX_JSON_BYTES:
+            raise ValueError("Cached release metadata exceeds the accepted size limit")
+        return cached.read_bytes()
+    payload = _read_limited(str(asset["browser_download_url"]))
+    if trusted_digest and hashlib.sha256(payload).hexdigest() != trusted_digest:
+        raise ValueError(f"Release asset SHA-256 mismatch: {asset['name']}")
+    if size > 0 and len(payload) != size:
+        raise ValueError(f"Release asset size mismatch: {asset['name']}")
+    if trusted_digest:
+        target = _cache_path(trusted_digest)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=target.parent, prefix=".asset-", delete=False) as handle:
+            handle.write(payload)
+            temporary = Path(handle.name)
+        temporary.replace(target)
+    return payload
+
+
 def _release_asset(assets: dict[str, dict[str, Any]], name: str, repository: str, tag: str) -> dict[str, Any]:
     asset = assets.get(name)
     if asset is None:
@@ -112,9 +166,10 @@ def resolve_release(repository: str, tag: str) -> dict[str, Any]:
     assets = {asset["name"]: asset for asset in release.get("assets", [])}
     freeze_asset = _release_asset(assets, f"{tag}.freeze.json", repository, tag)
     golden_asset = _release_asset(assets, f"{tag}.golden-set.json", repository, tag)
-    freeze_bytes = _read_limited(freeze_asset["browser_download_url"])
-    golden_bytes = _read_limited(golden_asset["browser_download_url"])
-    freeze, golden_set = json.loads(freeze_bytes), json.loads(golden_bytes)
+    freeze_bytes = _read_cached_json_asset(freeze_asset)
+    freeze = json.loads(freeze_bytes)
+    golden_bytes = _read_cached_json_asset(golden_asset, freeze.get("golden_set_sha256"))
+    golden_set = json.loads(golden_bytes)
     digest = hashlib.sha256(golden_bytes).hexdigest()
     if freeze.get("golden_set_id") != tag or freeze.get("state") != "frozen":
         raise ValueError("The selected Golden Set is not frozen under the requested tag")
@@ -171,6 +226,7 @@ class DirectorServer(ThreadingHTTPServer):
         super().__init__(address, DirectorHandler)
         self.releases: dict[tuple[str, str], dict[str, Any]] = {}
         self.release_lock = threading.Lock()
+        self.bundle_lock = threading.Lock()
         self.update_lock = threading.Lock()
 
     def release(self, repository: str, tag: str) -> dict[str, Any]:
@@ -210,17 +266,53 @@ class DirectorHandler(SimpleHTTPRequestHandler):
             release = self.server.release(repository, tag)
             if request.path == "/api/reference-release":
                 return self._json(200, {key: release[key] for key in ("repository", "tag", "golden_set_sha256", "golden_set", "bundle")})
-            with _open(release["bundle_url"], "application/octet-stream") as upstream:
-                if upstream.headers.get("Content-Length") not in (None, str(release["bundle"]["size"])):
-                    raise ValueError("Downloaded image bundle size differs from the freeze record")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/zip")
-                self.send_header("Content-Length", str(release["bundle"]["size"]))
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
-                headers_sent = True
-                while chunk := upstream.read(256 * 1024):
-                    self.wfile.write(chunk)
+            bundle = release["bundle"]
+            expected_size, expected_sha256 = int(bundle["size"]), str(bundle["sha256"])
+            with self.server.bundle_lock:
+                cached = _verified_cached_asset(expected_sha256, expected_size)
+                if cached:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/zip")
+                    self.send_header("Content-Length", str(expected_size))
+                    self.send_header("X-HTH-Cache", "hit")
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    headers_sent = True
+                    with cached.open("rb") as handle:
+                        while chunk := handle.read(256 * 1024):
+                            self.wfile.write(chunk)
+                    return
+                target = _cache_path(expected_sha256)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with _open(release["bundle_url"], "application/octet-stream") as upstream:
+                    if upstream.headers.get("Content-Length") not in (None, str(expected_size)):
+                        raise ValueError("Downloaded image bundle size differs from the freeze record")
+                    temporary = None
+                    try:
+                        with tempfile.NamedTemporaryFile(dir=target.parent, prefix=".bundle-", delete=False) as handle:
+                            temporary = Path(handle.name)
+                            digest, received = hashlib.sha256(), 0
+                            self.send_response(200)
+                            self.send_header("Content-Type", "application/zip")
+                            self.send_header("Content-Length", str(expected_size))
+                            self.send_header("X-HTH-Cache", "miss")
+                            self.send_header("Cache-Control", "no-store")
+                            self.end_headers()
+                            headers_sent = True
+                            while chunk := upstream.read(256 * 1024):
+                                received += len(chunk)
+                                if received > expected_size:
+                                    raise ValueError("Downloaded image bundle exceeds the freeze record size")
+                                digest.update(chunk)
+                                handle.write(chunk)
+                                self.wfile.write(chunk)
+                            if received != expected_size or digest.hexdigest() != expected_sha256:
+                                raise ValueError("Downloaded image bundle SHA-256 or size differs from the freeze record")
+                    except Exception:
+                        if temporary is not None:
+                            temporary.unlink(missing_ok=True)
+                        raise
+                    temporary.replace(target)
         except (KeyError, IndexError, ValueError) as error:
             if not headers_sent:
                 self._json(400, {"error": str(error)})
