@@ -42,7 +42,10 @@ vertex handles. Rectangles retain their axis-aligned shape: corner handles
 resize two sides, and midpoint handles move one side. **Make rectangle** repairs
 a previously skewed region by replacing its boundary with the region's bounding
 box. Polygons allow free vertex dragging and double-clicking an edge to insert
-a vertex. A polygon vertex or the whole region can be deleted; **Undo** and
+a vertex. Click a vertex or edge, then use the arrow buttons or keyboard arrow
+keys to move it one source-image pixel at a time. Rectangle edges move only
+perpendicular to themselves; polygon edges move their two endpoints together.
+A polygon vertex or the whole region can be deleted; **Undo** and
 **Redo** also work while drawing a polygon. Layout Golden Set regions are green,
 while algorithm proposals are amber. Both overlays are shown by default and
 can be hidden independently above the page. Algorithm switches are generated

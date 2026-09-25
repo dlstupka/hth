@@ -144,10 +144,21 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('function rectanglePoints(left,top,right,bottom)', editor)
         self.assertIn('function isRectangle(r)', editor)
         self.assertIn('function resizeRectangle(r,handle,p)', editor)
-        self.assertIn("drag={type:'edge',index:edge,before:capturePage(),moved:false}", editor)
+        self.assertIn("drag={type:'edge',index:edge,start:p,before:capturePage(),moved:false}", editor)
         self.assertIn("addRegion(points,$('kind').value,'rectangle')", editor)
         self.assertIn("r.shape='rectangle'", editor)
         self.assertIn("if(isRectangle(r)||r.boundary.length<=3)return", editor)
+
+    def test_selected_layout_handles_have_one_pixel_nudges(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        for control in ('nudgeLeft', 'nudgeUp', 'nudgeDown', 'nudgeRight', 'nudgeStatus'):
+            self.assertIn(f'id="{control}"', editor)
+        self.assertIn('function canNudge(dx,dy)', editor)
+        self.assertIn('function nudgeSelection(dx,dy)', editor)
+        self.assertIn('function movePolygonEdge(r,index,dx,dy', editor)
+        self.assertIn('nudgeSelection(...arrows[e.key])', editor)
+        self.assertIn('selectedEdge%2===0?dy!==0:dx!==0', editor)
+        self.assertIn('checkpoint();r.boundary=next.boundary', editor)
 
     def test_layout_algorithm_and_golden_set_overlays_are_independent(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
