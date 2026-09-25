@@ -183,6 +183,17 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn(".filter(candidate=>!isDismissed(candidate))", editor)
         self.assertNotIn("proposals.get(page().global_ordinal).splice(selected.index,1)", editor)
 
+    def test_reopening_same_layout_draft_keeps_matching_kraken_import(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        self.assertIn('id="openDraft" type="button"', editor)
+        self.assertIn("$('manualJson').value=''", editor)
+        self.assertIn('function sameProposalSource(data)', editor)
+        self.assertIn('const keepProposals=sameProposalSource(data)', editor)
+        self.assertIn('if(!keepProposals)proposals=new Map()', editor)
+        self.assertIn("lastChoice='loaded'", editor)
+        self.assertIn("$('goldenSetChoice').value=lastChoice", editor)
+        self.assertIn("$('proposals').onchange=e=>{importProposals(e.target.files);e.target.value=''}", editor)
+
     def test_detector_page_thumbnails_stay_above_independently_scrolling_image(self):
         editor = (ROOT / 'tools/reference-collection-editor.html').read_text(encoding='utf-8')
         self.assertLess(editor.index('id="thumbnailBar" class="thumbnailbar"'), editor.index('id="canvasWrap" class="canvaswrap"'))

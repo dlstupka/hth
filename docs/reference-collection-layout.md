@@ -60,6 +60,10 @@ muted gray so one can be selected and restored. The draft JSON stores stable
 proposal IDs under each page's `dismissed_proposal_ids`, so the decisions return
 when the draft and the same Kraken proposals are imported again. Export the
 draft JSON after dismissing or restoring; it is not an approved or frozen release.
+**Open draft JSON** can reopen the same file repeatedly. If the source Golden
+Set and page image hashes match, reopening a layout draft keeps any currently
+imported Kraken proposals; for a different source, import matching proposals
+again. Selecting the same file in the picker also works on subsequent opens.
 The page-only zoom carries forward to untouched pages and remembers each page
 you adjust, including after a browser reload. Zoom preferences are browser-local
 display state, not part of the exported Golden Set draft.
