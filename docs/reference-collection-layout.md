@@ -32,6 +32,9 @@ expanded Kraken layout artifact may be imported as **unapproved proposals**;
 the editor checks its Golden Set and source-file identities before displaying
 the source-view polygons. Adopt selected proposals only after visual review.
 Export the draft JSON regularly; it is not an approved or frozen release.
+The page-only zoom carries forward to untouched pages and remembers each page
+you adjust, including after a browser reload. Zoom preferences are browser-local
+display state, not part of the exported Golden Set draft.
 
 This first editor handles region polygons. Line baselines and reading-order
 truth require additional annotation controls and a versioned extension to the

@@ -106,6 +106,16 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('function setZoom(value,clientX,clientY)', editor)
         self.assertIn('Math.round((e.clientX-rect.left)/zoom)', editor)
 
+    def test_layout_zoom_follows_current_page_and_remembers_tweaked_pages(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        self.assertIn("let pageZooms=new Map(),defaultZoom={mode:'fit'}", editor)
+        self.assertIn('pageZooms.get(p.global_ordinal)||defaultZoom', editor)
+        self.assertIn('rememberZoom({mode:\'scale\',zoom})', editor)
+        self.assertIn("$('zoomFit').onclick=()=>fit(true)", editor)
+        self.assertIn('localStorage.setItem(zoomStorageKey()', editor)
+        self.assertIn('restoreZoomPreferences();showResults()', editor)
+        self.assertNotIn('page().zoom', editor)
+
     def test_layout_proposals_have_visible_outline_without_heavier_fill(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         self.assertIn("drawPath(r.boundary,'#704000','rgba(229,184,92,.07)'", editor)
