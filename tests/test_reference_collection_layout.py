@@ -120,7 +120,8 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         self.assertIn("drawPath(r.boundary,'#704000','rgba(229,184,92,.07)',2.25,'#f3c76a')", editor)
         self.assertIn("drawPath(currentProposals[selected.index].boundary,'#0969da','rgba(229,184,92,.07)',2.25,'#dff5ff')", editor)
-        self.assertIn("drawPath(r.boundary,'#008f4b','rgba(81,220,145,.1)',2,'#caffdf')", editor)
+        self.assertIn("drawPath(r.boundary,'#006b3b','rgba(81,220,145,.05)',2,'#caffdf')", editor)
+        self.assertIn("drawPath(r.boundary,'#004d2b','rgba(81,220,145,.05)',2,'#caffdf')", editor)
         self.assertLess(editor.index("drawPath(r.boundary,'#704000'"), editor.index("drawPath(currentProposals[selected.index].boundary,'#0969da'"))
 
     def test_layout_annotation_controls_are_visible_and_recoverable(self):
