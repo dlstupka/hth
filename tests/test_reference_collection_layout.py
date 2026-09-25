@@ -127,7 +127,8 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         for control in ('selectTool', 'rectangle', 'polygon', 'finishPolygon',
                         'cancelDrawing', 'undo', 'redo', 'deleteVertex',
-                        'deleteRegion', 'dismissProposal', 'toolState'):
+                        'deleteRegion', 'dismissProposal', 'toolState',
+                        'makeRectangle'):
             self.assertIn(f'id="{control}"', editor)
         self.assertIn(".classList.toggle('tool-active'", editor)
         self.assertIn('function selectAt(p)', editor)
@@ -137,6 +138,16 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('function redo()', editor)
         self.assertIn('if(!validPolygon(updated,image.naturalWidth,image.naturalHeight))', editor)
         self.assertIn('if(action.type===\'rectangle\')', editor)
+
+    def test_rectangles_keep_axis_aligned_corner_and_edge_editing(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        self.assertIn('function rectanglePoints(left,top,right,bottom)', editor)
+        self.assertIn('function isRectangle(r)', editor)
+        self.assertIn('function resizeRectangle(r,handle,p)', editor)
+        self.assertIn("drag={type:'edge',index:edge,before:capturePage(),moved:false}", editor)
+        self.assertIn("addRegion(points,$('kind').value,'rectangle')", editor)
+        self.assertIn("r.shape='rectangle'", editor)
+        self.assertIn("if(isRectangle(r)||r.boundary.length<=3)return", editor)
 
     def test_layout_algorithm_and_golden_set_overlays_are_independent(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')

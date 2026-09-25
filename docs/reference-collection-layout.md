@@ -38,8 +38,11 @@ In the layout tab, load a source release (or use the director's shared load)
 before editing a page. Choose a visibly active drawing tool: drag to draw a
 rectangle, or click polygon vertices and use **Finish polygon**. Use
 **Select / edit** to click an approved region on the image and drag its visible
-vertex handles. Double-click an edge to insert a vertex. A vertex or the whole
-region can be deleted; **Undo** and
+vertex handles. Rectangles retain their axis-aligned shape: corner handles
+resize two sides, and midpoint handles move one side. **Make rectangle** repairs
+a previously skewed region by replacing its boundary with the region's bounding
+box. Polygons allow free vertex dragging and double-clicking an edge to insert
+a vertex. A polygon vertex or the whole region can be deleted; **Undo** and
 **Redo** also work while drawing a polygon. Layout Golden Set regions are green,
 while algorithm proposals are amber. Both overlays are shown by default and
 can be hidden independently above the page. Algorithm switches are generated
