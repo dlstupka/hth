@@ -97,6 +97,15 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('main{display:grid;grid-template-columns:minmax(0,1fr) 330px;flex:1;min-height:0}', editor)
         self.assertIn('.viewport{flex:1;min-height:0;overflow:auto', editor)
 
+    def test_layout_zoom_changes_only_page_view(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        for control in ('zoomOut', 'zoomFit', 'zoomIn', 'zoomLevel'):
+            self.assertIn(f'id="{control}"', editor)
+        self.assertIn("$('viewport').addEventListener('wheel'", editor)
+        self.assertIn('if(!e.ctrlKey||!image)return', editor)
+        self.assertIn('function setZoom(value,clientX,clientY)', editor)
+        self.assertIn('Math.round((e.clientX-rect.left)/zoom)', editor)
+
     def test_layout_proposals_have_visible_outline_without_heavier_fill(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         self.assertIn("drawPath(r.boundary,'#704000','rgba(229,184,92,.07)'", editor)
