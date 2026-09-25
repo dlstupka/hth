@@ -140,6 +140,14 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('if(!validPolygon(updated,image.naturalWidth,image.naturalHeight))', editor)
         self.assertIn('if(action.type===\'rectangle\')', editor)
 
+    def test_review_advances_to_next_unreviewed_layout_page(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        self.assertIn('function nextReviewIndex(fromIndex)', editor)
+        self.assertIn("collection.pages[candidate].review_status!=='reviewed'", editor)
+        self.assertIn('const next=nextReviewIndex(index)', editor)
+        self.assertIn('load(next,`Page ${reviewedOrdinal} reviewed. Next page needing review: `)', editor)
+        self.assertIn('All ${collection.pages.length} pages reviewed', editor)
+
     def test_rectangles_keep_axis_aligned_corner_and_edge_editing(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         self.assertIn('function rectanglePoints(left,top,right,bottom)', editor)

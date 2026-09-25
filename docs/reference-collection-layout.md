@@ -50,7 +50,10 @@ A polygon vertex or the whole region can be deleted; **Undo** and
 while algorithm proposals are amber. Both overlays are shown by default and
 can be hidden independently above the page. Algorithm switches are generated
 from the available algorithms; Kraken is the first supported proposal source.
-Choose the region class, then mark the page reviewed. An
+Choose the region class, then mark the page reviewed. The editor advances to
+the next page needing review (wrapping around already-reviewed pages) and
+keeps the completed page's confirmation in the status bar. After the last
+page, it stays put and prompts you to export. An
 expanded Kraken layout artifact may be imported as **unapproved proposals**;
 the editor checks its Golden Set and source-file identities before displaying
 the source-view polygons. Adopt selected proposals only after visual review;
