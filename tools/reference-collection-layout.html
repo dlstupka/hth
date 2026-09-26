@@ -22,7 +22,7 @@ header{padding:12px 16px;border-bottom:1px solid #3a4653;display:flex;justify-co
 <header>
   <div><h1>HTH Layout Reference Editor</h1><small>Draft region truth, separate from the detector Golden Set</small></div>
   <div class="toolbar">
-    <select id="goldenSetChoice" aria-label="Layout Golden Set"><option value="default">HTH-GOLDEN-0002-LAYOUT (draft)</option><option value="manual">Choose layout Golden Set JSON…</option></select><button id="openDraft" type="button">Open draft JSON</button>
+    <select id="goldenSetChoice" aria-label="Layout Golden Set"><option value="default">HTH-GOLDEN-0002-LAYOUT (draft)</option><option value="manual">Choose layout Golden Set JSON…</option></select>
     <input id="releaseRepo" type="url" aria-label="Source repository" value="https://github.com/dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898" placeholder="Source repository URL">
     <input id="releaseTag" list="releaseOptions" aria-label="Source Golden Set release" value="HTH-GOLDEN-0002" placeholder="Source Golden Set"><datalist id="releaseOptions"></datalist>
     <button id="loadRelease" type="button">Load source release</button>
@@ -31,6 +31,7 @@ header{padding:12px 16px;border-bottom:1px solid #3a4653;display:flex;justify-co
     <label class="file">Open GS0002 image ZIP<input id="imageBundle" type="file" accept=".zip,application/zip"></label>
     <label class="file">Or open image folder<input id="images" type="file" webkitdirectory multiple accept="image/*"></label>
     <label class="file">Import Kraken proposals<input id="proposals" type="file" webkitdirectory multiple accept=".json,application/json"></label>
+    <button id="openDraft" type="button">Open draft JSON</button>
     <button id="export" type="button">Save draft JSON</button><button id="saveDraftAs" type="button">Save draft as…</button>
   </div>
 </header>

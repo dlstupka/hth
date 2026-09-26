@@ -69,6 +69,8 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn("return {kind: 'download-requested'", saver)
         self.assertIn('button id="export" type="button">Save draft JSON', layout)
         self.assertIn('button id="saveDraftAs" type="button">Save draft as…', layout)
+        self.assertLess(layout.index('Import Kraken proposals'), layout.index('button id="openDraft"'))
+        self.assertLess(layout.index('button id="openDraft"'), layout.index('button id="export"'))
         self.assertIn('draftJsonSaver.save(filename,data,{saveAs})', layout)
         self.assertIn("$('export').onclick=()=>exportDraft()", layout)
         self.assertIn("$('saveDraftAs').onclick=()=>exportDraft(true)", layout)
