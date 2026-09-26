@@ -56,6 +56,22 @@ Choose the region class, then mark the page reviewed. The editor advances to
 the next page needing review (wrapping around already-reviewed pages) and
 keeps the completed page's confirmation in the status bar. After the last
 page, it stays put and prompts you to export. An
+independent **Region reading order** card lists stable region IDs in a
+provisional spatial sequence: top-to-bottom, left-to-right within a row.
+Select a region to give it an optional entry label, use the arrows to correct
+the sequence, and click **Confirm reading order**. This saves each page's
+`reading_order` (an ordered array of region IDs),
+`reading_order_method` (`spatial_suggestion` or `manual`),
+`reading_order_status`, and confirmation time in the version `0.2`
+`regions-reading-order-v2` draft. Geometry review and reading-order review
+are separate: older draft region reviews remain intact when reopened, while
+their spatial order is only a suggestion until explicitly confirmed. Adding
+or deleting a region invalidates its order confirmation. Region labels and
+manual order changes also require reconfirmation. **Suggest from layout**
+restores the spatial suggestion. A reviewed region page may be exported with
+unreviewed reading order; the JSON distinguishes the two. The suggested
+sequence is not semantic reading-order truth, especially on unusual spreads.
+An
 expanded Kraken layout artifact may be imported as **unapproved proposals**;
 the editor checks its Golden Set and source-file identities before displaying
 the source-view polygons. Adopt selected proposals only after visual review;
@@ -73,7 +89,7 @@ The page-only zoom carries forward to untouched pages and remembers each page
 you adjust, including after a browser reload. Zoom preferences are browser-local
 display state, not part of the exported Golden Set draft.
 
-This first editor handles region polygons. Line baselines and reading-order
-truth require additional annotation controls and a versioned extension to the
-layout contract before automated scoring of those dimensions. Do not treat
-Kraken output, even when adopted, as independently reviewed truth.
+This editor now captures **region-level** reading order. It does not yet
+capture line baselines or within-region line reading order, so those dimensions
+cannot be scored from this draft. Do not treat Kraken output, even when
+adopted, as independently reviewed truth.

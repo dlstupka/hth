@@ -14,6 +14,8 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertEqual(layout['layout_golden_set_id'], 'HTH-GOLDEN-0002-LAYOUT')
         self.assertEqual(layout['status'], 'draft')
         self.assertEqual(layout['coordinate_view'], 'source')
+        self.assertEqual(layout['schema_version'], '0.2')
+        self.assertEqual(layout['annotation_contract'], 'regions-reading-order-v2')
         self.assertEqual(layout['source_golden_set_sha256'], freeze['golden_set_sha256'])
         self.assertEqual(len(layout['pages']), 18)
         for source, seeded in zip(detector['pages'], layout['pages']):
@@ -22,6 +24,27 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             self.assertEqual(seeded['approved_document_bbox'], source['physical_document_bbox'])
             self.assertEqual(seeded['regions'], [])
             self.assertEqual(seeded['review_status'], 'unreviewed')
+            self.assertEqual(seeded['reading_order'], [])
+            self.assertEqual(seeded['reading_order_method'], 'spatial_suggestion')
+            self.assertEqual(seeded['reading_order_status'], 'unreviewed')
+
+    def test_region_reading_order_has_explicit_review_and_persistence(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        for control in ('readingOrder', 'regionLabel', 'spatialOrder', 'confirmOrder'):
+            self.assertIn(f'id="{control}"', editor)
+        self.assertIn('function spatialReadingOrder(p)', editor)
+        self.assertIn('function validReadingOrder(p)', editor)
+        self.assertIn('function normalizeLayoutDraft(data)', editor)
+        self.assertIn("p.reading_order=spatialReadingOrder(p)", editor)
+        self.assertIn("page().reading_order_method='manual'", editor)
+        self.assertIn("page().reading_order_status='reviewed'", editor)
+        self.assertIn('page().reading_order_reviewed_at_utc=new Date().toISOString()', editor)
+        self.assertIn('const data=normalizeLayoutDraft(raw)', editor)
+        self.assertIn("region review and reading-order review", editor.lower())
+        self.assertIn("if(p.regions.length&&!validReadingOrder(p))", editor)
+        self.assertIn("page().reading_order=page().reading_order.filter(id=>id!==removed.id)", editor)
+        self.assertIn("p.reading_order_status='unreviewed'", editor)
+        self.assertNotIn("page().review_status='unreviewed';delete page().reviewed_at_utc;page().reading_order_status", editor)
 
     def test_director_has_two_independent_editors_and_shared_workspace(self):
         director = (ROOT / 'tools/reference-collection-director.html').read_text(encoding='utf-8')
