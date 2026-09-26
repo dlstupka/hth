@@ -52,10 +52,11 @@ A polygon vertex or the whole region can be deleted; **Undo** and
 while algorithm proposals are amber. Both overlays are shown by default and
 can be hidden independently above the page. Algorithm switches are generated
 from the available algorithms; Kraken is the first supported proposal source.
-Choose the region class, then mark the page reviewed. The editor advances to
-the next page needing review (wrapping around already-reviewed pages) and
-keeps the completed page's confirmation in the status bar. After the last
-page, it stays put and prompts you to export. An
+Choose the region class, then mark the regions reviewed. The editor stays on
+the page until its reading order is also confirmed; either review action can
+come first. Once both are reviewed, it advances to the next page missing
+either review and keeps the completed page's confirmation in the status bar.
+After the last complete page, it stays put and prompts you to save. An
 independent **Region reading order** card lists stable region IDs in a
 provisional spatial sequence: top-to-bottom, left-to-right within a row.
 Select a region to give it an optional entry label, use the arrows to correct

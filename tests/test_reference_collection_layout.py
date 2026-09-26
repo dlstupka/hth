@@ -190,13 +190,17 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('if(!validPolygon(updated,image.naturalWidth,image.naturalHeight))', editor)
         self.assertIn('if(action.type===\'rectangle\')', editor)
 
-    def test_review_advances_to_next_unreviewed_layout_page(self):
+    def test_review_advances_only_after_regions_and_reading_order_are_reviewed(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
-        self.assertIn('function nextReviewIndex(fromIndex)', editor)
-        self.assertIn("collection.pages[candidate].review_status!=='reviewed'", editor)
-        self.assertIn('const next=nextReviewIndex(index)', editor)
-        self.assertIn('load(next,`Page ${reviewedOrdinal} reviewed. Next page needing review: `)', editor)
-        self.assertIn('All ${collection.pages.length} pages reviewed', editor)
+        self.assertIn("function pageFullyReviewed(p){return p.review_status==='reviewed'&&p.reading_order_status==='reviewed'}", editor)
+        self.assertIn('function nextIncompletePageIndex(fromIndex)', editor)
+        self.assertIn('if(!pageFullyReviewed(collection.pages[candidate]))return candidate', editor)
+        self.assertIn('function advanceAfterPageReview(reviewedOrdinal)', editor)
+        self.assertIn('if(!pageFullyReviewed(page()))', editor)
+        self.assertIn('Confirm reading order to continue.', editor)
+        self.assertIn('Mark regions reviewed to continue.', editor)
+        self.assertEqual(editor.count('advanceAfterPageReview(reviewedOrdinal)};'), 2)
+        self.assertIn('All ${collection.pages.length} pages complete', editor)
 
     def test_rectangles_keep_axis_aligned_corner_and_edge_editing(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
