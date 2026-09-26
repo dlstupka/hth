@@ -99,11 +99,12 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         saver=(ROOT/'tools/reference-collection-save.js').read_text(encoding='utf-8')
         self.assertIn('HTH_REFERENCE_SAVE.createJsonSaver()',text)
         self.assertIn('let handle = null;',saver)
-        self.assertIn('if (!handle) {',saver)
-        self.assertIn('handle = await window.showSaveFilePicker(',saver)
-        self.assertIn('const writable = await handle.createWritable()',saver)
+        self.assertIn('if (saveAs || !destination) {',saver)
+        self.assertIn('destination = await window.showSaveFilePicker(',saver)
+        self.assertIn('const writable = await destination.createWritable()',saver)
         self.assertIn('await writable.write(contents)',saver)
         self.assertIn('await writable.close()',saver)
+        self.assertIn('handle = destination;',saver)
         self.assertIn("button.textContent=result.kind==='written'?'Saved to file ✓':'Download requested'",text)
 
     def test_freeze_export_opens_save_picker_before_async_hashing(self):

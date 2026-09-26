@@ -5,31 +5,32 @@ window.HTH_REFERENCE_SAVE = (() => {
     let handle = null;
     let handleName = null;
 
-    async function save(name, contents) {
+    async function save(name, contents, {saveAs = false} = {}) {
       if (typeof name !== 'string' || !name.endsWith('.json')) throw Error('A JSON filename is required.');
       if (typeof contents !== 'string') throw Error('JSON contents must be text.');
       if (typeof window.showSaveFilePicker === 'function') {
-        if (handleName !== name) {
-          handle = null;
-          handleName = name;
-        }
-        if (!handle) {
-          handle = await window.showSaveFilePicker({
-            suggestedName: name,
+        let destination = handleName === name ? handle : null;
+        if (saveAs || !destination) {
+          destination = await window.showSaveFilePicker({
+            suggestedName: saveAs && handle?.name ? handle.name : name,
             types: [{description: 'JSON document', accept: {'application/json': ['.json']}}],
           });
         }
-        let permission = await handle.queryPermission({mode: 'readwrite'});
-        if (permission !== 'granted') permission = await handle.requestPermission({mode: 'readwrite'});
+        let permission = await destination.queryPermission({mode: 'readwrite'});
+        if (permission !== 'granted') permission = await destination.requestPermission({mode: 'readwrite'});
         if (permission !== 'granted') throw Error('Write permission was not granted for the selected JSON file.');
-        const writable = await handle.createWritable();
+        const writable = await destination.createWritable();
         try {
           await writable.write(contents);
         } finally {
           await writable.close();
         }
+        handle = destination;
+        handleName = name;
         return {kind: 'written', filename: handle.name || name};
       }
+
+      if (saveAs) throw Error('This browser cannot choose a new save location. Enable “Ask where to save each file” in its download settings.');
 
       const url = URL.createObjectURL(new Blob([contents], {type: 'application/json'}));
       const link = document.createElement('a');

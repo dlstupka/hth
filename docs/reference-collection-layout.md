@@ -48,7 +48,10 @@ keys to move it one source-image pixel at a time. Hold an on-screen arrow to
 repeat nudges; the entire hold is one Undo step. Rectangle edges move only
 perpendicular to themselves; polygon edges move their two endpoints together.
 A polygon vertex or the whole region can be deleted; **Undo** and
-**Redo** also work while drawing a polygon. Layout Golden Set regions are green,
+**Redo** also work while drawing a polygon.
+**Convert to rectangle** replaces a polygon with its bounding rectangle;
+**Convert to polygon** keeps a rectangle's four corners while enabling free
+vertex and edge editing. Both conversions are undoable. Layout Golden Set regions are green,
 while algorithm proposals are amber. Both overlays are shown by default and
 can be hidden independently above the page. Algorithm switches are generated
 from the available algorithms; Kraken is the first supported proposal source.
@@ -83,11 +86,15 @@ Dismissed proposals are hidden by default; **Show dismissed** displays them in
 muted gray so one can be selected and restored. The draft JSON stores stable
 proposal IDs under each page's `dismissed_proposal_ids`, so the decisions return
 when the draft and the same Kraken proposals are imported again. Use **Save
-draft JSON…** after dismissing or restoring. Where supported, the browser asks
-for a file on the first save and writes subsequent saves to that same file;
-the editor reports success only after the write finishes. If the browser only
-supports downloads, check its downloads list (Ctrl+J) to confirm the file was
-created. The saved draft is not an approved or frozen release.
+draft JSON** after dismissing or restoring. Where supported, the browser asks
+for a file on the first save and writes subsequent saves to that same file.
+Use **Save draft as…** to open the chooser again and select a different file or
+location; subsequent regular saves use the newly selected file. Cancelling
+Save As keeps the previous destination. The editor reports success only after
+the write finishes. If the browser only supports downloads, check its
+downloads list (Ctrl+J) to confirm the file was created; choosing a new
+location requires browser download settings. The saved draft is not an approved
+or frozen release.
 **Open draft JSON** can reopen the same file repeatedly. If the source Golden
 Set and page image hashes match, reopening a layout draft keeps any currently
 imported Kraken proposals; for a different source, import matching proposals
