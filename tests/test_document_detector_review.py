@@ -92,16 +92,19 @@ class DocumentDetectorReviewTests(unittest.TestCase):
         self.assertIn('function downloadBlob(name,blob)',text)
         self.assertIn('document.body.appendChild(a);a.click()',text)
         self.assertIn('setTimeout(()=>{URL.revokeObjectURL(url);a.remove()},1000)',text)
-        self.assertIn("downloadJson('reference_collection.json',s.collection)",text)
+        self.assertIn("referenceJsonSaver.save('reference_collection.json'",text)
 
     def test_reference_export_reuses_a_writable_file_handle(self):
         text=(ROOT/'tools/reference-collection-editor.html').read_text(encoding='utf-8')
-        self.assertIn('referenceExportHandle:null',text)
-        self.assertIn("typeof window.showSaveFilePicker!=='function'",text)
-        self.assertIn('s.referenceExportHandle=await window.showSaveFilePicker',text)
-        self.assertIn('const writable=await s.referenceExportHandle.createWritable()',text)
-        self.assertIn('try{await writable.write(contents)}finally{await writable.close()}',text)
-        self.assertIn("button.textContent=result==='written'?'Saved to file ✓':'Downloaded ✓'",text)
+        saver=(ROOT/'tools/reference-collection-save.js').read_text(encoding='utf-8')
+        self.assertIn('HTH_REFERENCE_SAVE.createJsonSaver()',text)
+        self.assertIn('let handle = null;',saver)
+        self.assertIn('if (!handle) {',saver)
+        self.assertIn('handle = await window.showSaveFilePicker(',saver)
+        self.assertIn('const writable = await handle.createWritable()',saver)
+        self.assertIn('await writable.write(contents)',saver)
+        self.assertIn('await writable.close()',saver)
+        self.assertIn("button.textContent=result.kind==='written'?'Saved to file ✓':'Download requested'",text)
 
     def test_freeze_export_opens_save_picker_before_async_hashing(self):
         text=(ROOT/'tools/reference-collection-editor.html').read_text(encoding='utf-8')

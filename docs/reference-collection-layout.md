@@ -79,8 +79,12 @@ unwanted proposals can be dismissed without deleting their review decision.
 Dismissed proposals are hidden by default; **Show dismissed** displays them in
 muted gray so one can be selected and restored. The draft JSON stores stable
 proposal IDs under each page's `dismissed_proposal_ids`, so the decisions return
-when the draft and the same Kraken proposals are imported again. Export the
-draft JSON after dismissing or restoring; it is not an approved or frozen release.
+when the draft and the same Kraken proposals are imported again. Use **Save
+draft JSON…** after dismissing or restoring. Where supported, the browser asks
+for a file on the first save and writes subsequent saves to that same file;
+the editor reports success only after the write finishes. If the browser only
+supports downloads, check its downloads list (Ctrl+J) to confirm the file was
+created. The saved draft is not an approved or frozen release.
 **Open draft JSON** can reopen the same file repeatedly. If the source Golden
 Set and page image hashes match, reopening a layout draft keeps any currently
 imported Kraken proposals; for a different source, import matching proposals

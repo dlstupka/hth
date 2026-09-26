@@ -46,6 +46,24 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn("p.reading_order_status='unreviewed'", editor)
         self.assertNotIn("page().review_status='unreviewed';delete page().reviewed_at_utc;page().reading_order_status", editor)
 
+    def test_both_editors_share_confirmed_json_save_behavior(self):
+        detector = (ROOT / 'tools/reference-collection-editor.html').read_text(encoding='utf-8')
+        layout = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        saver = (ROOT / 'tools/reference-collection-save.js').read_text(encoding='utf-8')
+        for editor in (detector, layout):
+            self.assertIn('src="reference-collection-save.js"', editor)
+            self.assertIn('HTH_REFERENCE_SAVE.createJsonSaver()', editor)
+        self.assertIn('await window.showSaveFilePicker(', saver)
+        self.assertIn('await writable.write(contents)', saver)
+        self.assertIn('await writable.close()', saver)
+        self.assertIn("return {kind: 'written'", saver)
+        self.assertIn("return {kind: 'download-requested'", saver)
+        self.assertIn("button id=\"export\" type=\"button\">Save draft JSON…", layout)
+        self.assertIn("draftJsonSaver.save(filename,data)", layout)
+        self.assertIn("if(result.kind==='written'){dirty=false", layout)
+        self.assertIn('Browser download requested', layout)
+        self.assertNotIn('Draft downloaded.', layout)
+
     def test_director_has_two_independent_editors_and_shared_workspace(self):
         director = (ROOT / 'tools/reference-collection-director.html').read_text(encoding='utf-8')
         self.assertIn('src="reference-collection-editor.html"', director)
