@@ -129,7 +129,7 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         for control in ('selectTool', 'rectangle', 'polygon', 'finishPolygon',
                         'cancelDrawing', 'undo', 'redo', 'deleteVertex',
                         'deleteRegion', 'dismissProposal', 'toolState',
-                        'makeRectangle'):
+                        'makeRectangle', 'addVertex'):
             self.assertIn(f'id="{control}"', editor)
         self.assertIn(".classList.toggle('tool-active'", editor)
         self.assertIn('function selectAt(p)', editor)
@@ -163,11 +163,30 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         for control in ('nudgeLeft', 'nudgeUp', 'nudgeDown', 'nudgeRight', 'nudgeStatus'):
             self.assertIn(f'id="{control}"', editor)
         self.assertIn('function canNudge(dx,dy)', editor)
-        self.assertIn('function nudgeSelection(dx,dy)', editor)
+        self.assertIn('function nudgeSelection(dx,dy,recordHistory=true)', editor)
         self.assertIn('function movePolygonEdge(r,index,dx,dy', editor)
         self.assertIn('nudgeSelection(...arrows[e.key])', editor)
         self.assertIn('selectedEdge%2===0?dy!==0:dx!==0', editor)
-        self.assertIn('checkpoint();r.boundary=next.boundary', editor)
+        self.assertIn('if(recordHistory)checkpoint();r.boundary=next.boundary', editor)
+
+    def test_nudge_buttons_repeat_on_hold_as_one_undoable_edit(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        self.assertIn('function installNudgeControl(id,dx,dy)', editor)
+        self.assertIn('button.onpointerdown=e=>', editor)
+        self.assertIn('nudgeSelection(dx,dy,false)', editor)
+        self.assertIn('button.onpointerup=stop', editor)
+        self.assertIn('button.onpointercancel=stop', editor)
+        self.assertIn('button.onpointerleave=stop', editor)
+        self.assertIn('if(e.detail===0)nudgeSelection(dx,dy)', editor)
+
+    def test_add_vertex_splits_selected_polygon_edge_only(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        self.assertIn('id="addVertex"', editor)
+        self.assertIn('function insertVertexOnEdge(edge,point)', editor)
+        self.assertIn('if(!r||isRectangle(r)||edge<0', editor)
+        self.assertIn("$('addVertex').disabled=!verified||selected?.type!=='region'||selectedEdge<0||isRectangle", editor)
+        self.assertIn('insertVertexOnEdge(selectedEdge,[Math.round((a[0]+b[0])/2)', editor)
+        self.assertIn('selectedVertex=edge+1;selectedEdge=-1', editor)
 
     def test_layout_algorithm_and_golden_set_overlays_are_independent(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')

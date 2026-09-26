@@ -41,9 +41,11 @@ rectangle, or click polygon vertices and use **Finish polygon**. Use
 vertex handles. Rectangles retain their axis-aligned shape: corner handles
 resize two sides, and midpoint handles move one side. **Make rectangle** repairs
 a previously skewed region by replacing its boundary with the region's bounding
-box. Polygons allow free vertex dragging and double-clicking an edge to insert
-a vertex. Click a vertex or edge, then use the arrow buttons or keyboard arrow
-keys to move it one source-image pixel at a time. Rectangle edges move only
+box. Polygons allow free vertex dragging. Select a polygon edge and click
+**Add vertex** to split it at the midpoint, or double-click an edge to insert
+a vertex at that point. Click a vertex or edge, then use the arrow buttons or keyboard arrow
+keys to move it one source-image pixel at a time. Hold an on-screen arrow to
+repeat nudges; the entire hold is one Undo step. Rectangle edges move only
 perpendicular to themselves; polygon edges move their two endpoints together.
 A polygon vertex or the whole region can be deleted; **Undo** and
 **Redo** also work while drawing a polygon. Layout Golden Set regions are green,
