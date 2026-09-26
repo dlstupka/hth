@@ -46,6 +46,15 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn("p.reading_order_status='unreviewed'", editor)
         self.assertNotIn("page().review_status='unreviewed';delete page().reviewed_at_utc;page().reading_order_status", editor)
 
+    def test_reading_order_rows_render_and_matching_suggestion_gives_feedback(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        self.assertIn('for(const[position,id]of(p.reading_order||[]).entries())', editor)
+        self.assertNotIn('for(const[id,position]of(p.reading_order||[]).entries())', editor)
+        self.assertIn('number.textContent=`${position+1}.`', editor)
+        self.assertIn('orderList.appendChild(row)', editor)
+        self.assertIn('The layout suggestion already matches the numbered sequence below.', editor)
+        self.assertIn('Check the numbered sequence below, then confirm it.', editor)
+
     def test_both_editors_share_confirmed_json_save_behavior(self):
         detector = (ROOT / 'tools/reference-collection-editor.html').read_text(encoding='utf-8')
         layout = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')

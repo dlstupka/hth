@@ -68,7 +68,9 @@ are separate: older draft region reviews remain intact when reopened, while
 their spatial order is only a suggestion until explicitly confirmed. Adding
 or deleting a region invalidates its order confirmation. Region labels and
 manual order changes also require reconfirmation. **Suggest from layout**
-restores the spatial suggestion. A reviewed region page may be exported with
+restores the numbered spatial suggestion; if it already matches, the editor
+says so without changing the review state. Check the visible numbered rows,
+then click **Confirm reading order**. A reviewed region page may be exported with
 unreviewed reading order; the JSON distinguishes the two. The suggested
 sequence is not semantic reading-order truth, especially on unusual spreads.
 An
