@@ -199,10 +199,10 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
 
     def test_layout_proposals_have_visible_outline_without_heavier_fill(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
-        self.assertIn("drawPath(r.boundary,'#704000','rgba(229,184,92,.07)',2.25,'#f3c76a')", editor)
-        self.assertIn("if(selectedProposalIds.has(r.id)&&proposalShown(r))drawPath(r.boundary,'#0969da','rgba(229,184,92,.07)',2.25,'#dff5ff')", editor)
-        self.assertIn("drawPath(r.boundary,'#006b3b','rgba(81,220,145,.05)',2,'#caffdf')", editor)
-        self.assertIn("drawPath(r.boundary,'#004d2b','rgba(81,220,145,.05)',2,'#caffdf')", editor)
+        self.assertIn("drawPath(r.boundary,'#704000','rgba(229,184,92,.07)',2.25,'#f3c76a',overlayEffect(false))", editor)
+        self.assertIn("if(selectedProposalIds.has(r.id)&&proposalShown(r))drawPath(r.boundary,'#0969da','rgba(229,184,92,.07)',2.25,'#dff5ff',overlayEffect(true))", editor)
+        self.assertIn("drawPath(r.boundary,'#006b3b','rgba(81,220,145,.05)',2,'#caffdf',overlayEffect(false))", editor)
+        self.assertIn("drawPath(r.boundary,'#004d2b','rgba(81,220,145,.05)',2,'#caffdf',effect)", editor)
         self.assertLess(editor.index("drawPath(r.boundary,'#704000'"), editor.index("drawPath(r.boundary,'#0969da'"))
 
     def test_layout_annotation_controls_are_visible_and_recoverable(self):
@@ -337,6 +337,17 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn("$('dismissAll').onclick=()=>dismissCandidates", editor)
         self.assertIn('checkpoint();const dismissed=page().dismissed_proposal_ids', editor)
         self.assertIn('checkpoint();const used=new Set(page().regions.map(r=>r.id))', editor)
+
+    def test_overlay_emphasis_can_mute_or_highlight_selected_or_other_regions(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        for mode in ('normal', 'mute-selected', 'highlight-selected', 'mute-others', 'highlight-others'):
+            self.assertIn(f'<option value="{mode}">', editor)
+        self.assertIn('function overlayEffect(isSelected)', editor)
+        self.assertIn("if(effect==='mute')ctx.globalAlpha=.13", editor)
+        self.assertIn("if(effect==='highlight'){color='#e44cff'", editor)
+        self.assertIn("$('overlayFocus').onchange=()=>{updateOverlayFocusInfo();draw()}", editor)
+        self.assertIn('image pixels and draft JSON are unchanged',
+                      (ROOT / 'docs/reference-collection-layout.md').read_text(encoding='utf-8'))
 
     def test_reopening_same_layout_draft_keeps_matching_kraken_import(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')

@@ -55,6 +55,11 @@ vertex and edge editing. Both conversions are undoable. Layout Golden Set region
 while algorithm proposals are amber. Both overlays are shown by default and
 can be hidden independently above the page. Algorithm switches are generated
 from the available algorithms; Kraken is the first supported proposal source.
+The **Emphasis** control is display-only: choose normal, mute/highlight the
+selected approved region or Kraken proposals, or mute/highlight all other
+visible regions. Muted outlines fade while highlighted outlines become bright
+magenta; image pixels and draft JSON are unchanged. Without a selection,
+the control has no effect.
 To make two neighboring regions share a boundary, select an edge on the source
 region and click **Mirror boundary…**, then click a facing edge on the target
 region. The editor finds each edge's full facing chain, replaces the target
