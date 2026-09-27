@@ -200,10 +200,10 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
     def test_layout_proposals_have_visible_outline_without_heavier_fill(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         self.assertIn("drawPath(r.boundary,'#704000','rgba(229,184,92,.07)',2.25,'#f3c76a')", editor)
-        self.assertIn("drawPath(currentProposals[selected.index].boundary,'#0969da','rgba(229,184,92,.07)',2.25,'#dff5ff')", editor)
+        self.assertIn("if(selectedProposalIds.has(r.id)&&proposalShown(r))drawPath(r.boundary,'#0969da','rgba(229,184,92,.07)',2.25,'#dff5ff')", editor)
         self.assertIn("drawPath(r.boundary,'#006b3b','rgba(81,220,145,.05)',2,'#caffdf')", editor)
         self.assertIn("drawPath(r.boundary,'#004d2b','rgba(81,220,145,.05)',2,'#caffdf')", editor)
-        self.assertLess(editor.index("drawPath(r.boundary,'#704000'"), editor.index("drawPath(currentProposals[selected.index].boundary,'#0969da'"))
+        self.assertLess(editor.index("drawPath(r.boundary,'#704000'"), editor.index("drawPath(r.boundary,'#0969da'"))
 
     def test_layout_annotation_controls_are_visible_and_recoverable(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
@@ -213,7 +213,7 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
                         'makeRectangle', 'addVertex'):
             self.assertIn(f'id="{control}"', editor)
         self.assertIn(".classList.toggle('tool-active'", editor)
-        self.assertIn('function selectAt(p)', editor)
+        self.assertIn('function selectAt(p,event={})', editor)
         self.assertIn('function drawDraft()', editor)
         self.assertIn('function capturePage(', editor)
         self.assertIn('function undo()', editor)
@@ -314,12 +314,29 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('id="restoreProposal"', editor)
         self.assertIn('function isDismissed(candidate)', editor)
         self.assertIn("page().dismissed_proposal_ids??=[]", editor)
-        self.assertIn('dismissed.push(candidate.id)', editor)
+        self.assertIn('for(const id of chosen)dismissed.push(id)', editor)
         self.assertIn('page().dismissed_proposal_ids=page().dismissed_proposal_ids.filter', editor)
         self.assertIn("id:await candidateId('kraken',kind,boundary)", editor)
         self.assertIn("JSON.stringify({...collection,last_viewed_page_ordinal:page().global_ordinal},null,2)", editor)
         self.assertIn(".filter(candidate=>!isDismissed(candidate))", editor)
         self.assertNotIn("proposals.get(page().global_ordinal).splice(selected.index,1)", editor)
+
+    def test_layout_proposals_support_multi_selection_and_batch_actions(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        for control in ('adoptSelected', 'dismissProposal', 'restoreProposal', 'adoptAll', 'dismissAll'):
+            self.assertIn(f'id="{control}"', editor)
+        self.assertIn('selectedProposalIds=new Set([candidate.id])', editor)
+        self.assertIn('event.shiftKey&&proposalSelectionAnchorId', editor)
+        self.assertIn('event.ctrlKey||event.metaKey', editor)
+        self.assertIn('const visible=current.filter(proposalShown)', editor)
+        self.assertIn('button.onclick=event=>selectProposal(i,event)', editor)
+        self.assertIn('selectAt(p,e)', editor)
+        self.assertIn('function adoptCandidates(candidates)', editor)
+        self.assertIn('function dismissCandidates(candidates)', editor)
+        self.assertIn('function restoreCandidates(candidates)', editor)
+        self.assertIn("$('dismissAll').onclick=()=>dismissCandidates", editor)
+        self.assertIn('checkpoint();const dismissed=page().dismissed_proposal_ids', editor)
+        self.assertIn('checkpoint();const used=new Set(page().regions.map(r=>r.id))', editor)
 
     def test_reopening_same_layout_draft_keeps_matching_kraken_import(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')

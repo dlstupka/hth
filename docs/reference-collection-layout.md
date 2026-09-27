@@ -99,6 +99,12 @@ expanded Kraken layout artifact may be imported as **unapproved proposals**;
 the editor checks its Golden Set and source-file identities before displaying
 the source-view polygons. Adopt selected proposals only after visual review;
 unwanted proposals can be dismissed without deleting their review decision.
+In the Kraken list or on the image, Ctrl-click (Cmd-click on macOS) toggles
+individual proposals and Shift-click selects the visible range from the last
+clicked proposal. **Adopt selected**, **Dismiss selected**, and **Restore
+dismissed** act on the eligible selected proposals in one undoable batch.
+**Adopt all on page** and **Dismiss all on page** apply to every active
+proposal on the page, including those outside the scrolled list.
 Dismissed proposals are hidden by default; **Show dismissed** displays them in
 muted gray so one can be selected and restored. The draft JSON stores stable
 proposal IDs under each page's `dismissed_proposal_ids`, so the decisions return
