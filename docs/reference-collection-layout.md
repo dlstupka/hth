@@ -55,6 +55,13 @@ vertex and edge editing. Both conversions are undoable. Layout Golden Set region
 while algorithm proposals are amber. Both overlays are shown by default and
 can be hidden independently above the page. Algorithm switches are generated
 from the available algorithms; Kraken is the first supported proposal source.
+To make two neighboring regions share a boundary, select an edge on the source
+region and click **Mirror boundary…**, then click a facing edge on the target
+region. The editor finds each edge's full facing chain, replaces the target
+chain with every source vertex at the exact same source-image coordinates, and
+converts the target to an editable polygon if necessary. It rejects crossed or
+collapsed results, leaves the source untouched, and records a single Undo step.
+Inspect the result before reviewing and saving the page.
 Choose the region class, then mark the regions reviewed. The editor stays on
 the page until its reading order is also confirmed; either review action can
 come first. Once both are reviewed, it advances to the next page missing

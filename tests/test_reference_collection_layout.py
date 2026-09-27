@@ -233,6 +233,19 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('Polygon converted to its bounding rectangle.', editor)
         self.assertIn("${isRectangle(r)?'rectangle':'polygon'}", editor)
 
+    def test_neighbor_boundary_mirror_copies_source_vertices_and_is_undoable(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        boundary = (ROOT / 'tools/reference-collection-boundary.js').read_text(encoding='utf-8')
+        self.assertIn('src="reference-collection-boundary.js"', editor)
+        self.assertIn('id="mirrorBoundary" type="button">Mirror boundary…', editor)
+        self.assertIn("$('mirrorBoundary').onclick=()=>", editor)
+        self.assertIn('if(mirrorSource){e.preventDefault();mirrorToEdge(p);return}', editor)
+        self.assertIn('window.HTH_REFERENCE_BOUNDARY.mirror(source.boundary,mirrorSource.edge,target.boundary,best.edge)', editor)
+        self.assertIn('checkpoint();target.boundary=result.boundary;target.shape=\'polygon\'', editor)
+        self.assertIn('if (!simplePolygon(boundary)) throw Error(', boundary)
+        self.assertIn('const copied = sourceArc.indices.map(index => [...source[index]])', boundary)
+        self.assertIn('const boundary = [...copied, ...rest.slice(1, -1)', boundary)
+
     def test_selected_layout_handles_have_one_pixel_nudges(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         for control in ('nudgeLeft', 'nudgeUp', 'nudgeDown', 'nudgeRight', 'nudgeStatus'):
