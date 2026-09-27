@@ -84,6 +84,13 @@ says so without changing the review state. Check the visible numbered rows,
 then click **Confirm reading order**. A reviewed region page may be exported with
 unreviewed reading order; the JSON distinguishes the two. The suggested
 sequence is not semantic reading-order truth, especially on unusual spreads.
+Review notes can be page-wide (`notes`) or anchored to one or more approved
+regions (`region_notes`). Each anchored note stores a stable note `id`, a
+`region_ids` array, and `text` in the page's draft JSON. Choose both regions
+for an uncertain shared boundary, add the note, and save the draft. Notes do
+not confirm or change geometry or reading order. Editing or deleting a note
+is undoable. If a region is deleted, it is removed from note anchors; a note
+with no remaining anchors moves to page-wide notes instead of disappearing.
 An
 expanded Kraken layout artifact may be imported as **unapproved proposals**;
 the editor checks its Golden Set and source-file identities before displaying

@@ -46,6 +46,22 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn("p.reading_order_status='unreviewed'", editor)
         self.assertNotIn("page().review_status='unreviewed';delete page().reviewed_at_utc;page().reading_order_status", editor)
 
+    def test_review_notes_can_anchor_to_multiple_stable_region_ids(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        docs = (ROOT / 'docs/reference-collection-layout.md').read_text(encoding='utf-8')
+        for control in ('notes', 'regionNoteText', 'regionNoteAnchors', 'regionNotes', 'saveRegionNote'):
+            self.assertIn(f'id="{control}"', editor)
+        self.assertIn('function validRegionNotes(p)', editor)
+        self.assertIn('new Set(n.region_ids).size===n.region_ids.length', editor)
+        self.assertIn('n.region_ids.every(id=>regionIds.has(id))', editor)
+        self.assertIn('p.region_notes??=[]', editor)
+        self.assertIn('region_notes:[]', editor)
+        self.assertIn('region_ids:regionIds,text:textValue', editor)
+        self.assertIn('if(!validRegionNotes(p))', editor)
+        self.assertIn('note.region_ids=note.region_ids.filter(id=>id!==removed.id)', editor)
+        self.assertIn('page().notes=[page().notes,...detached.map', editor)
+        self.assertIn('`region_notes`', docs)
+
     def test_reading_order_rows_render_and_matching_suggestion_gives_feedback(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         self.assertIn('for(const[position,id]of(p.reading_order||[]).entries())', editor)
