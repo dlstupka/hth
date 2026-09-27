@@ -91,6 +91,9 @@ for an uncertain shared boundary, add the note, and save the draft. Notes do
 not confirm or change geometry or reading order. Editing or deleting a note
 is undoable. If a region is deleted, it is removed from note anchors; a note
 with no remaining anchors moves to page-wide notes instead of disappearing.
+Saving records `last_viewed_page_ordinal` in the draft, and reopening that
+draft returns the viewer to that page. Drafts saved before this change open
+on the first page until saved again.
 An
 expanded Kraken layout artifact may be imported as **unapproved proposals**;
 the editor checks its Golden Set and source-file identities before displaying

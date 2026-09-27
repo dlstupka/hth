@@ -62,6 +62,12 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('page().notes=[page().notes,...detached.map', editor)
         self.assertIn('`region_notes`', docs)
 
+    def test_saving_and_reopening_draft_restores_last_viewed_page(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        self.assertIn('last_viewed_page_ordinal:page().global_ordinal', editor)
+        self.assertIn('data.pages.findIndex(p=>p.global_ordinal===data.last_viewed_page_ordinal)', editor)
+        self.assertIn('load(index);say(`Layout draft loaded on page ${page().global_ordinal}.', editor)
+
     def test_reading_order_rows_render_and_matching_suggestion_gives_feedback(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         self.assertIn('for(const[position,id]of(p.reading_order||[]).entries())', editor)
@@ -311,7 +317,7 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('dismissed.push(candidate.id)', editor)
         self.assertIn('page().dismissed_proposal_ids=page().dismissed_proposal_ids.filter', editor)
         self.assertIn("id:await candidateId('kraken',kind,boundary)", editor)
-        self.assertIn("JSON.stringify(collection,null,2)", editor)
+        self.assertIn("JSON.stringify({...collection,last_viewed_page_ordinal:page().global_ordinal},null,2)", editor)
         self.assertIn(".filter(candidate=>!isDismissed(candidate))", editor)
         self.assertNotIn("proposals.get(page().global_ordinal).splice(selected.index,1)", editor)
 
