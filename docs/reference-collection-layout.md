@@ -87,15 +87,16 @@ come first. Once both are reviewed, it advances to the next page missing
 either review and keeps the completed page's confirmation in the status bar.
 After the last complete page, it stays put and prompts you to save. An
 independent **Region reading order** card lists stable region IDs in a
-provisional spatial sequence: top-to-bottom, left-to-right within a row.
+provisional creation sequence, matching the order regions were drawn.
 Select a region to give it an optional entry label, use the arrows to correct
 the sequence, and click **Confirm reading order**. This saves each page's
 `reading_order` (an ordered array of region IDs),
-`reading_order_method` (`spatial_suggestion` or `manual`),
+`reading_order_method` (`creation_order`, `spatial_suggestion`, or `manual`),
 `reading_order_status`, and confirmation time in the version `0.2`
 `regions-reading-order-v2` draft. Geometry review and reading-order review
 are separate: older draft region reviews remain intact when reopened, while
-their spatial order is only a suggestion until explicitly confirmed. Adding
+an unconfirmed legacy spatial suggestion becomes creation order on import;
+confirmed and manually arranged orders are preserved. Adding
 or deleting a region invalidates its order confirmation. Region labels and
 manual order changes also require reconfirmation. **Suggest from layout**
 restores the numbered spatial suggestion; if it already matches, the editor
@@ -103,6 +104,11 @@ says so without changing the review state. Check the visible numbered rows,
 then click **Confirm reading order**. A reviewed region page may be exported with
 unreviewed reading order; the JSON distinguishes the two. The suggested
 sequence is not semantic reading-order truth, especially on unusual spreads.
+Select a region and click **Duplicate selected below (10 px)** to copy its
+geometry and class with its topmost point 10 source-image pixels below the
+source's bottommost point. Ctrl/Cmd-click approved regions on the image or in
+the region list to duplicate several at once; the new regions are selected.
+The action is rejected without changes if any copy would leave the image.
 Review notes can be page-wide (`notes`) or anchored to one or more approved
 regions (`region_notes`). Each anchored note stores a stable note `id`, a
 `region_ids` array, and `text` in the page's draft JSON. Choose both regions

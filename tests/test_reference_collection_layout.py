@@ -37,7 +37,9 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('function spatialReadingOrder(p)', editor)
         self.assertIn('function validReadingOrder(p)', editor)
         self.assertIn('function normalizeLayoutDraft(data)', editor)
-        self.assertIn("p.reading_order=spatialReadingOrder(p)", editor)
+        self.assertIn("p.reading_order=[...ids];p.reading_order_method='creation_order'", editor)
+        self.assertIn("p.reading_order_status==='unreviewed'&&p.reading_order_method==='spatial_suggestion'", editor)
+        self.assertIn("reading_order_method:'creation_order'", editor)
         self.assertIn("page().reading_order_method='manual'", editor)
         self.assertIn("page().reading_order_status='reviewed'", editor)
         self.assertIn('page().reading_order_reviewed_at_utc=new Date().toISOString()', editor)
@@ -47,6 +49,64 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn("page().reading_order=page().reading_order.filter(id=>id!==removed.id)", editor)
         self.assertIn("p.reading_order_status='unreviewed'", editor)
         self.assertNotIn("page().review_status='unreviewed';delete page().reviewed_at_utc;page().reading_order_status", editor)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is needed to exercise layout editor functions')
+    def test_creation_order_migration_and_multi_region_duplication(self):
+        script = r"""
+            const assert = require('node:assert/strict');
+            const fs = require('node:fs');
+            const vm = require('node:vm');
+            const editor = fs.readFileSync('tools/reference-collection-layout.html', 'utf8');
+            const line = name => editor.split('\n').find(row => row.startsWith(`function ${name}(`));
+            const page = {
+              global_ordinal: 1, regions: [
+                {id:'r1', kind:'text', shape:'polygon', boundary:[[1,1],[11,1],[11,11],[1,11]]},
+                {id:'r2', kind:'text', shape:'polygon', boundary:[[20,5],[30,5],[30,15],[20,15]]}
+              ], region_notes: [], reading_order:['r2','r1'],
+              reading_order_method:'spatial_suggestion', reading_order_status:'unreviewed'
+            };
+            const ctx = {structuredClone, page:()=>page, image:{naturalWidth:100,naturalHeight:100},
+              verified:true, selectedRegionIds:new Set(['r1','r2']), selected:null,
+              checkpoint:()=>{ctx.checkpoints++}, checkpoints:0, setMode:()=>{},
+              $:()=>({value:''}),
+              invalidation:()=>{}, draw:()=>{}, say:()=>{}};
+            vm.createContext(ctx);
+            vm.runInContext(['validReadingOrder','validRegionNotes','spatialReadingOrder',
+              'normalizeLayoutDraft','validPolygon','duplicateSelectedRegions'].map(line).join('\n'), ctx);
+            const draft = {annotation_contract:'regions-reading-order-v2', pages:[page]};
+            const migrated = ctx.normalizeLayoutDraft(draft);
+            assert.deepEqual(Array.from(migrated.pages[0].reading_order), ['r1','r2']);
+            assert.equal(migrated.pages[0].reading_order_method, 'creation_order');
+            assert.deepEqual(page.reading_order, ['r2','r1']);
+            for (const method of ['manual','spatial_suggestion']) {
+              const confirmed = structuredClone(draft);
+              confirmed.pages[0].reading_order_method = method;
+              confirmed.pages[0].reading_order_status = 'reviewed';
+              assert.deepEqual(Array.from(ctx.normalizeLayoutDraft(confirmed).pages[0].reading_order), ['r2','r1']);
+            }
+            page.regions[0].label = 'entry 1';
+            page.reading_order = ['r1','r2'];
+            page.reading_order_method = 'creation_order';
+            vm.runInContext('duplicateSelectedRegions()', ctx);
+            assert.equal(ctx.checkpoints, 1);
+            assert.equal(page.regions.length, 4);
+            assert.deepEqual(Array.from(page.reading_order), ['r1','r2','r3','r4']);
+            assert.deepEqual(Array.from(ctx.selectedRegionIds), ['r3','r4']);
+            assert.equal(ctx.selected.index, 3);
+            assert.deepEqual(Array.from(page.regions[2].boundary[0]), [1,21]);
+            assert.deepEqual(Array.from(page.regions[3].boundary[0]), [20,25]);
+            assert.equal(page.regions[2].label, undefined);
+            ctx.selectedRegionIds = new Set(['r3']);
+            vm.runInContext('duplicateSelectedRegions()', ctx);
+            assert.equal(page.regions.length, 5);
+            ctx.selectedRegionIds = new Set(['r5']);
+            ctx.image.naturalHeight = 60;
+            vm.runInContext('duplicateSelectedRegions()', ctx);
+            assert.equal(page.regions.length, 5);
+            assert.equal(ctx.checkpoints, 2);
+        """
+        result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_review_notes_can_anchor_to_multiple_stable_region_ids(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
@@ -203,7 +263,7 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         self.assertIn("drawPath(r.boundary,'#704000','rgba(229,184,92,.07)',2.25,'#f3c76a',overlayEffect(false))", editor)
         self.assertIn("if(selectedProposalIds.has(r.id)&&proposalShown(r))drawPath(r.boundary,'#0969da','rgba(229,184,92,.07)',2.25,'#dff5ff',overlayEffect(true))", editor)
-        self.assertIn("drawPath(r.boundary,'#006b3b','rgba(81,220,145,.05)',2,'#caffdf',overlayEffect(false))", editor)
+        self.assertIn("selectedRegionIds.has(r.id)?'#004d2b':'#006b3b'", editor)
         self.assertIn("drawPath(r.boundary,'#004d2b','rgba(81,220,145,.05)',2,'#caffdf',effect)", editor)
         self.assertLess(editor.index("drawPath(r.boundary,'#704000'"), editor.index("drawPath(r.boundary,'#0969da'"))
 
