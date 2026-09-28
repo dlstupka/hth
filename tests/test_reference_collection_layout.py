@@ -1,4 +1,6 @@
 import json
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -264,9 +266,25 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('if(mirrorSource){e.preventDefault();mirrorToEdge(p);return}', editor)
         self.assertIn('window.HTH_REFERENCE_BOUNDARY.mirror(source.boundary,mirrorSource.edge,target.boundary,best.edge)', editor)
         self.assertIn('checkpoint();target.boundary=result.boundary;target.shape=\'polygon\'', editor)
-        self.assertIn('if (!simplePolygon(boundary)) throw Error(', boundary)
+        self.assertIn('if (!simplePolygon(boundary)) continue;', boundary)
         self.assertIn('const copied = sourceArc.indices.map(index => [...source[index]])', boundary)
         self.assertIn('const boundary = [...copied, ...rest.slice(1, -1)', boundary)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is needed to execute the boundary helper')
+    def test_mirror_uses_facing_corners_when_extrema_are_on_opposite_side(self):
+        script = """
+            const assert = require('node:assert/strict');
+            global.window = {};
+            require('./tools/reference-collection-boundary.js');
+            const source = [[0,0],[100,0],[99,40],[80,40],[70,50],[40,50],[1,40]];
+            const target = [[10,70],[90,70],[90,100],[10,100]];
+            const result = window.HTH_REFERENCE_BOUNDARY.mirror(source, 4, target, 0);
+            assert.deepEqual(result.boundary, [[1,40],[40,50],[70,50],[80,40],[99,40],[90,100],[10,100]]);
+            assert.equal(result.copiedVertices, 5);
+            assert.deepEqual(target, [[10,70],[90,70],[90,100],[10,100]]);
+        """
+        result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_selected_layout_handles_have_one_pixel_nudges(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
