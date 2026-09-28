@@ -34,16 +34,24 @@ does not alter the approved detector Golden Set. Region truth uses source-image
 pixel coordinates and cannot be applied directly to a normalized view without
 the recorded geometric transform.
 
+The director and both editors keep their controls on the left and their title
+and descriptive text on the right. Each editor's workpane is on the left of
+the image workspace.
+
 In the layout tab, load a source release (or use the director's shared load)
 before editing a page. Choose a visibly active drawing tool: drag to draw a
-rectangle, or click polygon vertices and use **Finish polygon**. Use
+rectangle, or click polygon vertices and use **Finish polygon**. The drawing
+tool stays active after each region, so you can draw another without reselecting
+it. Use
 **Select / edit** to click an approved region on the image and drag its visible
 vertex handles. Rectangles retain their axis-aligned shape: corner handles
 resize two sides, and midpoint handles move one side. **Make rectangle** repairs
 a previously skewed region by replacing its boundary with the region's bounding
 box. Polygons allow free vertex dragging. Select a polygon edge and click
-**Add vertex** to split it at the midpoint, or double-click an edge to insert
-a vertex at that point. Click a vertex or edge, then use the arrow buttons or keyboard arrow
+**Add vertex** to split it at the midpoint; the segment to the right of the
+new vertex is selected for the next split. With only a polygon selected,
+**Add vertex** chooses its rightmost edge at mid-height. Double-click an edge
+to insert a vertex at that point. Click a vertex or edge, then use the arrow buttons or keyboard arrow
 keys to move it one source-image pixel at a time. Hold an on-screen arrow to
 repeat nudges; the entire hold is one Undo step. Rectangle edges move only
 perpendicular to themselves; polygon edges move their two endpoints together.

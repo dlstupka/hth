@@ -175,7 +175,7 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
     def test_layout_page_tabs_stay_above_independently_scrolling_image(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         self.assertLess(editor.index('id="pages" class="pages"'), editor.index('class="viewport"'))
-        self.assertIn('main{display:grid;grid-template-columns:minmax(0,1fr) 330px;flex:1;min-height:0}', editor)
+        self.assertIn('main{display:grid;grid-template-columns:330px minmax(0,1fr);flex:1;min-height:0}', editor)
         self.assertIn('.viewport{flex:1;min-height:0;overflow:auto', editor)
 
     def test_layout_zoom_changes_only_page_view(self):
@@ -289,14 +289,28 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('button.onpointerleave=stop', editor)
         self.assertIn('if(e.detail===0)nudgeSelection(dx,dy)', editor)
 
-    def test_add_vertex_splits_selected_polygon_edge_only(self):
+    def test_add_vertex_defaults_to_right_midpoint_and_advances_selected_edge(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         self.assertIn('id="addVertex"', editor)
-        self.assertIn('function insertVertexOnEdge(edge,point)', editor)
+        self.assertIn('function rightMidpointEdge(boundary)', editor)
+        self.assertIn('function insertVertexOnEdge(edge,point,selectRightEdge=false)', editor)
         self.assertIn('if(!r||isRectangle(r)||edge<0', editor)
-        self.assertIn("$('addVertex').disabled=!verified||selected?.type!=='region'||selectedEdge<0||isRectangle", editor)
-        self.assertIn('insertVertexOnEdge(selectedEdge,[Math.round((a[0]+b[0])/2)', editor)
+        self.assertIn("$('addVertex').disabled=!verified||selected?.type!=='region'||isRectangle", editor)
+        self.assertIn('edge=hadSelectedEdge?selectedEdge:rightMidpointEdge(r.boundary)', editor)
+        self.assertIn('selectedEdge=afterMidX>=beforeMidX?edge+1:edge', editor)
         self.assertIn('selectedVertex=edge+1;selectedEdge=-1', editor)
+
+    def test_drawing_tools_remain_active_and_workpanes_are_left_aligned(self):
+        layout = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        detector = (ROOT / 'tools/reference-collection-editor.html').read_text(encoding='utf-8')
+        director = (ROOT / 'tools/reference-collection-director.html').read_text(encoding='utf-8')
+        self.assertIn("if(addRegion(points,$('kind').value,'rectangle'))say('Rectangle added.", layout)
+        self.assertIn('function finishPolygon()', layout)
+        self.assertNotIn("if(addRegion(draftPoints.map(p=>[...p]),$('kind').value))setMode('select')", layout)
+        self.assertIn('grid-template-columns:330px minmax(0,1fr)', layout)
+        self.assertIn('grid-template-columns:360px minmax(0,1fr)', detector)
+        for page in (layout, detector, director):
+            self.assertIn('.header-title{order:2;margin-left:auto}', page)
 
     def test_layout_algorithm_and_golden_set_overlays_are_independent(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
@@ -363,8 +377,8 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
     def test_detector_page_thumbnails_stay_above_independently_scrolling_image(self):
         editor = (ROOT / 'tools/reference-collection-editor.html').read_text(encoding='utf-8')
         self.assertLess(editor.index('id="thumbnailBar" class="thumbnailbar"'), editor.index('id="canvasWrap" class="canvaswrap"'))
-        self.assertIn('.workspace{min-width:0;min-height:0;display:grid;grid-template-rows:auto auto auto minmax(0,1fr)}', editor)
-        self.assertIn('main{display:grid;grid-template-columns:minmax(0,1fr) 360px;flex:1;min-height:0}', editor)
+        self.assertIn('.workspace{grid-column:2;grid-row:1;min-width:0;min-height:0;display:grid;grid-template-rows:auto auto auto minmax(0,1fr)}', editor)
+        self.assertIn('main{display:grid;grid-template-columns:360px minmax(0,1fr);flex:1;min-height:0}', editor)
 
 
 if __name__ == '__main__':
