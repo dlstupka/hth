@@ -128,12 +128,22 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             ctx.moveWholePolygon(region, -1000, -1000, source);
             assert.deepEqual(region.boundary.map(p=>Array.from(p)), source.map(([x,y])=>[x-10,y-10]));
             assert.deepEqual(source, [[10,10],[30,10],[35,25],[20,30],[10,25]]);
-            assert.match(editor, /if\(e\.button===2\)\{/);
-            assert.match(editor, /drag=\{type:'polygon-move',start:p,before:capturePage\(\),moved:false\}/);
-            assert.match(editor, /else if\(drag\.type==='polygon-move'\)moveWholePolygon\(r,p\[0\]-drag\.start\[0\],p\[1\]-drag\.start\[1\]/);
+            assert.match(editor, /if\(!verified\|\|e\.button!==0\)return/);
+            assert.match(editor, /drag=\{type:'region-move',start:p,before:capturePage\(\),moved:false\}/);
+            assert.match(editor, /if\(drag\.type==='region-move'\)moveWholePolygon\(r,p\[0\]-drag\.start\[0\],p\[1\]-drag\.start\[1\]/);
             assert.match(editor, /else movePolygonEdge\(r,drag\.index,p\[0\]-drag\.start\[0\],p\[1\]-drag\.start\[1\]/);
-            assert.match(editor, /canvas\.oncontextmenu=e=>\{if\(suppressPolygonContextMenu\)/);
-            assert.match(editor, /action\.type==='polygon-move'\?'Polygon moved without changing its shape/);
+            assert.doesNotMatch(editor, /canvas\.oncontextmenu=/);
+            assert.match(editor, /action\.type==='region-move'\?'Region moved without changing its shape/);
+            const edgeDrag = editor.indexOf("drag={type:'edge',index:edge,start:p,before:capturePage(),moved:false}");
+            const interiorDrag = editor.indexOf("if(hitsBoundary(page().regions[i].boundary,p)){selectRegion(i);drag={type:'region-move'");
+            assert.ok(edgeDrag>=0 && interiorDrag>edgeDrag);
+            const edgeCtx = {zoom:1, $:()=>({checked:true}),
+              page:()=>({regions:[{shape:'rectangle',boundary:[[10,10],[30,10],[30,30],[10,30]]}]})};
+            vm.createContext(edgeCtx);
+            vm.runInContext(editor.split('\n').find(row=>row.startsWith('function distanceToSegment(')),edgeCtx);
+            vm.runInContext(editor.split('\n').find(row=>row.startsWith('function hitsBoundary(')),edgeCtx);
+            assert.equal(edgeCtx.hitsBoundary([[10,10],[30,10],[30,30],[10,30]],[20,20]),true);
+            assert.equal(edgeCtx.hitsBoundary([[10,10],[30,10],[30,30],[10,30]],[80,70]),false);
         """
         result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
