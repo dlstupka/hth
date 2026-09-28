@@ -108,6 +108,36 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is needed to exercise polygon movement')
+    def test_polygon_edge_drag_translates_whole_shape_with_image_clamping(self):
+        script = r"""
+            const assert = require('node:assert/strict');
+            const fs = require('node:fs');
+            const vm = require('node:vm');
+            const editor = fs.readFileSync('tools/reference-collection-layout.html', 'utf8');
+            const helper = editor.split('\n').find(row => row.startsWith('function moveWholePolygon('));
+            const ctx = {image:{naturalWidth:100,naturalHeight:80}};
+            vm.createContext(ctx);
+            vm.runInContext(helper, ctx);
+            const source = [[10,10],[30,10],[35,25],[20,30],[10,25]];
+            const region = {boundary:source.map(point=>[...point])};
+            ctx.moveWholePolygon(region, 12, 8, source);
+            assert.deepEqual(region.boundary.map(p=>Array.from(p)), source.map(([x,y])=>[x+12,y+8]));
+            ctx.moveWholePolygon(region, 1000, 1000, source);
+            assert.deepEqual(region.boundary.map(p=>Array.from(p)), source.map(([x,y])=>[x+64,y+49]));
+            ctx.moveWholePolygon(region, -1000, -1000, source);
+            assert.deepEqual(region.boundary.map(p=>Array.from(p)), source.map(([x,y])=>[x-10,y-10]));
+            assert.deepEqual(source, [[10,10],[30,10],[35,25],[20,30],[10,25]]);
+            assert.match(editor, /if\(e\.button===2\)\{/);
+            assert.match(editor, /drag=\{type:'polygon-move',start:p,before:capturePage\(\),moved:false\}/);
+            assert.match(editor, /else if\(drag\.type==='polygon-move'\)moveWholePolygon\(r,p\[0\]-drag\.start\[0\],p\[1\]-drag\.start\[1\]/);
+            assert.match(editor, /else movePolygonEdge\(r,drag\.index,p\[0\]-drag\.start\[0\],p\[1\]-drag\.start\[1\]/);
+            assert.match(editor, /canvas\.oncontextmenu=e=>\{if\(suppressPolygonContextMenu\)/);
+            assert.match(editor, /action\.type==='polygon-move'\?'Polygon moved without changing its shape/);
+        """
+        result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_review_notes_can_anchor_to_multiple_stable_region_ids(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         docs = (ROOT / 'docs/reference-collection-layout.md').read_text(encoding='utf-8')
