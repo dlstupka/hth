@@ -55,7 +55,10 @@ to insert a vertex at that point. Click a vertex or edge, then use the arrow but
 keys to move it one source-image pixel at a time. Hold an on-screen arrow to
 repeat nudges; the entire hold is one Undo step. Rectangle edges move only
 perpendicular to themselves; polygon edges move their two endpoints together.
-A polygon vertex or the whole region can be deleted; **Undo** and
+A polygon vertex or the whole region can be deleted. After deleting a vertex,
+the adjacent vertex farther right is selected so repeated clicks can remove a
+run of points; deletion still stops if it would make the polygon invalid.
+**Undo** and
 **Redo** also work while drawing a polygon.
 **Convert to rectangle** replaces a polygon with its bounding rectangle;
 **Convert to polygon** keeps a rectangle's four corners while enabling free

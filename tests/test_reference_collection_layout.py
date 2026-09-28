@@ -318,6 +318,13 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('selectedEdge=afterMidX>=beforeMidX?edge+1:edge', editor)
         self.assertIn('selectedVertex=edge+1;selectedEdge=-1', editor)
 
+    def test_delete_vertex_selects_rightmost_adjacent_vertex_for_repeated_deletion(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        self.assertIn('const deleted=selectedVertex,updated=r.boundary.filter((_,i)=>i!==deleted)', editor)
+        self.assertIn('const before=(deleted-1+updated.length)%updated.length,after=deleted%updated.length', editor)
+        self.assertIn('selectedVertex=updated[after][0]>=updated[before][0]?after:before', editor)
+        self.assertIn("if(!validPolygon(updated,image.naturalWidth,image.naturalHeight)){say('Deleting that vertex would make the region invalid.'", editor)
+
     def test_drawing_tools_remain_active_and_workpanes_are_left_aligned(self):
         layout = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         detector = (ROOT / 'tools/reference-collection-editor.html').read_text(encoding='utf-8')
