@@ -161,6 +161,9 @@ again. Selecting the same file in the picker also works on subsequent opens.
 The page-only zoom carries forward to untouched pages and remembers each page
 you adjust, including after a browser reload. Zoom preferences are browser-local
 display state, not part of the exported Golden Set draft.
+Zoom can reach 800%; above 200%, the canvas enlarges its display without
+allocating a correspondingly huge bitmap. This magnifies the existing source
+pixels but cannot reveal detail absent from the verified source image.
 
 This editor now captures **region-level** reading order. It does not yet
 capture line baselines or within-region line reading order, so those dimensions

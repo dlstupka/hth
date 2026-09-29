@@ -345,6 +345,41 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('restoreZoomPreferences();showResults()', editor)
         self.assertNotIn('page().zoom', editor)
 
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is needed to exercise layout zoom')
+    def test_layout_zoom_reaches_eight_hundred_percent_without_huge_canvas_bitmap(self):
+        script = r"""
+            const assert = require('node:assert/strict');
+            const fs = require('node:fs');
+            const vm = require('node:vm');
+            const editor = fs.readFileSync('tools/reference-collection-layout.html','utf8');
+            const calls = [];
+            const viewport = {clientWidth:600,clientHeight:400,scrollLeft:0,scrollTop:0,
+              getBoundingClientRect:()=>({left:0,top:0})};
+            const canvas = {style:{},parentElement:viewport,getBoundingClientRect:()=>({left:0,top:0})};
+            const ctx = {image:{naturalWidth:1600,naturalHeight:1200},zoom:1,canvas,fitMode:true,
+              ctx:{setTransform:(...a)=>calls.push(['transform',...a]),
+                fillRect:(...a)=>calls.push(['fill',...a]),
+                drawImage:(...a)=>calls.push(['image',...a])},
+              updateZoom:()=>{},rememberZoom:()=>{}};
+            vm.createContext(ctx);
+            vm.runInContext(editor.split('\n').find(row=>row.startsWith('function validZoomPreference(')),ctx);
+            vm.runInContext(editor.split('\n').find(row=>row.startsWith('function setZoom(')),ctx);
+            const drawStart=editor.split('function draw(){')[1].split('const currentProposals=')[0];
+            vm.runInContext('function draw(){'+drawStart+'}',ctx);
+            assert.equal(ctx.validZoomPreference({mode:'scale',zoom:8}).zoom,8);
+            assert.equal(ctx.validZoomPreference({mode:'scale',zoom:8.01}),null);
+            ctx.setZoom(100);
+            assert.equal(ctx.zoom,8);
+            assert.equal(canvas.width,3200);
+            assert.equal(canvas.height,2400);
+            assert.equal(canvas.style.width,'12800px');
+            assert.equal(canvas.style.height,'9600px');
+            assert.deepEqual(calls.find(c=>c[0]==='transform'),['transform',.25,0,0,.25,0,0]);
+            assert.deepEqual(calls.find(c=>c[0]==='image').slice(2),[0,0,12800,9600]);
+        """
+        result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_layout_proposals_have_visible_outline_without_heavier_fill(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         self.assertIn("drawPath(r.boundary,'#704000','rgba(229,184,92,.07)',2.25,'#f3c76a',overlayEffect(false))", editor)
