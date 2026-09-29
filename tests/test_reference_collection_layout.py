@@ -129,13 +129,13 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             assert.deepEqual(region.boundary.map(p=>Array.from(p)), source.map(([x,y])=>[x-10,y-10]));
             assert.deepEqual(source, [[10,10],[30,10],[35,25],[20,30],[10,25]]);
             assert.match(editor, /if\(!verified\|\|e\.button!==0\)return/);
-            assert.match(editor, /drag=\{type:'region-move',start:p,before:capturePage\(\),moved:false\}/);
-            assert.match(editor, /if\(drag\.type==='region-move'\)moveWholePolygon\(r,p\[0\]-drag\.start\[0\],p\[1\]-drag\.start\[1\]/);
+            assert.match(editor, /drag=\{type:'region-move',start:p,before:capturePage\(\),regionIds:\[\.\.\.selectedRegionIds\],moved:false\}/);
+            assert.match(editor, /moveWholePolygon\(r,p\[0\]-drag\.start\[0\],p\[1\]-drag\.start\[1\],source\)/);
             assert.match(editor, /else movePolygonEdge\(r,drag\.index,p\[0\]-drag\.start\[0\],p\[1\]-drag\.start\[1\]/);
             assert.doesNotMatch(editor, /canvas\.oncontextmenu=/);
-            assert.match(editor, /action\.type==='region-move'\?'Region moved without changing its shape/);
+            assert.match(editor, /action\.type==='region-move'\?`\$\{affected\.length\} region\(s\) moved without changing their shapes/);
             const edgeDrag = editor.indexOf("drag={type:'edge',index:edge,start:p,before:capturePage(),moved:false}");
-            const interiorDrag = editor.indexOf("if(hitsBoundary(page().regions[i].boundary,p)){selectRegion(i);drag={type:'region-move'");
+            const interiorDrag = editor.indexOf("if(hitsBoundary(page().regions[i].boundary,p)){const r=page().regions[i]");
             assert.ok(edgeDrag>=0 && interiorDrag>edgeDrag);
             const edgeCtx = {zoom:1, $:()=>({checked:true}),
               page:()=>({regions:[{shape:'rectangle',boundary:[[10,10],[30,10],[30,30],[10,30]]}]})};
@@ -144,6 +144,44 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             vm.runInContext(editor.split('\n').find(row=>row.startsWith('function hitsBoundary(')),edgeCtx);
             assert.equal(edgeCtx.hitsBoundary([[10,10],[30,10],[30,30],[10,30]],[20,20]),true);
             assert.equal(edgeCtx.hitsBoundary([[10,10],[30,10],[30,30],[10,30]],[80,70]),false);
+        """
+        result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is needed to exercise marquee and group movement')
+    def test_marquee_selection_and_group_drag_geometry(self):
+        script = r"""
+            const assert = require('node:assert/strict');
+            const fs = require('node:fs');
+            const vm = require('node:vm');
+            const editor = fs.readFileSync('tools/reference-collection-layout.html', 'utf8');
+            const names = ['moveRegionGroup','selectionBounds','pointInPolygon','segmentsIntersect','polygonIntersectsSelection'];
+            const ctx = {image:{naturalWidth:100,naturalHeight:80}};
+            vm.createContext(ctx);
+            for (const name of names) vm.runInContext(editor.split('\n').find(row=>row.startsWith(`function ${name}(`)),ctx);
+            const square = [[10,10],[20,10],[20,20],[10,20]];
+            assert.equal(ctx.polygonIntersectsSelection(square,[0,0],[15,15]),true);
+            assert.equal(ctx.polygonIntersectsSelection(square,[12,12],[18,18]),true);
+            assert.equal(ctx.polygonIntersectsSelection(square,[15,0],[16,30]),true);
+            assert.equal(ctx.polygonIntersectsSelection(square,[30,30],[40,40]),false);
+            const source = {regions:[
+              {id:'a',boundary:[[10,10],[20,10],[20,20],[10,20]]},
+              {id:'b',boundary:[[40,30],[50,30],[50,40],[40,40]]},
+              {id:'c',boundary:[[60,50],[70,50],[70,60],[60,60]]}
+            ]};
+            const current = structuredClone(source);
+            ctx.page = ()=>current;
+            ctx.moveRegionGroup(['a','b'],source,1000,1000);
+            assert.deepEqual(current.regions[0].boundary.map(p=>Array.from(p)),[[59,49],[69,49],[69,59],[59,59]]);
+            assert.deepEqual(current.regions[1].boundary.map(p=>Array.from(p)),[[89,69],[99,69],[99,79],[89,79]]);
+            assert.deepEqual(current.regions[2],source.regions[2]);
+            ctx.moveRegionGroup(['a','b'],source,-1000,-1000);
+            assert.deepEqual(current.regions[0].boundary.map(p=>Array.from(p)),[[0,0],[10,0],[10,10],[0,10]]);
+            assert.deepEqual(current.regions[1].boundary.map(p=>Array.from(p)),[[30,20],[40,20],[40,30],[30,30]]);
+            assert.match(editor, /drag=\{type:'marquee',start:p,current:p/);
+            assert.match(editor, /polygonIntersectsSelection\(r\.boundary,action\.start,action\.current\)/);
+            assert.match(editor, /if\(drag\.regionIds\.length>1\)moveRegionGroup/);
+            assert.match(editor, /checkpoint\(action\.before\)/);
         """
         result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)

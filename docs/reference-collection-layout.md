@@ -81,9 +81,12 @@ upper corner a few pixels farther left or right does not hijack a lower seam.
 It rejects crossed or
 collapsed results, leaves the source untouched, and records a single Undo step.
 Inspect the result before reviewing and saving the page.
-In **Select / edit**, left-drag from inside an approved region to translate
-the entire shape without changing its geometry. The movement stops at the
-image border and can be undone in one step. Clicking an edge still selects it
+In **Select / edit**, drag from empty canvas to box-select every approved
+polygon the box touches. Shift-drag from anywhere to add polygons to the
+selection; Ctrl/Cmd-click toggles individual polygons. Left-drag from inside
+any selected polygon to translate all selected polygons together without
+changing their geometry or relative spacing. The group stops at the image
+border and can be undone in one step. Clicking an edge still selects it
 for 1-pixel nudges, **Add vertex**, or **Mirror boundary…**; dragging an edge
 adjusts only that edge, and dragging a vertex still reshapes it.
 Choose the region class, then mark the regions reviewed. The editor stays on
