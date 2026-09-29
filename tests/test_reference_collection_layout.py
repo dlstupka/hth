@@ -434,6 +434,48 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('nudgeSelection(...arrows[e.key])', editor)
         self.assertIn('selectedEdge%2===0?dy!==0:dx!==0', editor)
         self.assertIn('if(recordHistory)checkpoint();r.boundary=next.boundary', editor)
+        self.assertIn('canNudge(...arrows[e.key])', editor)
+        self.assertIn('moveRegionGroup(ids,before.page,dx,dy)', editor)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is needed to exercise group nudging')
+    def test_arrow_nudges_selected_regions_together_and_respects_image_bounds(self):
+        script = r"""
+            const assert = require('node:assert/strict');
+            const fs = require('node:fs');
+            const vm = require('node:vm');
+            const editor = fs.readFileSync('tools/reference-collection-layout.html','utf8');
+            const original = {regions:[
+              {id:'a',boundary:[[10,10],[20,10],[20,20],[10,20]]},
+              {id:'b',boundary:[[50,30],[60,30],[60,40],[50,40]]},
+              {id:'c',boundary:[[70,50],[80,50],[80,60],[70,60]]}
+            ]};
+            const current = structuredClone(original);
+            let checkpoints = 0, invalidations = 0;
+            const ctx = {image:{naturalWidth:100,naturalHeight:80},verified:true,
+              selected:{type:'region',index:0},selectedRegionIds:new Set(['a','b']),
+              selectedVertex:-1,selectedEdge:-1,collection:{pages:[current]},index:0,
+              $:()=>({checked:true}),page:()=>current,structuredClone,
+              capturePage:()=>({page:structuredClone(current)}),
+              checkpoint:()=>{checkpoints++},invalidation:()=>{invalidations++},
+              draw:()=>{},say:()=>{},validPolygon:()=>true};
+            vm.createContext(ctx);
+            for(const name of ['moveRegionGroup','canNudge','nudgeSelection'])
+              vm.runInContext(editor.split('\n').find(row=>row.startsWith(`function ${name}(`)),ctx);
+            assert.equal(ctx.nudgeSelection(1,0),true);
+            assert.deepEqual(current.regions[0].boundary.map(p=>Array.from(p)),[[11,10],[21,10],[21,20],[11,20]]);
+            assert.deepEqual(current.regions[1].boundary.map(p=>Array.from(p)),[[51,30],[61,30],[61,40],[51,40]]);
+            assert.deepEqual(current.regions[2],original.regions[2]);
+            assert.equal(checkpoints,1);
+            assert.equal(invalidations,1);
+            assert.equal(ctx.nudgeSelection(1,0,false),true);
+            assert.equal(checkpoints,1);
+            assert.deepEqual([...ctx.selectedRegionIds],['a','b']);
+            ctx.moveRegionGroup(['a','b'],{regions:current.regions.map(r=>({id:r.id,boundary:r.boundary.map(p=>[...p])}))},-1000,0);
+            assert.equal(ctx.nudgeSelection(-1,0),false);
+            assert.equal(checkpoints,1);
+        """
+        result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_nudge_buttons_repeat_on_hold_as_one_undoable_edit(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')

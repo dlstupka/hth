@@ -89,6 +89,9 @@ changing their geometry or relative spacing. The group stops at the image
 border and can be undone in one step. Clicking an edge still selects it
 for 1-pixel nudges, **Add vertex**, or **Mirror boundary…**; dragging an edge
 adjusts only that edge, and dragging a vertex still reshapes it.
+The arrow keys (or on-screen arrows) nudge the selected vertex, edge, or all
+selected regions by one source-image pixel per press. Whole-region nudges
+preserve each polygon's shape and the spacing between selected polygons.
 Choose the region class, then mark the regions reviewed. The editor stays on
 the page until its reading order is also confirmed; either review action can
 come first. Once both are reviewed, it advances to the next page missing
