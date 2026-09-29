@@ -257,6 +257,14 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('id="resultsRepo"', director)
         self.assertIn('id="updateResults"', director)
         self.assertNotIn('id="workspace" type="file" webkitdirectory', director)
+
+    def test_director_keeps_canvas_scrollbar_inside_visible_window(self):
+        director = (ROOT / 'tools/reference-collection-director.html').read_text(encoding='utf-8')
+        layout = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        self.assertIn('body{margin:0;height:100vh;display:flex;flex-direction:column;overflow:hidden}', director)
+        self.assertIn('.frame{width:100%;flex:1;min-height:0;border:0;display:block}', director)
+        self.assertNotIn('height:calc(100vh - 164px)', director)
+        self.assertIn('.viewport{flex:1;min-height:0;overflow:auto', layout)
         self.assertFalse((ROOT / 'tools/reference-collection-editor-multidetector.html').exists())
 
     def test_both_editors_default_to_gs0002_and_allow_manual_selection(self):
