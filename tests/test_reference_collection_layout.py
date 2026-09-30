@@ -239,6 +239,50 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('data.pages.findIndex(p=>p.global_ordinal===data.last_viewed_page_ordinal)', editor)
         self.assertIn('load(index);say(`Layout draft loaded on page ${page().global_ordinal}.', editor)
 
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is needed to exercise save view preservation')
+    def test_saving_draft_preserves_canvas_position_after_picker_and_status(self):
+        script = r"""
+            const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+            const editor=fs.readFileSync('tools/reference-collection-layout.html','utf8');
+            const line=name=>editor.split('\n').find(row=>row.startsWith(`function ${name}(`));
+            const save=editor.slice(editor.indexOf('async function exportDraft('),
+              editor.indexOf('\nfunction seedLayout('));
+            const viewport={scrollLeft:413,scrollTop:907},buttons={export:{},saveDraftAs:{}},frames=[];
+            const browser={scrollX:0,scrollY:580,scrollTo(x,y){this.scrollX=x;this.scrollY=y}};
+            const page={global_ordinal:197,review_status:'unreviewed',regions:[],region_notes:[]};
+            const ctx={collection:{layout_golden_set_id:'HTH-GOLDEN-0002-LAYOUT',pages:[page]},
+              page:()=>page,zoom:3,fitMode:false,dirty:true,canvasViewInputRevision:0,
+              window:browser,
+              $:id=>id==='viewport'?viewport:buttons[id],
+              say:()=>{viewport.scrollLeft=0;viewport.scrollTop=0;browser.scrollY=0},
+              draftJsonSaver:{save:async()=>{viewport.scrollLeft=0;viewport.scrollTop=0;
+                browser.scrollY=0;return{kind:'written',filename:'draft.json'}}},
+              validRegionNotes:()=>true,validReadingOrder:()=>true,validPolygon:()=>true,
+              requestAnimationFrame:callback=>frames.push(callback)};
+            vm.createContext(ctx);
+            vm.runInContext([line('canvasView'),line('restoreCanvasView'),save].join('\n'),ctx);
+            vm.runInContext('exportDraft()',ctx).then(()=>{
+              assert.deepEqual([viewport.scrollLeft,viewport.scrollTop],[413,907]);
+              assert.equal(browser.scrollY,580);
+              assert.equal(ctx.dirty,false);
+              assert.equal(buttons.export.disabled,false);
+              assert.equal(buttons.saveDraftAs.disabled,false);
+              assert.equal(frames.length,1);
+              viewport.scrollLeft=0;viewport.scrollTop=0;browser.scrollY=0;frames[0]();
+              assert.deepEqual([viewport.scrollLeft,viewport.scrollTop],[413,907]);
+              assert.equal(browser.scrollY,580);
+              return vm.runInContext('exportDraft()',ctx);
+            }).then(()=>{
+              viewport.scrollLeft=22;viewport.scrollTop=33;browser.scrollY=44;
+              ctx.canvasViewInputRevision++;
+              frames[1]();
+              assert.deepEqual([viewport.scrollLeft,viewport.scrollTop],[22,33]);
+              assert.equal(browser.scrollY,44);
+            }).catch(error=>{console.error(error);process.exitCode=1});
+        """
+        result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_reading_order_rows_render_and_matching_suggestion_gives_feedback(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         self.assertIn('for(const[position,id]of(p.reading_order||[]).entries())', editor)
@@ -731,7 +775,7 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('function insertVertexOnEdge(edge,point,selectRightEdge=false)', editor)
         self.assertIn('if(!r||isRectangle(r)||edge<0', editor)
         self.assertIn("$('addVertex').disabled=!verified||selected?.type!=='region'||isRectangle", editor)
-        self.assertIn('edge=hadSelectedEdge?selectedEdge:rightMidpointEdge(r.boundary)', editor)
+        self.assertIn('edge=hadSelectedEdge?selectedEdge:selectedVertex>=0?rightAdjacentEdge(r.boundary,selectedVertex):rightMidpointEdge(r.boundary)', editor)
         self.assertIn('selectedEdge=afterMidX>=beforeMidX?edge+1:edge', editor)
         self.assertIn('selectedVertex=edge+1;selectedEdge=-1', editor)
 

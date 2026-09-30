@@ -54,7 +54,8 @@ a previously skewed region by replacing its boundary with the region's bounding
 box. Polygons allow free vertex dragging. Select a polygon edge and click
 **Add vertex** to split it at the midpoint; the segment to the right of the
 new vertex is selected for the next split. With only a polygon selected,
-**Add vertex** chooses its rightmost edge at mid-height. Double-click an edge
+**Add vertex** chooses its rightmost edge at mid-height. With a vertex selected,
+it splits the adjacent edge on the right. Double-click an edge
 to insert a vertex at that point. Click a vertex or edge, then use the arrow buttons or keyboard arrow
 keys to move it one source-image pixel at a time. Hold an on-screen arrow to
 repeat nudges; the entire hold is one Undo step. Rectangle edges move only
@@ -169,7 +170,8 @@ for a file on the first save and writes subsequent saves to that same file.
 Use **Save draft as…** to open the chooser again and select a different file or
 location; subsequent regular saves use the newly selected file. Cancelling
 Save As keeps the previous destination. The editor reports success only after
-the write finishes. If the browser only supports downloads, check its
+the write finishes. Saving preserves the current page, zoom, and canvas scroll
+position. If the browser only supports downloads, check its
 downloads list (Ctrl+J) to confirm the file was created; choosing a new
 location requires browser download settings. The saved draft is not an approved
 or frozen release.
