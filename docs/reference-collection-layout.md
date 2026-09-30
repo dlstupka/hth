@@ -115,10 +115,11 @@ says so without changing the review state. Check the visible numbered rows,
 then click **Confirm reading order**. A reviewed region page may be exported with
 unreviewed reading order; the JSON distinguishes the two. The suggested
 sequence is not semantic reading-order truth, especially on unusual spreads.
-Select a region and click **Duplicate selected below (10 px)** to copy its
-geometry and class with its topmost point 10 source-image pixels below the
-source's bottommost point. Ctrl/Cmd-click approved regions on the image or in
-the region list to duplicate several at once; the new regions are selected.
+Select a region and click **Clone selected** to copy its geometry and class
+with its topmost point 10 source-image pixels below the source's bottommost
+point. Ctrl/Cmd-click approved regions on the image or in the region list to
+clone several at once; the selected regions move as one group, with the
+topmost clone 10 pixels below the bottommost original. New regions are selected.
 The action is rejected without changes if any copy would leave the image.
 Review notes can be page-wide (`notes`) or anchored to one or more approved
 regions (`region_notes`). Each anchored note stores a stable note `id`, a

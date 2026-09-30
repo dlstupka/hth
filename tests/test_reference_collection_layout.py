@@ -93,8 +93,10 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             assert.deepEqual(Array.from(page.reading_order), ['r1','r2','r3','r4']);
             assert.deepEqual(Array.from(ctx.selectedRegionIds), ['r3','r4']);
             assert.equal(ctx.selected.index, 3);
-            assert.deepEqual(Array.from(page.regions[2].boundary[0]), [1,21]);
-            assert.deepEqual(Array.from(page.regions[3].boundary[0]), [20,25]);
+            assert.deepEqual(Array.from(page.regions[2].boundary[0]), [1,25]);
+            assert.deepEqual(Array.from(page.regions[3].boundary[0]), [20,29]);
+            assert.equal(Math.min(...page.regions.slice(2).flatMap(r=>r.boundary.map(p=>p[1]))),
+              Math.max(...page.regions.slice(0,2).flatMap(r=>r.boundary.map(p=>p[1])))+10);
             assert.equal(page.regions[2].label, undefined);
             ctx.selectedRegionIds = new Set(['r3']);
             vm.runInContext('duplicateSelectedRegions()', ctx);
@@ -323,8 +325,32 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
     def test_layout_page_tabs_stay_above_independently_scrolling_image(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         self.assertLess(editor.index('id="pages" class="pages"'), editor.index('class="viewport"'))
-        self.assertIn('main{display:grid;grid-template-columns:330px minmax(0,1fr);flex:1;min-height:0}', editor)
+        self.assertIn('main{display:grid;grid-template-columns:330px minmax(0,1fr) 330px;flex:1;min-height:0}', editor)
         self.assertIn('.viewport{flex:1;min-height:0;overflow:auto', editor)
+
+    def test_layout_tool_and_metadata_panes_and_action_order(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        tools = editor.split('<aside class="tools-pane"', 1)[1].split('</aside>', 1)[0]
+        metadata = editor.split('<aside class="metadata-pane"', 1)[1].split('</aside>', 1)[0]
+        for label in ('Region class', 'Region reading order', 'Review notes'):
+            self.assertIn(f'<h2>{label}</h2>', metadata)
+            self.assertNotIn(f'<h2>{label}</h2>', tools)
+        self.assertIn('<details class="tool-help"><summary>Help</summary>', tools)
+        self.assertIn('grid-template-columns:repeat(2,minmax(0,1fr))', editor)
+        self.assertIn('.region-actions button{width:100%;height:48px', editor)
+        actions = tools.split('<div class="region-actions">', 1)[1].split('</div>', 1)[0]
+        for control in ('makeRectangle', 'convertPolygon', 'duplicateRegions',
+                        'mirrorBoundary', 'addVertex', 'deleteVertex', 'deleteRegion'):
+            self.assertIn(f'id="{control}"', actions)
+        self.assertLess(actions.index('id="makeRectangle"'), actions.index('id="duplicateRegions"'))
+        self.assertLess(actions.index('id="convertPolygon"'), actions.index('id="mirrorBoundary"'))
+        self.assertLess(actions.index('id="deleteVertex"'), actions.index('id="deleteRegion"'))
+        self.assertIn('id="duplicateRegions" type="button">Clone selected', actions)
+        self.assertIn('id="deleteVertex" type="button">Delete vertex', actions)
+        self.assertIn('id="deleteRegion" type="button">Delete region', actions)
+        self.assertLess(tools.index('id="nudgeUp"'), tools.index('id="nudgeDown"'))
+        self.assertIn('.nudge-controls #nudgeUp{grid-column:2;grid-row:2}', editor)
+        self.assertIn('.nudge-controls #nudgeDown{grid-column:2;grid-row:3}', editor)
 
     def test_layout_zoom_changes_only_page_view(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
@@ -555,7 +581,7 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn("if(addRegion(points,$('kind').value,'rectangle'))say('Rectangle added.", layout)
         self.assertIn('function finishPolygon()', layout)
         self.assertNotIn("if(addRegion(draftPoints.map(p=>[...p]),$('kind').value))setMode('select')", layout)
-        self.assertIn('grid-template-columns:330px minmax(0,1fr)', layout)
+        self.assertIn('grid-template-columns:330px minmax(0,1fr) 330px', layout)
         self.assertIn('grid-template-columns:360px minmax(0,1fr)', detector)
         for page in (layout, detector, director):
             self.assertIn('.header-title{order:2;margin-left:auto}', page)
