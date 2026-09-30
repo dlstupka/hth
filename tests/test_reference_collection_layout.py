@@ -491,11 +491,96 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('id="mirrorBoundary" type="button">Mirror boundary…', editor)
         self.assertIn("$('mirrorBoundary').onclick=()=>", editor)
         self.assertIn('if(mirrorSource){e.preventDefault();mirrorToEdge(p);return}', editor)
-        self.assertIn('window.HTH_REFERENCE_BOUNDARY.mirror(source.boundary,mirrorSource.edge,target.boundary,best.edge)', editor)
+        self.assertIn('window.HTH_REFERENCE_BOUNDARY.mirror(source.boundary,sourceRef.edge,target.boundary,edge)', editor)
         self.assertIn('checkpoint();target.boundary=result.boundary;target.shape=\'polygon\'', editor)
         self.assertIn('if (!simplePolygon(boundary)) continue;', boundary)
         self.assertIn('const copied = sourceArc.indices.map(index => [...source[index]])', boundary)
         self.assertIn('const boundary = [...copied, ...rest.slice(1, -1)', boundary)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is needed to exercise geometry shortcuts')
+    def test_geometry_shortcuts_delete_edges_and_mirror_copied_edges(self):
+        script = r"""
+            const assert=require('node:assert/strict'), fs=require('node:fs'), vm=require('node:vm');
+            const editor=fs.readFileSync('tools/reference-collection-layout.html','utf8');
+            const line=name=>editor.split('\n').find(row=>row.startsWith(`function ${name}(`));
+            const region={id:'r1',shape:'polygon',boundary:[[0,0],[10,0],[12,5],[10,10],[0,10]]};
+            const target={id:'r2',shape:'polygon',boundary:[[0,12],[10,12],[10,22],[0,22]]};
+            const page={global_ordinal:1,regions:[region,target]};
+            let mirrored=null, notices=[];
+            const ctx={page:()=>page,image:{naturalWidth:100,naturalHeight:100},verified:true,
+              selected:{type:'region',index:0},selectedVertex:-1,selectedEdge:0,
+              selectedRegionIds:new Set(['r1']),geometryClipboard:null,mirrorSource:null,
+              checkpoint:()=>{ctx.checkpoints++},checkpoints:0,invalidation:()=>{},
+              renderLists:()=>{},draw:()=>{},say:(message)=>notices.push(message),
+              $:()=>({checked:true}),window:{HTH_REFERENCE_BOUNDARY:{mirror:(source,seam,dest,edge)=>{
+                mirrored={seam,edge};return{boundary:dest,copiedVertices:2};}}}};
+            vm.createContext(ctx);
+            vm.runInContext(['validPolygon','isRectangle','distanceToSegment',
+              'applyMirroredBoundary','pasteCopiedEdge','deleteSelectedEdge',
+              'copyGeometrySelection'].map(line).join('\n'),ctx);
+            assert.equal(vm.runInContext('deleteSelectedEdge()',ctx),true);
+            assert.equal(ctx.checkpoints,1);
+            assert.deepEqual(Array.from(region.boundary[0]),[10,0]);
+            assert.equal(ctx.selectedVertex,0);
+            assert.equal(ctx.selectedEdge,-1);
+            region.boundary=[[0,0],[10,0],[12,5],[10,10],[0,10]];
+            ctx.selectedVertex=-1;ctx.selectedEdge=3;
+            assert.equal(vm.runInContext('deleteSelectedEdge()',ctx),true);
+            assert.deepEqual(Array.from(region.boundary.at(-1)),[10,10]);
+            assert.equal(ctx.selectedVertex,3);
+            region.boundary=[[0,0],[10,0],[10,10]];
+            ctx.selectedVertex=-1;ctx.selectedEdge=0;
+            assert.equal(vm.runInContext('deleteSelectedEdge()',ctx),false);
+            assert.equal(ctx.checkpoints,2);
+            region.boundary=[[0,0],[10,0],[10,10],[0,10]];
+            ctx.selectedEdge=2;
+            assert.equal(vm.runInContext('copyGeometrySelection()',ctx),true);
+            assert.equal(ctx.geometryClipboard.type,'edge');
+            ctx.selected={type:'region',index:1};ctx.selectedEdge=-1;
+            assert.equal(vm.runInContext('pasteCopiedEdge()',ctx),true);
+            assert.deepEqual(mirrored,{seam:2,edge:0});
+            assert.equal(ctx.checkpoints,3);
+            assert.deepEqual(Array.from(ctx.selectedRegionIds),['r2']);
+        """
+        result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is needed to exercise keyboard shortcuts')
+    def test_geometry_keyboard_shortcuts_route_by_selection(self):
+        editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        self.assertIn("modified&&key==='c'&&copyGeometrySelection()", editor)
+        self.assertIn("modified&&key==='v'&&pasteGeometrySelection()", editor)
+        self.assertIn("modified&&key==='x'&&deleteGeometrySelection()", editor)
+        self.assertIn("e.key==='Delete'&&deleteGeometrySelection()", editor)
+        self.assertIn("if(selectedVertex>=0){$('deleteVertex').click();return true}", editor)
+        self.assertIn('if(selectedEdge>=0){deleteSelectedEdge();return true}', editor)
+        self.assertIn("$('deleteRegion').click();return true", editor)
+        script = r"""
+            const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+            const editor=fs.readFileSync('tools/reference-collection-layout.html','utf8');
+            const handler=editor.split('\n').find(row=>row.startsWith('window.onkeydown=e=>'));
+            const calls=[],ctx={window:{},document:{activeElement:{tagName:'BODY'}},
+              mode:'select',copyGeometrySelection:()=>{calls.push('copy');return true},
+              pasteGeometrySelection:()=>{calls.push('paste');return true},
+              deleteGeometrySelection:()=>{calls.push('delete');return true},
+              canNudge:()=>false,geometryClipboard:{type:'vertex'},selected:null};
+            vm.createContext(ctx);vm.runInContext(handler,ctx);
+            const key=(value,ctrl=false)=>{let prevented=false;ctx.window.onkeydown({key:value,
+              ctrlKey:ctrl,metaKey:false,altKey:false,shiftKey:false,
+              preventDefault:()=>{prevented=true}});return prevented};
+            assert.equal(key('c',true),true);
+            assert.equal(key('v',true),true);
+            assert.equal(key('x',true),true);
+            assert.equal(ctx.geometryClipboard,null);
+            assert.equal(key('Delete'),true);
+            assert.deepEqual(calls,['copy','paste','delete','delete']);
+            ctx.document.activeElement={tagName:'INPUT'};
+            assert.equal(key('Delete'),false);
+            assert.equal(key('c',true),false);
+            assert.equal(calls.length,4);
+        """
+        result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     @unittest.skipUnless(shutil.which('node'), 'Node.js is needed to execute the boundary helper')
     def test_mirror_uses_facing_corners_when_extrema_are_on_opposite_side(self):

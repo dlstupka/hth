@@ -62,6 +62,15 @@ perpendicular to themselves; polygon edges move their two endpoints together.
 A polygon vertex or the whole region can be deleted. After deleting a vertex,
 the adjacent vertex farther right is selected so repeated clicks can remove a
 run of points; deletion still stops if it would make the polygon invalid.
+With the canvas selection active, Ctrl+C then Ctrl+V adds a vertex when a
+vertex was copied, mirrors a copied edge onto the selected neighboring region
+or facing edge, or clones copied regions below their originals. Repeated
+region pastes continue below the newest clones. Ctrl+X or Delete removes the
+selected vertex, edge, or region. Deleting a polygon edge removes its left-hand
+endpoint and keeps the right-hand endpoint as the converged vertex. A rectangle
+must be converted to a polygon before an edge can be deleted; edits that would
+leave an invalid polygon are rejected. These shortcuts do not override typing
+in text fields.
 **Undo** and
 **Redo** also work while drawing a polygon.
 **Convert to rectangle** replaces a polygon with its bounding rectangle;
