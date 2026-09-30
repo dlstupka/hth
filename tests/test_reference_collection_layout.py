@@ -72,7 +72,7 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
               invalidation:()=>{}, draw:()=>{}, say:()=>{}};
             vm.createContext(ctx);
             vm.runInContext(['validReadingOrder','validRegionNotes','spatialReadingOrder',
-              'normalizeLayoutDraft','validPolygon','duplicateSelectedRegions'].map(line).join('\n'), ctx);
+              'normalizeLayoutDraft','validPolygon','clonePlacement','duplicateSelectedRegions'].map(line).join('\n'), ctx);
             const draft = {annotation_contract:'regions-reading-order-v2', pages:[page]};
             const migrated = ctx.normalizeLayoutDraft(draft);
             assert.deepEqual(Array.from(migrated.pages[0].reading_order), ['r1','r2']);
@@ -104,8 +104,37 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             ctx.selectedRegionIds = new Set(['r5']);
             ctx.image.naturalHeight = 60;
             vm.runInContext('duplicateSelectedRegions()', ctx);
-            assert.equal(page.regions.length, 5);
-            assert.equal(ctx.checkpoints, 2);
+            assert.equal(page.regions.length, 6);
+            assert.deepEqual(Array.from(page.regions[5].boundary[0]), [21,45]);
+            assert.equal(ctx.checkpoints, 3);
+        """
+        result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is needed to exercise clone placement')
+    def test_clone_placement_falls_back_below_right_above_left(self):
+        script = r"""
+            const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+            const editor=fs.readFileSync('tools/reference-collection-layout.html','utf8');
+            const line=name=>editor.split('\n').find(row=>row.startsWith(`function ${name}(`));
+            const ctx={};vm.createContext(ctx);
+            vm.runInContext(['validPolygon','clonePlacement'].map(line).join('\n'),ctx);
+            const region=(x1,y1,x2,y2)=>({boundary:[[x1,y1],[x2,y1],[x2,y2],[x1,y2]]});
+            const check=(source,width,height,direction,first)=>{
+              const placement=ctx.clonePlacement([source],width,height);
+              assert.equal(placement.direction,direction);
+              assert.deepEqual(Array.from(placement.copies[0].boundary[0]),first);
+            };
+            check(region(20,20,30,30),100,100,'below',[20,40]);
+            check(region(10,70,20,80),100,100,'right',[30,70]);
+            check(region(70,70,80,80),100,100,'above',[70,50]);
+            check(region(70,0,80,10),100,20,'left',[50,0]);
+            assert.equal(ctx.clonePlacement([region(0,0,9,9)],19,19),null);
+            const group=[region(0,0,10,10),region(20,5,30,15)];
+            const placement=ctx.clonePlacement(group,100,100);
+            assert.equal(placement.direction,'below');
+            assert.equal(Math.min(...placement.copies.flatMap(c=>c.boundary.map(p=>p[1]))),25);
+            assert.deepEqual(Array.from(placement.copies[1].boundary[0]),[20,30]);
         """
         result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)

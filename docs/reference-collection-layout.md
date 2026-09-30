@@ -64,8 +64,8 @@ the adjacent vertex farther right is selected so repeated clicks can remove a
 run of points; deletion still stops if it would make the polygon invalid.
 With the canvas selection active, Ctrl+C then Ctrl+V adds a vertex when a
 vertex was copied, mirrors a copied edge onto the selected neighboring region
-or facing edge, or clones copied regions below their originals. Repeated
-region pastes continue below the newest clones. Ctrl+X or Delete removes the
+or facing edge, or clones copied regions in the first available direction.
+Repeated region pastes continue from the newest clones. Ctrl+X or Delete removes the
 selected vertex, edge, or region. Deleting a polygon edge removes its left-hand
 endpoint and keeps the right-hand endpoint as the converged vertex. A rectangle
 must be converted to a polygon before an edge can be deleted; edits that would
@@ -128,12 +128,14 @@ says so without changing the review state. Check the visible numbered rows,
 then click **Confirm reading order**. A reviewed region page may be exported with
 unreviewed reading order; the JSON distinguishes the two. The suggested
 sequence is not semantic reading-order truth, especially on unusual spreads.
-Select a region and click **Clone selected** to copy its geometry and class
-with its topmost point 10 source-image pixels below the source's bottommost
-point. Ctrl/Cmd-click approved regions on the image or in the region list to
-clone several at once; the selected regions move as one group, with the
-topmost clone 10 pixels below the bottommost original. New regions are selected.
-The action is rejected without changes if any copy would leave the image.
+Select a region and click **Clone selected** to copy its geometry and class.
+The editor tries below, then right, then above, then left, using the first
+direction where every clone fits inside the source image. The gap is 10
+source-image pixels between the selected group's outermost edge and the
+cloned group's nearest edge. Ctrl/Cmd-click approved regions on the image or
+in the region list to clone several at once; they move as one group and keep
+their relative positions. New regions are selected. If no direction fits,
+the action is rejected without changes.
 Review notes can be page-wide (`notes`) or anchored to one or more approved
 regions (`region_notes`). Each anchored note stores a stable note `id`, a
 `region_ids` array, and `text` in the page's draft JSON. Choose both regions
