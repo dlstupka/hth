@@ -410,6 +410,40 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('function setZoom(value,clientX,clientY)', editor)
         self.assertIn('Math.round((e.clientX-rect.left)/zoom)', editor)
 
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is needed to exercise undo restoration')
+    def test_undo_restores_geometry_without_reloading_or_moving_canvas(self):
+        script = r"""
+            const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+            const editor=fs.readFileSync('tools/reference-collection-layout.html','utf8');
+            const restore=editor.split('\n').find(row=>row.startsWith('function restorePage('));
+            const viewport={scrollLeft:317,scrollTop:842};
+            const ctx={structuredClone,index:0,collection:{pages:[{global_ordinal:1,regions:[]},
+              {global_ordinal:2,regions:[]}],status:'reviewed'},proposals:new Map(),
+              selected:{type:'region',index:0},selectedRegionIds:new Set(['r1']),
+              selectedVertex:1,selectedEdge:-1,noteDraftAnchors:new Set(['r1']),
+              noteDraftText:'old',editingNoteId:'n1',calls:[],
+              $:()=>viewport,clearProposalSelection:()=>ctx.calls.push('clear'),
+              setMode:()=>ctx.calls.push('mode'),renderLists:()=>ctx.calls.push('lists'),
+              draw:()=>{ctx.calls.push('draw');viewport.scrollLeft=0;viewport.scrollTop=0},
+              renderPages:()=>ctx.calls.push('pages'),load:()=>{throw Error('Undo reloaded the image')}};
+            vm.createContext(ctx);vm.runInContext(restore,ctx);
+            const same={ordinal:1,page:{global_ordinal:1,regions:[{id:'r1'}]},proposals:[]};
+            vm.runInContext('restorePage(same)',Object.assign(ctx,{same}));
+            assert.equal(ctx.collection.pages[0].regions[0].id,'r1');
+            assert.deepEqual([viewport.scrollLeft,viewport.scrollTop],[317,842]);
+            assert.deepEqual(ctx.calls,['clear','mode','lists','draw','pages']);
+            assert.equal(ctx.selected,null);
+            ctx.calls=[];ctx.selected={type:'region',index:0};
+            const other={ordinal:2,page:{global_ordinal:2,regions:[{id:'r2'}]},proposals:[]};
+            vm.runInContext('restorePage(other)',Object.assign(ctx,{other}));
+            assert.equal(ctx.collection.pages[1].regions[0].id,'r2');
+            assert.deepEqual([viewport.scrollLeft,viewport.scrollTop],[317,842]);
+            assert.deepEqual(ctx.calls,['pages']);
+            assert.equal(ctx.selected.index,0);
+        """
+        result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_layout_zoom_follows_current_page_and_remembers_tweaked_pages(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
         self.assertIn("let pageZooms=new Map(),defaultZoom={mode:'fit'}", editor)

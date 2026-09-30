@@ -59,6 +59,9 @@ to insert a vertex at that point. Click a vertex or edge, then use the arrow but
 keys to move it one source-image pixel at a time. Hold an on-screen arrow to
 repeat nudges; the entire hold is one Undo step. Rectangle edges move only
 perpendicular to themselves; polygon edges move their two endpoints together.
+Undo and Redo restore the annotation without changing the canvas zoom or scroll
+position. An edit from a different page can be undone without navigating away
+from the page currently in view.
 A polygon vertex or the whole region can be deleted. After deleting a vertex,
 the adjacent vertex farther right is selected so repeated clicks can remove a
 run of points; deletion still stops if it would make the polygon invalid.
