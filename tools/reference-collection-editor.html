@@ -28,6 +28,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 input[type=file]{display:none}
 main{display:grid;grid-template-columns:360px minmax(0,1fr);flex:1;min-height:0}
 .workspace{grid-column:2;grid-row:1;min-width:0;min-height:0;display:grid;grid-template-rows:auto auto auto minmax(0,1fr)}
+body.top-controls-hidden header,body.top-controls-hidden .workspace>.status,body.top-controls-hidden .workspace>.ribbon,body.top-controls-hidden .workspace>.thumbnailbar{display:none}body.top-controls-hidden .workspace{grid-template-rows:minmax(0,1fr)}
 .status{padding:7px 12px;border-bottom:1px solid var(--line);color:var(--muted);font-size:12px;background:#151920;display:flex;justify-content:space-between;gap:12px}.ribbon{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:7px 10px;background:#10141a;border-bottom:1px solid var(--line);font-size:12px}.ribbon .pill{border:1px solid var(--line);border-radius:999px;padding:3px 8px;color:#dce4ee;background:#161b22}.ribbon .pill.ok{border-color:#2e8054;color:var(--ok)}.ribbon .pill.warn{border-color:#7c6728;color:var(--warn)}.ribbon .pill.bad{border-color:#8c3e3e;color:var(--danger)}
 .canvaswrap{position:relative;overflow:auto;padding:12px;background:#12151b;display:flex;align-items:center;justify-content:center}.canvaswrap.compare{align-items:flex-start}
 .empty{min-height:60vh;display:grid;place-items:center;text-align:center;color:var(--muted)}
@@ -994,7 +995,7 @@ window.onkeydown=e=>{
   if(key==='c'){$('compare').click();return}
 };
 window.onbeforeunload=e=>{if(s.dirty){e.preventDefault();e.returnValue=''}};
-window.addEventListener('message',e=>{if(e.source!==window.parent)return;if(e.data?.type==='HTH_REFERENCE_RELEASE'){applySourceRelease(e.data.release).catch(error=>alert(error.message));return}if(e.data?.type==='HTH_REFERENCE_WORKSPACE'&&Array.isArray(e.data.files))loadWorkspace(e.data.files).catch(error=>alert(error.message))});
+window.addEventListener('message',e=>{if(e.source!==window.parent)return;if(e.data?.type==='HTH_REFERENCE_TOP_CONTROLS'){document.body.classList.toggle('top-controls-hidden',!e.data.visible);return}if(e.data?.type==='HTH_REFERENCE_RELEASE'){applySourceRelease(e.data.release).catch(error=>alert(error.message));return}if(e.data?.type==='HTH_REFERENCE_WORKSPACE'&&Array.isArray(e.data.files))loadWorkspace(e.data.files).catch(error=>alert(error.message))});
 showResults();
 s.collection=normalize(structuredClone(window.HTH_REFERENCE_DEFAULTS.detector));s.pages=s.collection.pages;enable(true);rebuild();collectionStatus();load(0);
 

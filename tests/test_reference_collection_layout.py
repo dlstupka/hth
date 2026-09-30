@@ -269,6 +269,26 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('.viewport{flex:1;min-height:0;overflow:auto', layout)
         self.assertFalse((ROOT / 'tools/reference-collection-editor-multidetector.html').exists())
 
+    def test_top_controls_can_be_hidden_without_hiding_side_panes(self):
+        director = (ROOT / 'tools/reference-collection-director.html').read_text(encoding='utf-8')
+        layout = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
+        detector = (ROOT / 'tools/reference-collection-editor.html').read_text(encoding='utf-8')
+        for page in (director, layout):
+            self.assertIn('id="toggleTopControls"', page)
+            self.assertIn('Hide top controls', page)
+            self.assertIn('Show top controls', page)
+        self.assertIn('HTH_REFERENCE_TOP_CONTROLS', director)
+        self.assertIn('HTH_REFERENCE_TOP_CONTROLS', layout)
+        self.assertIn('HTH_REFERENCE_TOP_CONTROLS', detector)
+        self.assertIn('body.top-controls-hidden .workspace>.pages', layout)
+        self.assertIn('body.top-controls-hidden .workspace>.view-controls', layout)
+        self.assertIn('body.top-controls-hidden .workspace>.overlay-controls', layout)
+        self.assertIn('<aside class="tools-pane"', layout)
+        self.assertIn('<aside class="metadata-pane"', layout)
+        self.assertNotIn('body.top-controls-hidden aside', layout)
+        self.assertIn('body.top-controls-hidden .workspace{grid-template-rows:minmax(0,1fr)}', detector)
+        self.assertIn("if(image&&fitMode&&width!==lastViewportWidth)fit()", layout)
+
     def test_both_editors_default_to_gs0002_and_allow_manual_selection(self):
         defaults = (ROOT / 'tools/reference-collection-defaults.js').read_text(encoding='utf-8')
         detector = (ROOT / 'tools/reference-collection-editor.html').read_text(encoding='utf-8')

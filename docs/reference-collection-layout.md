@@ -34,9 +34,13 @@ does not alter the approved detector Golden Set. Region truth uses source-image
 pixel coordinates and cannot be applied directly to a normalized view without
 the recorded geometric transform.
 
-The director and both editors keep their controls on the left and their title
-and descriptive text on the right. Each editor's workpane is on the left of
-the image workspace.
+The director and both editors keep their top controls on the left and their title
+and descriptive text on the right. The layout editor keeps drawing tools on the
+left of the canvas and region class, reading order, and review notes on the right.
+Use **Hide top controls** in the director's tab bar to reclaim vertical space
+while leaving the side panes visible. **Show top controls** restores the setup,
+page, zoom, and overlay controls. When opening the layout editor directly, use
+its own top-controls button.
 
 In the layout tab, load a source release (or use the director's shared load)
 before editing a page. Choose a visibly active drawing tool: drag to draw a
