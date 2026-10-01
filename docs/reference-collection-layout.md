@@ -60,6 +60,10 @@ to insert a vertex at that point. Click a vertex or edge, then use the arrow but
 keys to move it one source-image pixel at a time. Hold an on-screen arrow to
 repeat nudges; the entire hold is one Undo step. Rectangle edges move only
 perpendicular to themselves; polygon edges move their two endpoints together.
+When polygon boundaries overlap, repeated clicks at the same spot cycle through
+every approved-region vertex and edge within 10 screen pixels, closest first.
+At such crowded spots, double-click insertion is suppressed so the second click
+can select the next handle; select an edge and use **Add vertex** instead.
 Undo and Redo restore the annotation without changing the canvas zoom or scroll
 position. An edit from a different page can be undone without navigating away
 from the page currently in view.

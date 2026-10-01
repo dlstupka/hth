@@ -165,7 +165,7 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             assert.match(editor, /else movePolygonEdge\(r,drag\.index,p\[0\]-drag\.start\[0\],p\[1\]-drag\.start\[1\]/);
             assert.doesNotMatch(editor, /canvas\.oncontextmenu=/);
             assert.match(editor, /action\.type==='region-move'\?`\$\{affected\.length\} region\(s\) moved without changing their shapes/);
-            const edgeDrag = editor.indexOf("drag={type:'edge',index:edge,start:p,before:capturePage(),moved:false}");
+            const edgeDrag = editor.indexOf("const hit=$('showTruth').checked?nextGeometryHit(e):null;");
             const interiorDrag = editor.indexOf("if(hitsBoundary(page().regions[i].boundary,p)){const r=page().regions[i]");
             assert.ok(edgeDrag>=0 && interiorDrag>edgeDrag);
             const edgeCtx = {zoom:1, $:()=>({checked:true}),
@@ -574,10 +574,46 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
         self.assertIn('function rectanglePoints(left,top,right,bottom)', editor)
         self.assertIn('function isRectangle(r)', editor)
         self.assertIn('function resizeRectangle(r,handle,p)', editor)
-        self.assertIn("drag={type:'edge',index:edge,start:p,before:capturePage(),moved:false}", editor)
+        self.assertIn("drag={type:hit.type,index:hit.index,start:p,before:capturePage(),moved:false}", editor)
         self.assertIn("addRegion(points,$('kind').value,'rectangle')", editor)
         self.assertIn("r.shape='rectangle'", editor)
         self.assertIn("if(isRectangle(r)||r.boundary.length<=3)return", editor)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is needed to exercise overlapping handle selection')
+    def test_repeated_clicks_cycle_nearby_vertices_and_edges(self):
+        script = r"""
+            const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+            const editor=fs.readFileSync('tools/reference-collection-layout.html','utf8');
+            const line=name=>editor.split('\n').find(row=>row.startsWith(`function ${name}(`));
+            const blocks=['distanceToSegment','canvasPoint','nearbyGeometryHits','nextGeometryHit']
+              .map(name=>name==='nearbyGeometryHits'||name==='nextGeometryHit'
+                ?editor.slice(editor.indexOf(`function ${name}(`),editor.indexOf('\nfunction ',editor.indexOf(`function ${name}(`)+1))
+                :line(name));
+            const boundary=[[10,10],[30,10],[30,30],[10,30]];
+            const page={global_ordinal:5,regions:[
+              {id:'r1',boundary},{id:'r2',boundary:boundary.map(point=>[...point])}]};
+            const ctx={zoom:2,geometryHitCycle:null,page:()=>page,
+              canvas:{getBoundingClientRect:()=>({left:0,top:0})}};
+            vm.createContext(ctx);vm.runInContext(blocks.join('\n'),ctx);
+            const click={clientX:20,clientY:20};
+            const candidates=vm.runInContext('nearbyGeometryHits([10,10])',ctx);
+            assert.equal(candidates.length,6);
+            assert.equal(candidates[0].type,'vertex');
+            const chosen=[];
+            for(let i=0;i<6;i++){
+              const hit=ctx.nextGeometryHit(click);
+              chosen.push(`${hit.type}:${hit.regionIndex}:${hit.index}`);
+            }
+            assert.equal(new Set(chosen).size,6);
+            assert.equal(ctx.nextGeometryHit(click).type,'vertex');
+            assert.equal(ctx.geometryHitCycle.index,0);
+            assert.equal(vm.runInContext('nearbyGeometryHits([15.1,15.1]).length',ctx),0);
+            assert.equal(ctx.nextGeometryHit({clientX:100,clientY:100}),null);
+            assert.equal(ctx.geometryHitCycle,null);
+            assert.match(editor,/if\(geometryHitCycle\?\.hits\.length>1.*e\.preventDefault\(\);return/);
+        """
+        result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_selected_region_can_convert_between_rectangle_and_polygon(self):
         editor = (ROOT / 'tools/reference-collection-layout.html').read_text(encoding='utf-8')
