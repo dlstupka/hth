@@ -60,6 +60,9 @@ to insert a vertex at that point. Click a vertex or edge, then use the arrow but
 keys to move it one source-image pixel at a time. Hold an on-screen arrow to
 repeat nudges; the entire hold is one Undo step. Rectangle edges move only
 perpendicular to themselves; polygon edges move their two endpoints together.
+Ctrl+Arrow (Cmd+Arrow on macOS) alternates edge → vertex → edge in the
+chosen direction. When a whole polygon is selected, it selects the next
+polygon instead. This does not move geometry or pan the canvas.
 When polygon boundaries overlap, repeated clicks at the same spot cycle through
 every approved-region vertex and edge within 10 screen pixels, closest first.
 At such crowded spots, double-click insertion is suppressed so the second click

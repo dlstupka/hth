@@ -706,6 +706,7 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
               mode:'select',copyGeometrySelection:()=>{calls.push('copy');return true},
               pasteGeometrySelection:()=>{calls.push('paste');return true},
               deleteGeometrySelection:()=>{calls.push('delete');return true},
+              navigateSelection:(dx,dy)=>{calls.push(`navigate:${dx},${dy}`);return true},
               canNudge:()=>false,geometryClipboard:{type:'vertex'},selected:null};
             vm.createContext(ctx);vm.runInContext(handler,ctx);
             const key=(value,ctrl=false)=>{let prevented=false;ctx.window.onkeydown({key:value,
@@ -717,10 +718,61 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             assert.equal(ctx.geometryClipboard,null);
             assert.equal(key('Delete'),true);
             assert.deepEqual(calls,['copy','paste','delete','delete']);
+            assert.equal(key('ArrowRight',true),true);
+            assert.equal(calls.at(-1),'navigate:1,0');
             ctx.document.activeElement={tagName:'INPUT'};
             assert.equal(key('Delete'),false);
             assert.equal(key('c',true),false);
-            assert.equal(calls.length,4);
+            assert.equal(key('ArrowRight',true),false);
+            assert.equal(calls.length,5);
+        """
+        result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is needed to exercise directional selection')
+    def test_ctrl_arrow_alternates_handles_and_navigates_polygons_without_moving_it(self):
+        script = r"""
+            const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+            const editor=fs.readFileSync('tools/reference-collection-layout.html','utf8');
+            const line=name=>editor.split('\n').find(row=>row.startsWith(`function ${name}(`));
+            const navigate=editor.slice(editor.indexOf('function navigateSelection('),
+              editor.indexOf('\nfunction canNudge('));
+            const regions=[
+              {id:'r1',kind:'text',boundary:[[0,0],[10,0],[10,10],[0,10]]},
+              {id:'r2',kind:'text',boundary:[[20,0],[30,0],[30,10],[20,10]]},
+              {id:'r3',kind:'text',boundary:[[0,20],[10,20],[10,30],[0,30]]}];
+            const page={regions},before=JSON.stringify(regions),kindControl={value:''},truth={checked:true};
+            const ctx={page:()=>page,verified:true,mode:'select',selected:{type:'region',index:0},
+              selectedVertex:0,selectedEdge:-1,selectedRegionIds:new Set(['r1']),
+              geometryHitCycle:null,$:id=>id==='showTruth'?truth:kindControl,
+              clearProposalSelection:()=>{},renderLists:()=>{},draw:()=>{},say:()=>{}};
+            vm.createContext(ctx);
+            vm.runInContext(`${line('regionCenter')}\n${navigate}`,ctx);
+            assert.equal(ctx.navigateSelection(1,0),true);
+            assert.equal(ctx.selected.index,0);
+            assert.equal(ctx.selectedVertex,-1);
+            assert.equal(ctx.selectedEdge,0);
+            assert.equal(ctx.navigateSelection(1,0),true);
+            assert.equal(ctx.selected.index,0);
+            assert.equal(ctx.selectedVertex,1);
+            assert.equal(ctx.selectedEdge,-1);
+            assert.equal(ctx.navigateSelection(0,1),true);
+            assert.equal(ctx.selected.index,0);
+            assert.equal(ctx.selectedEdge,1);
+            assert.equal(ctx.selectedVertex,-1);
+            assert.equal(ctx.navigateSelection(0,1),true);
+            assert.equal(ctx.selected.index,0);
+            assert.equal(ctx.selectedVertex,2);
+            assert.equal(ctx.selectedEdge,-1);
+            ctx.selected={type:'region',index:0};ctx.selectedVertex=-1;ctx.selectedEdge=-1;
+            assert.equal(ctx.navigateSelection(1,0),true);
+            assert.equal(ctx.selected.index,1);
+            assert.equal(ctx.selectedVertex,-1);
+            assert.equal(ctx.selectedEdge,-1);
+            assert.equal(ctx.navigateSelection(0,1),true);
+            assert.equal(ctx.selected.index,2);
+            assert.equal(JSON.stringify(regions),before);
+            assert.match(editor,/if\(modified&&arrows\[e\.key\]&&navigateSelection\(\.\.\.arrows\[e\.key\]\)\)/);
         """
         result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
