@@ -10,6 +10,8 @@ import calendar
 import json
 import os
 import subprocess
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter, defaultdict
@@ -135,8 +137,25 @@ def _github_get(url: str, token: str):
         "Accept": "application/vnd.github+json", "User-Agent": "hth-work-summary",
         **({"Authorization": f"Bearer {token}"} if token else {}),
     })
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.load(response)
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(request, timeout=45) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as exc:
+            if exc.code not in (429, 500, 502, 503, 504):
+                raise
+            error = exc
+        except (TimeoutError, ConnectionError, urllib.error.URLError) as exc:
+            error = exc
+        if attempt == 3:
+            raise RuntimeError(f"GitHub API request failed after 4 attempts: {url}") from error
+        delay = min(30, 2 ** (attempt + 1))
+        if isinstance(error, urllib.error.HTTPError):
+            retry_after = error.headers.get("Retry-After")
+            if retry_after and retry_after.isdigit():
+                delay = min(30, max(delay, int(retry_after)))
+        print(f"GitHub API transient failure ({type(error).__name__}); retrying {url} in {delay}s", flush=True)
+        time.sleep(delay)
 
 
 def collect_github(repository: str, release_repositories: list[str], since: date,

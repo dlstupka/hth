@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import io
 import tempfile
 import unittest
+import urllib.error
 from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -14,6 +16,25 @@ ROOT = Path(__file__).parents[1]
 
 
 class WorkSummaryTests(unittest.TestCase):
+    def test_github_collector_retries_a_timed_out_page(self) -> None:
+        payload = io.BytesIO(b'{"workflow_runs": []}')
+        with patch.object(work_summary.urllib.request, "urlopen",
+                          side_effect=[TimeoutError("read timed out"), payload]) as opener, \
+             patch.object(work_summary.time, "sleep") as sleep:
+            result = work_summary._github_get("https://api.github.com/repos/o/r/actions/runs?page=2", "token")
+        self.assertEqual(result, {"workflow_runs": []})
+        self.assertEqual(opener.call_count, 2)
+        self.assertEqual(sleep.call_args.args, (2,))
+
+    def test_github_collector_does_not_retry_authorization_failure(self) -> None:
+        error = urllib.error.HTTPError("https://api.github.com/repos/o/r", 401, "Unauthorized", {}, None)
+        with patch.object(work_summary.urllib.request, "urlopen", side_effect=error) as opener, \
+             patch.object(work_summary.time, "sleep") as sleep:
+            with self.assertRaises(urllib.error.HTTPError):
+                work_summary._github_get("https://api.github.com/repos/o/r", "token")
+        self.assertEqual(opener.call_count, 1)
+        sleep.assert_not_called()
+
     def test_chicago_fallback_respects_dst_transition(self) -> None:
         before = datetime(2026, 3, 8, 7, 30, tzinfo=timezone.utc).astimezone(work_summary.ZONE)
         after = datetime(2026, 3, 8, 8, 30, tzinfo=timezone.utc).astimezone(work_summary.ZONE)

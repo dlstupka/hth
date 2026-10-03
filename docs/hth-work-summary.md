@@ -56,7 +56,8 @@ authoritative over the allocated daily values.
 The workflow checks out only `reports/hth-work-summary/` and the compact CBE
 lifecycle ledger from the results repository. `pending-since` identifies the
 oldest day without a persisted snapshot. GitHub run collection is bounded to
-that date onward; the report reads Git history only from missing days onward.
+that date onward; transient GitHub API timeouts and server errors are retried
+for the same page. The report reads Git history only from missing days onward.
 Closed days, months and years are reused unchanged. The current day, month and
 year are recomputed. This avoids repeatedly reconstructing historical estimates or
 re-fetching historical Actions runs. Report publication uses the existing
