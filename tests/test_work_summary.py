@@ -59,7 +59,14 @@ class WorkSummaryTests(unittest.TestCase):
             self.assertEqual(summary["releases"], 1)
             self.assertEqual(summary["commits"], 4)
             self.assertEqual(summary["contributors"], {"Dan Stupka": 4})
+            annual = json.loads((output / "years" / "2026.json").read_text(encoding="utf-8"))
+            self.assertEqual(annual["estimate_ranges"]["human_hours"], summary["estimate_ranges"]["human_hours"])
+            self.assertEqual(annual["workflow_runs"], 1)
+            self.assertEqual(annual["releases"], 1)
+            self.assertFalse(annual["closed"])
             report = (output / "summary.md").read_text(encoding="utf-8")
+            self.assertIn("## Annual", report)
+            self.assertIn("2026 YTD", report)
             self.assertIn("API-equivalent", report)
             self.assertIn("not billed subscription", report)
             self.assertIn("days reused", report)
@@ -80,6 +87,22 @@ class WorkSummaryTests(unittest.TestCase):
             self.assertEqual(summary["cache"]["days_built"], 2)
             self.assertGreaterEqual(summary["cache"]["months_reused"], 4)
             self.assertEqual(work_summary.pending_since(root, date(2026, 10, 5)), date(2026, 10, 4))
+
+    def test_closed_year_is_persisted_and_reused(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / "reports" / "hth-work-summary"
+            ledger = ROOT / "config" / "work-summary-estimates.json"
+            with patch.object(work_summary, "_git_commits", return_value={}):
+                work_summary.generate(ROOT, root, output, date(2027, 1, 1), ledger)
+                summary = work_summary.generate(ROOT, root, output, date(2027, 1, 2), ledger)
+            self.assertEqual(summary["cache"]["years_reused"], 1)
+            self.assertEqual(summary["cache"]["years_built"], 1)
+            annual = json.loads((output / "years" / "2026.json").read_text(encoding="utf-8"))
+            self.assertTrue(annual["closed"])
+            report = (output / "summary.md").read_text(encoding="utf-8")
+            self.assertIn("| 2026 |", report)
+            self.assertIn("| 2027 YTD |", report)
 
     def test_github_collector_records_facts_without_inventing_cpu_time(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

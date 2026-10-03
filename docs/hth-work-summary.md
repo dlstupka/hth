@@ -1,9 +1,10 @@
 # HTH Work Summary
 
-`HTH report` → `hth-work-summary` produces a project-wide daily, monthly and
+`HTH report` → `hth-work-summary` produces a project-wide daily, monthly, annual and
 lifetime work report. The human-readable report is
 `reports/hth-work-summary/summary.md` in the results repository; the adjacent
-`summary.json`, `days/YYYY-MM-DD.json` and `months/YYYY-MM.json` files are the
+`summary.json`, `days/YYYY-MM-DD.json`, `months/YYYY-MM.json` and
+`years/YYYY.json` files are the
 durable machine-readable record.
 
 The report writer is a **consumer**, not an execution telemetry producer. It
@@ -56,8 +57,8 @@ The workflow checks out only `reports/hth-work-summary/` and the compact CBE
 lifecycle ledger from the results repository. `pending-since` identifies the
 oldest day without a persisted snapshot. GitHub run collection is bounded to
 that date onward; the report reads Git history only from missing days onward.
-Closed days and months are reused unchanged. The current day and month are
-recomputed. This avoids repeatedly reconstructing historical estimates or
+Closed days, months and years are reused unchanged. The current day, month and
+year are recomputed. This avoids repeatedly reconstructing historical estimates or
 re-fetching historical Actions runs. Report publication uses the existing
 bounded, concurrent-writer-safe results transaction, regenerating against the
 fresh results checkout on a retry.

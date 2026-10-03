@@ -298,11 +298,32 @@ def _month_record(month: str, days: list[dict], ledger: dict, cost_model: dict, 
             "highlights": highlights, "days": [day["date"] for day in days]}
 
 
+def _year_record(year: str, months: list[dict], closed: bool):
+    contributors = Counter()
+    workflow_names = Counter()
+    for month in months:
+        contributors.update(month["contributors"])
+        workflow_names.update(month["workflow_names"])
+    return {"schema": SCHEMA, "year": year, "closed": closed,
+            "estimate_ranges": {field: _sum_ranges(month["estimate_ranges"][field] for month in months)
+                                for field in FIELDS},
+            "commits": sum(month["commits"] for month in months),
+            "contributors": dict(contributors),
+            "workflow_runs": sum(month["workflow_runs"] for month in months),
+            "completed_workflow_runs": sum(month["completed_workflow_runs"] for month in months),
+            "successful_workflow_runs": sum(month["successful_workflow_runs"] for month in months),
+            "failed_workflow_runs": sum(month["failed_workflow_runs"] for month in months),
+            "workflow_wall_hours_proxy": round(sum(month["workflow_wall_hours_proxy"] for month in months), 3),
+            "workflow_names": dict(workflow_names),
+            "releases": sum(len(month["releases"]) for month in months),
+            "months": [month["month"] for month in months]}
+
+
 def _fmt(value, unit="h"):
     return "unknown" if value is None else f"{value[0]:,.1f}–{value[1]:,.1f} {unit}"
 
 
-def _render(summary: dict, months: list[dict]) -> str:
+def _render(summary: dict, years: list[dict], months: list[dict]) -> str:
     totals = summary["estimate_ranges"]
     lines = ["# HTH Work Summary", "", f"As of **{summary['as_of']}** (America/Chicago).",
              "", "## Lifetime", "", "| Measure | Estimate / observed count |", "|---|---:|",
@@ -320,9 +341,19 @@ def _render(summary: dict, months: list[dict]) -> str:
              f"| GitHub releases captured | {summary['releases']:,} |",
              f"| CBE build records (current lifecycle ledger) | {summary['cbe_build_records'] if summary['cbe_build_records'] is not None else 'unavailable'} |",
              f"| CBE cache elements / release elements | {summary['cbe_cache_elements'] if summary['cbe_cache_elements'] is not None else 'unavailable'} / {summary['cbe_release_elements'] if summary['cbe_release_elements'] is not None else 'unavailable'} |",
-             "", "## Monthly", "",
-             "| Month | Human h | ChatGPT h | Codex h | Compute core-h | GPT cost scenario | Commits | Runs | Releases |",
+             "", "## Annual", "",
+             "| Year | Human h | ChatGPT h | Codex h | Compute core-h | GPT cost scenario | Commits | Runs | Releases |",
              "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+    for year in years:
+        e = year["estimate_ranges"]
+        label = year["year"] if year["closed"] else f"{year['year']} YTD"
+        lines.append("| " + " | ".join([label, _fmt(e["human_hours"]), _fmt(e["chatgpt_hours"]),
+            _fmt(e["codex_hours"]), _fmt(e["compute_core_hours"], "core-h"),
+            _fmt(e["gpt_cost_usd"], "USD"), str(year["commits"]), str(year["workflow_runs"]),
+            str(year["releases"])]) + " |")
+    lines.extend(["", "## Monthly", "",
+             "| Month | Human h | ChatGPT h | Codex h | Compute core-h | GPT cost scenario | Commits | Runs | Releases |",
+             "|---|---:|---:|---:|---:|---:|---:|---:|---:|"])
     for month in months:
         e = month["estimate_ranges"]
         lines.append("| " + " | ".join([month["month"], _fmt(e["human_hours"]), _fmt(e["chatgpt_hours"]),
@@ -364,7 +395,7 @@ def _render(summary: dict, months: list[dict]) -> str:
                   f"- GPT scenario assumptions: {summary['gpt_cost_scenario']}. These are user-editable bounds, not a model-specific published price quote.",
                   "- Workflow-run counts are GitHub Actions records, not necessarily successful builds. Compute core-hours are historical estimates unless explicit daily evidence is supplied. CBE build records are the current lifecycle count, not a lifetime execution count.",
                   "- New-day Git commit counts and Actions wall time feed broad proxy ranges until actual human/assistant/CPU telemetry is supplied in the daily ledger. Workflow wall time is not CPU time; runner core allocation and utilization are unknown.",
-                  f"- Cache: {summary['cache']['days_reused']} closed days reused; {summary['cache']['days_built']} days built; {summary['cache']['months_reused']} closed months reused; {summary['cache']['months_built']} months built.", ""])
+                  f"- Cache: {summary['cache']['days_reused']} closed days reused; {summary['cache']['days_built']} days built; {summary['cache']['months_reused']} closed months reused; {summary['cache']['months_built']} months built; {summary['cache']['years_reused']} closed years reused; {summary['cache']['years_built']} years built.", ""])
     return "\n".join(lines)
 
 
@@ -422,6 +453,27 @@ def generate(repo: Path, results_root: Path, output_dir: Path, as_of: date,
             _write(output_dir / "months" / f"{month}.json", record)
             months_built += 1
         month_records.append(record)
+    by_year = defaultdict(list)
+    for month in month_records:
+        by_year[month["month"][:4]].append(month)
+    year_records = []
+    years_reused = 0
+    years_built = 0
+    for year, months in sorted(by_year.items()):
+        cached = base / "years" / f"{year}.json"
+        closed = date(int(year), 12, 31) < as_of
+        record = _json(cached) if closed and not refresh_history else None
+        if record is not None and record.get("closed") is not True:
+            record = None
+        if record is not None:
+            if record.get("schema") != SCHEMA or record.get("year") != year:
+                raise ValueError(f"Invalid cached work-summary year: {year}")
+            years_reused += 1
+        else:
+            record = _year_record(year, months, closed)
+            _write(output_dir / "years" / f"{year}.json", record)
+            years_built += 1
+        year_records.append(record)
     lifecycle = _json(results_root / "metadata" / "resource-lifecycle.json", {})
     cbe_count = lifecycle.get("summary", {}).get("build_records")
     workflow_names = Counter()
@@ -430,7 +482,7 @@ def generate(repo: Path, results_root: Path, output_dir: Path, as_of: date,
     summary = {"schema": SCHEMA, "as_of": as_of.isoformat(), "repository": ledger.get("repository", "dlstupka/hth"),
                "historical_source": ledger.get("historical_source", ""),
                "people": ledger.get("people", []), "gpt_cost_scenario": cost_model,
-               "estimate_ranges": {field: _sum_ranges(month["estimate_ranges"][field] for month in month_records) for field in FIELDS},
+               "estimate_ranges": {field: _sum_ranges(year["estimate_ranges"][field] for year in year_records) for field in FIELDS},
                "commits": sum(month["commits"] for month in month_records),
                "workflow_runs": sum(month["workflow_runs"] for month in month_records),
                "successful_workflow_runs": sum(month.get("successful_workflow_runs", 0) for month in month_records),
@@ -445,11 +497,12 @@ def generate(repo: Path, results_root: Path, output_dir: Path, as_of: date,
                                                for month in month_records for name in month["contributors"]})),
                "recent_days": list(reversed(day_records[-31:])),
                "cache": {"days_reused": len(existing), "days_built": len(missing),
-                         "months_reused": months_reused, "months_built": months_built}}
+                         "months_reused": months_reused, "months_built": months_built,
+                         "years_reused": years_reused, "years_built": years_built}}
     _write(output_dir / "summary.json", summary)
     report = output_dir / "summary.md"
     report.parent.mkdir(parents=True, exist_ok=True)
-    report.write_text(_render(summary, month_records), encoding="utf-8")
+    report.write_text(_render(summary, year_records, month_records), encoding="utf-8")
     return summary
 
 
