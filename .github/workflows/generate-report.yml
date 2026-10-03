@@ -15,6 +15,7 @@ on:
           - detector-calibration-manifest
           - execution-optimizer
           - full-normalization-summary
+          - hth-work-summary
       algorithm:
         description: Detector for execution-optimizer report; choose all for the accumulated optimizer summary; ignored by calibration and normalization reports
         required: true
@@ -73,6 +74,7 @@ on:
       # END GENERATED RUNNER TARGET INPUT
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: generate-report-${{ github.ref }}-${{ inputs.report }}-${{ inputs.algorithm }}

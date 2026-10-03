@@ -1,0 +1,54 @@
+{
+  "schema": "hth-work-summary-estimates-v1",
+  "repository": "dlstupka/hth",
+  "people": [
+    {"name": "Dan Stupka", "role": "Project lead, researcher, annotator, engineer"}
+  ],
+  "historical_source": "https://chatgpt.com/g/g-p-6a63ee2e04d48191be3ce725a52442c6-hth/c/6a959774-fbf4-83ea-90b4-82e312789313",
+  "historical_months": {
+    "2026-06": {
+      "human_hours": [35, 60],
+      "chatgpt_hours": [5, 30],
+      "codex_hours": [0, 45],
+      "compute_core_hours": [5, 15],
+      "source": "Project Juana human/compute reconstruction; assistant ranges are broad scenario assumptions"
+    },
+    "2026-07": {
+      "human_hours": [90, 140],
+      "chatgpt_hours": [15, 70],
+      "codex_hours": [30, 140],
+      "compute_core_hours": [500, 1500],
+      "source": "Project Juana human/compute reconstruction; assistant ranges are broad scenario assumptions"
+    },
+    "2026-08": {
+      "human_hours": [160, 230],
+      "chatgpt_hours": [25, 115],
+      "codex_hours": [60, 230],
+      "compute_core_hours": [15000, 35000],
+      "source": "Project Juana human/compute reconstruction; assistant ranges are broad scenario assumptions"
+    },
+    "2026-09": {
+      "human_hours": [140, 210],
+      "chatgpt_hours": [20, 105],
+      "codex_hours": [50, 210],
+      "compute_core_hours": [4000, 12000],
+      "source": "Project Juana human/compute reconstruction; assistant ranges are broad scenario assumptions"
+    }
+  },
+  "daily_commit_estimate": {
+    "human_hours_per_commit": [0.4, 2.0],
+    "human_hours_daily_cap": 14,
+    "chatgpt_to_human_hours": [0.1, 0.6],
+    "codex_to_human_hours": [0.25, 1.5],
+    "runner_cores_per_workflow_wall_hour": [1, 192]
+  },
+  "gpt_cost_scenario": {
+    "enabled": true,
+    "input_tokens_per_assistant_hour": [5000, 100000],
+    "output_tokens_per_assistant_hour": [1000, 20000],
+    "input_usd_per_million_tokens": [0.25, 10],
+    "output_usd_per_million_tokens": [2, 100],
+    "note": "Illustrative model/rate envelope only; not measured tokens, credits, subscription allocation, or billed spend."
+  },
+  "days": {}
+}

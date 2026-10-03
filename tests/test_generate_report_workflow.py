@@ -17,6 +17,7 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertIn("detector-calibration-manifest", text)
         self.assertIn("execution-optimizer", text)
         self.assertIn("full-normalization-summary", text)
+        self.assertIn("hth-work-summary", text)
         self.assertIn("default: all", text)
         self.assertIn("          - all", text)
         self.assertIn("default: github-hosted", text)
@@ -133,7 +134,7 @@ class GenerateReportWorkflowTests(unittest.TestCase):
             "- name: Assemble report research artifact", 1
         )[0]
         self.assertIn("PYTHONPATH: hth-pipeline", summary_step)
-        self.assertEqual(2, summary_step.count("python -m hth.write_action_summary"))
+        self.assertEqual(3, summary_step.count("python -m hth.write_action_summary"))
         self.assertNotIn("python hth-pipeline/hth/write_action_summary.py", summary_step)
         publish_pos = text.index("- name: Publish regenerated report")
         summary_pos = text.index("- name: Publish regenerated report summary")
@@ -171,6 +172,19 @@ class GenerateReportWorkflowTests(unittest.TestCase):
         self.assertIn("--pipeline-commit \"${{ github.sha }}\"", text)
         self.assertIn("reports/full-normalization-summary.md", text)
         self.assertIn("generated-report/full-normalization-summary.md \"$GITHUB_STEP_SUMMARY\"", text)
+
+    def test_work_summary_uses_full_git_history_and_persists_only_its_own_snapshots(self) -> None:
+        text = CORE.read_text(encoding="utf-8")
+        self.assertIn("inputs.report_type == 'hth-work-summary' && '0' || '1'", text)
+        checkout = text.split("- name: Checkout persistent HTH work summary", 1)[1].split(
+            "- name: Set up canonical HTH Python runtime", 1)[0]
+        self.assertIn("/reports/hth-work-summary/", checkout)
+        self.assertIn("/metadata/resource-lifecycle.json", checkout)
+        self.assertNotIn("/source-documents/", checkout)
+        self.assertIn("python -m hth.work_summary pending-since", text)
+        self.assertIn("python -m hth.work_summary collect-github", text)
+        self.assertIn("python -m hth.report_generator hth-work-summary", text)
+        self.assertIn("hth_results_stage results-repo reports/hth-work-summary", text)
 
 
 if __name__ == "__main__":

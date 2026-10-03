@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from hth.calibration_report import (
@@ -14,6 +15,7 @@ from hth.calibration_report import (
 )
 from hth.optimizer_report import generate_optimizer_report, generate_optimizer_report_all
 from hth.normalization_summary_report import generate_full_normalization_summary
+from hth.work_summary import generate as generate_work_summary, main as work_summary_main
 
 __all__ = [
     "calibration_run_dirs",
@@ -24,8 +26,8 @@ __all__ = [
     "generate_optimizer_report",
     "generate_optimizer_report_all",
     "generate_full_normalization_summary",
+    "generate_work_summary",
 ]
-
 
 def parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -55,8 +57,9 @@ def parser() -> argparse.ArgumentParser:
     normalization.add_argument("--run-url", default="")
     return parser
 
-
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["hth-work-summary"]: return work_summary_main(["generate", *argv[1:]])
     args = parser().parse_args(argv)
     if args.report == "detector-calibration-manifest":
         path = generate_calibration_manifest(

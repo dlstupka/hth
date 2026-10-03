@@ -9,7 +9,7 @@ on:
         required: true
         type: string
       report_type:
-        description: "Report to regenerate: detector calibration, execution optimizer, or full normalization audit summary"
+        description: "Report to regenerate: calibration, optimizer, normalization, or HTH work summary"
         required: false
         type: string
         default: "detector-calibration-manifest"
@@ -41,6 +41,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 env:
   GIT_CONFIG_COUNT: "1"
@@ -87,7 +88,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           path: hth-pipeline
-          fetch-depth: 1
+          fetch-depth: ${{ inputs.report_type == 'hth-work-summary' && '0' || '1' }}
           persist-credentials: false
 
       - name: Checkout compact normalization audit evidence
@@ -147,6 +148,21 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: true
 
+      - name: Checkout persistent HTH work summary
+        if: ${{ inputs.report_type == 'hth-work-summary' }}
+        uses: ./hth-pipeline/.github/actions/checkout-results
+        with:
+          repository: ${{ inputs.results_repository }}
+          path: results-repo
+          ref: main
+          token: ${{ secrets.HTH_RESULTS_TOKEN }}
+          fetch-depth: 1
+          sparse-checkout: |
+            /reports/hth-work-summary/
+            /metadata/resource-lifecycle.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: true
+
       - name: Set up canonical HTH Python runtime
         uses: ./hth-pipeline/.github/actions/setup-hth-python
         with:
@@ -155,6 +171,7 @@ jobs:
           diagnostics: "false"
 
       - name: Resolve report Golden Set release
+        if: ${{ inputs.report_type != 'hth-work-summary' }}
         id: report_golden_set
         shell: bash
         env:
@@ -184,6 +201,26 @@ jobs:
             exit 1
           }
           git -C results-repo sparse-checkout add "${record_paths[@]}"
+
+      - name: Collect only missing HTH work history
+        if: ${{ inputs.report_type == 'hth-work-summary' }}
+        id: work_window
+        shell: bash
+        env:
+          PYTHONPATH: hth-pipeline
+          GITHUB_TOKEN: ${{ secrets.HTH_RESULTS_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          AS_OF="$(python -c 'from datetime import datetime; from zoneinfo import ZoneInfo; print(datetime.now(ZoneInfo("America/Chicago")).date())')"
+          SINCE="$(python -m hth.work_summary pending-since --results-root results-repo --as-of "$AS_OF")"
+          echo "as_of=$AS_OF" >> "$GITHUB_OUTPUT"
+          python -m hth.work_summary collect-github \
+            --repository "${{ github.repository }}" \
+            --release-repository "${{ github.repository }}" \
+            --release-repository "$RESULTS_REPOSITORY" \
+            --release-repository "dlstupka/hth-baptisms-san-antonio-1788-1824--1858-1898" \
+            --since "$SINCE" --through "$AS_OF" \
+            --output work-summary-github.json
 
       - name: Generate selected report
         shell: bash
@@ -218,6 +255,14 @@ jobs:
               --pipeline-repository "${{ github.repository }}" \
               --pipeline-commit "${{ github.sha }}" \
               --run-url "$HTH_RUN_URL"
+          elif [[ "${{ inputs.report_type }}" == "hth-work-summary" ]]; then
+            python -m hth.report_generator hth-work-summary \
+              --repository-root hth-pipeline \
+              --results-root results-repo \
+              --output-dir generated-report/hth-work-summary \
+              --ledger hth-pipeline/config/work-summary-estimates.json \
+              --github-snapshot work-summary-github.json \
+              --as-of "${{ steps.work_window.outputs.as_of }}"
           else
             echo "::error::Unsupported report type: ${{ inputs.report_type }}"
             exit 1
@@ -289,6 +334,17 @@ jobs:
               mkdir -p results-repo/reports
               cp generated-report/full-normalization-summary.md results-repo/reports/full-normalization-summary.md
               hth_results_stage results-repo reports/full-normalization-summary.md
+            elif [[ "${{ inputs.report_type }}" == "hth-work-summary" ]]; then
+              python -m hth.report_generator hth-work-summary \
+                --repository-root hth-pipeline \
+                --results-root results-repo \
+                --output-dir generated-report/hth-work-summary \
+                --ledger hth-pipeline/config/work-summary-estimates.json \
+                --github-snapshot work-summary-github.json \
+                --as-of "${{ steps.work_window.outputs.as_of }}"
+              mkdir -p results-repo/reports/hth-work-summary
+              cp -a generated-report/hth-work-summary/. results-repo/reports/hth-work-summary/
+              hth_results_stage results-repo reports/hth-work-summary
             else
               echo "::error::Unsupported report type: ${{ inputs.report_type }}"
               return 1
@@ -324,6 +380,8 @@ jobs:
               "$RESULTS_COMMIT"
           elif [[ "${{ inputs.report_type }}" == "full-normalization-summary" ]]; then
             python -m hth.write_action_summary generated-report/full-normalization-summary.md "$GITHUB_STEP_SUMMARY"
+          elif [[ "${{ inputs.report_type }}" == "hth-work-summary" ]]; then
+            python -m hth.write_action_summary generated-report/hth-work-summary/summary.md "$GITHUB_STEP_SUMMARY"
           else
             echo "::error::Unsupported report type: ${{ inputs.report_type }}"
             exit 1
@@ -340,11 +398,13 @@ jobs:
           mkdir -p report-research-artifact/golden-set
 
           cp -a generated-report/. report-research-artifact/generated-report/
-          GOLDEN_SOURCE="${{ steps.report_golden_set.outputs.golden_set_path }}"
-          cp "$GOLDEN_SOURCE" report-research-artifact/golden-set/selected-golden-set.json
-          GOLDEN_ID="${{ steps.report_golden_set.outputs.golden_set_id }}"
-          FREEZE_SOURCE="${{ steps.report_golden_set.outputs.freeze_path }}"
-          cp "$FREEZE_SOURCE" "report-research-artifact/golden-set/${GOLDEN_ID}.freeze.json"
+          if [[ "${{ inputs.report_type }}" != "hth-work-summary" ]]; then
+            GOLDEN_SOURCE="${{ steps.report_golden_set.outputs.golden_set_path }}"
+            cp "$GOLDEN_SOURCE" report-research-artifact/golden-set/selected-golden-set.json
+            GOLDEN_ID="${{ steps.report_golden_set.outputs.golden_set_id }}"
+            FREEZE_SOURCE="${{ steps.report_golden_set.outputs.freeze_path }}"
+            cp "$FREEZE_SOURCE" "report-research-artifact/golden-set/${GOLDEN_ID}.freeze.json"
+          fi
 
           if [[ "${{ inputs.report_type }}" == "full-normalization-summary" ]]; then
             # Include persisted CBE/manifests and any available lifecycle ledger.
@@ -364,6 +424,10 @@ jobs:
               cp results-repo/reports/full-normalization-summary.md \
                 report-research-artifact/intelligence/reports/full-normalization-summary.md
             fi
+          elif [[ "${{ inputs.report_type }}" == "hth-work-summary" ]]; then
+            mkdir -p report-research-artifact/intelligence/reports
+            cp -a results-repo/reports/hth-work-summary \
+              report-research-artifact/intelligence/reports/hth-work-summary
           else
             # Persisted research intelligence: calibration identity/quality,
             # runtime, optimizer, provenance, scheduling, and source metadata.
@@ -386,8 +450,8 @@ jobs:
           # HTH report research artifact
 
           This artifact accompanies the GitHub Actions report summary. It contains the
-          generated report, the frozen Golden Set identity/provenance, and the persisted
-          available evidence to research the selected report. Normalization artifacts
+          generated report and the persisted available evidence to research it.
+          Detector/normalization artifacts include the frozen Golden Set; normalization artifacts
           contain canonical normalization evidence and, when present, its lifecycle
           ledger; detector reports contain calibration/execution intelligence.
 
