@@ -70,6 +70,7 @@ except ZoneInfoNotFoundError:
 START = date(2026, 6, 1)
 FIELDS = ("human_hours", "chatgpt_hours", "codex_hours", "compute_core_hours",
           "chatgpt_cost_usd", "codex_cost_usd", "gpt_cost_usd")
+EFFORT_FIELDS = ("human_hours", "chatgpt_hours", "codex_hours", "compute_core_hours")
 
 
 def _json(path: Path, fallback=None):
@@ -342,50 +343,63 @@ def _fmt(value, unit="h"):
     return "unknown" if value is None else f"{value[0]:,.1f}–{value[1]:,.1f} {unit}"
 
 
+def _effort_range(estimates):
+    parts = [estimates[field] for field in EFFORT_FIELDS]
+    return _sum_ranges(parts) if all(part is not None for part in parts) else None
+
+
+def _effort_point(value, unit="activity-h"):
+    return "-" if value is None else f"{(value[0] + value[1]) / 2:,.1f} {unit}"
+
+
 def _render(summary: dict, years: list[dict], months: list[dict]) -> str:
     totals = summary["estimate_ranges"]
     lines = ["# HTH Work Summary", "", f"As of **{summary['as_of']}** (America/Chicago).",
-             "", "## Lifetime", "", "| Measure | Estimate / observed count |", "|---|---:|",
-             f"| Dan Stupka / human effort | {_fmt(totals['human_hours'])} |",
-             f"| ChatGPT active time | {_fmt(totals['chatgpt_hours'])} |",
-             f"| Codex active time | {_fmt(totals['codex_hours'])} |",
-             f"| Compute | {_fmt(totals['compute_core_hours'], 'core-h')} |",
-             f"| ChatGPT API-equivalent cost scenario | {_fmt(totals['chatgpt_cost_usd'], 'USD')} |",
-             f"| Codex API-equivalent cost scenario | {_fmt(totals['codex_cost_usd'], 'USD')} |",
-             f"| GPT API-equivalent cost scenario | {_fmt(totals['gpt_cost_usd'], 'USD')} |",
-             f"| Git commits | {summary['commits']:,} |",
-             f"| GitHub workflow runs captured | {summary['workflow_runs']:,} |",
-             f"| Succeeded / failed workflow runs | {summary['successful_workflow_runs']:,} / {summary['failed_workflow_runs']:,} |",
-             f"| Workflow wall-time proxy | {summary['workflow_wall_hours_proxy']:,.1f} h |",
-             f"| GitHub releases captured | {summary['releases']:,} |",
-             f"| CBE build records (current lifecycle ledger) | {summary['cbe_build_records'] if summary['cbe_build_records'] is not None else 'unavailable'} |",
-             f"| CBE cache elements / release elements | {summary['cbe_cache_elements'] if summary['cbe_cache_elements'] is not None else 'unavailable'} / {summary['cbe_release_elements'] if summary['cbe_release_elements'] is not None else 'unavailable'} |",
+             "", "## Lifetime", "", "| Measure | Estimate / observed count | Effort |", "|---|---:|---:|",
+             f"| Dan Stupka / human effort | {_fmt(totals['human_hours'])} | {_effort_point(totals['human_hours'], 'h')} |",
+             f"| ChatGPT active time | {_fmt(totals['chatgpt_hours'])} | {_effort_point(totals['chatgpt_hours'], 'h')} |",
+             f"| Codex active time | {_fmt(totals['codex_hours'])} | {_effort_point(totals['codex_hours'], 'h')} |",
+             f"| Compute | {_fmt(totals['compute_core_hours'], 'core-h')} | {_effort_point(totals['compute_core_hours'], 'core-h')} |",
+             f"| Combined activity | {_fmt(_effort_range(totals), 'activity-h')} | {_effort_point(_effort_range(totals))} |",
+             f"| ChatGPT API-equivalent cost scenario | {_fmt(totals['chatgpt_cost_usd'], 'USD')} | — |",
+             f"| Codex API-equivalent cost scenario | {_fmt(totals['codex_cost_usd'], 'USD')} | — |",
+             f"| GPT API-equivalent cost scenario | {_fmt(totals['gpt_cost_usd'], 'USD')} | — |",
+             f"| Git commits | {summary['commits']:,} | — |",
+             f"| GitHub workflow runs captured | {summary['workflow_runs']:,} | — |",
+             f"| Succeeded / failed workflow runs | {summary['successful_workflow_runs']:,} / {summary['failed_workflow_runs']:,} | — |",
+             f"| Workflow wall-time proxy | {summary['workflow_wall_hours_proxy']:,.1f} h | — |",
+             f"| GitHub releases captured | {summary['releases']:,} | — |",
+             f"| CBE build records (current lifecycle ledger) | {summary['cbe_build_records'] if summary['cbe_build_records'] is not None else 'unavailable'} | — |",
+             f"| CBE cache elements / release elements | {summary['cbe_cache_elements'] if summary['cbe_cache_elements'] is not None else 'unavailable'} / {summary['cbe_release_elements'] if summary['cbe_release_elements'] is not None else 'unavailable'} | — |",
              "", "## Annual", "",
-             "| Year | Human h | ChatGPT h | Codex h | Compute core-h | GPT cost scenario | Commits | Runs | Releases |",
-             "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+             "| Year | Human h | ChatGPT h | Codex h | Compute core-h | GPT cost scenario | Effort | Commits | Runs | Releases |",
+             "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for year in years:
         e = year["estimate_ranges"]
         label = year["year"] if year["closed"] else f"{year['year']} YTD"
         lines.append("| " + " | ".join([label, _fmt(e["human_hours"]), _fmt(e["chatgpt_hours"]),
             _fmt(e["codex_hours"]), _fmt(e["compute_core_hours"], "core-h"),
-            _fmt(e["gpt_cost_usd"], "USD"), str(year["commits"]), str(year["workflow_runs"]),
+            _fmt(e["gpt_cost_usd"], "USD"), _effort_point(_effort_range(e)),
+            str(year["commits"]), str(year["workflow_runs"]),
             str(year["releases"])]) + " |")
     lines.extend(["", "## Monthly", "",
-             "| Month | Human h | ChatGPT h | Codex h | Compute core-h | GPT cost scenario | Commits | Runs | Releases |",
-             "|---|---:|---:|---:|---:|---:|---:|---:|---:|"])
+             "| Month | Human h | ChatGPT h | Codex h | Compute core-h | GPT cost scenario | Effort | Commits | Runs | Releases |",
+             "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"])
     for month in months:
         e = month["estimate_ranges"]
         lines.append("| " + " | ".join([month["month"], _fmt(e["human_hours"]), _fmt(e["chatgpt_hours"]),
             _fmt(e["codex_hours"]), _fmt(e["compute_core_hours"], "core-h"),
-            _fmt(e["gpt_cost_usd"], "USD"), str(month["commits"]), str(month["workflow_runs"]),
+            _fmt(e["gpt_cost_usd"], "USD"), _effort_point(_effort_range(e)),
+            str(month["commits"]), str(month["workflow_runs"]),
             str(len(month["releases"]))]) + " |")
     lines.extend(["", "## Daily", "", "The durable JSON files in `reports/hth-work-summary/days/` contain each day's hours, source links and activity. Closed days are reused; only an explicit refresh recalculates them.", "",
-                  "| Day | Human h | ChatGPT h | Codex h | Compute core-h | GPT cost scenario | Commits | Runs |",
-                  "|---|---:|---:|---:|---:|---:|---:|---:|"])
+                  "| Day | Human h | ChatGPT h | Codex h | Compute core-h | GPT cost scenario | Effort | Commits | Runs |",
+                  "|---|---:|---:|---:|---:|---:|---:|---:|---:|"])
     for day in summary["recent_days"]:
         e = day["estimate_ranges"]
         lines.append("| " + " | ".join([day["date"], _fmt(e["human_hours"]), _fmt(e["chatgpt_hours"]),
             _fmt(e["codex_hours"]), _fmt(e["compute_core_hours"], "core-h"), _fmt(e["gpt_cost_usd"], "USD"),
+            _effort_point(_effort_range(e)),
             str(len(day["commits"])), str(len(day["workflow_runs"]))]) + " |")
     if summary["workflow_names"]:
         lines.extend(["", "## Build activity by workflow", "", "| Workflow | Runs |", "|---|---:|"])
@@ -407,6 +421,7 @@ def _render(summary: dict, years: list[dict], months: list[dict]) -> str:
             for commit in month["highlights"][:5]:
                 lines.append(f"- {commit['subject']} ([{commit['sha'][:8]}](https://github.com/{summary['repository']}/commit/{commit['sha']}))")
     lines.extend(["", "## Evidence and caveats", "",
+                  "- Effort is the midpoint of the summed low/high ranges for human, ChatGPT, Codex, and compute hours. It is a mixed activity-hour indicator, **not** person-hours, elapsed time, billable labor, or a cost. A period's Effort shows `-` if any component is unknown; the component ranges remain the primary evidence.",
                   f"- Historical June–September 2026 human and compute ranges come from [Project Juana CRT/DRT-9]({summary['historical_source']}); they are reconstructions, not time sheets or CPU counters.",
                   "- Historical monthly ranges are allocated across Git-active days in proportion to commit count solely to create daily estimates. A missing day is not proof of no work. June predates this repository's Git history and remains unallocated by day.",
                   "- ChatGPT/Codex active-time ranges are planning assumptions in the versioned estimate ledger, not observed session durations. Overlapping human and assistant hours must not be added into a single labor total.",

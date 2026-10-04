@@ -88,6 +88,13 @@ class WorkSummaryTests(unittest.TestCase):
             report = (output / "summary.md").read_text(encoding="utf-8")
             self.assertIn("## Annual", report)
             self.assertIn("2026 YTD", report)
+            self.assertIn("| Measure | Estimate / observed count | Effort |", report)
+            self.assertIn("| Year | Human h | ChatGPT h | Codex h | Compute core-h | GPT cost scenario | Effort | Commits |", report)
+            self.assertIn("| Month | Human h | ChatGPT h | Codex h | Compute core-h | GPT cost scenario | Effort | Commits |", report)
+            self.assertIn("| Day | Human h | ChatGPT h | Codex h | Compute core-h | GPT cost scenario | Effort | Commits |", report)
+            july_row = next(line for line in report.splitlines() if line.startswith("| 2026-07 |"))
+            self.assertIn("| 1,242.5 activity-h | 3 |", july_row)
+            self.assertIn("mixed activity-hour indicator", report)
             self.assertIn("API-equivalent", report)
             self.assertIn("not billed subscription", report)
             self.assertIn("days reused", report)
@@ -124,6 +131,15 @@ class WorkSummaryTests(unittest.TestCase):
             report = (output / "summary.md").read_text(encoding="utf-8")
             self.assertIn("| 2026 |", report)
             self.assertIn("| 2027 YTD |", report)
+
+    def test_effort_requires_all_components_and_preserves_uncertainty(self) -> None:
+        estimates = {"human_hours": [2, 4], "chatgpt_hours": [1, 3],
+                     "codex_hours": [2, 6], "compute_core_hours": [10, 30]}
+        self.assertEqual(work_summary._effort_range(estimates), [15, 43])
+        self.assertEqual(work_summary._effort_point(work_summary._effort_range(estimates)), "29.0 activity-h")
+        estimates["compute_core_hours"] = None
+        self.assertIsNone(work_summary._effort_range(estimates))
+        self.assertEqual(work_summary._effort_point(work_summary._effort_range(estimates)), "-")
 
     def test_github_collector_records_facts_without_inventing_cpu_time(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

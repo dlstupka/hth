@@ -32,6 +32,11 @@ token consumption or billed GPT spend from Git activity.
   nor the user's ChatGPT/Codex subscription/credit spend. To show actual spend,
   add a daily entry backed by account billing/usage evidence.
 - Human and assistant hours overlap. Do not add them into one labor total.
+- The `Effort` column is a deliberately mechanical midpoint of the combined
+  human, ChatGPT, Codex and compute low/high ranges. Its `activity-h` unit mixes
+  person/assistant hours with core-hours; it is **not** person-hours, elapsed
+  time, billable labor or a cost. It displays `-` whenever any component is
+  unknown. The displayed component ranges carry the underlying uncertainty.
 
 The ledger supports explicit `days` overrides, for example:
 
