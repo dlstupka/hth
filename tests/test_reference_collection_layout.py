@@ -706,11 +706,11 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
               mode:'select',copyGeometrySelection:()=>{calls.push('copy');return true},
               pasteGeometrySelection:()=>{calls.push('paste');return true},
               deleteGeometrySelection:()=>{calls.push('delete');return true},
-              navigateSelection:(dx,dy)=>{calls.push(`navigate:${dx},${dy}`);return true},
+              navigateSelection:(dx,dy,polygonsOnly=false)=>{calls.push(`navigate:${dx},${dy}:${polygonsOnly}`);return true},
               canNudge:()=>false,geometryClipboard:{type:'vertex'},selected:null};
             vm.createContext(ctx);vm.runInContext(handler,ctx);
-            const key=(value,ctrl=false)=>{let prevented=false;ctx.window.onkeydown({key:value,
-              ctrlKey:ctrl,metaKey:false,altKey:false,shiftKey:false,
+            const key=(value,ctrl=false,shift=false)=>{let prevented=false;ctx.window.onkeydown({key:value,
+              ctrlKey:ctrl,metaKey:false,altKey:false,shiftKey:shift,
               preventDefault:()=>{prevented=true}});return prevented};
             assert.equal(key('c',true),true);
             assert.equal(key('v',true),true);
@@ -719,18 +719,21 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             assert.equal(key('Delete'),true);
             assert.deepEqual(calls,['copy','paste','delete','delete']);
             assert.equal(key('ArrowRight',true),true);
-            assert.equal(calls.at(-1),'navigate:1,0');
+            assert.equal(calls.at(-1),'navigate:1,0:false');
+            assert.equal(key('ArrowRight',true,true),true);
+            assert.equal(calls.at(-1),'navigate:1,0:true');
             ctx.document.activeElement={tagName:'INPUT'};
             assert.equal(key('Delete'),false);
             assert.equal(key('c',true),false);
             assert.equal(key('ArrowRight',true),false);
-            assert.equal(calls.length,5);
+            assert.equal(key('ArrowRight',true,true),false);
+            assert.equal(calls.length,6);
         """
         result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     @unittest.skipUnless(shutil.which('node'), 'Node.js is needed to exercise directional selection')
-    def test_ctrl_arrow_alternates_handles_and_navigates_polygons_without_moving_it(self):
+    def test_ctrl_arrow_walks_boundary_and_ctrl_shift_arrow_navigates_polygons(self):
         script = r"""
             const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
             const editor=fs.readFileSync('tools/reference-collection-layout.html','utf8');
@@ -765,13 +768,37 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             assert.equal(ctx.selectedVertex,2);
             assert.equal(ctx.selectedEdge,-1);
             ctx.selected={type:'region',index:0};ctx.selectedVertex=-1;ctx.selectedEdge=-1;
-            assert.equal(ctx.navigateSelection(1,0),true);
+            assert.equal(ctx.navigateSelection(1,0,true),true);
             assert.equal(ctx.selected.index,1);
             assert.equal(ctx.selectedVertex,-1);
             assert.equal(ctx.selectedEdge,-1);
-            assert.equal(ctx.navigateSelection(0,1),true);
+            assert.equal(ctx.navigateSelection(0,1,true),true);
             assert.equal(ctx.selected.index,2);
             assert.equal(JSON.stringify(regions),before);
+            // A dense, concave jog must be traversed in boundary order even
+            // when another polygon's handles are closer to the arrow direction.
+            regions[0].boundary=[[0,0],[10,0],[9,1],[11,2],[8,3],[10,4],[10,10],[0,10]];
+            ctx.selected={type:'region',index:0};ctx.selectedVertex=0;ctx.selectedEdge=-1;
+            const visited=new Set();
+            for(let i=0;i<regions[0].boundary.length*2;i++){
+              ctx.navigateSelection(1,0);
+              assert.equal(ctx.selected.index,0);
+              visited.add(ctx.selectedVertex>=0?`v${ctx.selectedVertex}`:`e${ctx.selectedEdge}`);
+            }
+            assert.equal(visited.size,regions[0].boundary.length*2);
+            assert.equal(ctx.selectedVertex,0);
+            ctx.navigateSelection(-1,0);
+            assert.equal(ctx.selectedEdge,7);
+            // Polygon traversal also works directly from a handle selection.
+            ctx.navigateSelection(1,0,true);
+            assert.equal(ctx.selected.index,1);
+            assert.equal(ctx.selectedVertex,-1);
+            assert.equal(ctx.selectedEdge,-1);
+            ctx.navigateSelection(-1,0,true);
+            assert.equal(ctx.selected.index,0);
+            ctx.navigateSelection(0,-1); // Enter the same polygon's boundary.
+            assert.equal(ctx.selected.index,0);
+            assert.ok(ctx.selectedVertex>=0);
             assert.match(editor,/if\(modified&&arrows\[e\.key\]&&navigateSelection\(\.\.\.arrows\[e\.key\]\)\)/);
         """
         result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)

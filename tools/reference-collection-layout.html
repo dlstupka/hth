@@ -54,7 +54,7 @@ header{padding:12px 16px;border-bottom:1px solid #3a4653;display:flex;justify-co
     <div class="row"><button id="selectTool">Select / edit</button><button id="rectangle">Draw rectangle</button><button id="polygon">Draw polygon</button></div>
     <div class="row"><button id="finishPolygon">Finish polygon</button><button id="cancelDrawing">Cancel drawing</button></div>
     <details class="tool-help"><summary>Help</summary>
-      <p class="muted">The active tool is blue and stays active after drawing a region. Drag to draw rectangles; click vertices to draw each polygon, then Finish polygon or press Enter. In Select / edit, drag from empty canvas to box-select polygons; Shift-drag anywhere adds to the selection. Left-drag inside a selected polygon to move all selected polygons together; Ctrl/Cmd-click toggles individual regions. Click an edge to select it for 1-pixel nudges, Add vertex, or Mirror boundary; dragging an edge adjusts only that edge. When edges or vertices overlap, repeated clicks at the same spot cycle through all handles within 10 screen pixels, closest first. Arrow keys nudge the selection; Ctrl/Cmd+Arrow alternates edge and vertex selection in that direction, or selects the next polygon when a whole polygon is selected. Rectangles keep their shape: drag a corner or side to resize it. Drag a polygon vertex to reshape it. Convert to rectangle replaces a polygon with its bounding rectangle; Convert to polygon keeps a rectangle's four corners and unlocks polygon editing. Algorithm proposals must be adopted before editing.</p>
+      <p class="muted">The active tool is blue and stays active after drawing a region. Drag to draw rectangles; click vertices to draw each polygon, then Finish polygon or press Enter. In Select / edit, drag from empty canvas to box-select polygons; Shift-drag anywhere adds to the selection. Left-drag inside a selected polygon to move all selected polygons together; Ctrl/Cmd-click toggles individual regions. Click an edge to select it for 1-pixel nudges, Add vertex, or Mirror boundary; dragging an edge adjusts only that edge. When edges or vertices overlap, repeated clicks at the same spot cycle through all handles within 10 screen pixels, closest first. Arrow keys nudge the selection. Ctrl/Cmd+Arrow walks adjoining vertices and edges within the selected polygon; repeat the same arrow to continue around its boundary, or press the opposite arrow to reverse. From a whole-polygon selection it starts at a vertex in that direction. Ctrl/Cmd+Shift+Arrow selects the next polygon in that direction. Rectangles keep their shape: drag a corner or side to resize it. Drag a polygon vertex to reshape it. Convert to rectangle replaces a polygon with its bounding rectangle; Convert to polygon keeps a rectangle's four corners and unlocks polygon editing. Algorithm proposals must be adopted before editing.</p>
       <p class="muted">Ctrl/Cmd+C copies the selected vertex, edge, or region(s). Ctrl/Cmd+V adds a vertex, mirrors the copied edge onto a selected neighboring region or facing edge, or clones copied regions in the first direction that fits: below, right, above, then left. Ctrl/Cmd+X and Delete remove the selected vertex, edge, or region. For an edge, the right-hand endpoint remains; convert rectangles to polygons before deleting an edge.</p>
     </details>
     <div class="row"><button id="undo">Undo</button><button id="redo">Redo</button></div>
@@ -166,17 +166,44 @@ function pointInPolygon(points,p){let inside=false;for(let i=0,j=points.length-1
 function segmentsIntersect(a,b,c,d){const cross=(p,q,r)=>(q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]),on=(p,q,r)=>Math.min(p[0],q[0])<=r[0]&&r[0]<=Math.max(p[0],q[0])&&Math.min(p[1],q[1])<=r[1]&&r[1]<=Math.max(p[1],q[1]);const x=cross(a,b,c),y=cross(a,b,d),z=cross(c,d,a),w=cross(c,d,b);return x*y<0&&z*w<0||x===0&&on(a,b,c)||y===0&&on(a,b,d)||z===0&&on(c,d,a)||w===0&&on(c,d,b)}
 function polygonIntersectsSelection(points,a,b){const box=selectionBounds(a,b),corners=[[box.left,box.top],[box.right,box.top],[box.right,box.bottom],[box.left,box.bottom]];if(points.some(([x,y])=>x>=box.left&&x<=box.right&&y>=box.top&&y<=box.bottom)||corners.some(corner=>pointInPolygon(points,corner)))return true;return points.some((p,i)=>corners.some((corner,j)=>segmentsIntersect(p,points[(i+1)%points.length],corner,corners[(j+1)%4])))}
 function regionCenter(region){const xs=region.boundary.map(point=>point[0]),ys=region.boundary.map(point=>point[1]);return[(Math.min(...xs)+Math.max(...xs))/2,(Math.min(...ys)+Math.max(...ys))/2]}
-function navigateSelection(dx,dy){
+function navigateSelection(dx,dy,polygonsOnly=false){
   if(!verified||mode!=='select'||selected?.type!=='region'||!$('showTruth').checked)return false;
   const current=page().regions[selected.index];
   if(!current)return false;
   const kind=selectedVertex>=0?'vertex':selectedEdge>=0?'edge':'polygon';
-  const nextKind=kind==='vertex'?'edge':kind==='edge'?'vertex':'polygon';
   const midpoint=(a,b)=>[(a[0]+b[0])/2,(a[1]+b[1])/2];
-  const origin=kind==='vertex'?current.boundary[selectedVertex]:kind==='edge'?midpoint(current.boundary[selectedEdge],current.boundary[(selectedEdge+1)%current.boundary.length]):regionCenter(current);
+  if(!polygonsOnly){
+    const n=current.boundary.length,position=slot=>slot%2?midpoint(current.boundary[(slot-1)/2],current.boundary[((slot-1)/2+1)%n]):current.boundary[slot/2];
+    if(!n)return false;
+    let slot,step;
+    if(kind==='polygon'){
+      const center=regionCenter(current);
+      const vertices=current.boundary.map((point,index)=>({index,forward:(point[0]-center[0])*dx+(point[1]-center[1])*dy,cross:Math.abs((point[0]-center[0])*dy-(point[1]-center[1])*dx)}));
+      vertices.sort((a,b)=>b.forward-a.forward||a.cross-b.cross||a.index-b.index);
+      slot=vertices[0].index*2;
+    }else{
+      const currentSlot=kind==='vertex'?selectedVertex*2:selectedEdge*2+1,previous=navigateSelection.cursor;
+      const continuing=previous?.region===current&&previous.slot===currentSlot&&previous.count===n;
+      if(continuing&&previous.dx===dx&&previous.dy===dy)step=previous.step;
+      else if(continuing&&previous.dx===-dx&&previous.dy===-dy)step=-previous.step;
+      else{
+        const origin=position(currentSlot),forward=position((currentSlot+1)%(2*n)),backward=position((currentSlot-1+2*n)%(2*n));
+        const score=point=>(point[0]-origin[0])*dx+(point[1]-origin[1])*dy;
+        step=score(forward)>score(backward)?1:score(forward)<score(backward)?-1:continuing?previous.step:dx+dy>0?1:-1;
+      }
+      slot=(currentSlot+step+2*n)%(2*n);
+    }
+    navigateSelection.cursor=step?{region:current,slot,count:n,dx,dy,step}:null;
+    geometryHitCycle=null;clearProposalSelection();selectedRegionIds=new Set([current.id]);selectedVertex=slot%2?-1:slot/2;selectedEdge=slot%2?(slot-1)/2:-1;
+    renderLists();draw();say(`Selected ${slot%2?'edge':'vertex'} ${Math.floor(slot/2)+1} of region ${selected.index+1}.`);
+    return true;
+  }
+  navigateSelection.cursor=null;
+  const nextKind='polygon';
+  const origin=regionCenter(current);
   const candidates=[];
   for(const[regionIndex,region]of page().regions.entries()){
-    const positions=nextKind==='vertex'?region.boundary:nextKind==='edge'?region.boundary.map((point,index)=>midpoint(point,region.boundary[(index+1)%region.boundary.length])):[regionCenter(region)];
+    const positions=[regionCenter(region)];
     for(const[index,position]of positions.entries()){
       if(regionIndex===selected.index&&nextKind==='polygon')continue;
       const x=position[0]-origin[0],y=position[1]-origin[1],forward=x*dx+y*dy,cross=Math.abs(x*dy-y*dx);
@@ -325,6 +352,7 @@ $('useSelectedRegion').onclick=()=>{if(selected?.type!=='region')return;noteDraf
 $('cancelRegionNote').onclick=clearRegionNoteDraft;
 $('saveRegionNote').onclick=()=>{const textValue=noteDraftText.trim(),regionIds=page().regions.map(r=>r.id).filter(id=>noteDraftAnchors.has(id));if(!textValue||!regionIds.length)return;checkpoint();page().region_notes??=[];if(editingNoteId){const note=page().region_notes.find(n=>n.id===editingNoteId);if(!note){say('That anchored note no longer exists.',true);return}note.text=textValue;note.region_ids=regionIds}else{const used=new Set(page().region_notes.map(n=>n.id));let number=1;while(used.has(`n${number}`))number++;page().region_notes.push({id:`n${number}`,region_ids:regionIds,text:textValue})}collection.status='draft';dirty=true;clearRegionNoteDraft();say('Anchored note saved in the draft. Save draft JSON to persist it on disk.')};
 canvas.onpointerdown=e=>{
+  navigateSelection.cursor=null;
   if(!verified||e.button!==0)return;
   const p=coordinate(e);
   if(mirrorSource){e.preventDefault();mirrorToEdge(p);return}
@@ -343,7 +371,7 @@ canvas.onpointerup=e=>{if(!drag)return;const action=drag;drag=null;if(action.typ
 canvas.onpointercancel=()=>{if(!drag)return;if(drag.before)collection.pages[index]=drag.before.page;drag=null;geometryHitCycle=null;draftPoints=[];renderLists();draw()};
 function finishPolygon(){if(mode!=='polygon')return;if(addRegion(draftPoints.map(p=>[...p]),$('kind').value)){draftPoints=[];draftRedoPoints=[];updateDrawingControls();updateHistory();draw();say('Polygon added. Draw another, or choose Select / edit.')}}
 canvas.ondblclick=e=>{if(mode==='polygon'){e.preventDefault();if(draftPoints.length>3&&draftPoints.at(-1).every((v,i)=>v===draftPoints.at(-2)[i]))draftPoints.pop();finishPolygon();return}if(mode!=='select'||selected?.type!=='region'||!verified)return;if(geometryHitCycle?.hits.length>1&&Math.hypot(canvasPoint(e)[0]-geometryHitCycle.point[0],canvasPoint(e)[1]-geometryHitCycle.point[1])*zoom<=5){e.preventDefault();return}const p=coordinate(e),r=page().regions[selected.index];if(isRectangle(r))return;let edge=-1,distance=Infinity;for(let i=0;i<r.boundary.length;i++){const d=distanceToSegment(p,r.boundary[i],r.boundary[(i+1)%r.boundary.length]);if(d<distance){distance=d;edge=i}}if(distance>Math.max(6,8/zoom))return;e.preventDefault();insertVertexOnEdge(edge,p)};
-window.onkeydown=e=>{const typing=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||document.activeElement?.isContentEditable;if(e.key==='Escape'){const wasMirroring=!!mirrorSource;setMode('select');if(wasMirroring)say('Boundary mirroring cancelled.');return}if(typing)return;const modified=(e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey,key=e.key.toLowerCase();if(e.key==='Enter'&&mode==='polygon'){e.preventDefault();finishPolygon()}if(modified&&key==='z'){e.preventDefault();undo();return}if((e.ctrlKey||e.metaKey)&&e.shiftKey&&key==='z'){e.preventDefault();redo();return}if(modified&&key==='y'){e.preventDefault();redo();return}if(modified&&key==='s'){e.preventDefault();exportDraft();return}if(modified&&key==='c'&&copyGeometrySelection()){e.preventDefault();return}if(modified&&key==='v'&&pasteGeometrySelection()){e.preventDefault();return}if(modified&&key==='x'&&deleteGeometrySelection()){e.preventDefault();geometryClipboard=null;return}const arrows={ArrowLeft:[-1,0],ArrowUp:[0,-1],ArrowDown:[0,1],ArrowRight:[1,0]};if(modified&&arrows[e.key]&&navigateSelection(...arrows[e.key])){e.preventDefault();return}if(arrows[e.key]&&!e.ctrlKey&&!e.altKey&&!e.metaKey&&canNudge(...arrows[e.key])){e.preventDefault();nudgeSelection(...arrows[e.key]);return}if(e.key==='Delete'&&deleteGeometrySelection()){e.preventDefault()}};
+window.onkeydown=e=>{const typing=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||document.activeElement?.isContentEditable;if(e.key==='Escape'){const wasMirroring=!!mirrorSource;setMode('select');if(wasMirroring)say('Boundary mirroring cancelled.');return}if(typing)return;const modified=(e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey,key=e.key.toLowerCase();if(e.key==='Enter'&&mode==='polygon'){e.preventDefault();finishPolygon()}if(modified&&key==='z'){e.preventDefault();undo();return}if((e.ctrlKey||e.metaKey)&&e.shiftKey&&key==='z'){e.preventDefault();redo();return}if(modified&&key==='y'){e.preventDefault();redo();return}if(modified&&key==='s'){e.preventDefault();exportDraft();return}if(modified&&key==='c'&&copyGeometrySelection()){e.preventDefault();return}if(modified&&key==='v'&&pasteGeometrySelection()){e.preventDefault();return}if(modified&&key==='x'&&deleteGeometrySelection()){e.preventDefault();geometryClipboard=null;return}const arrows={ArrowLeft:[-1,0],ArrowUp:[0,-1],ArrowDown:[0,1],ArrowRight:[1,0]};if((e.ctrlKey||e.metaKey)&&!e.altKey&&e.shiftKey&&arrows[e.key]&&navigateSelection(...arrows[e.key],true)){e.preventDefault();return}if(modified&&arrows[e.key]&&navigateSelection(...arrows[e.key])){e.preventDefault();return}if(arrows[e.key]&&!e.ctrlKey&&!e.altKey&&!e.metaKey&&canNudge(...arrows[e.key])){e.preventDefault();nudgeSelection(...arrows[e.key]);return}if(e.key==='Delete'&&deleteGeometrySelection()){e.preventDefault()}};
 window.addEventListener('message',e=>{if(e.source!==window.parent)return;if(e.data?.type==='HTH_REFERENCE_TOP_CONTROLS'){document.body.classList.add('director-embedded');setTopControlsVisible(e.data.visible);return}if(e.data?.type==='HTH_REFERENCE_RELEASE'){applySourceRelease(e.data.release);return}if(e.data?.type==='HTH_REFERENCE_WORKSPACE'&&Array.isArray(e.data.files))inputImages(e.data.files)});
 window.onbeforeunload=e=>{if(dirty){e.preventDefault();e.returnValue=''}};
 restoreZoomPreferences();showResults();renderAlgorithmOverlays();renderPages();renderLists();setMode('select');updateHistory();
