@@ -660,7 +660,8 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             vm.createContext(ctx);
             vm.runInContext(['validPolygon','isRectangle','distanceToSegment',
               'applyMirroredBoundary','pasteCopiedEdge','deleteSelectedEdge',
-              'copyGeometrySelection'].map(line).join('\n'),ctx);
+              'copyGeometrySelection','segmentsIntersect','pasteGeometrySelection'].map(line).join('\n')+'\n'+
+              editor.slice(editor.indexOf('function duplicateSelectedEdge('),editor.indexOf('\nfunction pasteCopiedEdge(')),ctx);
             assert.equal(vm.runInContext('deleteSelectedEdge()',ctx),true);
             assert.equal(ctx.checkpoints,1);
             assert.deepEqual(Array.from(region.boundary[0]),[10,0]);
@@ -680,10 +681,32 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             assert.equal(vm.runInContext('copyGeometrySelection()',ctx),true);
             assert.equal(ctx.geometryClipboard.type,'edge');
             ctx.selected={type:'region',index:1};ctx.selectedEdge=-1;
-            assert.equal(vm.runInContext('pasteCopiedEdge()',ctx),true);
+            assert.equal(vm.runInContext('pasteGeometrySelection()',ctx),true);
             assert.deepEqual(mirrored,{seam:2,edge:0});
             assert.equal(ctx.checkpoints,3);
             assert.deepEqual(Array.from(ctx.selectedRegionIds),['r2']);
+            ctx.navigateSelection={cursor:null};
+            ctx.selected={type:'region',index:0};ctx.selectedVertex=-1;ctx.selectedEdge=0;
+            region.boundary=[[10,10],[20,10],[20,30],[10,30]];
+            ctx.copyGeometrySelection();
+            assert.equal(ctx.pasteGeometrySelection(),true);
+            assert.deepEqual(Array.from(region.boundary[2]),[30,10]);
+            assert.equal(ctx.selectedEdge,1);
+            assert.equal(ctx.selectedVertex,-1);
+            ctx.pasteGeometrySelection();
+            assert.deepEqual(Array.from(region.boundary[3]),[40,10]);
+            assert.equal(ctx.selectedEdge,2);
+            // Duplicating the closing edge inserts after vertex zero.
+            region.boundary=[[40,40],[60,40],[60,60],[40,60]];
+            ctx.selectedEdge=3;ctx.copyGeometrySelection();ctx.pasteGeometrySelection();
+            assert.deepEqual(Array.from(region.boundary[1]),[40,20]);
+            assert.equal(ctx.selectedEdge,0);
+            // An extension that would backtrack across the old edge is rejected.
+            region.boundary=[[10,10],[20,10],[25,10],[25,30],[10,30]];
+            ctx.selectedEdge=0;const unchanged=JSON.stringify(region.boundary),history=ctx.checkpoints;
+            assert.equal(ctx.duplicateSelectedEdge(),false);
+            assert.equal(JSON.stringify(region.boundary),unchanged);
+            assert.equal(ctx.checkpoints,history);
         """
         result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)

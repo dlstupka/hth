@@ -65,8 +65,8 @@ a text field. Button-only features have no dedicated keyboard shortcut.
 | Emphasize a selection | **Emphasis** menu | Mute or highlight selected regions or other outlines. |
 | Read in-editor help | **Help** below Finish polygon | Expand the drawing and selection instructions. |
 
-Convert rectangles to polygons before adding or deleting vertices or deleting
-edges. Edits that would produce an invalid polygon are rejected. Clipboard
+Convert rectangles to polygons before adding or deleting vertices or duplicating
+or deleting edges. Edits that would produce an invalid polygon are rejected. Clipboard
 geometry stays on its source page. Overlay emphasis and zoom affect the view;
 save the draft to preserve annotation and proposal decisions.
 
