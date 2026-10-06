@@ -599,6 +599,9 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             const candidates=vm.runInContext('nearbyGeometryHits([10,10])',ctx);
             assert.equal(candidates.length,6);
             assert.equal(candidates[0].type,'vertex');
+            const offsetHits=vm.runInContext('nearbyGeometryHits([12,10])',ctx);
+            assert.deepEqual(Array.from(offsetHits,hit=>hit.type),['vertex','vertex','edge','edge','edge','edge']);
+            assert.ok(offsetHits[0].distance>offsetHits[2].distance);
             const chosen=[];
             for(let i=0;i<6;i++){
               const hit=ctx.nextGeometryHit(click);
@@ -660,8 +663,8 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             vm.createContext(ctx);
             vm.runInContext(['validPolygon','isRectangle','distanceToSegment',
               'applyMirroredBoundary','pasteCopiedEdge','deleteSelectedEdge',
-              'copyGeometrySelection','segmentsIntersect','pasteGeometrySelection'].map(line).join('\n')+'\n'+
-              editor.slice(editor.indexOf('function duplicateSelectedEdge('),editor.indexOf('\nfunction pasteCopiedEdge(')),ctx);
+              'copyGeometrySelection','insertVertexOnEdge','rightAdjacentEdge','rightMidpointEdge',
+              'pasteGeometrySelection'].map(line).join('\n'),ctx);
             assert.equal(vm.runInContext('deleteSelectedEdge()',ctx),true);
             assert.equal(ctx.checkpoints,1);
             assert.deepEqual(Array.from(region.boundary[0]),[10,0]);
@@ -685,26 +688,30 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             assert.deepEqual(mirrored,{seam:2,edge:0});
             assert.equal(ctx.checkpoints,3);
             assert.deepEqual(Array.from(ctx.selectedRegionIds),['r2']);
-            ctx.navigateSelection={cursor:null};
+            const addVertexControl={};
+            ctx.$=id=>id==='addVertex'?addVertexControl:{checked:true};
+            vm.runInContext(editor.split('\n').find(row=>row.startsWith("$('addVertex').onclick=")),ctx);
+            addVertexControl.click=()=>addVertexControl.onclick();
             ctx.selected={type:'region',index:0};ctx.selectedVertex=-1;ctx.selectedEdge=0;
             region.boundary=[[10,10],[20,10],[20,30],[10,30]];
             ctx.copyGeometrySelection();
             assert.equal(ctx.pasteGeometrySelection(),true);
-            assert.deepEqual(Array.from(region.boundary[2]),[30,10]);
+            assert.deepEqual(Array.from(region.boundary[1]),[15,10]);
             assert.equal(ctx.selectedEdge,1);
             assert.equal(ctx.selectedVertex,-1);
             ctx.pasteGeometrySelection();
-            assert.deepEqual(Array.from(region.boundary[3]),[40,10]);
+            assert.deepEqual(Array.from(region.boundary[2]),[18,10]);
             assert.equal(ctx.selectedEdge,2);
-            // Duplicating the closing edge inserts after vertex zero.
+            assert.deepEqual(Array.from(region.boundary[3]),[20,10]);
+            // The closing edge is split within its original extent too.
             region.boundary=[[40,40],[60,40],[60,60],[40,60]];
             ctx.selectedEdge=3;ctx.copyGeometrySelection();ctx.pasteGeometrySelection();
-            assert.deepEqual(Array.from(region.boundary[1]),[40,20]);
-            assert.equal(ctx.selectedEdge,0);
-            // An extension that would backtrack across the old edge is rejected.
-            region.boundary=[[10,10],[20,10],[25,10],[25,30],[10,30]];
-            ctx.selectedEdge=0;const unchanged=JSON.stringify(region.boundary),history=ctx.checkpoints;
-            assert.equal(ctx.duplicateSelectedEdge(),false);
+            assert.deepEqual(Array.from(region.boundary[4]),[40,50]);
+            assert.equal(ctx.selectedEdge,4);
+            region.shape='rectangle';region.boundary=[[10,10],[20,10],[20,30],[10,30]];
+            ctx.selectedEdge=0;ctx.copyGeometrySelection();
+            const unchanged=JSON.stringify(region.boundary),history=ctx.checkpoints;
+            ctx.pasteGeometrySelection();
             assert.equal(JSON.stringify(region.boundary),unchanged);
             assert.equal(ctx.checkpoints,history);
         """

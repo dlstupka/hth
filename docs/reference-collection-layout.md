@@ -25,7 +25,7 @@ a text field. Button-only features have no dedicated keyboard shortcut.
 | Finish a polygon | **Enter** / **Finish polygon** / double-click while drawing | Complete the polygon. |
 | Cancel drawing or mirroring | **Escape** / **Cancel drawing**; **Cancel mirroring** for an active mirror | Return to Select / edit. |
 | Select a region or handle | **Select / edit**, then click | Select the region, vertex or edge. |
-| Select an overlapping handle | Repeat clicks at the same spot | Cycle all vertices and edges within 10 screen pixels, closest first. |
+| Select an overlapping handle | Repeat clicks at the same spot | Cycle all vertices within 10 screen pixels first, then edges; nearest first within each group. |
 | Select multiple regions | **Ctrl+click** on regions or their list rows | Toggle each region in the selection. |
 | Box-select regions | Drag from empty canvas | Select every region touched by the box. |
 | Add to a box selection | **Shift+drag** from anywhere | Add touched regions to the selection. |
@@ -36,8 +36,7 @@ a text field. Button-only features have no dedicated keyboard shortcut.
 | Walk a polygon boundary | **Ctrl+Arrow** | Alternate adjoining edge/vertex selections within one polygon. Repeat the same arrow to continue; the opposite arrow reverses. From a whole-region selection, start at a vertex in that direction. |
 | Select another polygon | **Ctrl+Shift+Arrow** | Select the next polygon in the arrow's direction. |
 | Add a vertex from a selected vertex | **Ctrl+C**, then **Ctrl+V** / **Add vertex** | Split the adjacent edge on the right at its midpoint. |
-| Duplicate a selected edge | **Ctrl+C**, then **Ctrl+V** in the same polygon | Extend from its ending vertex with an adjacent edge of the same length and direction; select the new edge. Repeated pastes extend it again. |
-| Split a selected edge | **Add vertex** | Insert its midpoint; select the segment to the right for another split. |
+| Split a selected edge | **Ctrl+C**, then **Ctrl+V** in the same polygon / **Add vertex** | Insert its midpoint; select the segment to the right for another split. Repeated pastes split that selected segment again. |
 | Add a vertex at a specific point | Double-click a polygon edge | Insert at the clicked point; suppressed when overlapping handles are cycling. |
 | Add a vertex with only the polygon selected | **Add vertex** | Split its rightmost edge at mid-height. |
 | Mirror a copied edge | **Ctrl+C** on the source edge, select another region or its facing edge, then **Ctrl+V** | Copy the full facing boundary chain to the target at identical coordinates. |
@@ -65,8 +64,8 @@ a text field. Button-only features have no dedicated keyboard shortcut.
 | Emphasize a selection | **Emphasis** menu | Mute or highlight selected regions or other outlines. |
 | Read in-editor help | **Help** below Finish polygon | Expand the drawing and selection instructions. |
 
-Convert rectangles to polygons before adding or deleting vertices or duplicating
-or deleting edges. Edits that would produce an invalid polygon are rejected. Clipboard
+Convert rectangles to polygons before adding or deleting vertices or deleting
+edges. Edits that would produce an invalid polygon are rejected. Clipboard
 geometry stays on its source page. Overlay emphasis and zoom affect the view;
 save the draft to preserve annotation and proposal decisions.
 
@@ -140,7 +139,8 @@ it starts at a vertex in that direction. Ctrl+Shift+Arrow (Cmd+Shift+Arrow on
 macOS) selects another polygon in the chosen direction. These shortcuts do not
 move geometry or pan the canvas.
 When polygon boundaries overlap, repeated clicks at the same spot cycle through
-every approved-region vertex and edge within 10 screen pixels, closest first.
+every approved-region vertex within 10 screen pixels first, then every edge
+in that radius. Each group is ordered nearest first.
 At such crowded spots, double-click insertion is suppressed so the second click
 can select the next handle; select an edge and use **Add vertex** instead.
 Undo and Redo restore the annotation without changing the canvas zoom or scroll
@@ -150,10 +150,9 @@ A polygon vertex or the whole region can be deleted. After deleting a vertex,
 the adjacent vertex farther right is selected so repeated clicks can remove a
 run of points; deletion still stops if it would make the polygon invalid.
 With the canvas selection active, Ctrl+C then Ctrl+V adds a vertex when a
-vertex was copied. Pasting a copied edge within its source polygon extends the
-selected edge from its ending vertex with a new adjacent segment of the same
-length and direction, and selects the new edge. Repeated pastes continue this
-extension. Extensions outside the image or across the boundary are rejected.
+vertex was copied. Pasting a copied edge within its source polygon splits the
+selected edge at its midpoint, just like **Add vertex**, and selects the
+right-hand segment. Repeated pastes split that segment again.
 An edge pasted onto a selected neighboring region or facing edge mirrors the boundary.
 Copied whole regions are cloned in the first available direction.
 Repeated region pastes continue from the newest clones. Ctrl+X or Delete removes the
