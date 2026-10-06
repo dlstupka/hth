@@ -144,7 +144,11 @@ in that radius. Each group is ordered nearest first.
 At such crowded spots, double-click insertion is suppressed so the second click
 can select the next handle; select an edge and use **Add vertex** instead.
 Undo and Redo restore the annotation without changing the canvas zoom or scroll
-position. An edit from a different page can be undone without navigating away
+position. They keep the current region or proposal selected if it still exists,
+including surviving regions in a multiple selection. Vertices and edges remain
+selected where they can be matched; if a handle disappears, its region stays
+selected. Undoing an edge split selects the rejoined original edge.
+An edit from a different page can be undone without navigating away
 from the page currently in view.
 A polygon vertex or the whole region can be deleted. After deleting a vertex,
 the adjacent vertex farther right is selected so repeated clicks can remove a

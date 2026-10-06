@@ -115,7 +115,36 @@ function capturePage(ordinal=page().global_ordinal){const item=collection.pages.
 function updateHistory(){ $('undo').disabled=!undoStack.length&&!draftPoints.length;$('redo').disabled=!redoStack.length&&!draftRedoPoints.length }
 function checkpoint(before=capturePage()){undoStack.push(before);if(undoStack.length>100)undoStack.shift();redoStack=[];updateHistory()}
 function clearHistory(){undoStack=[];redoStack=[];updateHistory()}
-function restorePage(state){const target=collection.pages.findIndex(p=>p.global_ordinal===state.ordinal);if(target<0)return;const viewport=$('viewport'),scrollLeft=viewport.scrollLeft,scrollTop=viewport.scrollTop;collection.pages[target]=structuredClone(state.page);proposals.set(state.ordinal,structuredClone(state.proposals));collection.status='draft';dirty=true;if(target===index){selected=null;selectedRegionIds.clear();clearProposalSelection();selectedVertex=-1;selectedEdge=-1;noteDraftAnchors=new Set();noteDraftText='';editingNoteId=null;setMode('select');renderLists();draw();viewport.scrollLeft=scrollLeft;viewport.scrollTop=scrollTop}renderPages()}
+function restoreCurrentSelection(previousPage,previousProposals){
+  const old=selected,source=old?.type==='region'?previousPage.regions[old.index]:null;
+  const current=collection.pages[index],oldVertex=selectedVertex,oldEdge=selectedEdge;
+  selectedVertex=-1;selectedEdge=-1;
+  if(old?.type==='proposal'){
+    const id=previousProposals[old.index]?.id,items=proposals.get(current.global_ordinal)||[];
+    selectedProposalIds=new Set(items.filter(p=>selectedProposalIds.has(p.id)).map(p=>p.id));
+    const at=items.findIndex(p=>p.id===id&&selectedProposalIds.has(p.id));
+    selected=at<0?null:{type:'proposal',index:at};pruneProposalSelection();return;
+  }
+  clearProposalSelection();
+  selectedRegionIds=new Set(current.regions.filter(r=>selectedRegionIds.has(r.id)).map(r=>r.id));
+  const at=current.regions.findIndex(r=>r.id===source?.id),fallback=current.regions.findIndex(r=>selectedRegionIds.has(r.id));
+  const primary=at>=0?at:fallback;
+  selected=primary<0?null:{type:'region',index:primary};
+  if(!selected)return;
+  const region=current.regions[primary];selectedRegionIds.add(region.id);$('kind').value=region.kind;
+  if(at<0||!source?.boundary||!region.boundary)return;
+  const before=source.boundary,after=region.boundary,same=(a,b)=>a&&b&&a[0]===b[0]&&a[1]===b[1];
+  if(oldVertex>=0){
+    selectedVertex=after.findIndex(p=>same(p,before[oldVertex]));
+    if(selectedVertex<0&&before.length===after.length&&oldVertex<after.length)selectedVertex=oldVertex;
+  }else if(oldEdge>=0){
+    const a=before[oldEdge],b=before[(oldEdge+1)%before.length];
+    selectedEdge=after.findIndex((p,i)=>same(p,a)&&same(after[(i+1)%after.length],b));
+    if(selectedEdge<0&&before.length===after.length&&oldEdge<after.length)selectedEdge=oldEdge;
+    if(selectedEdge<0&&a&&b)selectedEdge=after.findIndex((p,i)=>distanceToSegment(a,p,after[(i+1)%after.length])<1e-6&&distanceToSegment(b,p,after[(i+1)%after.length])<1e-6);
+  }
+}
+function restorePage(state){const target=collection.pages.findIndex(p=>p.global_ordinal===state.ordinal);if(target<0)return;const viewport=$('viewport'),scrollLeft=viewport.scrollLeft,scrollTop=viewport.scrollTop,previousPage=collection.pages[target],previousProposals=proposals.get(state.ordinal)||[];collection.pages[target]=structuredClone(state.page);proposals.set(state.ordinal,structuredClone(state.proposals));collection.status='draft';dirty=true;if(target===index){restoreCurrentSelection(previousPage,previousProposals);noteDraftAnchors=new Set();noteDraftText='';editingNoteId=null;setMode('select');renderLists();draw();viewport.scrollLeft=scrollLeft;viewport.scrollTop=scrollTop}renderPages()}
 function undo(){if(mode==='polygon'&&draftPoints.length){draftRedoPoints.push(draftPoints.pop());updateDrawingControls();updateHistory();draw();say('Removed the last draft vertex.');return}if(!undoStack.length)return;const before=undoStack.pop();redoStack.push(capturePage(before.ordinal));restorePage(before);updateHistory();say(`Undid edit on page ${before.ordinal}.`)}
 function redo(){if(mode==='polygon'&&draftRedoPoints.length){draftPoints.push(draftRedoPoints.pop());updateDrawingControls();updateHistory();draw();say('Restored the draft vertex.');return}if(!redoStack.length)return;const after=redoStack.pop();undoStack.push(capturePage(after.ordinal));restorePage(after);updateHistory();say(`Redid edit on page ${after.ordinal}.`)}
 function updateDrawingControls(){$('finishPolygon').disabled=mode!=='polygon'||draftPoints.length<3;$('cancelDrawing').disabled=mode==='select'&&!draftPoints.length}

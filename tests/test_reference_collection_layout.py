@@ -461,22 +461,39 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             const editor=fs.readFileSync('tools/reference-collection-layout.html','utf8');
             const restore=editor.split('\n').find(row=>row.startsWith('function restorePage('));
             const viewport={scrollLeft:317,scrollTop:842};
-            const ctx={structuredClone,index:0,collection:{pages:[{global_ordinal:1,regions:[]},
+            const boundary=[[0,0],[20,0],[20,20],[0,20]];
+            const ctx={structuredClone,index:0,collection:{pages:[{global_ordinal:1,regions:[
+              {id:'r2',boundary},{id:'r1',boundary:[[0,0],[20,5],[20,20],[0,20]]}]},
               {global_ordinal:2,regions:[]}],status:'reviewed'},proposals:new Map(),
-              selected:{type:'region',index:0},selectedRegionIds:new Set(['r1']),
+              selected:{type:'region',index:1},selectedRegionIds:new Set(['r1','r2']),
               selectedVertex:1,selectedEdge:-1,noteDraftAnchors:new Set(['r1']),
               noteDraftText:'old',editingNoteId:'n1',calls:[],
               $:()=>viewport,clearProposalSelection:()=>ctx.calls.push('clear'),
               setMode:()=>ctx.calls.push('mode'),renderLists:()=>ctx.calls.push('lists'),
               draw:()=>{ctx.calls.push('draw');viewport.scrollLeft=0;viewport.scrollTop=0},
               renderPages:()=>ctx.calls.push('pages'),load:()=>{throw Error('Undo reloaded the image')}};
-            vm.createContext(ctx);vm.runInContext(restore,ctx);
-            const same={ordinal:1,page:{global_ordinal:1,regions:[{id:'r1'}]},proposals:[]};
+            vm.createContext(ctx);vm.runInContext(editor.split('\n').find(row=>row.startsWith('function distanceToSegment('))+'\n'+
+              editor.slice(editor.indexOf('function restoreCurrentSelection('),editor.indexOf('\nfunction restorePage('))+'\n'+restore,ctx);
+            const same={ordinal:1,page:{global_ordinal:1,regions:[{id:'r1',boundary},{id:'r2',boundary}]},proposals:[]};
             vm.runInContext('restorePage(same)',Object.assign(ctx,{same}));
             assert.equal(ctx.collection.pages[0].regions[0].id,'r1');
             assert.deepEqual([viewport.scrollLeft,viewport.scrollTop],[317,842]);
             assert.deepEqual(ctx.calls,['clear','mode','lists','draw','pages']);
-            assert.equal(ctx.selected,null);
+            assert.equal(ctx.selected.index,0);
+            assert.equal(ctx.selectedVertex,1);
+            assert.deepEqual(Array.from(ctx.selectedRegionIds),['r1','r2']);
+            // Undo a split while keeping its right-hand segment selected.
+            ctx.collection.pages[0].regions[0].boundary=[[0,0],[10,0],[20,0],[20,20],[0,20]];
+            ctx.selectedVertex=-1;ctx.selectedEdge=1;
+            ctx.restorePage(same);
+            assert.equal(ctx.selected.index,0);
+            assert.equal(ctx.selectedEdge,0);
+            // A newly added vertex disappears on undo; keep the region selected.
+            ctx.collection.pages[0].regions[0].boundary=[[0,0],[10,0],[20,0],[20,20],[0,20]];
+            ctx.selectedVertex=1;ctx.selectedEdge=-1;
+            ctx.restorePage(same);
+            assert.equal(ctx.selected.index,0);
+            assert.equal(ctx.selectedVertex,-1);
             ctx.calls=[];ctx.selected={type:'region',index:0};
             const other={ordinal:2,page:{global_ordinal:2,regions:[{id:'r2'}]},proposals:[]};
             vm.runInContext('restorePage(other)',Object.assign(ctx,{other}));
