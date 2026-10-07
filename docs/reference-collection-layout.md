@@ -110,9 +110,10 @@ and descriptive text on the right. The layout editor keeps drawing tools on the
 left of the canvas and region class, page review, reading order, and review notes
 on the right. **Mark page reviewed** is beneath Region class in the right pane.
 Use **Hide top controls** in the director's tab bar to reclaim vertical space
-while leaving the side panes visible. The zoom buttons, **Fit page width** and
-zoom level stay at the top of the left pane, above **Page and provenance**.
-**Show top controls** restores the setup, page, tool-status and overlay controls.
+while leaving the side panes visible. **Show overlays** and **Emphasis** stay
+at the top of the left pane, followed by the zoom buttons, **Fit page width**
+and zoom level, then **Page and provenance**.
+**Show top controls** restores the setup, page and tool-status controls.
 When opening the layout editor directly, use
 its own top-controls button.
 
