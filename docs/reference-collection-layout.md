@@ -34,7 +34,7 @@ a text field. Button-only features have no dedicated keyboard shortcut.
 | Resize a rectangle | Drag a corner or side | Resize while preserving the rectangle's shape. |
 | Nudge a selection | **Arrow keys** / on-screen arrow buttons | Move the selected vertex, edge or region group by one source-image pixel. Hold an on-screen arrow to repeat in one Undo step. |
 | Walk a polygon boundary | **Ctrl+Arrow** | Alternate adjoining edge/vertex selections within one polygon. Repeat the same arrow to continue; the opposite arrow reverses. From a whole-region selection, start at a vertex in that direction. |
-| Select another polygon | **Ctrl+Shift+Arrow** | Select the next polygon in the arrow's direction. |
+| Select another polygon | **Ctrl+Shift+Arrow** | Select the next polygon in the arrow's direction. If none is there, Right/Down advances in reading order and Left/Up goes backward, wrapping at either end. |
 | Add a vertex from a selected vertex | **Ctrl+C**, then **Ctrl+V** / **Add vertex** | Split the adjacent edge on the right at its midpoint. |
 | Split a selected edge | **Ctrl+C**, then **Ctrl+V** in the same polygon / **Add vertex** | Insert its midpoint; select the segment to the right for another split. Repeated pastes split that selected segment again. |
 | Add a vertex at a specific point | Double-click a polygon edge | Insert at the clicked point; suppressed when overlapping handles are cycling. |

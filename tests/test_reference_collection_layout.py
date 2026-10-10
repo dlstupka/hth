@@ -846,6 +846,22 @@ class ReferenceCollectionLayoutTests(unittest.TestCase):
             ctx.navigateSelection(0,-1); // Enter the same polygon's boundary.
             assert.equal(ctx.selected.index,0);
             assert.ok(ctx.selectedVertex>=0);
+            // At directional limits, use the reading order rather than array order.
+            page.reading_order=['r3','r1','r2'];
+            ctx.selected={type:'region',index:1};ctx.selectedVertex=-1;ctx.selectedEdge=-1;
+            ctx.navigateSelection(1,0,true); // Last -> first, next.
+            assert.equal(ctx.selected.index,2);
+            ctx.navigateSelection(-1,0,true); // First -> last, previous.
+            assert.equal(ctx.selected.index,1);
+            ctx.selected={type:'region',index:2};
+            ctx.navigateSelection(0,1,true);
+            assert.equal(ctx.selected.index,0);
+            ctx.navigateSelection(0,-1,true);
+            assert.equal(ctx.selected.index,2);
+            // Spatial candidates still take priority when available.
+            ctx.selected={type:'region',index:0};
+            ctx.navigateSelection(1,0,true);
+            assert.equal(ctx.selected.index,1);
             assert.match(editor,/if\(modified&&arrows\[e\.key\]&&navigateSelection\(\.\.\.arrows\[e\.key\]\)\)/);
         """
         result = subprocess.run([shutil.which('node'), '-e', script], cwd=ROOT, capture_output=True, text=True)

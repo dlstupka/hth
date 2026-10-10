@@ -57,6 +57,7 @@ header{padding:12px 16px;border-bottom:1px solid #3a4653;display:flex;justify-co
     <div class="row"><button id="selectTool">Select / edit</button><button id="rectangle">Draw rectangle</button><button id="polygon">Draw polygon</button></div>
     <div class="row"><button id="finishPolygon">Finish polygon</button><button id="cancelDrawing">Cancel drawing</button></div>
     <details class="tool-help"><summary>Help</summary>
+      <p class="muted">When Ctrl/Cmd+Shift+Arrow finds no polygon in that direction, Right/Down selects the next polygon in reading order and Left/Up selects the previous one, wrapping at either end.</p>
 <p class="muted">The active tool is blue and stays active after drawing a region. Drag to draw rectangles; click vertices to draw each polygon, then Finish polygon or press Enter. In Select / edit, drag from empty canvas to box-select polygons; Shift-drag anywhere adds to the selection. Left-drag inside a selected polygon to move all selected polygons together; Ctrl/Cmd-click toggles individual regions. Click an edge to select it for 1-pixel nudges, Add vertex, or Mirror boundary; dragging an edge adjusts only that edge. When edges or vertices overlap, repeated clicks at the same spot cycle through all vertices within 10 screen pixels first, then edges, nearest first within each group. Arrow keys nudge the selection. Ctrl/Cmd+Arrow walks adjoining vertices and edges within the selected polygon; repeat the same arrow to continue around its boundary, or press the opposite arrow to reverse. From a whole-polygon selection it starts at a vertex in that direction. Ctrl/Cmd+Shift+Arrow selects the next polygon in that direction. Rectangles keep their shape: drag a corner or side to resize it. Drag a polygon vertex to reshape it. Convert to rectangle replaces a polygon with its bounding rectangle; Convert to polygon keeps a rectangle's four corners and unlocks polygon editing. Algorithm proposals must be adopted before editing.</p>
 <p class="muted">Ctrl/Cmd+C copies the selected vertex, edge, or region(s). Ctrl/Cmd+V adds a vertex when a vertex was copied, splits a selected edge within its source polygon at its midpoint and selects the right-hand segment, mirrors the copied edge onto a selected neighboring region or facing edge, or clones copied regions in the first direction that fits: below, right, above, then left. Ctrl/Cmd+X and Delete remove the selected vertex, edge, or region. For an edge, the right-hand endpoint remains; convert rectangles to polygons before deleting an edge.</p>
     </details>
@@ -243,10 +244,15 @@ function navigateSelection(dx,dy,polygonsOnly=false){
     }
   }
   candidates.sort((a,b)=>Number(a.cross>a.forward)-Number(b.cross>b.forward)||(a.distance+2*a.cross)-(b.distance+2*b.cross)||a.forward-b.forward||b.regionIndex-a.regionIndex||a.index-b.index);
-  if(!candidates.length){say(`No ${nextKind} lies farther ${dx<0?'left':dx>0?'right':dy<0?'up':'down'}.`);return true}
+  if(!candidates.length){
+    const regions=page().regions,ids=[...new Set([...(page().reading_order||[]),...regions.map(r=>r.id)])].filter(id=>regions.some(r=>r.id===id));
+    if(ids.length<2){say('No other polygon is available.');return true}
+    const at=ids.indexOf(current.id),step=dx+dy>0?1:-1,next=ids[(at+step+ids.length)%ids.length];
+    candidates.push({regionIndex:regions.findIndex(r=>r.id===next),index:0,readingOrder:true});
+  }
   const target=candidates[0],region=page().regions[target.regionIndex];
   geometryHitCycle=null;clearProposalSelection();selected={type:'region',index:target.regionIndex};selectedRegionIds=new Set([region.id]);selectedVertex=nextKind==='vertex'?target.index:-1;selectedEdge=nextKind==='edge'?target.index:-1;$('kind').value=region.kind;
-  renderLists();draw();say(`Selected ${nextKind} ${nextKind==='polygon'?target.regionIndex+1:target.index+1} ${dx<0?'left':dx>0?'right':dy<0?'up':'down'}.`);
+  renderLists();draw();say(target.readingOrder?`Selected polygon ${target.regionIndex+1} in reading order.`:`Selected ${nextKind} ${nextKind==='polygon'?target.regionIndex+1:target.index+1} ${dx<0?'left':dx>0?'right':dy<0?'up':'down'}.`);
   return true;
 }
 function canNudge(dx,dy){if(!verified||selected?.type!=='region'||!$('showTruth').checked)return false;const r=page().regions[selected.index];if(!r)return false;if(selectedVertex<0&&selectedEdge<0)return selectedRegionIds.size>0;if(selectedEdge>=0&&isRectangle(r))return selectedEdge%2===0?dy!==0:dx!==0;return true}
